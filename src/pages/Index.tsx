@@ -51,6 +51,14 @@ export default function Index() {
       <RadialCapture />
       <NotificationSystem />
       
+      {/* MiniMap positioned in bottom right */}
+      <div className="fixed bottom-6 right-6 z-40">
+        <MiniMap
+          bubbles={bubbles}
+          viewport={viewport}
+          onViewportChange={setViewport}
+        />
+      </div>
       
       <BubbleDetail
         bubble={selectedBubble}

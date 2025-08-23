@@ -53,7 +53,7 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
     return () => window.removeEventListener('resize', updateViewport);
   }, []);
 
-  // Handle zoom buttons only - no mouse gestures
+  // Handle zoom buttons and mouse wheel
   const zoomIn = useCallback(() => {
     setViewport(prev => ({ ...prev, scale: Math.min(prev.scale * 1.2, 3) }));
   }, []);
@@ -61,6 +61,34 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
   const zoomOut = useCallback(() => {
     setViewport(prev => ({ ...prev, scale: Math.max(prev.scale / 1.2, 0.1) }));
   }, []);
+
+  // Handle mouse wheel zoom
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    
+    const scaleFactor = e.deltaY > 0 ? 0.9 : 1.1;
+    const newScale = Math.min(Math.max(viewport.scale * scaleFactor, 0.1), 5);
+    
+    // Zoom towards mouse position
+    const mouseWorldX = (mouseX - viewport.width / 2) / viewport.scale + viewport.x;
+    const mouseWorldY = (mouseY - viewport.height / 2) / viewport.scale + viewport.y;
+    
+    const newViewportX = mouseWorldX - (mouseX - viewport.width / 2) / newScale;
+    const newViewportY = mouseWorldY - (mouseY - viewport.height / 2) / newScale;
+    
+    setViewport(prev => ({
+      ...prev,
+      x: newViewportX,
+      y: newViewportY,
+      scale: newScale,
+    }));
+  }, [viewport]);
 
   // Get visible bubbles based on viewport and filters
   const getVisibleBubbles = () => {
@@ -159,6 +187,7 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
       <div
         ref={canvasRef}
         className="absolute inset-0"
+        onWheel={handleWheel}
         style={{
           transform: `translate(${viewport.width / 2}px, ${viewport.height / 2}px) scale(${viewport.scale}) translate(${-viewport.x}px, ${-viewport.y}px)`,
           transformOrigin: '0 0',
@@ -267,7 +296,7 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
       </div>
 
       {/* Status indicators */}
-      <div className="absolute bottom-4 left-4 flex gap-2 z-10">
+      <div className="absolute bottom-6 left-6 flex gap-2 z-30">
         {declutterMode && (
           <Badge variant="secondary" className="bg-card/80 backdrop-blur-sm">
             Decluttered

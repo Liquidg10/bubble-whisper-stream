@@ -25,7 +25,7 @@ export function BubbleCard({
   const [longPressTimer, setLongPressTimer] = useState<NodeJS.Timeout | null>(null);
 
   // Calculate visual size based on bubble importance and zoom level
-  const visualSize = Math.max(60 * bubble.size * scale, 20);
+  const visualSize = Math.max(80 * bubble.size * scale, 30);
   const isLargeEnoughForContent = visualSize > 40;
 
   // Get bubble color based on mood or type

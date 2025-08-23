@@ -174,7 +174,7 @@ export function RadialCapture({ onCapture, className }: RadialCaptureProps) {
   return (
     <>
       {/* Main FAB */}
-      <div className={cn("fixed bottom-20 left-6 z-50", className)}>
+      <div className={cn("fixed bottom-32 left-6 z-50", className)}>
         <button
           className={cn(
             "w-14 h-14 rounded-full bg-gradient-aurora shadow-glow-medium",
