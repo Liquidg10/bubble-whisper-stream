@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { BubbleCanvas } from '@/components/BubbleCanvas';
 import { RadialCapture } from '@/components/RadialCapture';
+import { NotificationSystem } from '@/components/NotificationSystem';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { Bubble } from '@/types/bubble';
 import { BubbleDetail } from '@/components/BubbleDetail';
@@ -39,6 +40,8 @@ export default function Index() {
         onBubbleSelect={setSelectedBubble}
         onBubbleEdit={setSelectedBubble}
       />
+      <RadialCapture />
+      <NotificationSystem />
       <BubbleDetail
         bubble={selectedBubble}
         isOpen={!!selectedBubble}

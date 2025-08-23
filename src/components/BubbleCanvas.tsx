@@ -5,6 +5,9 @@ import { Bubble, CanvasViewport } from '@/types/bubble';
 import { BubbleCard } from './BubbleCard';
 import { MiniMap } from './MiniMap';
 import { useBubbleStore } from '@/stores/bubbleStore';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { ZoomIn, ZoomOut, RotateCcw, Map, Filter, Focus, Layers } from 'lucide-react';
 
 interface BubbleCanvasProps {
   onBubbleSelect?: (bubble: Bubble) => void;
@@ -27,6 +30,10 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [lastPanPoint, setLastPanPoint] = useState({ x: 0, y: 0 });
+  const [selectedBubbleId, setSelectedBubbleId] = useState<string | null>(null);
+  const [declutterMode, setDeclutterMode] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
+  const [bubbleDensity, setBubbleDensity] = useState<'low' | 'medium' | 'high'>('medium');
 
   // Initialize viewport dimensions
   useEffect(() => {
@@ -100,17 +107,49 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
     }));
   }, [viewport]);
 
-  // Calculate visible bubbles for LOD (Level of Detail) rendering
-  const visibleBubbles = bubbles.filter(bubble => {
-    const bubbleScreenX = (bubble.x - viewport.x) * viewport.scale + viewport.width / 2;
-    const bubbleScreenY = (bubble.y - viewport.y) * viewport.scale + viewport.height / 2;
-    const bubbleSize = Math.max(60 * bubble.size * viewport.scale, 20);
-    
-    return bubbleScreenX + bubbleSize > 0 && 
-           bubbleScreenX - bubbleSize < viewport.width &&
-           bubbleScreenY + bubbleSize > 0 && 
-           bubbleScreenY - bubbleSize < viewport.height;
-  });
+  // Get visible bubbles based on viewport and filters
+  const getVisibleBubbles = () => {
+    let filteredBubbles = bubbles;
+
+    // Apply density filter
+    if (bubbleDensity === 'low') {
+      filteredBubbles = bubbles.filter((_, index) => index % 3 === 0);
+    } else if (bubbleDensity === 'medium') {
+      filteredBubbles = bubbles.filter((_, index) => index % 2 === 0);
+    }
+
+    // Apply focus mode (show only selected + recent)
+    if (focusMode && selectedBubbleId) {
+      const selectedBubble = bubbles.find(b => b.id === selectedBubbleId);
+      const recentBubbles = bubbles
+        .filter(b => Date.now() - b.createdAt < 24 * 60 * 60 * 1000)
+        .slice(0, 5);
+      filteredBubbles = selectedBubble 
+        ? [selectedBubble, ...recentBubbles.filter(b => b.id !== selectedBubbleId)]
+        : recentBubbles;
+    }
+
+    // Apply declutter (hide completed tasks)
+    if (declutterMode) {
+      filteredBubbles = filteredBubbles.filter(bubble => 
+        bubble.type !== 'Task' || !bubble.completed
+      );
+    }
+
+    // Viewport culling
+    return filteredBubbles.filter(bubble => {
+      const bubbleScreenX = (bubble.x - viewport.x) * viewport.scale + viewport.width / 2;
+      const bubbleScreenY = (bubble.y - viewport.y) * viewport.scale + viewport.height / 2;
+      const bubbleSize = Math.max(60 * bubble.size * viewport.scale, 20);
+      
+      return bubbleScreenX + bubbleSize > 0 && 
+             bubbleScreenX - bubbleSize < viewport.width &&
+             bubbleScreenY + bubbleSize > 0 && 
+             bubbleScreenY - bubbleSize < viewport.height;
+    });
+  };
+
+  const visibleBubbles = getVisibleBubbles();
 
   // Density-based declutter filtering
   const getDensityFilteredBubbles = () => {
@@ -188,12 +227,15 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
         />
         
         {/* Render visible bubbles */}
-        {displayBubbles.map(bubble => (
+        {visibleBubbles.map(bubble => (
           <BubbleCard
             key={bubble.id}
             bubble={bubble}
             scale={viewport.scale}
-            onSelect={onBubbleSelect}
+            onSelect={(b) => {
+              setSelectedBubbleId(b.id);
+              onBubbleSelect?.(b);
+            }}
             onEdit={onBubbleEdit}
             style={{
               position: 'absolute',
@@ -213,31 +255,96 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
         className="absolute bottom-4 right-4"
       />
 
-      {/* Canvas Controls */}
-      <div className="absolute top-4 right-4 flex flex-col gap-2">
-        <button
+      {/* Canvas controls */}
+      <div className="absolute top-4 left-4 flex gap-2 z-10">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setViewport(prev => ({ ...prev, scale: Math.min(prev.scale * 1.2, 3) }))}
+          className="bg-card/80 backdrop-blur-sm"
+        >
+          <ZoomIn className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setViewport(prev => ({ ...prev, scale: Math.max(prev.scale / 1.2, 0.1) }))}
+          className="bg-card/80 backdrop-blur-sm"
+        >
+          <ZoomOut className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
           onClick={centerOnBubbles}
-          className="px-3 py-2 rounded-lg bg-bubble-active/80 backdrop-blur text-text-primary
-                     hover:bg-bubble-selected/80 transition-colors duration-gentle
-                     border border-accent-void/20"
+          className="bg-card/80 backdrop-blur-sm"
         >
-          Center
-        </button>
-        <button
+          <RotateCcw className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
           onClick={() => setViewport(prev => ({ ...prev, scale: 1 }))}
-          className="px-3 py-2 rounded-lg bg-bubble-active/80 backdrop-blur text-text-primary
-                     hover:bg-bubble-selected/80 transition-colors duration-gentle
-                     border border-accent-void/20"
+          className="bg-card/80 backdrop-blur-sm"
         >
-          Reset Zoom
-        </button>
+          <Map className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {/* Declutter & Focus controls */}
+      <div className="absolute top-4 right-4 flex gap-2 z-10">
+        <Button
+          variant={declutterMode ? "default" : "outline"}
+          size="sm"
+          onClick={() => setDeclutterMode(!declutterMode)}
+          className="bg-card/80 backdrop-blur-sm"
+        >
+          <Filter className="h-4 w-4" />
+        </Button>
+        <Button
+          variant={focusMode ? "default" : "outline"}
+          size="sm"
+          onClick={() => setFocusMode(!focusMode)}
+          className="bg-card/80 backdrop-blur-sm"
+        >
+          <Focus className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            const densities: ('low' | 'medium' | 'high')[] = ['low', 'medium', 'high'];
+            const current = densities.indexOf(bubbleDensity);
+            setBubbleDensity(densities[(current + 1) % densities.length]);
+          }}
+          className="bg-card/80 backdrop-blur-sm"
+        >
+          <Layers className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {/* Status indicators */}
+      <div className="absolute bottom-4 left-4 flex gap-2 z-10">
+        {declutterMode && (
+          <Badge variant="secondary" className="bg-card/80 backdrop-blur-sm">
+            Decluttered
+          </Badge>
+        )}
+        {focusMode && (
+          <Badge variant="secondary" className="bg-card/80 backdrop-blur-sm">
+            Focus Mode
+          </Badge>
+        )}
+        <Badge variant="outline" className="bg-card/80 backdrop-blur-sm">
+          Density: {bubbleDensity}
+        </Badge>
       </div>
 
       {/* Performance Stats (Development) */}
       {process.env.NODE_ENV === 'development' && (
-        <div className="absolute top-4 left-4 text-xs text-text-secondary bg-bubble-idle/80 
-                       backdrop-blur px-2 py-1 rounded">
-          Rendering: {displayBubbles.length}/{bubbles.length} bubbles
+        <div className="absolute bottom-20 right-4 text-xs text-muted-foreground bg-card/80 
+                       backdrop-blur px-2 py-1 rounded border">
+          Rendering: {visibleBubbles.length}/{bubbles.length} bubbles
           <br />
           Scale: {viewport.scale.toFixed(2)}x
         </div>

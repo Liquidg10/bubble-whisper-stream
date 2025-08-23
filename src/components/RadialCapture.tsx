@@ -1,10 +1,13 @@
 // Radial FAB for voice/text/sketch capture with immediate autosave
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Mic, Type, Palette, Camera, Plus } from 'lucide-react';
+import { Mic, Type, Palette, Camera, Plus, X, Save } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { audioService } from '@/services/audio';
 import { useBubbleStore } from '@/stores/bubbleStore';
+import { SketchCapture } from './SketchCapture';
+import { PhotoCapture } from './PhotoCapture';
+import { Button } from '@/components/ui/button';
 import { Bubble, BubbleType, AudioCaptureState } from '@/types/bubble';
 
 interface RadialCaptureProps {
@@ -15,7 +18,7 @@ interface RadialCaptureProps {
 export function RadialCapture({ onCapture, className }: RadialCaptureProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
-  const [captureType, setCaptureType] = useState<BubbleType | null>(null);
+  const [captureType, setCaptureType] = useState<'voice' | 'text' | 'sketch' | 'photo' | null>(null);
   const [audioState, setAudioState] = useState<AudioCaptureState>({
     isRecording: false,
     isProcessing: false,
@@ -36,8 +39,9 @@ export function RadialCapture({ onCapture, className }: RadialCaptureProps) {
   // Start voice capture
   const startVoiceCapture = async () => {
     try {
-      setCaptureType('Thought');
+      setCaptureType('voice');
       setIsCapturing(true);
+      setIsOpen(false);
       setAudioState(prev => ({ ...prev, isRecording: true, duration: 0 }));
       
       await audioService.startRecording();
@@ -124,9 +128,22 @@ export function RadialCapture({ onCapture, className }: RadialCaptureProps) {
 
   // Handle text input mode
   const startTextCapture = () => {
-    setCaptureType('Thought');
+    setCaptureType('text');
     setIsCapturing(true);
+    setIsOpen(false);
     setTimeout(() => textareaRef.current?.focus(), 100);
+  };
+
+  const startSketchCapture = () => {
+    setCaptureType('sketch');
+    setIsCapturing(true);
+    setIsOpen(false);
+  };
+
+  const startPhotoCapture = () => {
+    setCaptureType('photo');
+    setIsCapturing(true);
+    setIsOpen(false);
   };
 
   // Handle escape key
@@ -150,8 +167,8 @@ export function RadialCapture({ onCapture, className }: RadialCaptureProps) {
   const menuItems = [
     { icon: Mic, label: 'Voice', action: startVoiceCapture, angle: -90 },
     { icon: Type, label: 'Text', action: startTextCapture, angle: -30 },
-    { icon: Palette, label: 'Sketch', action: () => console.log('Sketch'), angle: 30 },
-    { icon: Camera, label: 'Photo', action: () => console.log('Photo'), angle: 90 },
+    { icon: Palette, label: 'Sketch', action: startSketchCapture, angle: 30 },
+    { icon: Camera, label: 'Photo', action: startPhotoCapture, angle: 90 },
   ];
 
   return (
@@ -209,7 +226,7 @@ export function RadialCapture({ onCapture, className }: RadialCaptureProps) {
       </div>
 
       {/* Voice Capture Overlay */}
-      {isCapturing && captureType === 'Thought' && audioState.isRecording && (
+      {isCapturing && captureType === 'voice' && audioState.isRecording && (
         <div className="fixed inset-0 bg-universe-bg/80 backdrop-blur flex items-center justify-center z-50">
           <div className="bg-bubble-active/90 backdrop-blur rounded-2xl p-8 border border-accent-void/30 shadow-glow-strong">
             <div className="text-center">
@@ -233,7 +250,7 @@ export function RadialCapture({ onCapture, className }: RadialCaptureProps) {
       )}
 
       {/* Text Input Overlay */}
-      {isCapturing && captureType === 'Thought' && !audioState.isRecording && (
+      {isCapturing && captureType === 'text' && (
         <div className="fixed inset-0 bg-universe-bg/80 backdrop-blur flex items-center justify-center z-50 p-4">
           <div className="bg-bubble-active/90 backdrop-blur rounded-2xl p-6 border border-accent-void/30 shadow-glow-strong max-w-lg w-full">
             <h3 className="text-call font-medium text-text-primary mb-4">Capture Thought</h3>
@@ -280,6 +297,62 @@ export function RadialCapture({ onCapture, className }: RadialCaptureProps) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Sketch capture overlay */}
+      {captureType === 'sketch' && (
+        <SketchCapture
+          onSave={(dataUrl) => {
+            const newBubble: Bubble = {
+              id: crypto.randomUUID(),
+              type: 'Memory',
+              content: 'Sketch',
+              imageUri: dataUrl,
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+              ...generateRandomPosition(),
+              size: 0.7,
+              moodColor: 'hsl(var(--accent-iridescent-c))',
+              tags: [],
+            };
+            addBubble(newBubble);
+            setIsCapturing(false);
+            setCaptureType(null);
+            onCapture?.(newBubble);
+          }}
+          onCancel={() => {
+            setIsCapturing(false);
+            setCaptureType(null);
+          }}
+        />
+      )}
+
+      {/* Photo capture overlay */}
+      {captureType === 'photo' && (
+        <PhotoCapture
+          onSave={(dataUrl) => {
+            const newBubble: Bubble = {
+              id: crypto.randomUUID(),
+              type: 'Memory',
+              content: 'Photo',
+              imageUri: dataUrl,
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+              ...generateRandomPosition(),
+              size: 0.8,
+              moodColor: 'hsl(var(--primary))',
+              tags: [],
+            };
+            addBubble(newBubble);
+            setIsCapturing(false);
+            setCaptureType(null);
+            onCapture?.(newBubble);
+          }}
+          onCancel={() => {
+            setIsCapturing(false);
+            setCaptureType(null);
+          }}
+        />
       )}
 
       {/* Processing Overlay */}
