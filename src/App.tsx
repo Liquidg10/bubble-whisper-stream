@@ -17,34 +17,48 @@ import NotFound from "./pages/NotFound";
 const queryClient = new QueryClient();
 
 const App = () => {
-  const initializeStore = useBubbleStore(state => state.initializeStore);
+  console.log('App component rendering...');
+  
+  try {
+    const initializeStore = useBubbleStore(state => state.initializeStore);
+    
+    React.useEffect(() => {
+      console.log('Initializing store...');
+      initializeStore();
+    }, [initializeStore]);
 
-  React.useEffect(() => {
-    initializeStore();
-  }, [initializeStore]);
-
-  return (
-    <ThemeProvider defaultTheme="iridescent-soap">
-      <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter>
-            <Routes>
-              <Route path="/" element={<AppShell />}>
-                <Route index element={<Index />} />
-                <Route path="timeline" element={<Timeline />} />
-                <Route path="reminders" element={<Reminders />} />
-                <Route path="reflection" element={<Reflection />} />
-                <Route path="settings" element={<Settings />} />
-              </Route>
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </BrowserRouter>
-        </TooltipProvider>
-      </QueryClientProvider>
-    </ThemeProvider>
-  );
+    return (
+      <ThemeProvider defaultTheme="iridescent-soap">
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
+              <Routes>
+                <Route path="/" element={<AppShell />}>
+                  <Route index element={<Index />} />
+                  <Route path="timeline" element={<Timeline />} />
+                  <Route path="reminders" element={<Reminders />} />
+                  <Route path="reflection" element={<Reflection />} />
+                  <Route path="settings" element={<Settings />} />
+                </Route>
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </BrowserRouter>
+          </TooltipProvider>
+        </QueryClientProvider>
+      </ThemeProvider>
+    );
+  } catch (error) {
+    console.error('App render error:', error);
+    return (
+      <div style={{ padding: '20px' }}>
+        <h1>Application Error</h1>
+        <p>There was an error loading the application. Please refresh the page.</p>
+        <pre>{error instanceof Error ? error.message : String(error)}</pre>
+      </div>
+    );
+  }
 };
 
 export default App;

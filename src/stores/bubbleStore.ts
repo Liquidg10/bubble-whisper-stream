@@ -78,7 +78,9 @@ const defaultSelfModel: SelfModel = {
 
 export const useBubbleStore = create<BubbleStore>()(
   persist(
-    (set, get) => ({
+    (set, get) => {
+      console.log('Initializing bubble store...');
+      return {
       // Initial state
       bubbles: [],
       reminders: [],
@@ -348,7 +350,8 @@ export const useBubbleStore = create<BubbleStore>()(
         });
         storageService.deleteBubble(mergedBubble.id);
       },
-    }),
+    };
+    },
     {
       name: 'bubble-universe-store',
       partialize: (state) => ({
