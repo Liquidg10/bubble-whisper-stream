@@ -53,59 +53,14 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
     return () => window.removeEventListener('resize', updateViewport);
   }, []);
 
-  // Handle pan gesture
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.target === canvasRef.current) {
-      setIsDragging(true);
-      setDragStart({ x: e.clientX, y: e.clientY });
-      setLastPanPoint({ x: viewport.x, y: viewport.y });
-    }
-  }, [viewport.x, viewport.y]);
-
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (isDragging) {
-      const deltaX = e.clientX - dragStart.x;
-      const deltaY = e.clientY - dragStart.y;
-      
-      setViewport(prev => ({
-        ...prev,
-        x: lastPanPoint.x + deltaX / prev.scale,
-        y: lastPanPoint.y + deltaY / prev.scale,
-      }));
-    }
-  }, [isDragging, dragStart, lastPanPoint]);
-
-  const handleMouseUp = useCallback(() => {
-    setIsDragging(false);
+  // Handle zoom buttons only - no mouse gestures
+  const zoomIn = useCallback(() => {
+    setViewport(prev => ({ ...prev, scale: Math.min(prev.scale * 1.2, 3) }));
   }, []);
 
-  // Handle zoom gesture
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
-
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-    
-    const scaleFactor = e.deltaY > 0 ? 0.9 : 1.1;
-    const newScale = Math.min(Math.max(viewport.scale * scaleFactor, 0.1), 5);
-    
-    // Zoom towards mouse position
-    const mouseWorldX = (mouseX - viewport.width / 2) / viewport.scale + viewport.x;
-    const mouseWorldY = (mouseY - viewport.height / 2) / viewport.scale + viewport.y;
-    
-    const newViewportX = mouseWorldX - (mouseX - viewport.width / 2) / newScale;
-    const newViewportY = mouseWorldY - (mouseY - viewport.height / 2) / newScale;
-    
-    setViewport(prev => ({
-      ...prev,
-      x: newViewportX,
-      y: newViewportY,
-      scale: newScale,
-    }));
-  }, [viewport]);
+  const zoomOut = useCallback(() => {
+    setViewport(prev => ({ ...prev, scale: Math.max(prev.scale / 1.2, 0.1) }));
+  }, []);
 
   // Get visible bubbles based on viewport and filters
   const getVisibleBubbles = () => {
@@ -203,12 +158,7 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
       {/* Main Canvas */}
       <div
         ref={canvasRef}
-        className="absolute inset-0 cursor-grab active:cursor-grabbing"
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-        onWheel={handleWheel}
+        className="absolute inset-0"
         style={{
           transform: `translate(${viewport.width / 2}px, ${viewport.height / 2}px) scale(${viewport.scale}) translate(${-viewport.x}px, ${-viewport.y}px)`,
           transformOrigin: '0 0',
@@ -247,20 +197,13 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
         ))}
       </div>
 
-      {/* Mini Map */}
-      <MiniMap
-        bubbles={bubbles}
-        viewport={viewport}
-        onViewportChange={setViewport}
-        className="absolute bottom-4 right-4"
-      />
 
       {/* Canvas controls */}
       <div className="absolute top-4 left-4 flex gap-2 z-10">
         <Button
           variant="outline"
           size="sm"
-          onClick={() => setViewport(prev => ({ ...prev, scale: Math.min(prev.scale * 1.2, 3) }))}
+          onClick={zoomIn}
           className="bg-card/80 backdrop-blur-sm"
         >
           <ZoomIn className="h-4 w-4" />
@@ -268,7 +211,7 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
         <Button
           variant="outline"
           size="sm"
-          onClick={() => setViewport(prev => ({ ...prev, scale: Math.max(prev.scale / 1.2, 0.1) }))}
+          onClick={zoomOut}
           className="bg-card/80 backdrop-blur-sm"
         >
           <ZoomOut className="h-4 w-4" />
