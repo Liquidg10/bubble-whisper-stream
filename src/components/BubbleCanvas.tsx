@@ -22,7 +22,7 @@ interface BubbleCanvasProps {
   className?: string;
 }
 
-export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: BubbleCanvasProps) {
+function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: BubbleCanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const { 
     bubbles, 
@@ -506,5 +506,21 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
       {/* Performance Monitor */}
       <PerformanceMonitor show={showPerformanceMonitor} />
     </div>
+  );
+}
+
+// Theme-aware canvas wrapper that selects the appropriate renderer
+export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: BubbleCanvasProps) {
+  const { currentTheme } = useTheme();
+  
+  // Use custom renderer if theme provides one, otherwise use default
+  const CanvasRenderer = currentTheme.components?.CanvasRenderer ?? DefaultBubbleCanvas;
+  
+  return (
+    <CanvasRenderer 
+      onBubbleSelect={onBubbleSelect}
+      onBubbleEdit={onBubbleEdit}
+      className={className}
+    />
   );
 }

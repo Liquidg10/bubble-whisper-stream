@@ -4,6 +4,7 @@
  */
 
 import type { Theme } from '../ThemeTypes';
+import { IridescentCanvas } from '@/experimental/iridescent';
 
 export const iridescentSoapTheme: Theme = {
   id: 'iridescent-soap',
@@ -94,7 +95,7 @@ export const iridescentSoapTheme: Theme = {
     floatDurationRange: [16000, 24000],    // 16-24s staggered
     
     // Interaction behavior
-    mergeThreshold: 96,                    // Easy - 6% preview
+    mergeThreshold: 0.06,                  // Easy - 6% preview (corrected from 96)
     lodDuringDrag: true,                   // Reduce heavy visual layers
     hapticsEnabled: true,
     
@@ -103,6 +104,11 @@ export const iridescentSoapTheme: Theme = {
     enableGlow: true,
     maxVisibleBubbles: 100,
     lowDetailMode: false,
+  },
+  
+  // Custom renderer for iridescent effects
+  components: {
+    CanvasRenderer: IridescentCanvas
   },
   
   onApply: (document) => {
@@ -127,6 +133,25 @@ export const iridescentSoapTheme: Theme = {
         0%, 100% { filter: hue-rotate(0deg); }
         50% { filter: hue-rotate(15deg); }
       }
+      
+      /* Iridescent Soap Renderer Styles */
+      .soap { position: relative; border-radius: 999px; }
+      .soap.lod .soap-spec.a, .soap.lod .soap-spec.b { opacity:.5; }
+      .soap.lod .soap-aura { box-shadow:none !important; }
+      @keyframes driftFloat { 0%,100% { transform: translateY(0px) } 50% { transform: translateY(-14px) } }
+      .soap::after { content:""; position:absolute; inset:-6%; border-radius:999px; background: radial-gradient(circle, rgba(255,255,255,.08) 0%, transparent 65%); filter: blur(8px); }
+      .soap-rim { position:absolute; inset:-0.05%; border-radius:999px; -webkit-mask: radial-gradient(circle, transparent 66.2%, black 66.22%); mask: radial-gradient(circle, transparent 66.2%, black 66.22%); filter: saturate(1.02) brightness(1.02); }
+      .soap:hover .soap-rim { filter: saturate(1.15) brightness(1.06); }
+      .soap-core { position:absolute; inset:0; border-radius:999px; background: radial-gradient(circle at var(--cx,35%) var(--cy,28%), rgba(255,255,255,.78) 6%, rgba(255,255,255,.2) 14%, rgba(0,0,0,.28) 60%, rgba(0,0,0,.75) 100%); mix-blend-mode: screen; opacity:.9; }
+      .soap-spec.a { position:absolute; top:var(--hy,12%); left:var(--hx,18%); width:42%; height:26%; border-radius:999px; background: radial-gradient(circle, rgba(255,255,255,.9) 0%, rgba(255,255,255,.25) 60%, transparent 70%); filter: blur(6px); opacity:.92; }
+      .soap-spec.b { position:absolute; bottom:14%; right:20%; width:38%; height:22%; border-radius:999px; background: radial-gradient(circle, rgba(255,255,255,.55) 0%, transparent 70%); filter: blur(8px); opacity:.75; }
+      .soap-aura { position:absolute; inset:0; border-radius:999px; pointer-events:none; }
+      .ring-selected { outline: 2px solid rgba(255,255,255,.35); outline-offset: 3px; }
+      .preview-ring { border:2px dashed rgba(255,255,255,.4); border-radius:999px; pointer-events:none; position:absolute; }
+      .meniscus { border-radius:999px; box-shadow: 0 0 8px rgba(255,255,255,.6), inset 0 0 6px rgba(255,255,255,.7); background: radial-gradient(circle, rgba(255,255,255,.75) 40%, transparent 70%); pointer-events:none; filter: blur(1px); opacity:.9; }
+      .merge-pop { position:absolute; background: rgba(20,20,30,.95); border:1px solid rgba(255,255,255,.2); border-radius:10px; padding:6px 8px; display:flex; gap:6px; align-items:center; color:#fff; }
+      .btn-merge { background: linear-gradient(90deg,#00ffc6,#7a00ff); color:#000; border-radius:8px; padding:4px 8px; font-size:12px; border:none; }
+      .btn-cancel { background: #111826; color:#fff; border-radius:8px; padding:4px 8px; font-size:12px; border:1px solid rgba(255,255,255,.18); }
     `;
     document.head.appendChild(style);
   },

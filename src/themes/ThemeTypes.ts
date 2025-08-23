@@ -88,6 +88,12 @@ export interface ThemeBehaviorFlags {
   lowDetailMode: boolean;           // Force minimal LOD for performance testing
 }
 
+export interface BubbleCanvasProps {
+  onBubbleSelect?: (bubble: any) => void;
+  onBubbleEdit?: (bubble: any) => void;
+  className?: string;
+}
+
 export interface Theme {
   // Metadata
   id: string;
@@ -100,6 +106,11 @@ export interface Theme {
   
   // Behavior configuration
   behavior: ThemeBehaviorFlags;
+  
+  // Optional custom components
+  components?: {
+    CanvasRenderer?: React.ComponentType<BubbleCanvasProps>;
+  };
   
   // Lifecycle hooks
   onApply?: (document: Document) => void;
