@@ -19,11 +19,35 @@ export default {
 		},
 		extend: {
 			colors: {
+				/* Core design system colors */
 				border: 'hsl(var(--border))',
 				input: 'hsl(var(--input))',
 				ring: 'hsl(var(--ring))',
 				background: 'hsl(var(--background))',
 				foreground: 'hsl(var(--foreground))',
+				
+				/* Bubble Universe semantic colors */
+				'universe-bg': 'hsl(var(--bg-universe))',
+				'text-primary': 'hsl(var(--text-primary))',
+				'text-secondary': 'hsl(var(--text-secondary))',
+				
+				/* Iridescent accent trilogy */
+				'accent-void': 'hsl(var(--accent-void))',
+				'accent-flow': 'hsl(var(--accent-flow))',
+				'accent-growth': 'hsl(var(--accent-growth))',
+				
+				/* Emotional spectrum */
+				'danger-soft': 'hsl(var(--danger-soft))',
+				'success-gentle': 'hsl(var(--success-gentle))',
+				'warning-glow': 'hsl(var(--warning-glow))',
+				
+				/* Bubble states */
+				'bubble-idle': 'hsl(var(--bubble-idle))',
+				'bubble-active': 'hsl(var(--bubble-active))',
+				'bubble-selected': 'hsl(var(--bubble-selected))',
+				'bubble-reminder': 'hsl(var(--bubble-reminder))',
+				
+				/* Standard shadcn mappings */
 				primary: {
 					DEFAULT: 'hsl(var(--primary))',
 					foreground: 'hsl(var(--primary-foreground))'
@@ -51,17 +75,41 @@ export default {
 				card: {
 					DEFAULT: 'hsl(var(--card))',
 					foreground: 'hsl(var(--card-foreground))'
-				},
-				sidebar: {
-					DEFAULT: 'hsl(var(--sidebar-background))',
-					foreground: 'hsl(var(--sidebar-foreground))',
-					primary: 'hsl(var(--sidebar-primary))',
-					'primary-foreground': 'hsl(var(--sidebar-primary-foreground))',
-					accent: 'hsl(var(--sidebar-accent))',
-					'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
-					border: 'hsl(var(--sidebar-border))',
-					ring: 'hsl(var(--sidebar-ring))'
 				}
+			},
+			backgroundImage: {
+				'gradient-aurora': 'var(--gradient-aurora)',
+				'gradient-canvas': 'var(--gradient-canvas)',
+				'gradient-bubble': 'var(--gradient-bubble)',
+				'gradient-gentle': 'var(--gradient-gentle)'
+			},
+			boxShadow: {
+				'glow-soft': 'var(--glow-soft)',
+				'glow-medium': 'var(--glow-medium)',
+				'glow-strong': 'var(--glow-strong)',
+				'depth': 'var(--shadow-depth)'
+			},
+			spacing: {
+				'bubble': 'var(--space-bubble)',
+				'breath': 'var(--space-breath)'
+			},
+			fontSize: {
+				'whisper': 'var(--font-size-whisper)',
+				'gentle': 'var(--font-size-gentle)',
+				'natural': 'var(--font-size-natural)',
+				'speak': 'var(--font-size-speak)',
+				'call': 'var(--font-size-call)',
+				'shout': 'var(--font-size-shout)'
+			},
+			transitionTimingFunction: {
+				'gentle': 'cubic-bezier(0.4, 0, 0.2, 1)',
+				'bubble': 'cubic-bezier(0.34, 1.56, 0.64, 1)',
+				'flow': 'cubic-bezier(0.25, 0.46, 0.45, 0.94)'
+			},
+			transitionDuration: {
+				'gentle': 'var(--transition-gentle)',
+				'bubble': 'var(--transition-bubble)', 
+				'flow': 'var(--transition-flow)'
 			},
 			borderRadius: {
 				lg: 'var(--radius)',
