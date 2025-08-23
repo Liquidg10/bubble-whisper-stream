@@ -12,6 +12,8 @@ import { checkBubblesOverlapping, calculateMidpoint } from '@/utils/collision';
 import { useToast } from '@/hooks/use-toast';
 import { useTheme } from '@/themes/provider';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useLODSystem } from '@/hooks/useLODSystem';
+import { PerformanceMonitor } from './PerformanceMonitor';
 import { ZoomIn, ZoomOut, RotateCcw, Map, Filter, Focus, Layers } from 'lucide-react';
 
 interface BubbleCanvasProps {
@@ -39,6 +41,7 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
   const { currentTheme } = useTheme();
   const isMobile = useIsMobile();
   const { toast } = useToast();
+  const { getLODConfig, setDragState, setMultiSelectState } = useLODSystem();
   
   const [viewport, setViewport] = useState<CanvasViewport>({
     x: 0,
@@ -57,6 +60,10 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
   const [bubbleDensity, setBubbleDensity] = useState<'low' | 'medium' | 'high'>('medium');
   const [showMergePopover, setShowMergePopover] = useState(false);
   const [mergePopoverPosition, setMergePopoverPosition] = useState({ x: 0, y: 0 });
+  const [showPerformanceMonitor, setShowPerformanceMonitor] = useState(false);
+  
+  // LOD configuration
+  const lodConfig = getLODConfig();
 
   // Initialize viewport dimensions
   useEffect(() => {
@@ -189,8 +196,10 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
     }
   }, [lastOperation]);
 
-  // Get visible bubbles based on viewport and filters
-  const getVisibleBubbles = () => {
+  // Get visible bubbles based on viewport, filters, and LOD performance limits
+  const getVisibleBubbles = useCallback(() => {
+    if (bubbles.length === 0) return [];
+
     let filteredBubbles = bubbles;
 
     // Apply density filter
@@ -219,7 +228,7 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
     }
 
     // Viewport culling
-    return filteredBubbles.filter(bubble => {
+    const visibleBubbles = filteredBubbles.filter(bubble => {
       const bubbleScreenX = (bubble.x - viewport.x) * viewport.scale + viewport.width / 2;
       const bubbleScreenY = (bubble.y - viewport.y) * viewport.scale + viewport.height / 2;
       const bubbleSize = Math.max(60 * bubble.size * viewport.scale, 20);
@@ -229,24 +238,59 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
              bubbleScreenY + bubbleSize > 0 && 
              bubbleScreenY - bubbleSize < viewport.height;
     });
-  };
 
-  const visibleBubbles = getVisibleBubbles();
+    // Apply LOD performance limits
+    const maxBubbles = lodConfig.maxVisibleBubbles;
+    if (visibleBubbles.length > maxBubbles) {
+      // Keep selected bubbles and closest to center
+      const selected = visibleBubbles.filter(bubble => selectedBubbles.has(bubble.id));
+      const unselected = visibleBubbles.filter(bubble => !selectedBubbles.has(bubble.id));
+      
+      // Sort unselected by distance from viewport center
+      const centerX = viewport.x + viewport.width / 2;
+      const centerY = viewport.y + viewport.height / 2;
+      
+      unselected.sort((a, b) => {
+        const distA = Math.sqrt((a.x - centerX) ** 2 + (a.y - centerY) ** 2);
+        const distB = Math.sqrt((b.x - centerX) ** 2 + (b.y - centerY) ** 2);
+        return distA - distB;
+      });
+      
+      const remainingSlots = maxBubbles - selected.length;
+      return [...selected, ...unselected.slice(0, Math.max(0, remainingSlots))];
+    }
 
-  // Density-based declutter filtering
-  const getDensityFilteredBubbles = () => {
-    if (settings.bubbleDensity === 'high') return visibleBubbles;
+    return visibleBubbles;
+  }, [bubbles, viewport, declutterMode, focusMode, selectedBubbles, selectedBubbleId, bubbleDensity, lodConfig.maxVisibleBubbles]);
+
+  // Density-based filtering for performance
+  const getDensityFilteredBubbles = useCallback(() => {
+    const visible = getVisibleBubbles();
     
-    const threshold = settings.bubbleDensity === 'medium' ? 50 : 100;
-    if (visibleBubbles.length <= threshold) return visibleBubbles;
-    
-    // Show most important bubbles first
-    return visibleBubbles
-      .sort((a, b) => b.size - a.size)
-      .slice(0, threshold);
-  };
+    // Additional density filtering based on current settings
+    const densityLimits = {
+      low: Math.floor(lodConfig.maxVisibleBubbles * 0.5),
+      medium: Math.floor(lodConfig.maxVisibleBubbles * 0.75),
+      high: lodConfig.maxVisibleBubbles,
+    };
 
-  const displayBubbles = getDensityFilteredBubbles();
+    const limit = densityLimits[bubbleDensity];
+    if (visible.length <= limit) return visible;
+
+    // Prioritize selected bubbles, then by importance (size), then by recency
+    return visible
+      .sort((a, b) => {
+        const aSelected = selectedBubbles.has(a.id) ? 1 : 0;
+        const bSelected = selectedBubbles.has(b.id) ? 1 : 0;
+        if (aSelected !== bSelected) return bSelected - aSelected;
+        
+        if (a.size !== b.size) return b.size - a.size;
+        return b.updatedAt - a.updatedAt;
+      })
+      .slice(0, limit);
+  }, [getVisibleBubbles, bubbleDensity, selectedBubbles, lodConfig.maxVisibleBubbles]);
+
+  const visibleBubbles = getDensityFilteredBubbles();
 
   // Center canvas on bubbles
   const centerOnBubbles = useCallback(() => {
@@ -436,6 +480,19 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
         </Badge>
       </div>
 
+      {/* Performance Monitor Controls */}
+      <div className="absolute bottom-6 right-6 z-30">
+        <Button 
+          variant={showPerformanceMonitor ? "default" : "outline"} 
+          size="sm"
+          onClick={() => setShowPerformanceMonitor(!showPerformanceMonitor)}
+          className="bg-card/80 backdrop-blur-sm gap-1"
+        >
+          <Map className="w-4 h-4" />
+          FPS Monitor
+        </Button>
+      </div>
+
       {/* Performance Stats (Development) */}
       {process.env.NODE_ENV === 'development' && (
         <div className="absolute bottom-20 right-4 text-xs text-muted-foreground bg-card/80 
@@ -445,6 +502,9 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
           Scale: {viewport.scale.toFixed(2)}x
         </div>
       )}
+
+      {/* Performance Monitor */}
+      <PerformanceMonitor show={showPerformanceMonitor} />
     </div>
   );
 }

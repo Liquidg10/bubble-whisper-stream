@@ -85,6 +85,7 @@ export interface ThemeBehaviorFlags {
   enableBlur: boolean;              // Background blur effects
   enableGlow: boolean;              // Glow effects
   maxVisibleBubbles: number;        // Performance limit for visible bubbles
+  lowDetailMode: boolean;           // Force minimal LOD for performance testing
 }
 
 export interface Theme {

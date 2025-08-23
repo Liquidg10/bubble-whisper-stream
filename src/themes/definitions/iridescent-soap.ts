@@ -102,6 +102,7 @@ export const iridescentSoapTheme: Theme = {
     enableBlur: true,
     enableGlow: true,
     maxVisibleBubbles: 100,
+    lowDetailMode: false,
   },
   
   onApply: (document) => {

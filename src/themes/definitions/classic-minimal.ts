@@ -102,6 +102,7 @@ export const classicMinimalTheme: Theme = {
     enableBlur: false,
     enableGlow: false,
     maxVisibleBubbles: 150,
+    lowDetailMode: false,
   },
   
   onApply: (document) => {
