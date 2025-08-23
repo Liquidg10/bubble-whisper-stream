@@ -15,6 +15,15 @@ interface BubbleStore {
   isLoading: boolean;
   selectedBubbles: Set<string>;
   
+  // Merge state
+  mergeCandidate: { bubble1: Bubble; bubble2: Bubble } | null;
+  lastOperation: {
+    type: 'merge';
+    originalBubbles: Bubble[];
+    mergedBubble: Bubble;
+    timestamp: number;
+  } | null;
+  
   // Actions
   initializeStore: () => Promise<void>;
   
@@ -23,6 +32,12 @@ interface BubbleStore {
   clearSelection: () => void;
   selectAll: () => void;
   isSelected: (bubbleId: string) => boolean;
+  
+  // Merge actions
+  setMergeCandidate: (bubble1: Bubble, bubble2: Bubble) => void;
+  clearMergeCandidate: () => void;
+  mergeBubbles: (bubble1: Bubble, bubble2: Bubble) => void;
+  undoLastMerge: () => void;
   
   // Bubble actions
   addBubble: (bubble: Bubble) => Promise<void>;
@@ -72,6 +87,8 @@ export const useBubbleStore = create<BubbleStore>()(
       selfModel: defaultSelfModel,
       isLoading: false,
       selectedBubbles: new Set<string>(),
+      mergeCandidate: null,
+      lastOperation: null,
 
       // Initialize store from IndexedDB
       initializeStore: async () => {
@@ -248,6 +265,88 @@ export const useBubbleStore = create<BubbleStore>()(
       isSelected: (bubbleId: string) => {
         const state = get();
         return state.selectedBubbles.has(bubbleId);
+      },
+
+      // Merge actions
+      setMergeCandidate: (bubble1: Bubble, bubble2: Bubble) => 
+        set({ mergeCandidate: { bubble1, bubble2 } }),
+
+      clearMergeCandidate: () => 
+        set({ mergeCandidate: null }),
+
+      mergeBubbles: (bubble1: Bubble, bubble2: Bubble) => {
+        const state = get();
+        
+        // Create merged bubble
+        const mergedBubble: Bubble = {
+          id: crypto.randomUUID(),
+          content: `${bubble1.content}\n\n${bubble2.content}`,
+          type: bubble1.type,
+          size: Math.max(bubble1.size, bubble2.size), // Take larger size
+          x: (bubble1.x + bubble2.x) / 2,
+          y: (bubble1.y + bubble2.y) / 2,
+          tags: [...new Set([...bubble1.tags, ...bubble2.tags])],
+          createdAt: bubble1.createdAt < bubble2.createdAt ? bubble1.createdAt : bubble2.createdAt,
+          updatedAt: Date.now(),
+          completed: bubble1.completed && bubble2.completed
+        };
+
+        // Store undo information
+        const lastOperation = {
+          type: 'merge' as const,
+          originalBubbles: [bubble1, bubble2],
+          mergedBubble,
+          timestamp: Date.now()
+        };
+
+        // Update state
+        const newBubbles = state.bubbles
+          .filter(b => b.id !== bubble1.id && b.id !== bubble2.id)
+          .concat(mergedBubble);
+
+        const newSelectedBubbles = new Set(state.selectedBubbles);
+        newSelectedBubbles.delete(bubble1.id);
+        newSelectedBubbles.delete(bubble2.id);
+        newSelectedBubbles.add(mergedBubble.id);
+
+        set({
+          bubbles: newBubbles,
+          selectedBubbles: newSelectedBubbles,
+          mergeCandidate: null,
+          lastOperation
+        });
+
+        // Store in IndexedDB
+        storageService.createBubble(mergedBubble);
+        storageService.deleteBubble(bubble1.id);
+        storageService.deleteBubble(bubble2.id);
+      },
+
+      undoLastMerge: () => {
+        const state = get();
+        if (!state.lastOperation || state.lastOperation.type !== 'merge') return;
+
+        const { originalBubbles, mergedBubble } = state.lastOperation;
+
+        // Restore original bubbles
+        const newBubbles = state.bubbles
+          .filter(b => b.id !== mergedBubble.id)
+          .concat(originalBubbles);
+
+        // Re-select original bubbles
+        const newSelectedBubbles = new Set<string>(originalBubbles.map(b => b.id));
+
+        set({
+          bubbles: newBubbles,
+          selectedBubbles: newSelectedBubbles,
+          lastOperation: null
+        });
+
+        // Restore in IndexedDB
+        originalBubbles.forEach(bubble => {
+          storageService.createBubble(bubble);
+        });
+        storageService.deleteBubble(mergedBubble.id);
       },
     }),
     {

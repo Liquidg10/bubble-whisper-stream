@@ -7,6 +7,11 @@ import { MiniMap } from './MiniMap';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { MergeConfirmPopover } from './MergeConfirmPopover';
+import { checkBubblesOverlapping, calculateMidpoint } from '@/utils/collision';
+import { useToast } from '@/hooks/use-toast';
+import { useTheme } from '@/themes/provider';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { ZoomIn, ZoomOut, RotateCcw, Map, Filter, Focus, Layers } from 'lucide-react';
 
 interface BubbleCanvasProps {
@@ -17,7 +22,23 @@ interface BubbleCanvasProps {
 
 export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: BubbleCanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
-  const { bubbles, settings, selectedBubbles, clearSelection } = useBubbleStore();
+  const { 
+    bubbles, 
+    settings, 
+    selectedBubbles, 
+    clearSelection, 
+    selectAll,
+    isSelected,
+    mergeCandidate,
+    setMergeCandidate,
+    clearMergeCandidate,
+    mergeBubbles,
+    undoLastMerge,
+    lastOperation
+  } = useBubbleStore();
+  const { currentTheme } = useTheme();
+  const isMobile = useIsMobile();
+  const { toast } = useToast();
   
   const [viewport, setViewport] = useState<CanvasViewport>({
     x: 0,
@@ -34,6 +55,8 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
   const [declutterMode, setDeclutterMode] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [bubbleDensity, setBubbleDensity] = useState<'low' | 'medium' | 'high'>('medium');
+  const [showMergePopover, setShowMergePopover] = useState(false);
+  const [mergePopoverPosition, setMergePopoverPosition] = useState({ x: 0, y: 0 });
 
   // Initialize viewport dimensions
   useEffect(() => {
@@ -89,6 +112,82 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
       scale: newScale,
     }));
   }, [viewport]);
+
+  // Merge detection on bubble position change
+  const handleBubbleDragEnd = useCallback((draggedBubble: Bubble) => {
+    // Check for overlaps with other bubbles
+    const otherBubbles = bubbles.filter(b => b.id !== draggedBubble.id);
+    
+    for (const otherBubble of otherBubbles) {
+      const collision = checkBubblesOverlapping(
+        draggedBubble, 
+        otherBubble, 
+        currentTheme.behavior.mergeThreshold
+      );
+      
+      if (collision.isOverlapping) {
+        // Set merge candidate and show popover
+        setMergeCandidate(draggedBubble, otherBubble);
+        
+        // Calculate popover position (canvas coordinates to screen coordinates)
+        const midpoint = calculateMidpoint(draggedBubble, otherBubble);
+        const canvasRect = canvasRef.current?.getBoundingClientRect();
+        
+        if (canvasRect) {
+          const screenX = canvasRect.left + (midpoint.x - viewport.x) * viewport.scale + viewport.width / 2;
+          const screenY = canvasRect.top + (midpoint.y - viewport.y) * viewport.scale + viewport.height / 2;
+          
+          setMergePopoverPosition({ x: screenX, y: screenY });
+          setShowMergePopover(true);
+        }
+        break;
+      }
+    }
+  }, [bubbles, currentTheme.behavior.mergeThreshold, setMergeCandidate, viewport]);
+
+  // Handle merge confirmation
+  const handleMergeConfirm = useCallback(() => {
+    if (mergeCandidate) {
+      mergeBubbles(mergeCandidate.bubble1, mergeCandidate.bubble2);
+      setShowMergePopover(false);
+      
+      // Show undo toast
+      toast({
+        title: "Bubbles merged",
+        description: "Combined into a single bubble",
+        action: (
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={undoLastMerge}
+            className="min-h-[32px]"
+          >
+            Undo
+          </Button>
+        ),
+        duration: 8000, // 8 second undo window
+      });
+    }
+  }, [mergeCandidate, mergeBubbles, toast, undoLastMerge]);
+
+  // Handle merge cancellation
+  const handleMergeCancel = useCallback(() => {
+    setShowMergePopover(false);
+    clearMergeCandidate();
+  }, [clearMergeCandidate]);
+
+  // Auto-dismiss undo option after timeout
+  useEffect(() => {
+    if (lastOperation && lastOperation.type === 'merge') {
+      const timeout = setTimeout(() => {
+        // Clear last operation after 10 seconds if not used
+        const state = useBubbleStore.getState();
+        state.lastOperation = null;
+      }, 10000);
+      
+      return () => clearTimeout(timeout);
+    }
+  }, [lastOperation]);
 
   // Get visible bubbles based on viewport and filters
   const getVisibleBubbles = () => {
@@ -215,7 +314,10 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
               setSelectedBubbleId(b.id);
               onBubbleSelect?.(b);
             }}
-            onEdit={onBubbleEdit}
+            onEdit={(editedBubble) => {
+              handleBubbleDragEnd(editedBubble);
+              onBubbleEdit?.(editedBubble);
+            }}
             style={{
               position: 'absolute',
               left: bubble.x,
@@ -224,6 +326,19 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
             }}
           />
         ))}
+        
+        {/* Merge Confirmation Popover */}
+        {mergeCandidate && (
+          <MergeConfirmPopover
+            isOpen={showMergePopover}
+            onOpenChange={setShowMergePopover}
+            bubble1={mergeCandidate.bubble1}
+            bubble2={mergeCandidate.bubble2}
+            position={mergePopoverPosition}
+            onMerge={handleMergeConfirm}
+            onKeepSeparate={handleMergeCancel}
+          />
+        )}
       </div>
 
 
