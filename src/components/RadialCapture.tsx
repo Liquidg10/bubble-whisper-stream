@@ -191,9 +191,9 @@ export function RadialCapture({ onCapture, className }: RadialCaptureProps) {
 
         {/* Radial Menu */}
         {isOpen && (
-          <div className="absolute bottom-1/2 right-1/2 transform translate-x-1/2 translate-y-1/2">
+          <div className="absolute -translate-x-1/2 -translate-y-1/2 top-1/2 left-1/2">
             {menuItems.map((item, index) => {
-              const radius = 80;
+              const radius = 90;
               const radian = (item.angle * Math.PI) / 180;
               const x = Math.cos(radian) * radius;
               const y = Math.sin(radian) * radius;
@@ -202,13 +202,15 @@ export function RadialCapture({ onCapture, className }: RadialCaptureProps) {
                 <button
                   key={index}
                   className={cn(
-                    "absolute w-12 h-12 rounded-full bg-bubble-active/90 backdrop-blur",
+                    "absolute w-12 h-12 rounded-full bg-bubble-active/95 backdrop-blur",
                     "flex items-center justify-center text-text-primary",
                     "transition-all duration-bubble hover:scale-110 hover:bg-bubble-selected",
-                    "border border-accent-void/20 shadow-depth"
+                    "border border-accent-void/30 shadow-glow-medium z-50"
                   )}
                   style={{
-                    transform: `translate(${x}px, ${y}px)`,
+                    left: x,
+                    top: y,
+                    transform: 'translate(-50%, -50%)',
                     animation: `fadeIn 300ms ease-out ${index * 50}ms both`,
                   }}
                   onClick={() => {
@@ -216,6 +218,7 @@ export function RadialCapture({ onCapture, className }: RadialCaptureProps) {
                     setIsOpen(false);
                   }}
                   aria-label={item.label}
+                  title={item.label}
                 >
                   <item.icon size={18} />
                 </button>
