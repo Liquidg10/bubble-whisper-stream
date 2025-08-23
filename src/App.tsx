@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { AppShell } from '@/components/AppShell';
+import { ThemeProvider } from '@/themes/provider';
 import Index from "./pages/Index";
 import { Timeline } from './pages/Timeline';
 import { Settings } from './pages/Settings';
@@ -23,24 +24,26 @@ const App = () => {
   }, [initializeStore]);
 
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Routes>
-            <Route path="/" element={<AppShell />}>
-              <Route index element={<Index />} />
-              <Route path="timeline" element={<Timeline />} />
-              <Route path="reminders" element={<Reminders />} />
-              <Route path="reflection" element={<Reflection />} />
-              <Route path="settings" element={<Settings />} />
-            </Route>
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
-    </QueryClientProvider>
+    <ThemeProvider defaultTheme="iridescent-soap">
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <Routes>
+              <Route path="/" element={<AppShell />}>
+                <Route index element={<Index />} />
+                <Route path="timeline" element={<Timeline />} />
+                <Route path="reminders" element={<Reminders />} />
+                <Route path="reflection" element={<Reflection />} />
+                <Route path="settings" element={<Settings />} />
+              </Route>
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </BrowserRouter>
+        </TooltipProvider>
+      </QueryClientProvider>
+    </ThemeProvider>
   );
 };
 

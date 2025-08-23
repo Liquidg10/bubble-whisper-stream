@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Settings, Calendar, Bell, Home, Flower } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { CompactThemeToggle } from '@/components/ThemeToggle';
 
 export const AppShell: React.FC = () => {
   const location = useLocation();
@@ -17,6 +18,11 @@ export const AppShell: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen bg-background">
+      {/* Theme Toggle Header */}
+      <header className="flex justify-end p-2 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <CompactThemeToggle />
+      </header>
+
       {/* Main Content */}
       <main className="flex-1 overflow-hidden">
         <Outlet />
