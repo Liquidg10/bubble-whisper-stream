@@ -1,7 +1,8 @@
-// Individual bubble component with hover effects and interaction
+// Individual bubble component with theme-aware styling and type-specific effects
 
 import React, { useState } from 'react';
 import { Bubble } from '@/types/bubble';
+import { useTheme } from '@/hooks/use-theme';
 import { cn } from '@/lib/utils';
 
 interface BubbleCardProps {
@@ -11,6 +12,7 @@ interface BubbleCardProps {
   onEdit?: (bubble: Bubble) => void;
   style?: React.CSSProperties;
   className?: string;
+  isDragging?: boolean;
 }
 
 export function BubbleCard({ 
@@ -19,14 +21,28 @@ export function BubbleCard({
   onSelect, 
   onEdit, 
   style, 
-  className 
+  className,
+  isDragging = false
 }: BubbleCardProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [longPressTimer, setLongPressTimer] = useState<NodeJS.Timeout | null>(null);
+  const { currentTheme } = useTheme();
 
   // Calculate visual size based on bubble importance and zoom level
   const visualSize = Math.max(80 * bubble.size * scale, 30);
   const isLargeEnoughForContent = visualSize > 40;
+
+  // Get bubble type for styling (map BubbleType to our theme types)
+  const getBubbleThemeType = (): keyof typeof currentTheme.tokens.auraMapping => {
+    switch (bubble.type) {
+      case 'Task': return 'rocky';
+      case 'Memory': return 'icy';
+      case 'Mood': return 'gas';
+      case 'ReminderNote': return 'volcanic';
+      case 'Thought': return 'cloudy';
+      default: return 'rocky';
+    }
+  };
 
   // Get bubble color based on mood or type
   const getBubbleColor = () => {
@@ -40,6 +56,50 @@ export function BubbleCard({
       default: return 'hsl(var(--bubble-active))';
     }
   };
+
+  // Get rim styling based on theme policy
+  const getRimStyling = () => {
+    const themeType = getBubbleThemeType();
+    
+    if (currentTheme.tokens.rimPolicy === 'specular') {
+      // Type-colored rim with specular segment for iridescent theme
+      const auraColor = currentTheme.tokens.auraMapping[themeType];
+      return {
+        border: `1px solid hsl(${auraColor} / 0.6)`,
+        boxShadow: `
+          inset 0 1px 0 hsl(${auraColor} / 0.3),
+          0 0 0 1px hsl(${auraColor} / 0.2),
+          ${isHovered ? `0 0 20px hsl(${auraColor} / 0.4)` : 'none'}
+        `
+      };
+    } else {
+      // Single color, subtle rim for minimal theme
+      const rimColor = currentTheme.tokens.rimColor || '210 20% 56%';
+      return {
+        border: `1px solid hsl(${rimColor} / 0.4)`,
+        boxShadow: isHovered ? `0 0 10px hsl(${rimColor} / 0.2)` : 'none'
+      };
+    }
+  };
+
+  // Get aura effects based on theme and type
+  const getAuraEffects = () => {
+    const themeType = getBubbleThemeType();
+    const auraColor = currentTheme.tokens.auraMapping[themeType];
+    
+    // No aura for minimal theme (aura colors are black/transparent)
+    if (auraColor === '0 0% 0%') return {};
+    
+    // Strong type-colored auras for iridescent theme
+    return {
+      filter: isHovered 
+        ? `drop-shadow(0 0 15px hsl(${auraColor} / 0.6))`
+        : `drop-shadow(0 0 8px hsl(${auraColor} / 0.3))`
+    };
+  };
+
+  // Level of Detail optimization during drag
+  const shouldUseLOD = isDragging && currentTheme.behavior.lodDuringDrag;
 
   // Handle click
   const handleClick = () => {
@@ -68,6 +128,7 @@ export function BubbleCard({
       case 'Memory': return '💭';
       case 'Mood': return '🎭';
       case 'ReminderNote': return '⏰';
+      case 'Thought': return '💫';
       default: return '💫';
     }
   };
@@ -81,14 +142,16 @@ export function BubbleCard({
       : bubble.content;
   };
 
+  const rimStyling = getRimStyling();
+  const auraEffects = getAuraEffects();
+
   return (
     <div
       className={cn(
         "bubble-card relative transition-all duration-bubble cursor-pointer select-none",
-        "rounded-full flex items-center justify-center text-center",
-        "border-2 border-accent-void/20 backdrop-blur",
-        isHovered && "shadow-glow-medium border-accent-void/40",
+        "rounded-full flex items-center justify-center text-center backdrop-blur",
         bubble.completed && "opacity-60",
+        shouldUseLOD && "backdrop-blur-none", // Reduce heavy effects during drag
         className
       )}
       style={{
@@ -96,10 +159,9 @@ export function BubbleCard({
         width: visualSize,
         height: visualSize,
         backgroundColor: getBubbleColor(),
-        boxShadow: isHovered 
-          ? '0 0 30px rgba(123, 92, 255, 0.4), 0 0 60px rgba(123, 92, 255, 0.2)'
-          : '0 0 15px rgba(0, 0, 0, 0.3)',
-        transform: `${style?.transform || ''} ${isHovered ? 'scale(1.05)' : 'scale(1)'}`,
+        ...rimStyling,
+        ...auraEffects,
+        transform: `${style?.transform || ''} ${isHovered && !isDragging ? 'scale(1.05)' : 'scale(1)'}`,
       }}
       onClick={handleClick}
       onMouseDown={handleMouseDown}
@@ -120,8 +182,8 @@ export function BubbleCard({
           {bubble.tags.find(tag => tag.emoji)?.emoji || getTypeEmoji()}
         </span>
         
-        {/* Content text - only visible when large enough */}
-        {isLargeEnoughForContent && bubble.content && (
+        {/* Content text - only visible when large enough and not in LOD mode */}
+        {!shouldUseLOD && isLargeEnoughForContent && bubble.content && (
           <span 
             className="text-xs font-medium mt-1 leading-tight"
             style={{ fontSize: Math.max(visualSize * 0.08, 8) }}
@@ -145,11 +207,13 @@ export function BubbleCard({
         </div>
       )}
 
-      {/* Audio indicator */}
+      {/* Audio indicator - simplified in LOD mode */}
       {bubble.audioUri && (
         <div className="absolute -top-1 -left-1 w-3 h-3 bg-accent-flow rounded-full 
                        border border-text-primary">
-          <div className="absolute inset-0 bg-accent-flow rounded-full animate-ping opacity-50" />
+          {!shouldUseLOD && (
+            <div className="absolute inset-0 bg-accent-flow rounded-full animate-ping opacity-50" />
+          )}
         </div>
       )}
 

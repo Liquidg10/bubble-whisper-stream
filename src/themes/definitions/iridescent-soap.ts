@@ -14,8 +14,8 @@ export const iridescentSoapTheme: Theme = {
   
   tokens: {
     // Core universe colors
-    bgUniverse: '224 15% 7%',              // Deep space background #0E0F12
-    textPrimary: '210 20% 95%',            // Bright clarity #F2F5F7
+    bgUniverse: '0 0% 0%',                 // Pure black #000
+    textPrimary: '246 100% 98%',           // #F5F6FF
     textSecondary: '210 15% 75%',          // Gentle secondary #B6C0CC
     
     // Iridescent accent trilogy
@@ -29,10 +29,22 @@ export const iridescentSoapTheme: Theme = {
     warningGlow: '45 100% 68%',            // Amber warmth
     
     // Bubble states
-    bubbleIdle: '210 20% 15%',             // Resting state
-    bubbleActive: '210 25% 25%',           // Engaged state
+    bubbleIdle: '240 30% 12%',             // rgba(20,20,30,0.55) equivalent
+    bubbleActive: '240 25% 18%',           // Engaged state
     bubbleSelected: '255 62% 20%',         // Selection glow
     bubbleReminder: '0 60% 25%',           // Reminder urgency
+    
+    // Rim styling
+    rimPolicy: 'specular' as const,        // Type-colored rim with specular segment
+    
+    // Type-specific aura mapping
+    auraMapping: {
+      rocky: '262 100% 60%',               // #8A4DFF
+      gas: '180 100% 50%',                 // #00E5FF
+      icy: '150 100% 64%',                 // #00FFA3
+      volcanic: '24 100% 50%',             // #FF7A00
+      cloudy: '300 100% 62%',              // #FF3FD4
+    },
     
     // Gradients - Iridescent Magic
     gradientAurora: `linear-gradient(135deg, 
@@ -78,12 +90,12 @@ export const iridescentSoapTheme: Theme = {
   behavior: {
     // Animation preferences
     parallaxEnabled: true,
-    floatAmplitude: 0.8,
-    floatDurationRange: [3000, 8000],
+    floatAmplitude: 0.875,                 // ~14px amplitude
+    floatDurationRange: [16000, 24000],    // 16-24s staggered
     
     // Interaction behavior
-    mergeThreshold: 120,
-    lodDuringDrag: true,
+    mergeThreshold: 96,                    // Easy - 6% preview
+    lodDuringDrag: true,                   // Reduce heavy visual layers
     hapticsEnabled: true,
     
     // Performance flags

@@ -13,9 +13,9 @@ export const classicMinimalTheme: Theme = {
   className: 'theme-classic-minimal',
   
   tokens: {
-    // Core universe colors - higher contrast
-    bgUniverse: '0 0% 4%',                 // Near black #0A0A0A
-    textPrimary: '0 0% 98%',               // Pure white #FAFAFA
+    // Core universe colors
+    bgUniverse: '213 40% 8%',              // Deep navy #0B0F14
+    textPrimary: '220 100% 94%',           // #EAF2FF
     textSecondary: '0 0% 70%',             // Clear gray #B3B3B3
     
     // Minimal accent palette - focused blues and grays
@@ -29,10 +29,23 @@ export const classicMinimalTheme: Theme = {
     warningGlow: '45 95% 55%',             // Amber warning #FF9500
     
     // Bubble states - subtle and clean
-    bubbleIdle: '0 0% 18%',                // Dark gray
-    bubbleActive: '0 0% 25%',              // Medium gray
+    bubbleIdle: '215 25% 15%',             // #111826 equivalent
+    bubbleActive: '215 30% 20%',           // Slightly lighter
     bubbleSelected: '220 100% 25%',        // Selected blue
     bubbleReminder: '0 85% 25%',           // Reminder red
+    
+    // Rim styling
+    rimPolicy: 'minimal' as const,         // Single color, subtle
+    rimColor: '210 20% 56%',               // #8AA0B3
+    
+    // Type-specific aura mapping - minimal/none
+    auraMapping: {
+      rocky: '0 0% 0%',                    // No aura
+      gas: '0 0% 0%',                      // No aura
+      icy: '0 0% 0%',                      // No aura
+      volcanic: '0 0% 0%',                 // No aura
+      cloudy: '0 0% 0%',                   // No aura
+    },
     
     // Gradients - minimal and clean
     gradientAurora: `linear-gradient(135deg, 
@@ -77,12 +90,12 @@ export const classicMinimalTheme: Theme = {
   behavior: {
     // Animation preferences - reduced motion
     parallaxEnabled: false,
-    floatAmplitude: 0.4,
-    floatDurationRange: [4000, 6000],
+    floatAmplitude: 0.375,                 // 6px amplitude
+    floatDurationRange: [18000, 26000],    // 18-26s gentle
     
     // Interaction behavior - more precise
-    mergeThreshold: 80,
-    lodDuringDrag: true,
+    mergeThreshold: 120,                   // Standard - 10% preview
+    lodDuringDrag: false,                  // No special LOD
     hapticsEnabled: false,
     
     // Performance flags - optimized

@@ -25,6 +25,19 @@ export interface ThemeTokens {
   bubbleSelected: string;      // Selection highlight
   bubbleReminder: string;      // Reminder urgency
   
+  // Rim styling policy
+  rimPolicy: 'specular' | 'minimal';  // Type-colored vs single color
+  rimColor?: string;           // Single color for minimal policy
+  
+  // Type-specific aura mapping
+  auraMapping: {
+    rocky: string;             // Rocky bubble aura
+    gas: string;               // Gas bubble aura
+    icy: string;               // Icy bubble aura
+    volcanic: string;          // Volcanic bubble aura
+    cloudy: string;            // Cloudy bubble aura
+  };
+  
   // Gradients
   gradientAurora: string;      // Main iridescent gradient
   gradientCanvas: string;      // Canvas background
