@@ -174,7 +174,7 @@ export function RadialCapture({ onCapture, className }: RadialCaptureProps) {
   return (
     <>
       {/* Main FAB */}
-      <div className={cn("fixed bottom-6 right-6 z-50", className)}>
+      <div className={cn("fixed bottom-6 right-20 z-50", className)}>
         <button
           className={cn(
             "w-14 h-14 rounded-full bg-gradient-aurora shadow-glow-medium",
@@ -191,7 +191,7 @@ export function RadialCapture({ onCapture, className }: RadialCaptureProps) {
 
         {/* Radial Menu */}
         {isOpen && (
-          <div className="absolute bottom-0 right-0">
+          <div className="absolute bottom-1/2 right-1/2 transform translate-x-1/2 translate-y-1/2">
             {menuItems.map((item, index) => {
               const radius = 80;
               const radian = (item.angle * Math.PI) / 180;
