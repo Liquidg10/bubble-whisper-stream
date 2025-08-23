@@ -4,14 +4,22 @@ import React, { useEffect, useState } from 'react';
 import { BubbleCanvas } from '@/components/BubbleCanvas';
 import { RadialCapture } from '@/components/RadialCapture';
 import { NotificationSystem } from '@/components/NotificationSystem';
+import { MiniMap } from '@/components/MiniMap';
 import { useBubbleStore } from '@/stores/bubbleStore';
-import { Bubble } from '@/types/bubble';
+import { Bubble, CanvasViewport } from '@/types/bubble';
 import { BubbleDetail } from '@/components/BubbleDetail';
 import { Settings, BookOpen, Brain } from 'lucide-react';
 
 export default function Index() {
   const { isLoading, bubbles } = useBubbleStore();
   const [selectedBubble, setSelectedBubble] = useState<Bubble | null>(null);
+  const [viewport, setViewport] = useState<CanvasViewport>({
+    x: 0,
+    y: 0,
+    scale: 1,
+    width: window.innerWidth,
+    height: window.innerHeight,
+  });
 
   // Create sample bubbles for first-time users
   useEffect(() => {
@@ -42,6 +50,16 @@ export default function Index() {
       />
       <RadialCapture />
       <NotificationSystem />
+      
+      {/* MiniMap positioned in bottom right */}
+      <div className="fixed bottom-6 right-6 z-40">
+        <MiniMap
+          bubbles={bubbles}
+          viewport={viewport}
+          onViewportChange={setViewport}
+        />
+      </div>
+      
       <BubbleDetail
         bubble={selectedBubble}
         isOpen={!!selectedBubble}

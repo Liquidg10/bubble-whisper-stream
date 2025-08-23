@@ -12,8 +12,9 @@ interface MiniMapProps {
 }
 
 export function MiniMap({ bubbles, viewport, onViewportChange, className }: MiniMapProps) {
-  const mapSize = 120;
-  const mapPadding = 10;
+  const [isCollapsed, setIsCollapsed] = React.useState(false);
+  const mapSize = 80;
+  const mapPadding = 8;
 
   // Calculate bounds of all bubbles
   const bounds = bubbles.reduce(
@@ -43,7 +44,7 @@ export function MiniMap({ bubbles, viewport, onViewportChange, className }: Mini
   const transformBubble = (bubble: Bubble) => {
     const x = (bubble.x - bounds.minX) * scale + mapPadding;
     const y = (bubble.y - bounds.minY) * scale + mapPadding;
-    return { x, y, size: Math.max(2, bubble.size * 4) };
+    return { x, y, size: Math.max(1, bubble.size * 2) };
   };
 
   // Transform viewport to minimap coordinates
@@ -71,37 +72,39 @@ export function MiniMap({ bubbles, viewport, onViewportChange, className }: Mini
     });
   };
 
+  if (isCollapsed) {
+    return (
+      <div 
+        className={cn(
+          "bg-bubble-idle/90 backdrop-blur border border-accent-void/30 rounded-lg p-2",
+          "hover:bg-bubble-active/90 transition-colors duration-gentle cursor-pointer",
+          className
+        )}
+        onClick={() => setIsCollapsed(false)}
+      >
+        <div className="text-xs text-text-secondary text-center">
+          {bubbles.length} bubbles
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div 
       className={cn(
         "bg-bubble-idle/90 backdrop-blur border border-accent-void/30 rounded-lg p-2",
-        "hover:bg-bubble-active/90 transition-colors duration-gentle cursor-pointer",
+        "transition-colors duration-gentle",
         className
       )}
       style={{ width: mapSize + 8, height: mapSize + 8 }}
-      onClick={handleMinimapClick}
     >
       <div 
-        className="relative bg-gradient-canvas rounded"
+        className="relative bg-gradient-canvas rounded cursor-pointer"
         style={{ width: mapSize, height: mapSize }}
+        onClick={handleMinimapClick}
       >
-        {/* Render bubbles as dots */}
-        {bubbles.map(bubble => {
-          const pos = transformBubble(bubble);
-          return (
-            <div
-              key={bubble.id}
-              className="absolute rounded-full opacity-80"
-              style={{
-                left: pos.x - pos.size / 2,
-                top: pos.y - pos.size / 2,
-                width: pos.size,
-                height: pos.size,
-                backgroundColor: bubble.moodColor || 'hsl(var(--accent-void))',
-              }}
-            />
-          );
-        })}
+        {/* Simplified bubble density visualization */}
+        <div className="absolute inset-0 rounded bg-accent-void/20" />
         
         {/* Viewport indicator */}
         <div
@@ -115,9 +118,17 @@ export function MiniMap({ bubbles, viewport, onViewportChange, className }: Mini
         />
       </div>
       
-      {/* Mini-map label */}
-      <div className="text-xs text-text-secondary text-center mt-1">
-        {bubbles.length} bubbles
+      {/* Mini-map controls */}
+      <div className="flex items-center justify-between mt-1">
+        <div className="text-xs text-text-secondary">
+          {bubbles.length}
+        </div>
+        <button
+          onClick={() => setIsCollapsed(true)}
+          className="text-xs text-text-secondary hover:text-text-primary transition-colors"
+        >
+          ×
+        </button>
       </div>
     </div>
   );
