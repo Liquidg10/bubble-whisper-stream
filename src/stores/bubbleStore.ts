@@ -13,9 +13,16 @@ interface BubbleStore {
   settings: Settings;
   selfModel: SelfModel;
   isLoading: boolean;
+  selectedBubbles: Set<string>;
   
   // Actions
   initializeStore: () => Promise<void>;
+  
+  // Selection actions
+  toggleSelection: (bubbleId: string) => void;
+  clearSelection: () => void;
+  selectAll: () => void;
+  isSelected: (bubbleId: string) => boolean;
   
   // Bubble actions
   addBubble: (bubble: Bubble) => Promise<void>;
@@ -64,6 +71,7 @@ export const useBubbleStore = create<BubbleStore>()(
       settings: defaultSettings,
       selfModel: defaultSelfModel,
       isLoading: false,
+      selectedBubbles: new Set<string>(),
 
       // Initialize store from IndexedDB
       initializeStore: async () => {
@@ -212,6 +220,34 @@ export const useBubbleStore = create<BubbleStore>()(
         } catch (error) {
           console.error('Failed to update self model:', error);
         }
+      },
+
+      // Selection actions
+      toggleSelection: (bubbleId: string) => {
+        set(state => {
+          const newSelection = new Set(state.selectedBubbles);
+          if (newSelection.has(bubbleId)) {
+            newSelection.delete(bubbleId);
+          } else {
+            newSelection.add(bubbleId);
+          }
+          return { selectedBubbles: newSelection };
+        });
+      },
+
+      clearSelection: () => {
+        set({ selectedBubbles: new Set<string>() });
+      },
+
+      selectAll: () => {
+        const state = get();
+        const allIds = new Set(state.bubbles.map(b => b.id));
+        set({ selectedBubbles: allIds });
+      },
+
+      isSelected: (bubbleId: string) => {
+        const state = get();
+        return state.selectedBubbles.has(bubbleId);
       },
     }),
     {

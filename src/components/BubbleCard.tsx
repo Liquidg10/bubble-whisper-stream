@@ -3,6 +3,8 @@
 import React, { useState } from 'react';
 import { Bubble } from '@/types/bubble';
 import { useTheme } from '@/hooks/use-theme';
+import { useTouchGestures } from '@/hooks/useTouchGestures';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 
 interface BubbleCardProps {
@@ -25,8 +27,20 @@ export function BubbleCard({
   isDragging = false
 }: BubbleCardProps) {
   const [isHovered, setIsHovered] = useState(false);
-  const [longPressTimer, setLongPressTimer] = useState<NodeJS.Timeout | null>(null);
   const { currentTheme } = useTheme();
+  const isMobile = useIsMobile();
+
+  // Touch gesture handling for mobile
+  const { gestureState, handlers, isSelected } = useTouchGestures({
+    bubbleId: bubble.id,
+    onTap: () => onSelect?.(bubble),
+    onLongPress: () => {
+      // Selection handled in useTouchGestures
+    },
+    onDragStart: () => {
+      // Future: implement bubble dragging
+    },
+  });
 
   // Calculate visual size based on bubble importance and zoom level
   const visualSize = Math.max(80 * bubble.size * scale, 30);
@@ -101,23 +115,40 @@ export function BubbleCard({
   // Level of Detail optimization during drag
   const shouldUseLOD = isDragging && currentTheme.behavior.lodDuringDrag;
 
-  // Handle click
+  // Selection ring styling
+  const getSelectionStyling = () => {
+    if (!isSelected) return {};
+    
+    return {
+      border: `2px solid hsl(var(--bubble-selected))`,
+      boxShadow: `0 0 15px hsl(var(--bubble-selected) / 0.4)`,
+    };
+  };
+
+  // Parallax offset for mobile touch interactions
+  const getParallaxTransform = () => {
+    if (!isMobile || !gestureState.isParallaxMode) return '';
+    
+    const { x, y } = gestureState.parallaxOffset;
+    return `translate(${x}px, ${y}px) `;
+  };
+
+  // Desktop interaction handlers
   const handleClick = () => {
-    onSelect?.(bubble);
+    if (!isMobile) {
+      onSelect?.(bubble);
+    }
   };
 
-  // Handle long press for edit
-  const handleMouseDown = () => {
-    const timer = setTimeout(() => {
-      onEdit?.(bubble);
-    }, 500); // 500ms long press
-    setLongPressTimer(timer);
+  const handleMouseEnter = () => {
+    if (!isMobile) {
+      setIsHovered(true);
+    }
   };
 
-  const handleMouseUp = () => {
-    if (longPressTimer) {
-      clearTimeout(longPressTimer);
-      setLongPressTimer(null);
+  const handleMouseLeave = () => {
+    if (!isMobile) {
+      setIsHovered(false);
     }
   };
 
@@ -144,6 +175,7 @@ export function BubbleCard({
 
   const rimStyling = getRimStyling();
   const auraEffects = getAuraEffects();
+  const selectionStyling = getSelectionStyling();
 
   return (
     <div
@@ -152,6 +184,8 @@ export function BubbleCard({
         "rounded-full flex items-center justify-center text-center backdrop-blur",
         bubble.completed && "opacity-60",
         shouldUseLOD && "backdrop-blur-none", // Reduce heavy effects during drag
+        isSelected && "ring-2 ring-bubble-selected ring-offset-1",
+        gestureState.isParallaxMode && "transition-transform duration-150",
         className
       )}
       style={{
@@ -161,16 +195,17 @@ export function BubbleCard({
         backgroundColor: getBubbleColor(),
         ...rimStyling,
         ...auraEffects,
-        transform: `${style?.transform || ''} ${isHovered && !isDragging ? 'scale(1.05)' : 'scale(1)'}`,
+        ...selectionStyling,
+        transform: `${style?.transform || ''} ${getParallaxTransform()}${
+          (isHovered && !isDragging && !isMobile) ? 'scale(1.05)' : 'scale(1)'
+        }`,
       }}
       onClick={handleClick}
-      onMouseDown={handleMouseDown}
-      onMouseUp={handleMouseUp}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => {
-        setIsHovered(false);
-        handleMouseUp();
-      }}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      {...(isMobile ? handlers : {})}
+      aria-selected={isSelected}
+      aria-label={`${bubble.type}: ${bubble.content}${isSelected ? ' (selected)' : ''}`}
     >
       {/* Bubble Content */}
       <div className="flex flex-col items-center justify-center p-1 text-text-primary">

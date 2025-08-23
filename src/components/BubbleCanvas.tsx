@@ -17,7 +17,7 @@ interface BubbleCanvasProps {
 
 export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: BubbleCanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
-  const { bubbles, settings } = useBubbleStore();
+  const { bubbles, settings, selectedBubbles, clearSelection } = useBubbleStore();
   
   const [viewport, setViewport] = useState<CanvasViewport>({
     x: 0,
@@ -305,6 +305,15 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
         {focusMode && (
           <Badge variant="secondary" className="bg-card/80 backdrop-blur-sm">
             Focus Mode
+          </Badge>
+        )}
+        {selectedBubbles.size > 0 && (
+          <Badge 
+            variant="default" 
+            className="bg-bubble-selected/90 backdrop-blur-sm cursor-pointer"
+            onClick={clearSelection}
+          >
+            {selectedBubbles.size} selected • tap to clear
           </Badge>
         )}
         <Badge variant="outline" className="bg-card/80 backdrop-blur-sm">
