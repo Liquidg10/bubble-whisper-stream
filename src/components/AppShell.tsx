@@ -7,10 +7,13 @@ import { CompactThemeToggle } from '@/components/ThemeToggle';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { GlimmerNotificationSystem } from '@/components/GlimmerNotificationSystem';
 import { OfflineDetector } from '@/components/OfflineDetector';
+import { OfflineStatusBanner } from '@/components/OfflineStatusBanner';
+import { PerformanceMonitor } from '@/components/PerformanceMonitor';
 
 export const AppShell: React.FC = () => {
   const location = useLocation();
   const { intelligenceEnabled } = useBubbleStore();
+  const isDev = import.meta.env.DEV;
 
   const navItems = [
     { path: '/', icon: Home, label: 'Canvas' },
@@ -32,9 +35,17 @@ export const AppShell: React.FC = () => {
 
       {/* Main Content */}
       <main className="flex-1 overflow-hidden">
-        <Outlet />
+        <div className="h-full flex flex-col">
+          <div className="container mx-auto p-4 flex-shrink-0">
+            <OfflineStatusBanner />
+          </div>
+          <div className="flex-1 overflow-hidden">
+            <Outlet />
+          </div>
+        </div>
         <GlimmerNotificationSystem />
         <OfflineDetector />
+        <PerformanceMonitor show={isDev} />
       </main>
 
       {/* Bottom Navigation */}
