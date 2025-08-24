@@ -17,6 +17,10 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { useBubbleStore } from '@/stores/bubbleStore';
+import { DocumentScanner } from './DocumentScanner';
+import { PersonalVoiceTrainer } from './PersonalVoiceTrainer';
+import { EnhancedGroceryHelper } from './EnhancedGroceryHelper';
+import { RealTimeCollaboration } from './RealTimeCollaboration';
 
 export function OptionalModules() {
   const { settings, updateSettings } = useBubbleStore();
@@ -47,7 +51,19 @@ export function OptionalModules() {
 
   return (
     <div className="space-y-6">
-      {/* Grocery Helper Module */}
+      {/* Enhanced Modules */}
+      <EnhancedGroceryHelper />
+      
+      {/* Document Scanner */}
+      <DocumentScanner />
+      
+      {/* Real-time Collaboration */}
+      <RealTimeCollaboration />
+      
+      {/* Personal Voice Trainer */}
+      <PersonalVoiceTrainer />
+      
+      {/* Legacy Grocery Helper Module - keeping for backward compatibility */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">

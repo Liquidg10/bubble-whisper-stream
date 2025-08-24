@@ -8,7 +8,7 @@ import {
   Users, 
   Eye, 
   Edit, 
-  Cursor, 
+  MousePointer, 
   Share2, 
   Shield,
   Wifi,
@@ -257,7 +257,7 @@ export function RealTimeCollaboration() {
                             <span className="text-sm">{collaborator.name}</span>
                             {collaborator.selectedBubble && (
                               <Badge variant="secondary" className="text-xs">
-                                <Cursor className="h-2 w-2 mr-1" />
+                                <MousePointer className="h-2 w-2 mr-1" />
                                 Editing
                               </Badge>
                             )}
