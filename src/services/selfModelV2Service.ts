@@ -40,6 +40,15 @@ export interface MonthlyReview {
   changes: SelfModelAudit[];
   archivedPatterns: PatternHint[];
   userNotes?: string;
+  insights?: string[];
+  stats?: {
+    totalAudits?: number;
+    confirmedAudits?: number;
+    newPatterns?: number;
+    strengthenedPatterns?: number;
+    cbtEntries?: number;
+    glimmersReceived?: number;
+  };
 }
 
 class SelfModelV2Service {

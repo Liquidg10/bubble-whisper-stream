@@ -6,6 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Calendar, Archive, Eye, Lock } from 'lucide-react';
 import { selfModelV2Service, MonthlyReview, SelfModelAudit } from '@/services/selfModelV2Service';
+import { useBubbleStore } from '@/stores/bubbleStore';
 import { useToast } from '@/hooks/use-toast';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -38,7 +39,31 @@ export const MonthlyReviewCard: React.FC<MonthlyReviewCardProps> = ({
         existingReview = await selfModelV2Service.generateMonthlyReview();
       }
       
-      setReview(existingReview);
+      // Get CBT and Glimmer counts from store
+      const { cbtEntries, glimmers } = useBubbleStore.getState();
+      const currentMonthStart = new Date();
+      currentMonthStart.setDate(1);
+      currentMonthStart.setHours(0, 0, 0, 0);
+      
+      const monthCBTEntries = cbtEntries.filter(entry => 
+        entry.createdAt >= currentMonthStart.getTime()
+      ).length;
+      
+      const monthGlimmers = glimmers.filter(glimmer => 
+        glimmer.createdAt >= currentMonthStart.getTime()
+      ).length;
+      
+      // Enhance review with current month stats
+      const enhancedReview = {
+        ...existingReview,
+        stats: {
+          cbtEntries: monthCBTEntries,
+          glimmersReceived: monthGlimmers,
+          ...existingReview.stats
+        }
+      };
+      
+      setReview(enhancedReview);
       setUserNotes(existingReview.userNotes || '');
     } catch (error) {
       console.error('Failed to load review:', error);
