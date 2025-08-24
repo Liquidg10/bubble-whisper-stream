@@ -94,8 +94,10 @@ export const AIConversationChat: React.FC<AIConversationChatProps> = ({
         setIsSpeaking(true);
         try {
           await ttsService.speak(data.response, { 
-            tone: 'compassionate',
-            useAI: true 
+            context: 'companion',
+            tone: 'gentle',
+            useAI: true,
+            interrupt: false
           });
         } catch (error) {
           console.warn('TTS failed:', error);
