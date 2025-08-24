@@ -24,7 +24,16 @@ interface BubbleStore {
   bubbles: Bubble[];
   reminders: Reminder[];
   tags: Tag[];
-  settings: Settings;
+  settings: Settings & {
+    intelligenceEnabled?: boolean;
+    glimmersEnabled?: boolean;
+    adaptiveRemindersEnabled?: boolean;
+    selfModelLayers?: {
+      surface: boolean;
+      context: boolean;
+      deep: boolean;
+    };
+  };
   selfModel: SelfModel;
   isLoading: boolean;
   selectedBubbles: Set<string>;
@@ -90,14 +99,21 @@ interface BubbleStore {
   toggleIntelligence: (enabled: boolean) => void;
 }
 
-const defaultSettings: Settings = {
+const defaultSettings = {
   ttsEnabled: true,
   reducedMotion: false,
   highContrast: false,
-  bubbleDensity: 'medium',
+  bubbleDensity: 'medium' as const,
   biometricLock: false,
   quietHours: { start: '22:00', end: '08:00' },
   intelligenceEnabled: false, // Opt-in for Phase 2 features
+  glimmersEnabled: false,
+  adaptiveRemindersEnabled: false,
+  selfModelLayers: {
+    surface: true,
+    context: false,
+    deep: false
+  }
 };
 
 const defaultSelfModel: SelfModel = {

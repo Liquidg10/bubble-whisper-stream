@@ -280,6 +280,11 @@ class StorageService {
     const tx = this.db.transaction(['pattern_hints'], 'readwrite');
     await this.promisifyRequest(tx.objectStore('pattern_hints').put(hint));
   }
+
+  getDatabase(): IDBDatabase {
+    if (!this.db) throw new Error('Database not initialized');
+    return this.db;
+  }
 }
 
 export const storageService = new StorageService();

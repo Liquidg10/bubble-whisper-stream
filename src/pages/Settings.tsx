@@ -24,6 +24,8 @@ import { storageService } from '@/services/storage';
 import { hapticsService } from '@/services/haptics';
 import { ttsService } from '@/services/tts';
 import { IntelligenceSettings } from '@/components/IntelligenceSettings';
+import { MonthlyReviewCard } from '@/components/MonthlyReviewCard';
+import { PrivacyZoneToggle } from '@/components/PrivacyZoneToggle';
 
 export const Settings: React.FC = () => {
   const { settings, updateSettings, bubbles, reminders } = useBubbleStore();
