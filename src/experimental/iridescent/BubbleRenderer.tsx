@@ -35,7 +35,7 @@ function dist(a: IridescentNode, b: IridescentNode): number {
   return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
 }
 
-export default function IridescentBubbleRenderer({ onBubbleSelect, onBubbleEdit, className }: BubbleCanvasProps) {
+export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, className }: BubbleCanvasProps) {
   const { bubbles, selectedBubbles, toggleSelection, clearSelection, mergeBubbles, undoLastMerge } = useBubbleStore();
   const { currentTheme } = useTheme();
   const { getLODConfig } = useLODSystem();
