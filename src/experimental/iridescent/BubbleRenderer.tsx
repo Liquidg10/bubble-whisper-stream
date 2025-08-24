@@ -1,6 +1,8 @@
 import React, { useMemo, useRef, useState, useCallback, useEffect } from "react";
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { useTheme } from '@/hooks/use-theme';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { usePinchZoom } from '@/hooks/usePinchZoom';
 import { useTouchGestures } from '@/hooks/useTouchGestures';
 import { useLODSystem } from '@/hooks/useLODSystem';
 import { Bubble } from '@/types/bubble';
@@ -39,6 +41,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
   const { bubbles, selectedBubbles, toggleSelection, clearSelection, mergeBubbles, undoLastMerge } = useBubbleStore();
   const { currentTheme } = useTheme();
   const { getLODConfig } = useLODSystem();
+  const isMobile = useIsMobile();
   const lodConfig = getLODConfig();
   
   const [dragging, setDragging] = useState<string | null>(null);
@@ -282,6 +285,41 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
     }));
   }, [viewport]);
 
+  // Mobile pinch zoom and pan handlers
+  const handlePinchZoom = useCallback((scaleFactor: number, center: { x: number; y: number }) => {
+    const newScale = Math.max(0.1, Math.min(3, viewport.scale * scaleFactor));
+    
+    // Calculate world position of touch center
+    const worldX = (center.x - viewport.width / 2) / viewport.scale + viewport.x;
+    const worldY = (center.y - viewport.height / 2) / viewport.scale + viewport.y;
+    
+    // Calculate new viewport position to keep touch center fixed
+    const newX = worldX - (center.x - viewport.width / 2) / newScale;
+    const newY = worldY - (center.y - viewport.height / 2) / newScale;
+    
+    setViewport(prev => ({
+      ...prev,
+      x: newX,
+      y: newY,
+      scale: newScale
+    }));
+  }, [viewport]);
+
+  const handlePan = useCallback((delta: { x: number; y: number }) => {
+    setViewport(prev => ({
+      ...prev,
+      x: prev.x - delta.x / prev.scale,
+      y: prev.y - delta.y / prev.scale
+    }));
+  }, []);
+
+  // Bind mobile gestures
+  const mobileGestures = usePinchZoom({
+    onZoom: handlePinchZoom,
+    onPan: handlePan,
+    enabled: isMobile
+  });
+
   // Initialize viewport dimensions
   useEffect(() => {
     const updateViewport = () => {
@@ -307,6 +345,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onWheel={handleWheel}
+      {...(isMobile ? mobileGestures : {})}
       style={{ 
         background: 'var(--bg-universe)', 
         position: 'relative',

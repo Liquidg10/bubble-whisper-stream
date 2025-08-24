@@ -155,12 +155,16 @@ export function useTouchGestures({
   const handleTouchEnd = useCallback(() => {
     clearTimers();
 
-    // Handle tap (no drag, no long-press)
+    // Handle tap ONLY if no drag and no long-press occurred
     if (!isDragRef.current && !gestureState.isLongPressing && gestureState.touchStartPos) {
-      onTap?.();
+      // Only trigger tap if the touch was short and didn't move much
+      const touchDuration = gestureState.gestureStartTime ? Date.now() - gestureState.gestureStartTime : 0;
+      if (touchDuration < LONG_PRESS_DURATION) {
+        onTap?.();
+      }
     }
 
-    // End drag
+    // End drag without triggering tap
     if (isDragRef.current) {
       onDragEnd?.();
     }

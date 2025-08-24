@@ -12,6 +12,7 @@ import { checkBubblesOverlapping, calculateMidpoint } from '@/utils/collision';
 import { useToast } from '@/hooks/use-toast';
 import { useTheme } from '@/themes/provider';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { usePinchZoom } from '@/hooks/usePinchZoom';
 import { useLODSystem } from '@/hooks/useLODSystem';
 import { PerformanceMonitor } from './PerformanceMonitor';
 import { ZoomIn, ZoomOut, RotateCcw, Map, Filter, Focus, Layers } from 'lucide-react';
@@ -119,6 +120,41 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
       scale: newScale,
     }));
   }, [viewport]);
+
+  // Mobile pinch zoom and pan handlers
+  const handlePinchZoom = useCallback((scaleFactor: number, center: { x: number; y: number }) => {
+    const newScale = Math.max(0.1, Math.min(3, viewport.scale * scaleFactor));
+    
+    // Calculate world position of touch center
+    const worldX = (center.x - viewport.width / 2) / viewport.scale + viewport.x;
+    const worldY = (center.y - viewport.height / 2) / viewport.scale + viewport.y;
+    
+    // Calculate new viewport position to keep touch center fixed
+    const newX = worldX - (center.x - viewport.width / 2) / newScale;
+    const newY = worldY - (center.y - viewport.height / 2) / newScale;
+    
+    setViewport(prev => ({
+      ...prev,
+      x: newX,
+      y: newY,
+      scale: newScale
+    }));
+  }, [viewport]);
+
+  const handlePan = useCallback((delta: { x: number; y: number }) => {
+    setViewport(prev => ({
+      ...prev,
+      x: prev.x - delta.x / prev.scale,
+      y: prev.y - delta.y / prev.scale
+    }));
+  }, []);
+
+  // Bind mobile gestures
+  const mobileGestures = usePinchZoom({
+    onZoom: handlePinchZoom,
+    onPan: handlePan,
+    enabled: isMobile
+  });
 
   // Merge detection on bubble position change
   const handleBubbleDragEnd = useCallback((draggedBubble: Bubble) => {
@@ -331,6 +367,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
         ref={canvasRef}
         className="absolute inset-0"
         onWheel={handleWheel}
+        {...(isMobile ? mobileGestures : {})}
         style={{
           transform: `translate(${viewport.width / 2}px, ${viewport.height / 2}px) scale(${viewport.scale}) translate(${-viewport.x}px, ${-viewport.y}px)`,
           transformOrigin: '0 0',
