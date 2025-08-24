@@ -91,6 +91,8 @@ export interface ThemeBehaviorFlags {
 export interface BubbleCanvasProps {
   onBubbleSelect?: (bubble: any) => void;
   onBubbleEdit?: (bubble: any) => void;
+  viewport?: any;
+  onViewportChange?: (viewport: any) => void;
   className?: string;
   theme?: Theme;
 }

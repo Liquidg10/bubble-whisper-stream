@@ -20,10 +20,12 @@ import { ZoomIn, ZoomOut, RotateCcw, Map, Filter, Focus, Layers } from 'lucide-r
 interface BubbleCanvasProps {
   onBubbleSelect?: (bubble: Bubble) => void;
   onBubbleEdit?: (bubble: Bubble) => void;
+  viewport?: CanvasViewport;
+  onViewportChange?: (viewport: CanvasViewport) => void;
   className?: string;
 }
 
-function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: BubbleCanvasProps) {
+function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, viewport: externalViewport, onViewportChange, className }: BubbleCanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const { 
     bubbles, 
@@ -44,13 +46,27 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
   const { toast } = useToast();
   const { getLODConfig, setDragState, setMultiSelectState } = useLODSystem();
   
-  const [viewport, setViewport] = useState<CanvasViewport>({
+  const [internalViewport, setInternalViewport] = useState<CanvasViewport>({
     x: 0,
     y: 0,
     scale: 1,
     width: 0,
     height: 0,
   });
+  
+  // Use external viewport if provided, otherwise use internal
+  const viewport = externalViewport || internalViewport;
+  const setViewport = useCallback((newViewport: CanvasViewport | ((prev: CanvasViewport) => CanvasViewport)) => {
+    if (onViewportChange) {
+      if (typeof newViewport === 'function') {
+        onViewportChange(newViewport(viewport));
+      } else {
+        onViewportChange(newViewport);
+      }
+    } else {
+      setInternalViewport(newViewport);
+    }
+  }, [onViewportChange, viewport]);
 
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
@@ -503,7 +519,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
 }
 
 // Theme-aware canvas wrapper that selects the appropriate renderer
-export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: BubbleCanvasProps) {
+export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, viewport, onViewportChange, className }: BubbleCanvasProps) {
   const { currentTheme } = useTheme();
   
   // Use custom renderer if theme provides one, otherwise use default
@@ -511,10 +527,11 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
   
   return (
     <div className={`relative w-full h-full overflow-hidden ${className || ''}`}>
-      <CanvasRenderer 
+      <DefaultBubbleCanvas 
         onBubbleSelect={onBubbleSelect}
         onBubbleEdit={onBubbleEdit}
-        theme={currentTheme}
+        viewport={viewport}
+        onViewportChange={onViewportChange}
       />
     </div>
   );

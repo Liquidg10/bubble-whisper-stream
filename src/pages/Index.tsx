@@ -93,6 +93,8 @@ export default function Index() {
       <BubbleCanvas 
         onBubbleSelect={setSelectedBubble}
         onBubbleEdit={setSelectedBubble}
+        viewport={viewport}
+        onViewportChange={setViewport}
       />
       <RadialCapture />
       <NotificationSystem />
