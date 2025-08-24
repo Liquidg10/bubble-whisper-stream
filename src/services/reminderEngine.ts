@@ -94,7 +94,26 @@ class ReminderEngine {
         break;
     }
 
+    // Trigger voice notification for higher levels
+    if (adjustedLevel >= 2) {
+      this.triggerVoiceNotification(notification);
+    }
+
     this.callbacks.onNotification?.(notification);
+  }
+
+  private async triggerVoiceNotification(notification: ReminderNotification): Promise<void> {
+    try {
+      const { ttsService } = await import('./tts');
+      await ttsService.speak(notification.message, {
+        context: 'reminders',
+        tone: notification.level === 3 ? 'encouraging' : 'gentle',
+        useAI: true,
+        interrupt: notification.level === 3
+      });
+    } catch (error) {
+      console.warn('Voice notification failed:', error);
+    }
   }
 
   private calculateFatigue(reminder: Reminder): number {

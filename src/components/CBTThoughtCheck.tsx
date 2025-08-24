@@ -99,7 +99,11 @@ export const CBTThoughtCheck: React.FC<CBTThoughtCheckProps> = ({
 
   const handleReadAloud = async (text: string) => {
     try {
-      await ttsService.speak(text);
+      await ttsService.speak(text, {
+        context: 'cbt',
+        tone: 'compassionate',
+        useAI: true
+      });
     } catch (error) {
       toast({
         title: "Speech unavailable",

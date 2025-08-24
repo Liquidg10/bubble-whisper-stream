@@ -68,6 +68,18 @@ export interface Settings {
   cleaningCuesEnabled?: boolean;
   personalVoiceEnabled?: boolean;
   biometricEnabled?: boolean;
+  // AI Voice Settings
+  globalVoice?: 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer';
+  voiceVolume?: number;
+  voiceSpeed?: number;
+  voicePreferences?: {
+    banking?: 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer';
+    companion?: 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer';
+    notes?: 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer';
+    cbt?: 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer';
+    reminders?: 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer';
+    glimmers?: 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer';
+  };
 }
 
 // Canvas viewport state

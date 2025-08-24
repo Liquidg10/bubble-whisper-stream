@@ -107,7 +107,11 @@ export const Timeline: React.FC = () => {
     if (!bubble.content) return;
     
     try {
-      await ttsService.speak(bubble.content);
+      await ttsService.speak(bubble.content, {
+        context: 'notes',
+        tone: 'neutral',
+        useAI: true
+      });
       hapticsService.tap();
     } catch (error) {
       console.error('TTS failed:', error);

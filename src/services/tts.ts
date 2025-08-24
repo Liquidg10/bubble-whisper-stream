@@ -11,7 +11,8 @@ interface TTSSettings {
 }
 
 interface TTSOptions extends Partial<TTSSettings> {
-  tone?: 'compassionate' | 'gentle' | 'encouraging' | 'neutral';
+  tone?: 'compassionate' | 'gentle' | 'encouraging' | 'neutral' | 'professional';
+  context?: 'banking' | 'financial' | 'companion' | 'ai-conversation' | 'notes' | 'bubble-detail' | 'cbt' | 'therapy' | 'reminders' | 'glimmers';
   interrupt?: boolean;
   useAI?: boolean;
 }
@@ -117,7 +118,8 @@ class TTSService {
         body: {
           text,
           voice: options.voice,
-          tone: options.tone || 'neutral'
+          tone: options.tone || 'neutral',
+          context: options.context
         }
       });
 

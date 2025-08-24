@@ -7,6 +7,7 @@ import { useBubbleStore } from '@/stores/bubbleStore';
 import { BecausePill } from '@/components/BecausePill';
 import type { ReminderNotification } from '@/services/reminderEngine';
 import { SNOOZE_PRESETS } from '@/types/bubble';
+import { ttsService } from '@/services/tts';
 
 export const NotificationSystem: React.FC = () => {
   const [notifications, setNotifications] = useState<ReminderNotification[]>([]);
@@ -18,6 +19,13 @@ export const NotificationSystem: React.FC = () => {
       onNotification: (notification) => {
         if (notification.level === 3) {
           setFullScreenNotification(notification);
+          // Speak critical notifications immediately
+          ttsService.speak(notification.message, {
+            context: 'reminders',
+            tone: 'encouraging',
+            useAI: true,
+            interrupt: true
+          }).catch(console.warn);
         } else {
           setNotifications(prev => [...prev, notification]);
           

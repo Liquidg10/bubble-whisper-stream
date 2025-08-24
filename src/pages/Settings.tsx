@@ -29,6 +29,7 @@ import { MonthlyReviewCard } from '@/components/MonthlyReviewCard';
 import { PrivacyZoneToggle } from '@/components/PrivacyZoneToggle';
 import { QuickTour } from '@/components/QuickTour';
 import { OptionalModules } from '@/components/OptionalModules';
+import { VoiceSettings } from '@/components/VoiceSettings';
 
 export const Settings: React.FC = () => {
   const { settings, updateSettings, bubbles, reminders } = useBubbleStore();
@@ -67,7 +68,10 @@ export const Settings: React.FC = () => {
   const handleTestTTS = async () => {
     setTestingTTS(true);
     try {
-      await ttsService.speak('This is a test of the text-to-speech system. How does it sound?');
+      await ttsService.speak('This is a test of the AI text-to-speech system. How does it sound?', {
+        tone: 'gentle',
+        useAI: true
+      });
       hapticsService.success();
     } catch (error) {
       console.error('TTS test failed:', error);
@@ -310,6 +314,9 @@ export const Settings: React.FC = () => {
           </CardContent>
         </Card>
 
+        {/* Voice Settings */}
+        <VoiceSettings />
+
         {/* Audio & Haptics */}
         <Card>
           <CardHeader>
@@ -326,7 +333,7 @@ export const Settings: React.FC = () => {
               <div>
                 <Label htmlFor="tts-enabled">Text-to-Speech</Label>
                 <p className="text-sm text-muted-foreground">
-                  Read bubble content aloud
+                  Read bubble content aloud with AI voices
                 </p>
               </div>
               <Switch
@@ -347,7 +354,7 @@ export const Settings: React.FC = () => {
                 className="w-full"
               >
                 <Volume2 className="h-4 w-4 mr-2" />
-                {testingTTS ? 'Testing...' : 'Test Voice Playback'}
+                {testingTTS ? 'Testing...' : 'Test AI Voice Playback'}
               </Button>
               {!ttsService.isAvailable() && (
                 <p className="text-xs text-muted-foreground">

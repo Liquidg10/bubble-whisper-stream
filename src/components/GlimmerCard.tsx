@@ -67,7 +67,11 @@ export const GlimmerCard: React.FC<GlimmerCardProps> = ({
 
   const handleReadAloud = async () => {
     try {
-      await ttsService.speak(glimmer.message);
+      await ttsService.speak(glimmer.message, {
+        context: 'glimmers',
+        tone: 'gentle',
+        useAI: true
+      });
     } catch (error) {
       toast({
         title: "Speech unavailable",

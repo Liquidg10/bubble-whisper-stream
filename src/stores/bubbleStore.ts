@@ -124,6 +124,18 @@ const defaultSettings = {
     surface: true,
     context: false,
     deep: false
+  },
+  // AI Voice Settings
+  globalVoice: 'nova' as const,
+  voiceVolume: 0.8,
+  voiceSpeed: 1.0,
+  voicePreferences: {
+    banking: 'onyx' as const,
+    companion: 'nova' as const,
+    notes: 'shimmer' as const,
+    cbt: 'nova' as const,
+    reminders: 'echo' as const,
+    glimmers: 'shimmer' as const,
   }
 };
 

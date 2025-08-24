@@ -12,17 +12,53 @@ serve(async (req) => {
   }
 
   try {
-    const { text, voice = 'alloy', tone = 'neutral' } = await req.json();
+    const { text, voice = 'alloy', tone = 'neutral', context } = await req.json();
 
     if (!text) {
       throw new Error('Text is required');
     }
 
-    // Adjust voice based on tone
+    // Context-aware voice selection with enhanced personality mapping
     let selectedVoice = voice;
-    if (tone === 'compassionate') selectedVoice = 'nova';
-    if (tone === 'gentle') selectedVoice = 'shimmer';
-    if (tone === 'encouraging') selectedVoice = 'echo';
+    
+    // Smart voice selection based on context and tone
+    if (context) {
+      switch (context) {
+        case 'banking':
+        case 'financial':
+          selectedVoice = 'onyx'; // Professional, authoritative
+          break;
+        case 'companion':
+        case 'ai-conversation':
+          selectedVoice = tone === 'compassionate' ? 'nova' : 'shimmer'; // Warm, supportive
+          break;
+        case 'notes':
+        case 'bubble-detail':
+          selectedVoice = 'shimmer'; // Clear, neutral
+          break;
+        case 'cbt':
+        case 'therapy':
+          selectedVoice = 'nova'; // Compassionate, slow
+          break;
+        case 'reminders':
+          selectedVoice = 'echo'; // Gentle but firm
+          break;
+        case 'glimmers':
+          selectedVoice = 'shimmer'; // Uplifting, bright
+          break;
+        default:
+          // Tone-based fallback
+          if (tone === 'compassionate') selectedVoice = 'nova';
+          else if (tone === 'gentle') selectedVoice = 'shimmer';
+          else if (tone === 'encouraging') selectedVoice = 'echo';
+          else if (tone === 'professional') selectedVoice = 'onyx';
+      }
+    } else {
+      // Original tone-based selection as fallback
+      if (tone === 'compassionate') selectedVoice = 'nova';
+      if (tone === 'gentle') selectedVoice = 'shimmer';
+      if (tone === 'encouraging') selectedVoice = 'echo';
+    }
 
     const response = await fetch('https://api.openai.com/v1/audio/speech', {
       method: 'POST',
@@ -35,7 +71,7 @@ serve(async (req) => {
         input: text,
         voice: selectedVoice,
         response_format: 'mp3',
-        speed: tone === 'compassionate' ? 0.9 : 1.0,
+        speed: (tone === 'compassionate' || context === 'cbt') ? 0.9 : 1.0,
       }),
     });
 

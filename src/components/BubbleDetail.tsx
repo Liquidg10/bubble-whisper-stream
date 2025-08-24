@@ -54,7 +54,11 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
     
     setIsPlaying(true);
     try {
-      await ttsService.speak(bubble.content);
+      await ttsService.speak(bubble.content, {
+        context: 'bubble-detail',
+        tone: 'neutral',
+        useAI: true
+      });
     } catch (error) {
       console.error('TTS failed:', error);
     } finally {
