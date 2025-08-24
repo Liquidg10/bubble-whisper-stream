@@ -12,6 +12,10 @@ interface TemporalNavigationProps {
   onTimeRangeChange?: (range: { start: Date; end: Date }) => void;
   onZoomChange?: (level: number) => void;
   className?: string;
+  isVisible?: boolean;
+  isMinimized?: boolean;
+  onToggleMinimize?: () => void;
+  onClose?: () => void;
 }
 
 type TimeScale = 'day' | 'week' | 'month' | 'year';
@@ -26,7 +30,11 @@ interface TimePoint {
 const TemporalNavigation: React.FC<TemporalNavigationProps> = ({
   onTimeRangeChange,
   onZoomChange,
-  className = ''
+  className = '',
+  isVisible = true,
+  isMinimized = false,
+  onToggleMinimize,
+  onClose
 }) => {
   const { bubbles, cbtEntries, glimmers } = useBubbleStore();
   const [currentScale, setCurrentScale] = useState<TimeScale>('week');
@@ -202,6 +210,29 @@ const TemporalNavigation: React.FC<TemporalNavigationProps> = ({
     onTimeRangeChange?.(range);
   }, [centerDate, currentScale, onTimeRangeChange]);
 
+  if (!isVisible) return null;
+
+  if (isMinimized) {
+    return (
+      <Card 
+        className={`${className} cursor-pointer hover:bg-muted/50 transition-colors`}
+        onClick={onToggleMinimize}
+      >
+        <CardContent className="p-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4" />
+              <span className="text-sm font-medium">Timeline</span>
+            </div>
+            <Badge variant="outline" className="text-xs">
+              {currentScale}
+            </Badge>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card className={className}>
       <CardHeader className="pb-3">
@@ -224,6 +255,19 @@ const TemporalNavigation: React.FC<TemporalNavigationProps> = ({
               <Button variant="outline" size="sm" onClick={handleZoomIn}>
                 <ZoomIn className="w-4 h-4" />
               </Button>
+            </div>
+
+            <div className="flex items-center gap-1">
+              {onToggleMinimize && (
+                <Button variant="ghost" size="sm" onClick={onToggleMinimize}>
+                  <span className="text-xs">−</span>
+                </Button>
+              )}
+              {onClose && (
+                <Button variant="ghost" size="sm" onClick={onClose}>
+                  <span className="text-xs">×</span>
+                </Button>
+              )}
             </div>
           </div>
         </div>

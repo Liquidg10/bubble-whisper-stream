@@ -14,6 +14,7 @@ import { useTheme } from '@/themes/provider';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { usePinchZoom } from '@/hooks/usePinchZoom';
 import { useLODSystem } from '@/hooks/useLODSystem';
+import { useZoomStandard } from '@/hooks/useZoomStandard';
 import { PerformanceMonitor } from './PerformanceMonitor';
 import { ZoomIn, ZoomOut, RotateCcw, Map, Filter, Focus, Layers } from 'lucide-react';
 
@@ -84,62 +85,44 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
     return () => window.removeEventListener('resize', updateViewport);
   }, []);
 
-  // Handle zoom buttons and mouse wheel
+  // Standardized zoom system
+  const { 
+    zoomIn: standardZoomIn, 
+    zoomOut: standardZoomOut, 
+    handleWheelZoom,
+    handlePinchZoom: standardPinchZoom,
+    resetZoom,
+    cleanup
+  } = useZoomStandard({
+    onZoomChange: ({ scale }) => {
+      setViewport(prev => ({ ...prev, scale }));
+    },
+    getContainerRect: () => canvasRef.current?.getBoundingClientRect() || null
+  });
+
+  // Cleanup zoom animations on unmount
+  useEffect(() => {
+    return () => cleanup();
+  }, [cleanup]);
+
+  // Handle zoom buttons
   const zoomIn = useCallback(() => {
-    setViewport(prev => ({ ...prev, scale: Math.min(prev.scale * 1.2, 3) }));
-  }, []);
+    standardZoomIn(viewport.scale);
+  }, [standardZoomIn, viewport.scale]);
 
   const zoomOut = useCallback(() => {
-    setViewport(prev => ({ ...prev, scale: Math.max(prev.scale / 1.2, 0.1) }));
-  }, []);
+    standardZoomOut(viewport.scale);
+  }, [standardZoomOut, viewport.scale]);
 
   // Handle mouse wheel zoom
   const handleWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
-
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-    
-    const scaleFactor = e.deltaY > 0 ? 0.9 : 1.1;
-    const newScale = Math.min(Math.max(viewport.scale * scaleFactor, 0.1), 5);
-    
-    // Zoom towards mouse position
-    const mouseWorldX = (mouseX - viewport.width / 2) / viewport.scale + viewport.x;
-    const mouseWorldY = (mouseY - viewport.height / 2) / viewport.scale + viewport.y;
-    
-    const newViewportX = mouseWorldX - (mouseX - viewport.width / 2) / newScale;
-    const newViewportY = mouseWorldY - (mouseY - viewport.height / 2) / newScale;
-    
-    setViewport(prev => ({
-      ...prev,
-      x: newViewportX,
-      y: newViewportY,
-      scale: newScale,
-    }));
-  }, [viewport]);
+    handleWheelZoom(e, viewport.scale);
+  }, [handleWheelZoom, viewport.scale]);
 
   // Mobile pinch zoom and pan handlers
   const handlePinchZoom = useCallback((scaleFactor: number, center: { x: number; y: number }) => {
-    const newScale = Math.max(0.1, Math.min(3, viewport.scale * scaleFactor));
-    
-    // Calculate world position of touch center
-    const worldX = (center.x - viewport.width / 2) / viewport.scale + viewport.x;
-    const worldY = (center.y - viewport.height / 2) / viewport.scale + viewport.y;
-    
-    // Calculate new viewport position to keep touch center fixed
-    const newX = worldX - (center.x - viewport.width / 2) / newScale;
-    const newY = worldY - (center.y - viewport.height / 2) / newScale;
-    
-    setViewport(prev => ({
-      ...prev,
-      x: newX,
-      y: newY,
-      scale: newScale
-    }));
-  }, [viewport]);
+    standardPinchZoom(scaleFactor, viewport.scale, center);
+  }, [standardPinchZoom, viewport.scale]);
 
   const handlePan = useCallback((delta: { x: number; y: number }) => {
     setViewport(prev => ({

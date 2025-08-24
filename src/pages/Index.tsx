@@ -7,6 +7,7 @@ import { NotificationSystem } from '@/components/NotificationSystem';
 import { GlimmerNotifications } from '@/components/GlimmerNotifications';
 import { MiniMap } from '@/components/MiniMap';
 import { useBubbleStore } from '@/stores/bubbleStore';
+import { useUILayout } from '@/hooks/useUILayout';
 import { Bubble, CanvasViewport } from '@/types/bubble';
 import { BubbleDetail } from '@/components/BubbleDetail';
 import TemporalNavigation from '@/components/TemporalNavigation';
@@ -14,8 +15,8 @@ import { ConflictResolutionDialog } from '@/components/ConflictResolutionDialog'
 import { CollaborationHub } from '@/components/CollaborationHub';
 import { EnhancedVoiceCapture } from '@/components/EnhancedVoiceCapture';
 import { EnhancedPhotoCapture } from '@/components/EnhancedPhotoCapture';
+import { UIControlPanel } from '@/components/UIControlPanel';
 import { crossDeviceSyncService } from '@/services/crossDeviceSyncService';
-import { Settings, BookOpen, Brain } from 'lucide-react';
 
 export default function Index() {
   const { isLoading, bubbles } = useBubbleStore();
@@ -29,6 +30,18 @@ export default function Index() {
   });
   const [currentConflict, setCurrentConflict] = useState<any>(null);
   const [showConflictDialog, setShowConflictDialog] = useState(false);
+
+  // UI Layout management
+  const {
+    togglePanel,
+    toggleMinimize,
+    toggleFocusMode,
+    getPanelStyle,
+    isPanelVisible,
+    isPanelMinimized,
+    focusMode,
+    isMobile
+  } = useUILayout();
 
   // Create sample bubbles for first-time users
   useEffect(() => {
@@ -85,14 +98,20 @@ export default function Index() {
       <NotificationSystem />
       <GlimmerNotifications />
       
-      {/* MiniMap positioned in bottom right */}
-      <div className="fixed bottom-6 right-6 z-40">
-        <MiniMap
-          bubbles={bubbles}
-          viewport={viewport}
-          onViewportChange={setViewport}
-        />
-      </div>
+      {/* MiniMap */}
+      {isPanelVisible('minimap') && (
+        <div style={getPanelStyle('minimap')}>
+          <MiniMap
+            bubbles={bubbles}
+            viewport={viewport}
+            onViewportChange={setViewport}
+            isVisible={isPanelVisible('minimap')}
+            isMinimized={isPanelMinimized('minimap')}
+            onToggleMinimize={() => toggleMinimize('minimap')}
+            onToggleVisibility={() => togglePanel('minimap')}
+          />
+        </div>
+      )}
       
       <BubbleDetail
         bubble={selectedBubble}
@@ -101,9 +120,20 @@ export default function Index() {
       />
 
       {/* Temporal Navigation */}
-      <div className="fixed bottom-4 left-4 z-10">
-        <TemporalNavigation />
-      </div>
+      {isPanelVisible('temporal') && (
+        <div style={getPanelStyle('temporal')}>
+          <TemporalNavigation 
+            onTimeRangeChange={() => {}}
+            isVisible={isPanelVisible('temporal')}
+            isMinimized={isPanelMinimized('temporal')}
+            onToggleMinimize={() => toggleMinimize('temporal')}
+            onClose={() => togglePanel('temporal')}
+          />
+        </div>
+      )}
+
+      {/* UI Control Panel */}
+      <UIControlPanel />
 
       {/* Collaboration Hub Access */}
       <div className="fixed top-20 right-4 z-10">
