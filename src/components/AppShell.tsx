@@ -5,6 +5,8 @@ import { Settings, Calendar, Bell, Home, Flower, Brain } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { CompactThemeToggle } from '@/components/ThemeToggle';
 import { useBubbleStore } from '@/stores/bubbleStore';
+import { GlimmerNotificationSystem } from '@/components/GlimmerNotificationSystem';
+import { OfflineDetector } from '@/components/OfflineDetector';
 
 export const AppShell: React.FC = () => {
   const location = useLocation();
@@ -17,7 +19,7 @@ export const AppShell: React.FC = () => {
     { path: '/reflection', icon: Flower, label: 'Reflect' },
     { path: '/settings', icon: Settings, label: 'Settings' },
     ...(intelligenceEnabled ? [
-      { path: '/cbt', icon: Brain, label: 'CBT' },
+      { path: '/cbt-worksheet', icon: Brain, label: 'CBT' },
     ] : []),
   ];
 
@@ -31,6 +33,8 @@ export const AppShell: React.FC = () => {
       {/* Main Content */}
       <main className="flex-1 overflow-hidden">
         <Outlet />
+        <GlimmerNotificationSystem />
+        <OfflineDetector />
       </main>
 
       {/* Bottom Navigation */}

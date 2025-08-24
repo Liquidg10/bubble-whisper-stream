@@ -26,11 +26,13 @@ import { ttsService } from '@/services/tts';
 import { IntelligenceSettings } from '@/components/IntelligenceSettings';
 import { MonthlyReviewCard } from '@/components/MonthlyReviewCard';
 import { PrivacyZoneToggle } from '@/components/PrivacyZoneToggle';
+import { QuickTour } from '@/components/QuickTour';
 
 export const Settings: React.FC = () => {
   const { settings, updateSettings, bubbles, reminders } = useBubbleStore();
   const [isExporting, setIsExporting] = useState(false);
   const [testingTTS, setTestingTTS] = useState(false);
+  const [showQuickTour, setShowQuickTour] = useState(false);
 
   const handleExportData = async () => {
     setIsExporting(true);
@@ -351,6 +353,26 @@ export const Settings: React.FC = () => {
           </CardContent>
         </Card>
 
+        {/* Help & Support */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Help & Support</CardTitle>
+            <CardDescription>
+              Learn about features and get started
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Button
+              variant="outline"
+              onClick={() => setShowQuickTour(true)}
+              className="w-full"
+            >
+              <Brain className="h-4 w-4 mr-2" />
+              Take Feature Tour
+            </Button>
+          </CardContent>
+        </Card>
+
         {/* About */}
         <Card>
           <CardHeader>
@@ -372,6 +394,12 @@ export const Settings: React.FC = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Quick Tour Modal */}
+      <QuickTour 
+        isOpen={showQuickTour} 
+        onClose={() => setShowQuickTour(false)} 
+      />
     </div>
   );
 };
