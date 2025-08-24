@@ -26,7 +26,18 @@ const TONE_COLORS = {
 export function GlimmerNotificationSystem() {
   const [activeGlimmer, setActiveGlimmer] = useState<Glimmer | null>(null);
   const [isVisible, setIsVisible] = useState(false);
-  const { announceText, settings } = useAccessibility();
+  
+  // Safely use accessibility context with fallback
+  let announceText: (text: string) => void = () => {};
+  let settings = { reducedMotion: false };
+  
+  try {
+    const accessibility = useAccessibility();
+    announceText = accessibility.announceText;
+    settings = accessibility.settings;
+  } catch (error) {
+    console.warn('GlimmerNotificationSystem: Accessibility context not available, using fallbacks');
+  }
 
   useEffect(() => {
     const checkForGlimmers = async () => {
