@@ -9,22 +9,10 @@ interface MiniMapProps {
   viewport: CanvasViewport;
   onViewportChange: (viewport: CanvasViewport) => void;
   className?: string;
-  isVisible?: boolean;
-  isMinimized?: boolean;
-  onToggleMinimize?: () => void;
-  onToggleVisibility?: () => void;
 }
 
-export function MiniMap({ 
-  bubbles, 
-  viewport, 
-  onViewportChange, 
-  className,
-  isVisible = true,
-  isMinimized = false,
-  onToggleMinimize,
-  onToggleVisibility
-}: MiniMapProps) {
+export function MiniMap({ bubbles, viewport, onViewportChange, className }: MiniMapProps) {
+  const [isCollapsed, setIsCollapsed] = React.useState(false);
   const mapSize = 80;
   const mapPadding = 8;
 
@@ -39,59 +27,8 @@ export function MiniMap({
     { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity }
   );
 
-  // Handle visibility
-  if (!isVisible) {
-    return null;
-  }
-
-  // Handle empty universe - show empty state instead of returning null
-  if (bubbles.length === 0) {
-    return (
-      <div 
-        className={cn(
-          "bg-bubble-idle/90 backdrop-blur border border-accent-void/30 rounded-lg p-2",
-          "transition-colors duration-gentle",
-          className
-        )}
-        style={{ width: mapSize + 8, height: mapSize + 8 }}
-      >
-        <div 
-          className="relative bg-gradient-canvas rounded flex items-center justify-center"
-          style={{ width: mapSize, height: mapSize }}
-        >
-          <div className="text-center">
-            <div className="text-xs text-text-secondary mb-1">No bubbles yet</div>
-            <div className="text-xs text-text-secondary opacity-60">Create your first bubble!</div>
-          </div>
-        </div>
-        
-        <div className="flex items-center justify-between mt-1">
-          <div className="text-xs text-text-secondary">0</div>
-          <div className="flex gap-1">
-            {onToggleMinimize && (
-              <button
-                onClick={onToggleMinimize}
-                className="text-xs text-text-secondary hover:text-text-primary transition-colors"
-              >
-                −
-              </button>
-            )}
-            {onToggleVisibility && (
-              <button
-                onClick={onToggleVisibility}
-                className="text-xs text-text-secondary hover:text-text-primary transition-colors"
-              >
-                ×
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Handle invalid bounds
-  if (!isFinite(bounds.minX)) {
+  // Handle empty universe
+  if (bubbles.length === 0 || !isFinite(bounds.minX)) {
     return null;
   }
 
@@ -135,7 +72,7 @@ export function MiniMap({
     });
   };
 
-  if (isMinimized) {
+  if (isCollapsed) {
     return (
       <div 
         className={cn(
@@ -143,7 +80,7 @@ export function MiniMap({
           "hover:bg-bubble-active/90 transition-colors duration-gentle cursor-pointer",
           className
         )}
-        onClick={onToggleMinimize}
+        onClick={() => setIsCollapsed(false)}
       >
         <div className="text-xs text-text-secondary text-center">
           {bubbles.length} bubbles
@@ -186,24 +123,12 @@ export function MiniMap({
         <div className="text-xs text-text-secondary">
           {bubbles.length}
         </div>
-        <div className="flex gap-1">
-          {onToggleMinimize && (
-            <button
-              onClick={onToggleMinimize}
-              className="text-xs text-text-secondary hover:text-text-primary transition-colors"
-            >
-              −
-            </button>
-          )}
-          {onToggleVisibility && (
-            <button
-              onClick={onToggleVisibility}
-              className="text-xs text-text-secondary hover:text-text-primary transition-colors"
-            >
-              ×
-            </button>
-          )}
-        </div>
+        <button
+          onClick={() => setIsCollapsed(true)}
+          className="text-xs text-text-secondary hover:text-text-primary transition-colors"
+        >
+          ×
+        </button>
       </div>
     </div>
   );

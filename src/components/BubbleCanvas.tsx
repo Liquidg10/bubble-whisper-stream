@@ -14,18 +14,16 @@ import { useTheme } from '@/themes/provider';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { usePinchZoom } from '@/hooks/usePinchZoom';
 import { useLODSystem } from '@/hooks/useLODSystem';
-import { useZoomStandard } from '@/hooks/useZoomStandard';
+import { PerformanceMonitor } from './PerformanceMonitor';
 import { ZoomIn, ZoomOut, RotateCcw, Map, Filter, Focus, Layers } from 'lucide-react';
 
 interface BubbleCanvasProps {
   onBubbleSelect?: (bubble: Bubble) => void;
   onBubbleEdit?: (bubble: Bubble) => void;
-  viewport?: CanvasViewport;
-  onViewportChange?: (viewport: CanvasViewport) => void;
   className?: string;
 }
 
-function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, viewport: externalViewport, onViewportChange, className }: BubbleCanvasProps) {
+function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: BubbleCanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const { 
     bubbles, 
@@ -46,27 +44,13 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, viewport: externalV
   const { toast } = useToast();
   const { getLODConfig, setDragState, setMultiSelectState } = useLODSystem();
   
-  const [internalViewport, setInternalViewport] = useState<CanvasViewport>({
+  const [viewport, setViewport] = useState<CanvasViewport>({
     x: 0,
     y: 0,
     scale: 1,
     width: 0,
     height: 0,
   });
-  
-  // Use external viewport if provided, otherwise use internal
-  const viewport = externalViewport || internalViewport;
-  const setViewport = useCallback((newViewport: CanvasViewport | ((prev: CanvasViewport) => CanvasViewport)) => {
-    if (onViewportChange) {
-      if (typeof newViewport === 'function') {
-        onViewportChange(newViewport(viewport));
-      } else {
-        onViewportChange(newViewport);
-      }
-    } else {
-      setInternalViewport(newViewport);
-    }
-  }, [onViewportChange, viewport]);
 
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
@@ -77,6 +61,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, viewport: externalV
   const [bubbleDensity, setBubbleDensity] = useState<'low' | 'medium' | 'high'>('medium');
   const [showMergePopover, setShowMergePopover] = useState(false);
   const [mergePopoverPosition, setMergePopoverPosition] = useState({ x: 0, y: 0 });
+  const [showPerformanceMonitor, setShowPerformanceMonitor] = useState(false);
   
   // LOD configuration
   const lodConfig = getLODConfig();
@@ -99,44 +84,62 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, viewport: externalV
     return () => window.removeEventListener('resize', updateViewport);
   }, []);
 
-  // Standardized zoom system
-  const { 
-    zoomIn: standardZoomIn, 
-    zoomOut: standardZoomOut, 
-    handleWheelZoom,
-    handlePinchZoom: standardPinchZoom,
-    resetZoom,
-    cleanup
-  } = useZoomStandard({
-    onZoomChange: ({ scale }) => {
-      setViewport(prev => ({ ...prev, scale }));
-    },
-    getContainerRect: () => canvasRef.current?.getBoundingClientRect() || null
-  });
-
-  // Cleanup zoom animations on unmount
-  useEffect(() => {
-    return () => cleanup();
-  }, [cleanup]);
-
-  // Handle zoom buttons
+  // Handle zoom buttons and mouse wheel
   const zoomIn = useCallback(() => {
-    standardZoomIn(viewport.scale);
-  }, [standardZoomIn, viewport.scale]);
+    setViewport(prev => ({ ...prev, scale: Math.min(prev.scale * 1.2, 3) }));
+  }, []);
 
   const zoomOut = useCallback(() => {
-    standardZoomOut(viewport.scale);
-  }, [standardZoomOut, viewport.scale]);
+    setViewport(prev => ({ ...prev, scale: Math.max(prev.scale / 1.2, 0.1) }));
+  }, []);
 
   // Handle mouse wheel zoom
   const handleWheel = useCallback((e: React.WheelEvent) => {
-    handleWheelZoom(e, viewport.scale);
-  }, [handleWheelZoom, viewport.scale]);
+    e.preventDefault();
+    
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    
+    const scaleFactor = e.deltaY > 0 ? 0.9 : 1.1;
+    const newScale = Math.min(Math.max(viewport.scale * scaleFactor, 0.1), 5);
+    
+    // Zoom towards mouse position
+    const mouseWorldX = (mouseX - viewport.width / 2) / viewport.scale + viewport.x;
+    const mouseWorldY = (mouseY - viewport.height / 2) / viewport.scale + viewport.y;
+    
+    const newViewportX = mouseWorldX - (mouseX - viewport.width / 2) / newScale;
+    const newViewportY = mouseWorldY - (mouseY - viewport.height / 2) / newScale;
+    
+    setViewport(prev => ({
+      ...prev,
+      x: newViewportX,
+      y: newViewportY,
+      scale: newScale,
+    }));
+  }, [viewport]);
 
   // Mobile pinch zoom and pan handlers
   const handlePinchZoom = useCallback((scaleFactor: number, center: { x: number; y: number }) => {
-    standardPinchZoom(scaleFactor, viewport.scale, center);
-  }, [standardPinchZoom, viewport.scale]);
+    const newScale = Math.max(0.1, Math.min(3, viewport.scale * scaleFactor));
+    
+    // Calculate world position of touch center
+    const worldX = (center.x - viewport.width / 2) / viewport.scale + viewport.x;
+    const worldY = (center.y - viewport.height / 2) / viewport.scale + viewport.y;
+    
+    // Calculate new viewport position to keep touch center fixed
+    const newX = worldX - (center.x - viewport.width / 2) / newScale;
+    const newY = worldY - (center.y - viewport.height / 2) / newScale;
+    
+    setViewport(prev => ({
+      ...prev,
+      x: newX,
+      y: newY,
+      scale: newScale
+    }));
+  }, [viewport]);
 
   const handlePan = useCallback((delta: { x: number; y: number }) => {
     setViewport(prev => ({
@@ -514,12 +517,37 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, viewport: externalV
         </Badge>
       </div>
 
+      {/* Performance Monitor Controls */}
+      <div className="absolute bottom-6 right-6 z-30">
+        <Button 
+          variant={showPerformanceMonitor ? "default" : "outline"} 
+          size="sm"
+          onClick={() => setShowPerformanceMonitor(!showPerformanceMonitor)}
+          className="bg-card/80 backdrop-blur-sm gap-1"
+        >
+          <Map className="w-4 h-4" />
+          FPS Monitor
+        </Button>
+      </div>
+
+      {/* Performance Stats (Development) */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="absolute bottom-20 right-4 text-xs text-muted-foreground bg-card/80 
+                       backdrop-blur px-2 py-1 rounded border">
+          Rendering: {visibleBubbles.length}/{bubbles.length} bubbles
+          <br />
+          Scale: {viewport.scale.toFixed(2)}x
+        </div>
+      )}
+
+      {/* Performance Monitor */}
+      <PerformanceMonitor show={showPerformanceMonitor} />
     </div>
   );
 }
 
 // Theme-aware canvas wrapper that selects the appropriate renderer
-export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, viewport, onViewportChange, className }: BubbleCanvasProps) {
+export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: BubbleCanvasProps) {
   const { currentTheme } = useTheme();
   
   // Use custom renderer if theme provides one, otherwise use default
@@ -530,8 +558,6 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, viewport, onViewpor
       <CanvasRenderer 
         onBubbleSelect={onBubbleSelect}
         onBubbleEdit={onBubbleEdit}
-        viewport={viewport}
-        onViewportChange={onViewportChange}
       />
     </div>
   );

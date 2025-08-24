@@ -6,10 +6,6 @@ import { useTheme } from '@/hooks/use-theme';
 import { useTouchGestures } from '@/hooks/useTouchGestures';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
-import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } from '@/components/ui/context-menu';
-import { Brain, Edit3 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
-import { useBubbleStore } from '@/stores/bubbleStore';
 
 interface BubbleCardProps {
   bubble: Bubble;
@@ -33,8 +29,6 @@ export function BubbleCard({
   const [isHovered, setIsHovered] = useState(false);
   const { currentTheme } = useTheme();
   const isMobile = useIsMobile();
-  const navigate = useNavigate();
-  const { intelligenceEnabled } = useBubbleStore();
 
   // Touch gesture handling for mobile
   const { gestureState, handlers, isSelected } = useTouchGestures({
@@ -146,16 +140,6 @@ export function BubbleCard({
     }
   };
 
-  const handleCBTThoughtCheck = () => {
-    // Navigate to CBT worksheet with initial thought from bubble
-    const params = new URLSearchParams();
-    if (bubble.content) {
-      params.set('thought', bubble.content);
-    }
-    params.set('bubbleId', bubble.id);
-    navigate(`/cbt-worksheet?${params.toString()}`);
-  };
-
   const handleMouseEnter = () => {
     if (!isMobile) {
       setIsHovered(true);
@@ -193,7 +177,7 @@ export function BubbleCard({
   const auraEffects = getAuraEffects();
   const selectionStyling = getSelectionStyling();
 
-  const BubbleContent = (
+  return (
     <div
       className={cn(
         "bubble-card relative transition-all duration-bubble cursor-pointer select-none",
@@ -275,29 +259,4 @@ export function BubbleCard({
       )}
     </div>
   );
-
-  // Wrap with context menu on desktop
-  if (!isMobile && intelligenceEnabled) {
-    return (
-      <ContextMenu>
-        <ContextMenuTrigger asChild>
-          {BubbleContent}
-        </ContextMenuTrigger>
-        <ContextMenuContent>
-          <ContextMenuItem onClick={handleCBTThoughtCheck}>
-            <Brain className="w-4 h-4 mr-2" />
-            CBT Thought Check
-          </ContextMenuItem>
-          {onEdit && (
-            <ContextMenuItem onClick={() => onEdit(bubble)}>
-              <Edit3 className="w-4 h-4 mr-2" />
-              Edit Bubble
-            </ContextMenuItem>
-          )}
-        </ContextMenuContent>
-      </ContextMenu>
-    );
-  }
-
-  return BubbleContent;
 }

@@ -2,12 +2,8 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { Bubble, Reminder, Tag, Settings, SelfModel, BubbleType, CBTEntry, Glimmer, PatternHint } from '@/types/bubble';
+import { Bubble, Reminder, Tag, Settings, SelfModel, BubbleType } from '@/types/bubble';
 import { storageService } from '@/services/storage';
-import { cbtService } from '@/services/cbtService';
-import { glimmerService } from '@/services/glimmerService';
-import { adaptiveReminderService } from '@/services/adaptiveReminderService';
-import { consentService } from '@/services/consentService';
 
 // Helper to assign default bubble type based on content
 function getDefaultBubbleType(content: string): BubbleType {
@@ -24,29 +20,10 @@ interface BubbleStore {
   bubbles: Bubble[];
   reminders: Reminder[];
   tags: Tag[];
-  settings: Settings & {
-    intelligenceEnabled?: boolean;
-    glimmersEnabled?: boolean;
-    adaptiveRemindersEnabled?: boolean;
-    selfModelLayers?: {
-      surface: boolean;
-      context: boolean;
-      deep: boolean;
-    };
-    groceryHelperEnabled?: boolean;
-    cleaningCuesEnabled?: boolean;
-    personalVoiceEnabled?: boolean;
-    biometricEnabled?: boolean;
-  };
+  settings: Settings;
   selfModel: SelfModel;
   isLoading: boolean;
   selectedBubbles: Set<string>;
-  
-  // Phase 2 Intelligence Layer
-  cbtEntries: CBTEntry[];
-  glimmers: Glimmer[];
-  patternHints: PatternHint[];
-  intelligenceEnabled: boolean;
   
   // Merge state
   mergeCandidate: { bubble1: Bubble; bubble2: Bubble } | null;
@@ -59,7 +36,6 @@ interface BubbleStore {
   
   // Actions
   initializeStore: () => Promise<void>;
-  createSampleBubbles: () => Promise<void>;
   
   // Selection actions
   toggleSelection: (bubbleId: string) => void;
@@ -92,33 +68,14 @@ interface BubbleStore {
   
   // Self model actions
   updateSelfModel: (model: SelfModel) => Promise<void>;
-  
-  // Phase 2 Intelligence Actions
-  addCBTEntry: (entry: CBTEntry) => Promise<void>;
-  getCBTEntries: () => CBTEntry[];
-  addGlimmer: (glimmer: Glimmer) => Promise<void>;
-  dismissGlimmer: (id: string) => Promise<void>;
-  addPatternHint: (hint: PatternHint) => Promise<void>;
-  updatePatternHint: (hint: PatternHint) => Promise<void>;
-  getAdaptiveExplanation: (reminderId: string) => string | null;
-  toggleIntelligence: (enabled: boolean) => void;
 }
 
-const defaultSettings = {
+const defaultSettings: Settings = {
   ttsEnabled: true,
   reducedMotion: false,
   highContrast: false,
-  bubbleDensity: 'medium' as const,
+  bubbleDensity: 'medium',
   biometricLock: false,
-  quietHours: { start: '22:00', end: '08:00' },
-  intelligenceEnabled: false, // Opt-in for Phase 2 features
-  glimmersEnabled: false,
-  adaptiveRemindersEnabled: false,
-  selfModelLayers: {
-    surface: true,
-    context: false,
-    deep: false
-  }
 };
 
 const defaultSelfModel: SelfModel = {
@@ -144,20 +101,13 @@ export const useBubbleStore = create<BubbleStore>()(
       selectedBubbles: new Set<string>(),
       mergeCandidate: null,
       lastOperation: null,
-      
-      // Phase 2 Intelligence Layer
-      cbtEntries: [],
-      glimmers: [],
-      patternHints: [],
-      intelligenceEnabled: false,
 
       // Initialize store from IndexedDB
       initializeStore: async () => {
         set({ isLoading: true });
         
         try {
-          console.log('BubbleStore: Initializing...');
-          await storageService.initializeWithRetry(3);
+          await storageService.initialize();
           
           const [bubbles, reminders, tags, settings, selfModel] = await Promise.all([
             storageService.getAllBubbles(),
@@ -167,94 +117,17 @@ export const useBubbleStore = create<BubbleStore>()(
             storageService.getSelfModel(),
           ]);
           
-          console.log('BubbleStore: Loaded data:', { 
-            bubblesCount: bubbles.length, 
-            remindersCount: reminders.length,
-            tagsCount: tags.length,
-            fallbackMode: storageService.isFallbackMode()
-          });
-          
           set({
             bubbles,
             reminders,
             tags,
             settings,
             selfModel,
+            isLoading: false,
           });
-
-          // Always create sample data if no bubbles exist, then mark as loaded
-          if (bubbles.length === 0) {
-            console.log('BubbleStore: No bubbles found, creating sample data...');
-            await get().createSampleBubbles();
-          }
-          
-          set({ isLoading: false });
         } catch (error) {
-          console.error('BubbleStore: Failed to initialize:', error);
-          // Fall back to in-memory mode with sample data
-          console.log('BubbleStore: Falling back to in-memory mode...');
-          await get().createSampleBubbles();
+          console.error('Failed to initialize store:', error);
           set({ isLoading: false });
-        }
-      },
-
-      // Create sample bubbles for demo/fallback
-      createSampleBubbles: async () => {
-        const now = Date.now();
-        const sampleBubbles: Bubble[] = [
-          {
-            id: 'sample-1',
-            content: 'Welcome to Bubble Universe! 🌟',
-            type: 'Thought',
-            x: 100,
-            y: 100,
-            size: 60,
-            createdAt: now,
-            updatedAt: now,
-            tags: [],
-            mood: 'happy'
-          },
-          {
-            id: 'sample-2', 
-            content: 'This is your creative companion',
-            type: 'Memory',
-            x: 250,
-            y: 180,
-            size: 45,
-            createdAt: now - 86400000, // Yesterday
-            updatedAt: now - 86400000,
-            tags: [],
-            mood: 'neutral'
-          },
-          {
-            id: 'sample-3',
-            content: 'Toggle panels in the view menu',
-            type: 'Task',
-            x: 400,
-            y: 120,
-            size: 50,
-            createdAt: now - 172800000, // 2 days ago
-            updatedAt: now - 172800000,
-            tags: [],
-            mood: 'good'
-          }
-        ];
-
-        // Add to store immediately for UI responsiveness
-        set(state => ({
-          bubbles: [...state.bubbles, ...sampleBubbles]
-        }));
-
-        // Try to persist if storage is available
-        if (storageService.isInitialized()) {
-          try {
-            for (const bubble of sampleBubbles) {
-              await storageService.createBubble(bubble);
-            }
-            console.log('BubbleStore: Sample bubbles persisted to storage');
-          } catch (error) {
-            console.warn('BubbleStore: Could not persist sample bubbles:', error);
-          }
         }
       },
 
@@ -266,19 +139,10 @@ export const useBubbleStore = create<BubbleStore>()(
             ...bubble,
             type: bubble.type || getDefaultBubbleType(bubble.content || '')
           };
-          
-          // Add to store immediately for UI responsiveness
+          await storageService.createBubble(bubbleWithType);
           set(state => ({ bubbles: [...state.bubbles, bubbleWithType] }));
-
-          // Try to persist if storage is available
-          if (storageService.isInitialized()) {
-            await storageService.createBubble(bubbleWithType);
-          } else {
-            console.warn('BubbleStore: Storage not initialized, bubble added to memory only');
-          }
         } catch (error) {
-          console.error('BubbleStore: Failed to add bubble:', error);
-          // Bubble is already in store, so UI still works
+          console.error('Failed to add bubble:', error);
         }
       },
 
@@ -500,77 +364,6 @@ export const useBubbleStore = create<BubbleStore>()(
           storageService.createBubble(bubble);
         });
         storageService.deleteBubble(mergedBubble.id);
-      },
-
-      // Phase 2 Intelligence Actions
-      addCBTEntry: async (entry) => {
-        try {
-          await storageService.createCBTEntry(entry);
-          set(state => ({ cbtEntries: [...state.cbtEntries, entry] }));
-        } catch (error) {
-          console.error('Failed to add CBT entry:', error);
-        }
-      },
-
-      getCBTEntries: () => {
-        const state = get();
-        return state.cbtEntries;
-      },
-
-      addGlimmer: async (glimmer) => {
-        try {
-          await storageService.createGlimmer(glimmer);
-          set(state => ({ glimmers: [...state.glimmers, glimmer] }));
-        } catch (error) {
-          console.error('Failed to add glimmer:', error);
-        }
-      },
-
-      dismissGlimmer: async (id) => {
-        try {
-          await storageService.updateGlimmer({ 
-            ...get().glimmers.find(g => g.id === id)!,
-            dismissed: true 
-          });
-          set(state => ({
-            glimmers: state.glimmers.filter(g => g.id !== id)
-          }));
-        } catch (error) {
-          console.error('Failed to dismiss glimmer:', error);
-        }
-      },
-
-      addPatternHint: async (hint) => {
-        try {
-          await storageService.createPatternHint(hint);
-          set(state => ({ patternHints: [...state.patternHints, hint] }));
-        } catch (error) {
-          console.error('Failed to add pattern hint:', error);
-        }
-      },
-
-      updatePatternHint: async (hint) => {
-        try {
-          await storageService.updatePatternHint(hint);
-          set(state => ({
-            patternHints: state.patternHints.map(h => h.id === hint.id ? hint : h)
-          }));
-        } catch (error) {
-          console.error('Failed to update pattern hint:', error);
-        }
-      },
-
-      getAdaptiveExplanation: (reminderId: string) => {
-        const state = get();
-        const reminder = state.reminders.find(r => r.id === reminderId);
-        if (!reminder) return null;
-        
-        return adaptiveReminderService.getExplanation(reminder, state.patternHints, state.settings);
-      },
-
-      toggleIntelligence: (enabled: boolean) => {
-        set({ intelligenceEnabled: enabled });
-        get().updateSettings({ intelligenceEnabled: enabled });
       },
     };
     },

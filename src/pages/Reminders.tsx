@@ -26,8 +26,6 @@ import { hapticsService } from '@/services/haptics';
 export const Reminders: React.FC = () => {
   const { reminders, updateReminder, bubbles } = useBubbleStore();
   const [activeTab, setActiveTab] = useState<'active' | 'completed' | 'all'>('active');
-  const [showAdjustment, setShowAdjustment] = useState<string | null>(null);
-  const [explanations, setExplanations] = useState<Record<string, any>>({});
 
   const getBubbleForReminder = (reminder: Reminder) => {
     return bubbles.find(b => b.id === reminder.bubbleId);

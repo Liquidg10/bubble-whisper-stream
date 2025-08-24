@@ -86,8 +86,8 @@ export const CBTThoughtCheck: React.FC<CBTThoughtCheckProps> = ({
     });
   };
 
-  const handleGenerateReframeSuggestions = async () => {
-    const suggestions = await cbtService.generateReframeSuggestions(thought, selectedDistortions);
+  const handleGenerateReframeSuggestions = () => {
+    const suggestions = cbtService.generateReframeSuggestions(thought, selectedDistortions);
     if (suggestions.length > 0) {
       setReframe(suggestions[0]); // Use first suggestion
       toast({

@@ -63,26 +63,19 @@ class ReminderEngine {
 
   private triggerNotification(reminder: Reminder): void {
     const fatigue = this.calculateFatigue(reminder);
-    
-    // Fatigue guard: cap level based on fatigue score
-    let maxLevel = 3;
-    if (fatigue >= 1.0) {
-      maxLevel = 2; // Cap at level 2 when fatigued
-    }
-    
-    const adjustedLevel = Math.min(reminder.level + Math.floor(fatigue * 0.5), maxLevel) as ReminderLevel;
+    const level = Math.min(reminder.level + fatigue, 3) as ReminderLevel;
 
     const notification: ReminderNotification = {
       id: crypto.randomUUID(),
       reminderId: reminder.id,
-      level: adjustedLevel,
-      title: this.getLevelTitle(adjustedLevel),
+      level,
+      title: this.getLevelTitle(level),
       message: this.getNotificationMessage(reminder),
-      actions: this.getActionsForLevel(adjustedLevel),
+      actions: this.getActionsForLevel(level),
     };
 
     // Trigger haptic feedback
-    switch (adjustedLevel) {
+    switch (level) {
       case 1:
         hapticsService.gentle();
         break;
@@ -101,22 +94,13 @@ class ReminderEngine {
     const recentSnoozes = reminder.snoozes.filter(
       snooze => snooze.at > Date.now() - (24 * 60 * 60 * 1000) // Last 24 hours
     );
-    
-    // Fatigue guard: if user has snoozed "Overwhelmed" 3+ times in 48h, cap at level 2
-    const overwhelmedSnoozes = reminder.snoozes.filter(s => 
-      s.reason === 'Overwhelmed' && Date.now() - s.at < 48 * 60 * 60 * 1000
-    );
-    
-    if (overwhelmedSnoozes.length >= 3) {
-      return 1.0; // Maximum fatigue
-    }
 
     const fastSnoozes = recentSnoozes.filter(snooze => {
       const duration = snooze.at - Date.now();
       return duration < (30 * 60 * 1000); // Less than 30 minutes
     });
 
-    return Math.min(recentSnoozes.length / 3, 1); // Cap at 1.0
+    return fastSnoozes.length >= 3 ? 1 : 0;
   }
 
   private getLevelTitle(level: ReminderLevel): string {

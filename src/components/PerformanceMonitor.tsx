@@ -19,56 +19,23 @@ export function PerformanceMonitor({ show = false, className }: PerformanceMonit
   const [metrics, setMetrics] = useState(getPerformanceMetrics());
   const [lodConfig, setLodConfig] = useState(getLODConfig());
   const [isExpanded, setIsExpanded] = useState(false);
-  const [actualFPS, setActualFPS] = useState(60);
-  const [memoryUsage, setMemoryUsage] = useState(0);
 
   useEffect(() => {
     if (!show) return;
 
-    let frameCount = 0;
-    let lastTime = performance.now();
-    let animationId: number;
-
-    const measureFPS = () => {
-      frameCount++;
-      const currentTime = performance.now();
-      
-      if (currentTime - lastTime >= 1000) {
-        setActualFPS(Math.round((frameCount * 1000) / (currentTime - lastTime)));
-        frameCount = 0;
-        lastTime = currentTime;
-      }
-      
-      animationId = requestAnimationFrame(measureFPS);
-    };
-
-    animationId = requestAnimationFrame(measureFPS);
-
     const interval = setInterval(() => {
       setMetrics(getPerformanceMetrics());
       setLodConfig(getLODConfig());
-      
-      // Memory usage estimation (in MB)
-      if ('memory' in performance) {
-        const memInfo = (performance as any).memory;
-        setMemoryUsage(Math.round(memInfo.usedJSHeapSize / (1024 * 1024)));
-      }
-    }, 100);
+    }, 100); // Update 10x per second
 
-    return () => {
-      clearInterval(interval);
-      cancelAnimationFrame(animationId);
-    };
+    return () => clearInterval(interval);
   }, [show, getLODConfig, getPerformanceMetrics]);
 
   if (!show) return null;
 
   const lodLevel = getCurrentLODLevel();
-  const displayFPS = actualFPS || metrics.averageFPS;
-  const fpsColor = displayFPS >= 55 ? 'success' : 
-                  displayFPS >= 45 ? 'warning' : 'destructive';
-  const memoryColor = memoryUsage > 275 ? 'destructive' : 
-                     memoryUsage > 200 ? 'warning' : 'success';
+  const fpsColor = metrics.averageFPS >= 55 ? 'success' : 
+                  metrics.averageFPS >= 45 ? 'warning' : 'destructive';
 
   return (
     <div className={`fixed top-4 right-4 z-50 space-y-2 ${className}`}>
@@ -87,16 +54,11 @@ export function PerformanceMonitor({ show = false, className }: PerformanceMonit
         
         <div className="flex items-center gap-2 mb-1">
           <Badge variant={fpsColor as any} className="text-xs">
-            {Math.round(displayFPS)} FPS
+            {Math.round(metrics.averageFPS)} FPS
           </Badge>
           <Badge variant="outline" className="text-xs uppercase">
             {lodLevel}
           </Badge>
-          {memoryUsage > 0 && (
-            <Badge variant={memoryColor as any} className="text-xs">
-              {memoryUsage}MB
-            </Badge>
-          )}
         </div>
 
         {metrics.isDragging && (

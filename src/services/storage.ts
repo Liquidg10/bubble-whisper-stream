@@ -7,43 +7,16 @@ class StorageService {
   private db: IDBDatabase | null = null;
   private readonly dbName = 'BubbleUniverse';
   private readonly dbVersion = 3;
-  private isIndexedDBSupported = true;
-  private fallbackMode = false;
 
   async initialize(): Promise<void> {
-    try {
-      // Check if IndexedDB is supported
-      if (!window.indexedDB) {
-        console.warn('StorageService: IndexedDB not supported, switching to fallback mode');
-        this.isIndexedDBSupported = false;
-        this.fallbackMode = true;
-        return;
-      }
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(this.dbName, 3); // Upgrade to v3 for Phase 2
 
-      return new Promise((resolve, reject) => {
-        console.log('StorageService: Initializing IndexedDB...');
-        const request = indexedDB.open(this.dbName, this.dbVersion);
-
-        const timeout = setTimeout(() => {
-          console.error('StorageService: IndexedDB initialization timeout');
-          this.fallbackMode = true;
-          reject(new Error('IndexedDB initialization timeout'));
-        }, 10000); // 10 second timeout
-
-        request.onerror = () => {
-          clearTimeout(timeout);
-          console.error('StorageService: IndexedDB error:', request.error);
-          this.fallbackMode = true;
-          reject(request.error);
-        };
-        
-        request.onsuccess = () => {
-          clearTimeout(timeout);
-          console.log('StorageService: IndexedDB initialized successfully');
-          this.db = request.result;
-          this.fallbackMode = false;
-          resolve();
-        };
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        this.db = request.result;
+        resolve();
+      };
 
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
@@ -114,67 +87,11 @@ class StorageService {
           consentStore.createIndex('timestamp', 'timestamp', { unique: false });
         }
       };
-      });
-    } catch (error) {
-      console.error('StorageService: Failed to initialize:', error);
-      throw error;
-    }
-  }
-
-  // Check if database is ready
-  isInitialized(): boolean {
-    return this.db !== null || this.fallbackMode;
-  }
-
-  // Check if in fallback mode
-  isFallbackMode(): boolean {
-    return this.fallbackMode;
-  }
-
-  // Reset corrupted database
-  async resetDatabase(): Promise<void> {
-    if (this.db) {
-      this.db.close();
-      this.db = null;
-    }
-    
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const deleteRequest = indexedDB.deleteDatabase(this.dbName);
-        deleteRequest.onsuccess = () => resolve();
-        deleteRequest.onerror = () => reject(deleteRequest.error);
-      });
-      console.log('StorageService: Database reset successfully');
-      await this.initialize();
-    } catch (error) {
-      console.error('StorageService: Failed to reset database:', error);
-      this.fallbackMode = true;
-    }
-  }
-
-  // Initialize with retry mechanism
-  async initializeWithRetry(maxRetries: number = 3): Promise<void> {
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        await this.initialize();
-        return;
-      } catch (error) {
-        console.warn(`StorageService: Initialization attempt ${attempt} failed:`, error);
-        if (attempt === maxRetries) {
-          throw new Error(`Failed to initialize storage after ${maxRetries} attempts`);
-        }
-        // Wait before retry
-        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
-      }
-    }
+    });
   }
 
   // Bubbles CRUD
   async createBubble(bubble: Bubble): Promise<void> {
-    if (this.fallbackMode) {
-      console.log('StorageService: In fallback mode, skipping bubble persistence');
-      return;
-    }
     if (!this.db) throw new Error('Database not initialized');
     
     const transaction = this.db.transaction(['bubbles'], 'readwrite');
@@ -192,10 +109,6 @@ class StorageService {
   }
 
   async getAllBubbles(): Promise<Bubble[]> {
-    if (this.fallbackMode) {
-      console.log('StorageService: In fallback mode, returning empty bubbles array');
-      return [];
-    }
     if (!this.db) throw new Error('Database not initialized');
     
     const transaction = this.db.transaction(['bubbles'], 'readonly');
@@ -335,42 +248,6 @@ class StorageService {
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
-  }
-
-  // Phase 2 Intelligence Layer Methods
-  async createCBTEntry(entry: any): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
-    const tx = this.db.transaction(['cbt_entries'], 'readwrite');
-    await this.promisifyRequest(tx.objectStore('cbt_entries').add(entry));
-  }
-
-  async createGlimmer(glimmer: any): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
-    const tx = this.db.transaction(['glimmers'], 'readwrite');
-    await this.promisifyRequest(tx.objectStore('glimmers').add(glimmer));
-  }
-
-  async updateGlimmer(glimmer: any): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
-    const tx = this.db.transaction(['glimmers'], 'readwrite');
-    await this.promisifyRequest(tx.objectStore('glimmers').put(glimmer));
-  }
-
-  async createPatternHint(hint: any): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
-    const tx = this.db.transaction(['pattern_hints'], 'readwrite');
-    await this.promisifyRequest(tx.objectStore('pattern_hints').add(hint));
-  }
-
-  async updatePatternHint(hint: any): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
-    const tx = this.db.transaction(['pattern_hints'], 'readwrite');
-    await this.promisifyRequest(tx.objectStore('pattern_hints').put(hint));
-  }
-
-  getDatabase(): IDBDatabase {
-    if (!this.db) throw new Error('Database not initialized');
-    return this.db;
   }
 }
 
