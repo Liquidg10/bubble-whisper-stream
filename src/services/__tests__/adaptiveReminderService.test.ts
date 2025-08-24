@@ -57,7 +57,7 @@ describe('AdaptiveReminderService', () => {
         ],
       };
 
-      const explanation = adaptiveReminderService.getExplanation(mockReminder, 'slow', []);
+      const explanation = adaptiveReminderService.getExplanation(mockReminder, [], {});
       expect(explanation).toContain('Because');
       expect(explanation.length).toBeGreaterThan(10);
     });
