@@ -36,6 +36,7 @@ export interface Bubble {
   x: number; y: number;    // canvas coordinates (viewport-agnostic units)
   size: number;            // visual importance (0..1)
   moodColor?: string;      // '#RRGGBB' from theme tokens
+  mood?: string;           // current mood state
   tags: Tag[];
   location?: { lat: number; lon: number };
   reminderId?: string;     // link to Reminder

@@ -171,8 +171,22 @@ class CBTService {
     return suggestions;
   }
 
-  // Generate supportive reframe suggestions
-  generateReframeSuggestions(thought: string, distortions: DistortionKey[]): string[] {
+  // Generate supportive reframe suggestions with AI enhancement
+  async generateReframeSuggestions(thought: string, distortions: DistortionKey[]): Promise<string[]> {
+    // Try AI first for personalized reframes
+    try {
+      const { aiService } = await import('./aiService');
+      if (aiService.isAIAvailable()) {
+        const response = await aiService.getCBTReframe(thought, distortions);
+        if (response.success && response.reframes) {
+          return response.reframes.map(r => r.text);
+        }
+      }
+    } catch (error) {
+      console.warn('AI reframe generation failed, using local templates:', error);
+    }
+
+    // Local fallback with updated distortion mapping
     const suggestions: string[] = [];
 
     if (distortions.includes('AllOrNothing')) {

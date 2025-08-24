@@ -240,13 +240,41 @@ class SelfModelV2Service {
       p.confidence < 0.3 && Date.now() - p.lastUpdated > 30 * 24 * 60 * 60 * 1000
     );
     
+    // Try AI-powered summary first
+    let insights = [
+      `You made ${monthAudits.length} updates to your self-model this month`,
+      'Your patterns continue to evolve',
+      'Growth happens in small steps'
+    ];
+
+    try {
+      const { aiService } = await import('./aiService');
+      if (aiService.isAIAvailable()) {
+        const response = await aiService.generateMonthlySummary(
+          month,
+          {},
+          [],
+          [],
+          patterns,
+          monthAudits.length
+        );
+
+        if (response.success && response.summary) {
+          insights = response.summary.insights || insights;
+        }
+      }
+    } catch (error) {
+      console.warn('AI monthly summary failed, using local insights:', error);
+    }
+
     const review: MonthlyReview = {
       id: `review-${month}`,
       month,
       createdAt: Date.now(),
       changes: monthAudits,
       archivedPatterns,
-      userNotes: ''
+      userNotes: '',
+      insights
     };
     
     const transaction = this.db!.transaction(['monthly_reviews'], 'readwrite');
