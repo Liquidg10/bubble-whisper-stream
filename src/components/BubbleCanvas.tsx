@@ -558,6 +558,7 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
       <CanvasRenderer 
         onBubbleSelect={onBubbleSelect}
         onBubbleEdit={onBubbleEdit}
+        theme={currentTheme}
       />
     </div>
   );
