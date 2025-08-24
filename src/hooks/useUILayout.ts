@@ -26,7 +26,7 @@ const DEFAULT_PANELS: Record<string, Omit<PanelState, 'id'>> = {
     priority: 2
   },
   minimap: {
-    isVisible: true,
+    isVisible: false, // Make minimap optional by default
     isMinimized: false,
     position: { x: -100, y: 20 }, // Negative x means right edge
     size: { width: 96, height: 96 },
