@@ -102,11 +102,7 @@ export default function Index() {
       
       {/* TemporalNavigation */}
       {isPanelVisible('temporal') && (
-        <div 
-          style={getPanelStyle('temporal')}
-          className="fixed bg-red-500/50 border-4 border-yellow-400"
-        >
-          <div className="bg-blue-500 text-white p-2">TEMPORAL PANEL IS HERE</div>
+        <div style={getPanelStyle('temporal')}>
           <TemporalNavigation
             isVisible={isPanelVisible('temporal')}
             isMinimized={isPanelMinimized('temporal')}
@@ -118,11 +114,7 @@ export default function Index() {
 
       {/* MiniMap */}
       {isPanelVisible('minimap') && (
-        <div 
-          style={getPanelStyle('minimap')}
-          className="fixed bg-green-500/50 border-4 border-purple-400"
-        >
-          <div className="bg-purple-500 text-white p-2">MINIMAP IS HERE</div>
+        <div style={getPanelStyle('minimap')}>
           <MiniMap
             bubbles={bubbles}
             viewport={viewport}
