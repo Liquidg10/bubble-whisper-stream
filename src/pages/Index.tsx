@@ -12,6 +12,8 @@ import { BubbleDetail } from '@/components/BubbleDetail';
 import TemporalNavigation from '@/components/TemporalNavigation';
 import { ConflictResolutionDialog } from '@/components/ConflictResolutionDialog';
 import { CollaborationHub } from '@/components/CollaborationHub';
+import { EnhancedVoiceCapture } from '@/components/EnhancedVoiceCapture';
+import { EnhancedPhotoCapture } from '@/components/EnhancedPhotoCapture';
 import { crossDeviceSyncService } from '@/services/crossDeviceSyncService';
 import { Settings, BookOpen, Brain } from 'lucide-react';
 
