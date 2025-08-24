@@ -72,16 +72,23 @@ export function useUILayout() {
 
   // Toggle panel visibility
   const togglePanel = useCallback((panelId: string) => {
-    setUIState(prev => ({
-      ...prev,
-      panels: {
-        ...prev.panels,
-        [panelId]: {
-          ...prev.panels[panelId],
-          isVisible: !prev.panels[panelId]?.isVisible
+    setUIState(prev => {
+      const currentPanel = prev.panels[panelId];
+      if (!currentPanel) return prev;
+      
+      const newVisibility = !currentPanel.isVisible;
+      
+      return {
+        ...prev,
+        panels: {
+          ...prev.panels,
+          [panelId]: {
+            ...currentPanel,
+            isVisible: newVisibility
+          }
         }
-      }
-    }));
+      };
+    });
   }, []);
 
   // Minimize/maximize panel
@@ -153,7 +160,7 @@ export function useUILayout() {
     const panel = uiState.panels[panelId];
     if (!panel || !panel.isVisible) return false;
 
-    // Hide in focus mode if priority is too low (only priority 1 panels)
+    // Hide in focus mode if priority is too low (only performance panel)
     if (uiState.focusMode && panel.priority < 2) return false;
     
     return true;
