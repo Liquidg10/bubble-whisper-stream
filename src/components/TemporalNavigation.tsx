@@ -204,6 +204,7 @@ const TemporalNavigation: React.FC<TemporalNavigationProps> = ({
 
   // Generate visualization data
   const timePoints = generateTimePoints();
+  const hasData = bubbles.length > 0 || cbtEntries.length > 0 || glimmers.length > 0;
 
   useEffect(() => {
     const range = getTimeRange();
@@ -311,41 +312,53 @@ const TemporalNavigation: React.FC<TemporalNavigationProps> = ({
               onTouchMove={onTouchMove}
               onTouchEnd={onTouchEnd}
             >
-              {/* Activity density bars */}
-              <div className="absolute inset-0 flex items-end">
-                {timePoints.map((point, index) => (
-                  <div
-                    key={index}
-                    className="flex-1 mx-0.5 rounded-t opacity-60 hover:opacity-100 transition-opacity"
-                    style={{
-                      height: `${Math.max(4, (point.bubbleCount / 10) * 100)}%`,
-                      backgroundColor: 'hsl(var(--primary))'
-                    }}
-                    title={`${point.date.toLocaleDateString()}: ${point.bubbleCount} activities`}
-                  />
-                ))}
-              </div>
-              
-              {/* Mood heatmap overlay */}
-              <div className="absolute inset-0 flex items-end">
-                {timePoints.map((point, index) => (
-                  <div
-                    key={`mood-${index}`}
-                    className="flex-1 mx-0.5 rounded-t opacity-40"
-                    style={{
-                      height: '8px',
-                      marginBottom: `${Math.max(4, (point.bubbleCount / 10) * 100)}%`,
-                      backgroundColor: getMoodColor(point.moodAverage)
-                    }}
-                    title={`Mood: ${point.moodAverage.toFixed(1)}/5`}
-                  />
-                ))}
-              </div>
-              
-              {/* Current date indicator */}
-              <div className="absolute inset-0 flex justify-center">
-                <div className="w-0.5 h-full bg-accent-foreground opacity-50" />
-              </div>
+              {hasData ? (
+                <>
+                  {/* Activity density bars */}
+                  <div className="absolute inset-0 flex items-end">
+                    {timePoints.map((point, index) => (
+                      <div
+                        key={index}
+                        className="flex-1 mx-0.5 rounded-t opacity-60 hover:opacity-100 transition-opacity"
+                        style={{
+                          height: `${Math.max(4, (point.bubbleCount / 10) * 100)}%`,
+                          backgroundColor: 'hsl(var(--primary))'
+                        }}
+                        title={`${point.date.toLocaleDateString()}: ${point.bubbleCount} activities`}
+                      />
+                    ))}
+                  </div>
+                  
+                  {/* Mood heatmap overlay */}
+                  <div className="absolute inset-0 flex items-end">
+                    {timePoints.map((point, index) => (
+                      <div
+                        key={`mood-${index}`}
+                        className="flex-1 mx-0.5 rounded-t opacity-40"
+                        style={{
+                          height: '8px',
+                          marginBottom: `${Math.max(4, (point.bubbleCount / 10) * 100)}%`,
+                          backgroundColor: getMoodColor(point.moodAverage)
+                        }}
+                        title={`Mood: ${point.moodAverage.toFixed(1)}/5`}
+                      />
+                    ))}
+                  </div>
+                  
+                  {/* Current date indicator */}
+                  <div className="absolute inset-0 flex justify-center">
+                    <div className="w-0.5 h-full bg-accent-foreground opacity-50" />
+                  </div>
+                </>
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-center bg-muted/20 rounded">
+                  <div className="text-center text-muted-foreground">
+                    <TrendingUp className="w-6 h-6 mx-auto mb-2 opacity-50" />
+                    <p className="text-xs">Empty timeline</p>
+                    <p className="text-xs opacity-60">Your activity will appear here</p>
+                  </div>
+                </div>
+              )}
             </div>
             
             {/* Time range slider */}
@@ -368,30 +381,42 @@ const TemporalNavigation: React.FC<TemporalNavigationProps> = ({
             
             {/* Statistics for current view */}
             <div className="grid grid-cols-3 gap-4 pt-4 border-t">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-primary">
-                  {timePoints.reduce((sum, p) => sum + p.bubbleCount, 0)}
+              {hasData ? (
+                <>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-primary">
+                      {timePoints.reduce((sum, p) => sum + p.bubbleCount, 0)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Total Activities</div>
+                  </div>
+                  
+                  <div className="text-center">
+                    <div className="text-2xl font-bold" style={{ 
+                      color: getMoodColor(
+                        timePoints.reduce((sum, p) => sum + p.moodAverage, 0) / Math.max(timePoints.length, 1)
+                      )
+                    }}>
+                      {(timePoints.reduce((sum, p) => sum + p.moodAverage, 0) / Math.max(timePoints.length, 1)).toFixed(1)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Avg Mood</div>
+                  </div>
+                  
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-secondary-foreground">
+                      {new Set(timePoints.flatMap(p => p.activities)).size}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Activity Types</div>
+                  </div>
+                </>
+              ) : (
+                <div className="col-span-3 text-center py-8">
+                  <div className="text-muted-foreground">
+                    <Activity className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">No activity data yet</p>
+                    <p className="text-xs opacity-60">Create some bubbles to see your timeline!</p>
+                  </div>
                 </div>
-                <div className="text-xs text-muted-foreground">Total Activities</div>
-              </div>
-              
-              <div className="text-center">
-                <div className="text-2xl font-bold" style={{ 
-                  color: getMoodColor(
-                    timePoints.reduce((sum, p) => sum + p.moodAverage, 0) / Math.max(timePoints.length, 1)
-                  )
-                }}>
-                  {(timePoints.reduce((sum, p) => sum + p.moodAverage, 0) / Math.max(timePoints.length, 1)).toFixed(1)}
-                </div>
-                <div className="text-xs text-muted-foreground">Avg Mood</div>
-              </div>
-              
-              <div className="text-center">
-                <div className="text-2xl font-bold text-secondary-foreground">
-                  {new Set(timePoints.flatMap(p => p.activities)).size}
-                </div>
-                <div className="text-xs text-muted-foreground">Activity Types</div>
-              </div>
+              )}
             </div>
           </div>
         </Tabs>

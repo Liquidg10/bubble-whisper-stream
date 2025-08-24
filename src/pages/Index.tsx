@@ -43,7 +43,13 @@ export default function Index() {
     isMobile
   } = useUILayout();
 
-  // Create sample bubbles for first-time users
+  // Initialize store on mount
+  useEffect(() => {
+    const { initializeStore } = useBubbleStore.getState();
+    initializeStore();
+  }, []);
+
+  // Create welcome bubble only after store is initialized and still no bubbles
   useEffect(() => {
     if (!isLoading && bubbles.length === 0) {
       const { addBubble, updateBubble } = useBubbleStore.getState();

@@ -7,21 +7,41 @@ class StorageService {
   private db: IDBDatabase | null = null;
   private readonly dbName = 'BubbleUniverse';
   private readonly dbVersion = 3;
+  private isIndexedDBSupported = true;
+  private fallbackMode = false;
 
   async initialize(): Promise<void> {
     try {
+      // Check if IndexedDB is supported
+      if (!window.indexedDB) {
+        console.warn('StorageService: IndexedDB not supported, switching to fallback mode');
+        this.isIndexedDBSupported = false;
+        this.fallbackMode = true;
+        return;
+      }
+
       return new Promise((resolve, reject) => {
         console.log('StorageService: Initializing IndexedDB...');
         const request = indexedDB.open(this.dbName, this.dbVersion);
 
+        const timeout = setTimeout(() => {
+          console.error('StorageService: IndexedDB initialization timeout');
+          this.fallbackMode = true;
+          reject(new Error('IndexedDB initialization timeout'));
+        }, 10000); // 10 second timeout
+
         request.onerror = () => {
+          clearTimeout(timeout);
           console.error('StorageService: IndexedDB error:', request.error);
+          this.fallbackMode = true;
           reject(request.error);
         };
         
         request.onsuccess = () => {
+          clearTimeout(timeout);
           console.log('StorageService: IndexedDB initialized successfully');
           this.db = request.result;
+          this.fallbackMode = false;
           resolve();
         };
 
@@ -103,7 +123,33 @@ class StorageService {
 
   // Check if database is ready
   isInitialized(): boolean {
-    return this.db !== null;
+    return this.db !== null || this.fallbackMode;
+  }
+
+  // Check if in fallback mode
+  isFallbackMode(): boolean {
+    return this.fallbackMode;
+  }
+
+  // Reset corrupted database
+  async resetDatabase(): Promise<void> {
+    if (this.db) {
+      this.db.close();
+      this.db = null;
+    }
+    
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const deleteRequest = indexedDB.deleteDatabase(this.dbName);
+        deleteRequest.onsuccess = () => resolve();
+        deleteRequest.onerror = () => reject(deleteRequest.error);
+      });
+      console.log('StorageService: Database reset successfully');
+      await this.initialize();
+    } catch (error) {
+      console.error('StorageService: Failed to reset database:', error);
+      this.fallbackMode = true;
+    }
   }
 
   // Initialize with retry mechanism
@@ -125,6 +171,10 @@ class StorageService {
 
   // Bubbles CRUD
   async createBubble(bubble: Bubble): Promise<void> {
+    if (this.fallbackMode) {
+      console.log('StorageService: In fallback mode, skipping bubble persistence');
+      return;
+    }
     if (!this.db) throw new Error('Database not initialized');
     
     const transaction = this.db.transaction(['bubbles'], 'readwrite');
@@ -142,6 +192,10 @@ class StorageService {
   }
 
   async getAllBubbles(): Promise<Bubble[]> {
+    if (this.fallbackMode) {
+      console.log('StorageService: In fallback mode, returning empty bubbles array');
+      return [];
+    }
     if (!this.db) throw new Error('Database not initialized');
     
     const transaction = this.db.transaction(['bubbles'], 'readonly');

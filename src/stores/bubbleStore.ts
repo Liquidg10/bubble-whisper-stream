@@ -170,7 +170,8 @@ export const useBubbleStore = create<BubbleStore>()(
           console.log('BubbleStore: Loaded data:', { 
             bubblesCount: bubbles.length, 
             remindersCount: reminders.length,
-            tagsCount: tags.length 
+            tagsCount: tags.length,
+            fallbackMode: storageService.isFallbackMode()
           });
           
           set({
@@ -179,19 +180,20 @@ export const useBubbleStore = create<BubbleStore>()(
             tags,
             settings,
             selfModel,
-            isLoading: false,
           });
 
-          // If no bubbles exist, create some sample data for better UX
+          // Always create sample data if no bubbles exist, then mark as loaded
           if (bubbles.length === 0) {
             console.log('BubbleStore: No bubbles found, creating sample data...');
-            get().createSampleBubbles();
+            await get().createSampleBubbles();
           }
+          
+          set({ isLoading: false });
         } catch (error) {
           console.error('BubbleStore: Failed to initialize:', error);
           // Fall back to in-memory mode with sample data
           console.log('BubbleStore: Falling back to in-memory mode...');
-          get().createSampleBubbles();
+          await get().createSampleBubbles();
           set({ isLoading: false });
         }
       },

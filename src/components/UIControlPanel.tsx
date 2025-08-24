@@ -2,6 +2,7 @@
 
 import React, { useEffect } from 'react';
 import { ViewMenu } from '@/components/ViewMenu';
+import { StorageStatusIndicator } from '@/components/StorageStatusIndicator';
 import { useUILayout } from '@/hooks/useUILayout';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -53,8 +54,9 @@ export function UIControlPanel() {
   }, [togglePanel, toggleFocusMode, isPanelVisible, themes, currentTheme, setTheme]);
 
   return (
-    <div className="fixed top-4 right-4 z-30">
+    <div className="fixed top-4 right-4 z-30 flex flex-col gap-2">
       <ViewMenu />
+      <StorageStatusIndicator />
     </div>
   );
 }
