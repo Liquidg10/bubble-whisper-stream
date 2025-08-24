@@ -104,43 +104,65 @@ export default function Index() {
       {(() => {
         const isVisible = isPanelVisible('temporal');
         console.log(`📍 Index: Temporal panel visibility check: ${isVisible}`);
+        console.log(`📍 Index: About to render temporal? ${isVisible ? 'YES' : 'NO'}`);
+        
         if (isVisible) {
           const style = getPanelStyle('temporal');
           console.log(`📍 Index: Temporal panel style:`, style);
+          console.log(`📍 Index: RENDERING TEMPORAL NAVIGATION`);
+          
+          return (
+            <div 
+              style={getPanelStyle('temporal')}
+              className="fixed bg-red-500/50 border-4 border-yellow-400"
+            >
+              <div className="bg-blue-500 text-white p-2">TEMPORAL PANEL IS HERE</div>
+              <TemporalNavigation
+                isVisible={isPanelVisible('temporal')}
+                isMinimized={isPanelMinimized('temporal')}
+                onToggleMinimize={() => toggleMinimize('temporal')}
+                onClose={() => togglePanel('temporal')}
+              />
+            </div>
+          );
         }
-        return isVisible ? (
-          <div style={getPanelStyle('temporal')}>
-            <TemporalNavigation
-              isVisible={isPanelVisible('temporal')}
-              isMinimized={isPanelMinimized('temporal')}
-              onToggleMinimize={() => toggleMinimize('temporal')}
-              onClose={() => togglePanel('temporal')}
-            />
-          </div>
-        ) : null;
+        
+        console.log(`📍 Index: NOT rendering temporal (isVisible: ${isVisible})`);
+        return null;
       })()}
 
       {/* MiniMap */}
       {(() => {
         const isVisible = isPanelVisible('minimap');
         console.log(`📍 Index: Minimap panel visibility check: ${isVisible}`);
+        console.log(`📍 Index: About to render minimap? ${isVisible ? 'YES' : 'NO'}`);
+        
         if (isVisible) {
           const style = getPanelStyle('minimap');
           console.log(`📍 Index: Minimap panel style:`, style);
+          console.log(`📍 Index: RENDERING MINIMAP`);
+          
+          return (
+            <div 
+              style={getPanelStyle('minimap')}
+              className="fixed bg-green-500/50 border-4 border-purple-400"
+            >
+              <div className="bg-purple-500 text-white p-2">MINIMAP IS HERE</div>
+              <MiniMap
+                bubbles={bubbles}
+                viewport={viewport}
+                onViewportChange={setViewport}
+                isVisible={isPanelVisible('minimap')}
+                isMinimized={isPanelMinimized('minimap')}
+                onToggleMinimize={() => toggleMinimize('minimap')}
+                onToggleVisibility={() => togglePanel('minimap')}
+              />
+            </div>
+          );
         }
-        return isVisible ? (
-          <div style={getPanelStyle('minimap')}>
-            <MiniMap
-              bubbles={bubbles}
-              viewport={viewport}
-              onViewportChange={setViewport}
-              isVisible={isPanelVisible('minimap')}
-              isMinimized={isPanelMinimized('minimap')}
-              onToggleMinimize={() => toggleMinimize('minimap')}
-              onToggleVisibility={() => togglePanel('minimap')}
-            />
-          </div>
-        ) : null;
+        
+        console.log(`📍 Index: NOT rendering minimap (isVisible: ${isVisible})`);
+        return null;
       })()}
       
       <BubbleDetail
