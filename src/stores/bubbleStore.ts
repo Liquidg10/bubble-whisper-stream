@@ -37,6 +37,9 @@ interface BubbleStore {
     cleaningCuesEnabled?: boolean;
     personalVoiceEnabled?: boolean;
     biometricEnabled?: boolean;
+    calendarIntegrationEnabled?: boolean;
+    emailIntegrationEnabled?: boolean;
+    bankingIntegrationEnabled?: boolean;
   };
   selfModel: SelfModel;
   isLoading: boolean;
@@ -87,7 +90,11 @@ interface BubbleStore {
   addTag: (tag: Tag) => Promise<void>;
   
   // Settings actions
-  updateSettings: (settings: Partial<Settings>) => Promise<void>;
+  updateSettings: (settings: Partial<Settings & {
+    calendarIntegrationEnabled?: boolean;
+    emailIntegrationEnabled?: boolean;
+    bankingIntegrationEnabled?: boolean;
+  }>) => Promise<void>;
   
   // Self model actions
   updateSelfModel: (model: SelfModel) => Promise<void>;

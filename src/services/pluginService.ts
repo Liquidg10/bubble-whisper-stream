@@ -369,6 +369,9 @@ class PluginManager {
   }
 
   private createPluginAPI(manifest: PluginManifest): PluginAPI {
+    // Import bubble store dynamically to avoid circular imports
+    const getBubbleStore = () => import('@/stores/bubbleStore').then(m => m.useBubbleStore.getState());
+    
     // Create capability-filtered API
     const api: any = {};
     
@@ -377,22 +380,155 @@ class PluginManager {
         case 'bubble':
           if (cap.scope === 'read') {
             api.getBubbles = async (filter?: any) => {
-              // Apply capability filters and return bubbles
-              return [];
+              const store = await getBubbleStore();
+              let bubbles = store.bubbles;
+              
+              // Apply capability filters
+              if (cap.filters?.tags) {
+                bubbles = bubbles.filter(b => 
+                  b.tags.some(tag => cap.filters!.tags!.includes(typeof tag === 'string' ? tag : tag.name))
+                );
+              }
+              if (cap.filters?.types) {
+                bubbles = bubbles.filter(b => 
+                  cap.filters!.types!.includes(b.type)
+                );
+              }
+              if (cap.filters?.timeRange) {
+                const start = new Date(cap.filters.timeRange.start).getTime();
+                const end = new Date(cap.filters.timeRange.end).getTime();
+                bubbles = bubbles.filter(b => 
+                  b.createdAt >= start && b.createdAt <= end
+                );
+              }
+              
+              return bubbles;
             };
           }
           if (cap.scope === 'write') {
             api.createBubble = async (data: any) => {
-              // Create bubble with validation
-              return {};
+              const store = await getBubbleStore();
+              const bubble = {
+                id: crypto.randomUUID(),
+                content: data.content || '',
+                type: data.type || 'Thought',
+                size: data.size || 40,
+                x: data.x || Math.random() * 400,
+                y: data.y || Math.random() * 400,
+                tags: data.tags || [],
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+                completed: false,
+                ...data
+              };
+              await store.addBubble(bubble);
+              
+              // Emit event for other plugins
+              this.eventBus.emit('bubble-created', { bubble, pluginId: manifest.id });
+              
+              return bubble;
+            };
+            
+            api.updateBubble = async (id: string, data: any) => {
+              const store = await getBubbleStore();
+              const existing = store.bubbles.find(b => b.id === id);
+              if (!existing) throw new Error('Bubble not found');
+              
+              const updated = { ...existing, ...data, updatedAt: Date.now() };
+              await store.updateBubble(updated);
+              
+              this.eventBus.emit('bubble-updated', { bubble: updated, pluginId: manifest.id });
+            };
+            
+            api.deleteBubble = async (id: string) => {
+              const store = await getBubbleStore();
+              await store.deleteBubble(id);
+              
+              this.eventBus.emit('bubble-deleted', { bubbleId: id, pluginId: manifest.id });
             };
           }
           break;
+          
+        case 'cbt':
+          if (cap.scope === 'read') {
+            api.getCBTEntries = async (filter?: any) => {
+              const store = await getBubbleStore();
+              return store.getCBTEntries();
+            };
+          }
+          if (cap.scope === 'write') {
+            api.createCBTEntry = async (data: any) => {
+              const store = await getBubbleStore();
+              const entry = {
+                id: crypto.randomUUID(),
+                thought: data.thought || '',
+                feeling: data.feeling || '',
+                evidence: data.evidence || '',
+                reframe: data.reframe || '',
+                mood: data.mood || 5,
+                createdAt: Date.now(),
+                ...data
+              };
+              await store.addCBTEntry(entry);
+              
+              this.eventBus.emit('cbt-entry-created', { entry, pluginId: manifest.id });
+              
+              return entry;
+            };
+          }
+          break;
+          
         case 'search':
           if (cap.scope === 'read') {
             api.search = async (query: string, filter?: any) => {
-              // Perform search
-              return [];
+              const store = await getBubbleStore();
+              const allBubbles = store.bubbles;
+              
+              // Simple text search implementation
+              const results = allBubbles.filter(bubble => 
+                bubble.content.toLowerCase().includes(query.toLowerCase()) ||
+                bubble.tags.some(tag => (typeof tag === 'string' ? tag : tag.name).toLowerCase().includes(query.toLowerCase()))
+              );
+              
+              return results;
+            };
+          }
+          break;
+          
+        case 'glimmer':
+          if (cap.scope === 'write') {
+            api.createGlimmer = async (data: any) => {
+              const store = await getBubbleStore();
+              const glimmer = {
+                id: crypto.randomUUID(),
+                type: data.type || 'insight',
+                content: data.content || '',
+                source: `plugin:${manifest.id}`,
+                createdAt: Date.now(),
+                dismissed: false,
+                ...data
+              };
+              await store.addGlimmer(glimmer);
+              
+              this.eventBus.emit('glimmer-created', { glimmer, pluginId: manifest.id });
+              
+              return glimmer;
+            };
+          }
+          break;
+          
+        case 'setting':
+          if (cap.scope === 'admin') {
+            api.getSettings = async () => {
+              const store = await getBubbleStore();
+              return store.settings;
+            };
+            
+            api.updateSettings = async (data: any) => {
+              const store = await getBubbleStore();
+              await store.updateSettings(data);
+              
+              this.eventBus.emit('settings-updated', { settings: data, pluginId: manifest.id });
             };
           }
           break;
@@ -499,4 +635,16 @@ class PluginQuotaManager implements QuotaManager {
   }
 }
 
+// Global event bus for plugin system
+export const globalPluginEventBus = new EventEmitter();
+
 export const pluginManager = new PluginManager();
+
+// Export event types for type safety
+export type PluginEvent = 
+  | { type: 'bubble-created'; data: { bubble: any; pluginId: string } }
+  | { type: 'bubble-updated'; data: { bubble: any; pluginId: string } }
+  | { type: 'bubble-deleted'; data: { bubbleId: string; pluginId: string } }
+  | { type: 'cbt-entry-created'; data: { entry: any; pluginId: string } }
+  | { type: 'glimmer-created'; data: { glimmer: any; pluginId: string } }
+  | { type: 'settings-updated'; data: { settings: any; pluginId: string } };

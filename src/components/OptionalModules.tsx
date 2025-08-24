@@ -21,6 +21,10 @@ import { DocumentScanner } from './DocumentScanner';
 import { PersonalVoiceTrainer } from './PersonalVoiceTrainer';
 import { EnhancedGroceryHelper } from './EnhancedGroceryHelper';
 import { RealTimeCollaboration } from './RealTimeCollaboration';
+import { CalendarIntegrationPlugin } from '@/plugins/CalendarIntegrationPlugin';
+import { EmailIntegrationPlugin } from '@/plugins/EmailIntegrationPlugin';
+import { BankingIntegrationPlugin } from '@/plugins/BankingIntegrationPlugin';
+import { PluginSDK } from '@/plugins/PluginSDK';
 
 export function OptionalModules() {
   const { settings, updateSettings } = useBubbleStore();
@@ -51,6 +55,14 @@ export function OptionalModules() {
 
   return (
     <div className="space-y-6">
+      {/* Plugin SDK & Development */}
+      <PluginSDK />
+      
+      {/* Core Integration Plugins */}
+      <CalendarIntegrationPlugin />
+      <EmailIntegrationPlugin />
+      <BankingIntegrationPlugin />
+      
       {/* Enhanced Modules */}
       <EnhancedGroceryHelper />
       
