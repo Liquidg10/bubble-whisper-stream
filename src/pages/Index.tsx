@@ -101,31 +101,47 @@ export default function Index() {
       <GlimmerNotifications />
       
       {/* TemporalNavigation */}
-      {isPanelVisible('temporal') && (
-        <div style={getPanelStyle('temporal')}>
-          <TemporalNavigation
-            isVisible={isPanelVisible('temporal')}
-            isMinimized={isPanelMinimized('temporal')}
-            onToggleMinimize={() => toggleMinimize('temporal')}
-            onClose={() => togglePanel('temporal')}
-          />
-        </div>
-      )}
+      {(() => {
+        const isVisible = isPanelVisible('temporal');
+        console.log(`📍 Index: Temporal panel visibility check: ${isVisible}`);
+        if (isVisible) {
+          const style = getPanelStyle('temporal');
+          console.log(`📍 Index: Temporal panel style:`, style);
+        }
+        return isVisible ? (
+          <div style={getPanelStyle('temporal')}>
+            <TemporalNavigation
+              isVisible={isPanelVisible('temporal')}
+              isMinimized={isPanelMinimized('temporal')}
+              onToggleMinimize={() => toggleMinimize('temporal')}
+              onClose={() => togglePanel('temporal')}
+            />
+          </div>
+        ) : null;
+      })()}
 
       {/* MiniMap */}
-      {isPanelVisible('minimap') && (
-        <div style={getPanelStyle('minimap')}>
-          <MiniMap
-            bubbles={bubbles}
-            viewport={viewport}
-            onViewportChange={setViewport}
-            isVisible={isPanelVisible('minimap')}
-            isMinimized={isPanelMinimized('minimap')}
-            onToggleMinimize={() => toggleMinimize('minimap')}
-            onToggleVisibility={() => togglePanel('minimap')}
-          />
-        </div>
-      )}
+      {(() => {
+        const isVisible = isPanelVisible('minimap');
+        console.log(`📍 Index: Minimap panel visibility check: ${isVisible}`);
+        if (isVisible) {
+          const style = getPanelStyle('minimap');
+          console.log(`📍 Index: Minimap panel style:`, style);
+        }
+        return isVisible ? (
+          <div style={getPanelStyle('minimap')}>
+            <MiniMap
+              bubbles={bubbles}
+              viewport={viewport}
+              onViewportChange={setViewport}
+              isVisible={isPanelVisible('minimap')}
+              isMinimized={isPanelMinimized('minimap')}
+              onToggleMinimize={() => toggleMinimize('minimap')}
+              onToggleVisibility={() => togglePanel('minimap')}
+            />
+          </div>
+        ) : null;
+      })()}
       
       <BubbleDetail
         bubble={selectedBubble}

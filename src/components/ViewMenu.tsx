@@ -77,12 +77,15 @@ export function ViewMenu() {
           <DropdownMenuCheckboxItem
             key={id}
             checked={isPanelVisible(id)}
-            onCheckedChange={() => togglePanel(id)}
+            onCheckedChange={() => {
+              console.log(`🍔 ViewMenu: Toggling ${id}, current visible: ${isPanelVisible(id)}`);
+              togglePanel(id);
+            }}
             className="flex items-start gap-3 p-3"
           >
             <Icon className="w-4 h-4 mt-0.5 text-muted-foreground" />
             <div className="flex-1">
-              <div className="font-medium text-sm">{label}</div>
+              <div className="font-medium text-sm">{label} {isPanelVisible(id) ? '✓' : '○'}</div>
               <div className="text-xs text-muted-foreground mt-0.5">
                 {description}
               </div>

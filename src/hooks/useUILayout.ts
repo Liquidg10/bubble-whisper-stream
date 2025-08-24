@@ -72,13 +72,18 @@ export function useUILayout() {
 
   // Toggle panel visibility
   const togglePanel = useCallback((panelId: string) => {
+    console.log(`🔄 Toggling panel: ${panelId}`);
     setUIState(prev => {
       const currentPanel = prev.panels[panelId];
-      if (!currentPanel) return prev;
+      if (!currentPanel) {
+        console.log(`❌ Panel ${panelId} not found`);
+        return prev;
+      }
       
       const newVisibility = !currentPanel.isVisible;
+      console.log(`🎛️ Panel ${panelId}: ${currentPanel.isVisible} -> ${newVisibility}`);
       
-      return {
+      const newState = {
         ...prev,
         panels: {
           ...prev.panels,
@@ -88,6 +93,9 @@ export function useUILayout() {
           }
         }
       };
+      
+      console.log(`📊 New state for ${panelId}:`, newState.panels[panelId]);
+      return newState;
     });
   }, []);
 
@@ -144,25 +152,45 @@ export function useUILayout() {
       ? { width: '48px', height: '48px' }
       : { width: `${size.width}px`, height: `${size.height}px` };
 
-    return {
+    const style = {
       position: 'fixed' as const,
       left: actualX,
       top: actualY,
       ...actualSize,
       zIndex: 10 + panel.priority,
       transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-      pointerEvents: 'auto' as const
+      pointerEvents: 'auto' as const,
+      // Add debugging background
+      backgroundColor: 'rgba(255, 0, 0, 0.1)',
+      border: '2px solid red'
     };
+    
+    console.log(`🎨 Style for ${panelId}:`, style);
+    return style;
   }, [uiState.panels]);
 
   // Check if panel should be shown
   const isPanelVisible = useCallback((panelId: string) => {
     const panel = uiState.panels[panelId];
-    if (!panel || !panel.isVisible) return false;
+    console.log(`👁️ Checking visibility for ${panelId}:`, {
+      exists: !!panel,
+      isVisible: panel?.isVisible,
+      focusMode: uiState.focusMode,
+      priority: panel?.priority
+    });
+    
+    if (!panel || !panel.isVisible) {
+      console.log(`❌ Panel ${panelId} not visible: exists=${!!panel}, isVisible=${panel?.isVisible}`);
+      return false;
+    }
 
     // Hide in focus mode if priority is too low (only performance panel)
-    if (uiState.focusMode && panel.priority < 2) return false;
+    if (uiState.focusMode && panel.priority < 2) {
+      console.log(`🎯 Panel ${panelId} hidden in focus mode (priority ${panel.priority})`);
+      return false;
+    }
     
+    console.log(`✅ Panel ${panelId} should be visible`);
     return true;
   }, [uiState.panels, uiState.focusMode]);
 
