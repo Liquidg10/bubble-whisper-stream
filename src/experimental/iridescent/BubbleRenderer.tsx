@@ -86,9 +86,13 @@ export default function IridescentBubbleRenderer({ onBubbleSelect, onBubbleEdit,
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
     
+    // Calculate drag offset using bubble coordinates (without the +400/+300 offset)
+    const bubbleX = node.x - 400; // Convert back to bubble coordinate space
+    const bubbleY = node.y - 300;
+    
     setDragOffset({
-      x: e.clientX - rect.left - (node.x + node.r),
-      y: e.clientY - rect.top - (node.y + node.r)
+      x: e.clientX - rect.left - node.x,
+      y: e.clientY - rect.top - node.y
     });
     setDragging(nodeId);
   }, [nodes]);
@@ -103,8 +107,13 @@ export default function IridescentBubbleRenderer({ onBubbleSelect, onBubbleEdit,
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
     
-    const newX = e.clientX - rect.left - dragOffset.x;
-    const newY = e.clientY - rect.top - dragOffset.y;
+    // Calculate new position in canvas coordinates, then convert to bubble coordinates
+    const canvasX = e.clientX - rect.left - dragOffset.x;
+    const canvasY = e.clientY - rect.top - dragOffset.y;
+    
+    // Convert from node coordinates (with +400/+300 offset) back to bubble coordinates
+    const newX = canvasX - 400;
+    const newY = canvasY - 300;
     
     const updatedBubble = { ...bubble, x: newX, y: newY, updatedAt: Date.now() };
     useBubbleStore.getState().updateBubble(updatedBubble);
