@@ -38,8 +38,11 @@ class TTSService {
   private async loadSettings(): Promise<void> {
     try {
       const settings = await storageService.getSettings();
-      if (settings?.tts) {
-        this.settings = { ...this.settings, ...settings.tts };
+      if (settings) {
+        this.settings = { 
+          ...this.settings, 
+          enabled: settings.ttsEnabled ?? this.settings.enabled 
+        };
       }
     } catch (error) {
       console.warn('Failed to load TTS settings:', error);
