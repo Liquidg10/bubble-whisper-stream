@@ -23,7 +23,7 @@ const DEFAULT_PANELS: Record<string, Omit<PanelState, 'id'>> = {
     isMinimized: false,
     position: { x: 20, y: 20 },
     size: { width: 320, height: 400 },
-    priority: 2
+    priority: 5
   },
   minimap: {
     isVisible: true,
