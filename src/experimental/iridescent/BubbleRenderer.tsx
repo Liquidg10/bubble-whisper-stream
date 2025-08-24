@@ -81,10 +81,12 @@ export default function IridescentBubbleRenderer({ onBubbleSelect, onBubbleEdit,
       updatedNodes.push(selectedNode);
     }
 
-    const rect = e.currentTarget.getBoundingClientRect();
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    
     setDragOffset({
-      x: e.clientX - rect.left - node.r,
-      y: e.clientY - rect.top - node.r
+      x: e.clientX - rect.left - (node.x + node.r),
+      y: e.clientY - rect.top - (node.y + node.r)
     });
     setDragging(nodeId);
   }, [nodes]);
@@ -96,8 +98,11 @@ export default function IridescentBubbleRenderer({ onBubbleSelect, onBubbleEdit,
     const bubble = bubbles.find(b => parseInt(b.id) === dragging);
     if (!bubble) return;
 
-    const newX = e.clientX - dragOffset.x - 400;
-    const newY = e.clientY - dragOffset.y - 300;
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    
+    const newX = e.clientX - rect.left - dragOffset.x;
+    const newY = e.clientY - rect.top - dragOffset.y;
     
     const updatedBubble = { ...bubble, x: newX, y: newY, updatedAt: Date.now() };
     useBubbleStore.getState().updateBubble(updatedBubble);
@@ -187,7 +192,11 @@ export default function IridescentBubbleRenderer({ onBubbleSelect, onBubbleEdit,
       className={`relative w-full h-full overflow-hidden bg-universe ${className || ''}`}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      style={{ background: 'var(--bg-universe)', position: 'relative' }}
+      style={{ 
+        background: 'var(--bg-universe)', 
+        position: 'relative',
+        touchAction: 'none'
+      }}
     >
       {/* Render bubbles */}
       {nodes.map((node, index) => {
