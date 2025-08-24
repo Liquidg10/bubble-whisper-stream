@@ -46,6 +46,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
   
   const [dragging, setDragging] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [hasDragged, setHasDragged] = useState(false);
   const [confirm, setConfirm] = useState<{ x: number; y: number; a: string; b: string } | null>(null);
   const [toast, setToast] = useState(false);
   const [lastMerge, setLastMerge] = useState<any>(null);
@@ -128,10 +129,14 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
       y: e.clientY - rect.top - node.y
     });
     setDragging(nodeId);
+    setHasDragged(false);
   }, [nodes]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!dragging) return;
+    
+    // Mark that we have dragged to prevent click events
+    setHasDragged(true);
     
     // Update bubble position in store
     const bubble = bubbles.find(b => b.id === dragging);
@@ -220,6 +225,9 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
   }, [lastMerge, undoLastMerge]);
 
   const handleBubbleClick = useCallback((nodeId: string) => {
+    // Only handle click if we haven't dragged
+    if (hasDragged) return;
+    
     const bubble = bubbles.find(b => b.id === nodeId);
     if (bubble) {
       if (onBubbleSelect) {
@@ -228,7 +236,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
       // Also toggle selection for the renderer
       toggleSelection(bubble.id);
     }
-  }, [bubbles, onBubbleSelect, toggleSelection]);
+  }, [bubbles, onBubbleSelect, toggleSelection, hasDragged]);
 
   // Zoom controls
   const zoomIn = useCallback(() => {
