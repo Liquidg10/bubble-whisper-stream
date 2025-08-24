@@ -4,7 +4,6 @@
  */
 
 import type { Theme } from '../ThemeTypes';
-import { IridescentCanvas } from '@/experimental/iridescent';
 
 export const iridescentSoapTheme: Theme = {
   id: 'iridescent-soap',
@@ -106,10 +105,10 @@ export const iridescentSoapTheme: Theme = {
     lowDetailMode: false,
   },
   
-  // Custom renderer for iridescent effects
-  components: {
-    CanvasRenderer: IridescentCanvas
-  },
+  // Custom renderer for iridescent effects (disabled temporarily to fix circular dependency)
+  // components: {
+  //   CanvasRenderer: IridescentCanvas
+  // },
   
   onApply: (document) => {
     // Add theme-specific global styles if needed
