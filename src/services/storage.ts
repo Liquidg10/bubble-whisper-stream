@@ -9,14 +9,21 @@ class StorageService {
   private readonly dbVersion = 3;
 
   async initialize(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open(this.dbName, 3); // Upgrade to v3 for Phase 2
+    try {
+      return new Promise((resolve, reject) => {
+        console.log('StorageService: Initializing IndexedDB...');
+        const request = indexedDB.open(this.dbName, this.dbVersion);
 
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => {
-        this.db = request.result;
-        resolve();
-      };
+        request.onerror = () => {
+          console.error('StorageService: IndexedDB error:', request.error);
+          reject(request.error);
+        };
+        
+        request.onsuccess = () => {
+          console.log('StorageService: IndexedDB initialized successfully');
+          this.db = request.result;
+          resolve();
+        };
 
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
@@ -87,7 +94,33 @@ class StorageService {
           consentStore.createIndex('timestamp', 'timestamp', { unique: false });
         }
       };
-    });
+      });
+    } catch (error) {
+      console.error('StorageService: Failed to initialize:', error);
+      throw error;
+    }
+  }
+
+  // Check if database is ready
+  isInitialized(): boolean {
+    return this.db !== null;
+  }
+
+  // Initialize with retry mechanism
+  async initializeWithRetry(maxRetries: number = 3): Promise<void> {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        await this.initialize();
+        return;
+      } catch (error) {
+        console.warn(`StorageService: Initialization attempt ${attempt} failed:`, error);
+        if (attempt === maxRetries) {
+          throw new Error(`Failed to initialize storage after ${maxRetries} attempts`);
+        }
+        // Wait before retry
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+      }
+    }
   }
 
   // Bubbles CRUD

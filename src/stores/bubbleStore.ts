@@ -59,6 +59,7 @@ interface BubbleStore {
   
   // Actions
   initializeStore: () => Promise<void>;
+  createSampleBubbles: () => Promise<void>;
   
   // Selection actions
   toggleSelection: (bubbleId: string) => void;
@@ -155,7 +156,8 @@ export const useBubbleStore = create<BubbleStore>()(
         set({ isLoading: true });
         
         try {
-          await storageService.initialize();
+          console.log('BubbleStore: Initializing...');
+          await storageService.initializeWithRetry(3);
           
           const [bubbles, reminders, tags, settings, selfModel] = await Promise.all([
             storageService.getAllBubbles(),
@@ -165,6 +167,12 @@ export const useBubbleStore = create<BubbleStore>()(
             storageService.getSelfModel(),
           ]);
           
+          console.log('BubbleStore: Loaded data:', { 
+            bubblesCount: bubbles.length, 
+            remindersCount: reminders.length,
+            tagsCount: tags.length 
+          });
+          
           set({
             bubbles,
             reminders,
@@ -173,9 +181,78 @@ export const useBubbleStore = create<BubbleStore>()(
             selfModel,
             isLoading: false,
           });
+
+          // If no bubbles exist, create some sample data for better UX
+          if (bubbles.length === 0) {
+            console.log('BubbleStore: No bubbles found, creating sample data...');
+            get().createSampleBubbles();
+          }
         } catch (error) {
-          console.error('Failed to initialize store:', error);
+          console.error('BubbleStore: Failed to initialize:', error);
+          // Fall back to in-memory mode with sample data
+          console.log('BubbleStore: Falling back to in-memory mode...');
+          get().createSampleBubbles();
           set({ isLoading: false });
+        }
+      },
+
+      // Create sample bubbles for demo/fallback
+      createSampleBubbles: async () => {
+        const now = Date.now();
+        const sampleBubbles: Bubble[] = [
+          {
+            id: 'sample-1',
+            content: 'Welcome to Bubble Universe! 🌟',
+            type: 'Thought',
+            x: 100,
+            y: 100,
+            size: 60,
+            createdAt: now,
+            updatedAt: now,
+            tags: [],
+            mood: 'happy'
+          },
+          {
+            id: 'sample-2', 
+            content: 'This is your creative companion',
+            type: 'Memory',
+            x: 250,
+            y: 180,
+            size: 45,
+            createdAt: now - 86400000, // Yesterday
+            updatedAt: now - 86400000,
+            tags: [],
+            mood: 'neutral'
+          },
+          {
+            id: 'sample-3',
+            content: 'Toggle panels in the view menu',
+            type: 'Task',
+            x: 400,
+            y: 120,
+            size: 50,
+            createdAt: now - 172800000, // 2 days ago
+            updatedAt: now - 172800000,
+            tags: [],
+            mood: 'good'
+          }
+        ];
+
+        // Add to store immediately for UI responsiveness
+        set(state => ({
+          bubbles: [...state.bubbles, ...sampleBubbles]
+        }));
+
+        // Try to persist if storage is available
+        if (storageService.isInitialized()) {
+          try {
+            for (const bubble of sampleBubbles) {
+              await storageService.createBubble(bubble);
+            }
+            console.log('BubbleStore: Sample bubbles persisted to storage');
+          } catch (error) {
+            console.warn('BubbleStore: Could not persist sample bubbles:', error);
+          }
         }
       },
 
@@ -187,10 +264,19 @@ export const useBubbleStore = create<BubbleStore>()(
             ...bubble,
             type: bubble.type || getDefaultBubbleType(bubble.content || '')
           };
-          await storageService.createBubble(bubbleWithType);
+          
+          // Add to store immediately for UI responsiveness
           set(state => ({ bubbles: [...state.bubbles, bubbleWithType] }));
+
+          // Try to persist if storage is available
+          if (storageService.isInitialized()) {
+            await storageService.createBubble(bubbleWithType);
+          } else {
+            console.warn('BubbleStore: Storage not initialized, bubble added to memory only');
+          }
         } catch (error) {
-          console.error('Failed to add bubble:', error);
+          console.error('BubbleStore: Failed to add bubble:', error);
+          // Bubble is already in store, so UI still works
         }
       },
 
