@@ -14,6 +14,39 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_conversations: {
+        Row: {
+          ai_response: string
+          context: Json | null
+          created_at: string
+          id: string
+          mode: string | null
+          updated_at: string
+          user_id: string
+          user_message: string
+        }
+        Insert: {
+          ai_response: string
+          context?: Json | null
+          created_at?: string
+          id?: string
+          mode?: string | null
+          updated_at?: string
+          user_id: string
+          user_message: string
+        }
+        Update: {
+          ai_response?: string
+          context?: Json | null
+          created_at?: string
+          id?: string
+          mode?: string | null
+          updated_at?: string
+          user_id?: string
+          user_message?: string
+        }
+        Relationships: []
+      }
       bookings: {
         Row: {
           booking_date: string

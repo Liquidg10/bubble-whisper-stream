@@ -6,7 +6,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
 import { AIConversationChat } from './AIConversationChat';
-import { bubbleStore } from '@/stores/bubbleStore';
+import { useBubbleStore } from '@/stores/bubbleStore';
 
 interface VoiceAIInterfaceProps {
   className?: string;
@@ -15,7 +15,7 @@ interface VoiceAIInterfaceProps {
 export const VoiceAIInterface: React.FC<VoiceAIInterfaceProps> = ({ className = '' }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [quickMode, setQuickMode] = useState<'supportive' | 'encouraging' | 'reflective' | 'problem-solving'>('supportive');
-  const { bubbles } = bubbleStore();
+  const { bubbles } = useBubbleStore();
 
   // Get context from current bubbles and user state
   const getUserContext = () => {
