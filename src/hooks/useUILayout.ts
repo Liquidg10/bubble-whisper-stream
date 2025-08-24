@@ -105,9 +105,9 @@ export function useUILayout() {
       const updatedPanels = { ...prev.panels };
       
       if (newFocusMode) {
-        // Hide panels with priority < 3 in focus mode
+        // Hide panels with priority < 2 in focus mode (only performance panel)
         Object.keys(updatedPanels).forEach(id => {
-          if (updatedPanels[id].priority < 3) {
+          if (updatedPanels[id].priority < 2) {
             updatedPanels[id] = { ...updatedPanels[id], isVisible: false };
           }
         });
@@ -151,16 +151,13 @@ export function useUILayout() {
   // Check if panel should be shown
   const isPanelVisible = useCallback((panelId: string) => {
     const panel = uiState.panels[panelId];
-    if (!panel) return false;
+    if (!panel || !panel.isVisible) return false;
 
-    // Hide in focus mode if priority is too low
-    if (uiState.focusMode && panel.priority < 3) return false;
+    // Hide in focus mode if priority is too low (only priority 1 panels)
+    if (uiState.focusMode && panel.priority < 2) return false;
     
-    // Hide non-essential panels on mobile
-    if (uiState.isMobile && panel.priority < 2 && !panel.isVisible) return false;
-    
-    return panel.isVisible;
-  }, [uiState.panels, uiState.focusMode, uiState.isMobile]);
+    return true;
+  }, [uiState.panels, uiState.focusMode]);
 
   // Check if panel is minimized
   const isPanelMinimized = useCallback((panelId: string) => {
