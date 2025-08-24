@@ -19,7 +19,7 @@ interface UILayoutState {
 
 const DEFAULT_PANELS: Record<string, Omit<PanelState, 'id'>> = {
   temporal: {
-    isVisible: false,
+    isVisible: true,
     isMinimized: false,
     position: { x: 20, y: 20 },
     size: { width: 320, height: 400 },
