@@ -9,10 +9,22 @@ interface MiniMapProps {
   viewport: CanvasViewport;
   onViewportChange: (viewport: CanvasViewport) => void;
   className?: string;
+  isVisible?: boolean;
+  isMinimized?: boolean;
+  onToggleMinimize?: () => void;
+  onToggleVisibility?: () => void;
 }
 
-export function MiniMap({ bubbles, viewport, onViewportChange, className }: MiniMapProps) {
-  const [isCollapsed, setIsCollapsed] = React.useState(false);
+export function MiniMap({ 
+  bubbles, 
+  viewport, 
+  onViewportChange, 
+  className,
+  isVisible = true,
+  isMinimized = false,
+  onToggleMinimize,
+  onToggleVisibility
+}: MiniMapProps) {
   const mapSize = 80;
   const mapPadding = 8;
 
@@ -27,8 +39,8 @@ export function MiniMap({ bubbles, viewport, onViewportChange, className }: Mini
     { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity }
   );
 
-  // Handle empty universe
-  if (bubbles.length === 0 || !isFinite(bounds.minX)) {
+  // Handle visibility and empty universe
+  if (!isVisible || bubbles.length === 0 || !isFinite(bounds.minX)) {
     return null;
   }
 
@@ -72,7 +84,7 @@ export function MiniMap({ bubbles, viewport, onViewportChange, className }: Mini
     });
   };
 
-  if (isCollapsed) {
+  if (isMinimized) {
     return (
       <div 
         className={cn(
@@ -80,7 +92,7 @@ export function MiniMap({ bubbles, viewport, onViewportChange, className }: Mini
           "hover:bg-bubble-active/90 transition-colors duration-gentle cursor-pointer",
           className
         )}
-        onClick={() => setIsCollapsed(false)}
+        onClick={onToggleMinimize}
       >
         <div className="text-xs text-text-secondary text-center">
           {bubbles.length} bubbles
@@ -123,12 +135,24 @@ export function MiniMap({ bubbles, viewport, onViewportChange, className }: Mini
         <div className="text-xs text-text-secondary">
           {bubbles.length}
         </div>
-        <button
-          onClick={() => setIsCollapsed(true)}
-          className="text-xs text-text-secondary hover:text-text-primary transition-colors"
-        >
-          ×
-        </button>
+        <div className="flex gap-1">
+          {onToggleMinimize && (
+            <button
+              onClick={onToggleMinimize}
+              className="text-xs text-text-secondary hover:text-text-primary transition-colors"
+            >
+              −
+            </button>
+          )}
+          {onToggleVisibility && (
+            <button
+              onClick={onToggleVisibility}
+              className="text-xs text-text-secondary hover:text-text-primary transition-colors"
+            >
+              ×
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

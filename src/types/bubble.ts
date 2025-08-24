@@ -36,6 +36,7 @@ export interface Bubble {
   x: number; y: number;    // canvas coordinates (viewport-agnostic units)
   size: number;            // visual importance (0..1)
   moodColor?: string;      // '#RRGGBB' from theme tokens
+  mood?: string;           // current mood state
   tags: Tag[];
   location?: { lat: number; lon: number };
   reminderId?: string;     // link to Reminder
@@ -59,6 +60,14 @@ export interface Settings {
   bubbleDensity: 'low' | 'medium' | 'high';
   quietHours?: { start: string; end: string };
   biometricLock: boolean;
+  intelligenceEnabled?: boolean; // Phase 2 master switch
+  glimmersEnabled?: boolean;
+  adaptiveReminders?: boolean;
+  preferredGlimmerTone?: GlimmerTone;
+  groceryHelperEnabled?: boolean;
+  cleaningCuesEnabled?: boolean;
+  personalVoiceEnabled?: boolean;
+  biometricEnabled?: boolean;
 }
 
 // Canvas viewport state

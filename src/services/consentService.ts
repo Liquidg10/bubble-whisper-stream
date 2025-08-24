@@ -61,6 +61,13 @@ class ConsentService {
     return latest.granted;
   }
 
+  async requestConsent(feature: string, description: string): Promise<boolean> {
+    // In a real app, this would show a consent dialog
+    // For now, just return true for testing
+    await this.grantConsent(feature);
+    return true;
+  }
+
   private promisifyRequest<T>(request: IDBRequest<T>): Promise<T> {
     return new Promise((resolve, reject) => {
       request.onsuccess = () => resolve(request.result);

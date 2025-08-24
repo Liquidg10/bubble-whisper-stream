@@ -249,6 +249,42 @@ class StorageService {
       request.onerror = () => reject(request.error);
     });
   }
+
+  // Phase 2 Intelligence Layer Methods
+  async createCBTEntry(entry: any): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+    const tx = this.db.transaction(['cbt_entries'], 'readwrite');
+    await this.promisifyRequest(tx.objectStore('cbt_entries').add(entry));
+  }
+
+  async createGlimmer(glimmer: any): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+    const tx = this.db.transaction(['glimmers'], 'readwrite');
+    await this.promisifyRequest(tx.objectStore('glimmers').add(glimmer));
+  }
+
+  async updateGlimmer(glimmer: any): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+    const tx = this.db.transaction(['glimmers'], 'readwrite');
+    await this.promisifyRequest(tx.objectStore('glimmers').put(glimmer));
+  }
+
+  async createPatternHint(hint: any): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+    const tx = this.db.transaction(['pattern_hints'], 'readwrite');
+    await this.promisifyRequest(tx.objectStore('pattern_hints').add(hint));
+  }
+
+  async updatePatternHint(hint: any): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+    const tx = this.db.transaction(['pattern_hints'], 'readwrite');
+    await this.promisifyRequest(tx.objectStore('pattern_hints').put(hint));
+  }
+
+  getDatabase(): IDBDatabase {
+    if (!this.db) throw new Error('Database not initialized');
+    return this.db;
+  }
 }
 
 export const storageService = new StorageService();

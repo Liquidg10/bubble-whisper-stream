@@ -1,16 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { X, Clock, CheckCircle, AlertCircle } from 'lucide-react';
+import { X, Clock, CheckCircle, AlertCircle, Info } from 'lucide-react';
 import { reminderEngine } from '@/services/reminderEngine';
 import { useBubbleStore } from '@/stores/bubbleStore';
+import { BecausePill } from '@/components/BecausePill';
 import type { ReminderNotification } from '@/services/reminderEngine';
 import { SNOOZE_PRESETS } from '@/types/bubble';
 
 export const NotificationSystem: React.FC = () => {
   const [notifications, setNotifications] = useState<ReminderNotification[]>([]);
   const [fullScreenNotification, setFullScreenNotification] = useState<ReminderNotification | null>(null);
-  const { completeReminder, snoozeReminder } = useBubbleStore();
+  const { completeReminder, snoozeReminder, getAdaptiveExplanation, settings } = useBubbleStore();
 
   useEffect(() => {
     reminderEngine.setCallbacks({
@@ -93,6 +94,14 @@ export const NotificationSystem: React.FC = () => {
                   <h4 className="font-medium text-sm">{notification.title}</h4>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">{notification.message}</p>
+                
+                {/* Show adaptive explanation if intelligence is enabled */}
+                {settings.intelligenceEnabled && settings.adaptiveReminders && getAdaptiveExplanation(notification.reminderId) && (
+                  <BecausePill 
+                    explanation={getAdaptiveExplanation(notification.reminderId)!} 
+                    compact
+                  />
+                )}
               </div>
               <Button
                 variant="ghost"

@@ -92,6 +92,7 @@ export interface BubbleCanvasProps {
   onBubbleSelect?: (bubble: any) => void;
   onBubbleEdit?: (bubble: any) => void;
   className?: string;
+  theme?: Theme;
 }
 
 export interface Theme {

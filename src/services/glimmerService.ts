@@ -246,7 +246,7 @@ class GlimmerService {
     return true;
   }
 
-  // Generate a contextual glimmer
+  // Generate a contextual glimmer with AI enhancement
   async generateGlimmer(
     tone: GlimmerTone = 'Friend',
     patterns: PatternHint[] = [],
@@ -266,6 +266,41 @@ class GlimmerService {
     }
 
     const trigger = validTriggers[0];
+
+    // Try AI generation first
+    try {
+      const { aiService } = await import('./aiService');
+      if (aiService.isAIAvailable()) {
+        const timeContext = {
+          timeOfDay: new Date().getHours() < 12 ? 'morning' : 
+                    new Date().getHours() < 17 ? 'afternoon' : 'evening',
+          mood: bubbles.slice(-3).map(b => b.mood).filter(Boolean)[0] || 'neutral'
+        };
+
+        const response = await aiService.generateGlimmer(
+          trigger.key,
+          tone.toLowerCase().replace(' ', '-') as any,
+          patterns,
+          timeContext
+        );
+
+        if (response.success && response.glimmer) {
+        const aiGlimmer = await this.createGlimmer({
+          tone,
+          message: response.glimmer.message,
+          cause: trigger.key,
+          deliveredVia: 'text'
+        });
+        // Add source after creation
+        (aiGlimmer as any).source = 'ai';
+        return aiGlimmer;
+        }
+      }
+    } catch (error) {
+      console.warn('AI glimmer generation failed, using local templates:', error);
+    }
+
+    // Local fallback
     const templates = TONE_TEMPLATES[tone];
     const messageCategory = templates[trigger.messageType];
     
@@ -273,12 +308,15 @@ class GlimmerService {
     const message = messageCategory[Math.floor(Math.random() * messageCategory.length)];
     const greeting = templates.greeting[Math.floor(Math.random() * templates.greeting.length)];
 
-    return await this.createGlimmer({
+    const localGlimmer = await this.createGlimmer({
       tone,
       message: `${greeting} ${message}`,
       cause: trigger.key,
       deliveredVia: 'text'
     });
+    // Add source after creation
+    (localGlimmer as any).source = 'local';
+    return localGlimmer;
   }
 
   // Update user preferences

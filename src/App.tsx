@@ -7,6 +7,8 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { AppShell } from '@/components/AppShell';
 import { ThemeProvider } from '@/themes/provider';
+import { AccessibilityProvider } from '@/components/AccessibilityProvider';
+import { FeatureFlagsProvider } from '@/components/FeatureFlags';
 import Index from "./pages/Index";
 import { Timeline } from './pages/Timeline';
 import { Settings } from './pages/Settings';
@@ -30,25 +32,29 @@ const App = () => {
 
     return (
       <ThemeProvider defaultTheme="iridescent-soap">
-        <QueryClientProvider client={queryClient}>
-          <TooltipProvider>
-            <Toaster />
-            <Sonner />
-            <BrowserRouter>
-              <Routes>
-                <Route path="/" element={<AppShell />}>
-                  <Route index element={<Index />} />
-                  <Route path="timeline" element={<Timeline />} />
-                  <Route path="reminders" element={<Reminders />} />
-                  <Route path="reflection" element={<Reflection />} />
-                  <Route path="cbt-worksheet" element={<CBTWorksheet />} />
-                  <Route path="settings" element={<Settings />} />
-                </Route>
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </BrowserRouter>
-          </TooltipProvider>
-        </QueryClientProvider>
+        <AccessibilityProvider>
+          <FeatureFlagsProvider>
+            <QueryClientProvider client={queryClient}>
+              <TooltipProvider>
+                <Toaster />
+                <Sonner />
+                <BrowserRouter>
+                  <Routes>
+                    <Route path="/" element={<AppShell />}>
+                      <Route index element={<Index />} />
+                      <Route path="timeline" element={<Timeline />} />
+                      <Route path="reminders" element={<Reminders />} />
+                      <Route path="reflection" element={<Reflection />} />
+                      <Route path="cbt-worksheet" element={<CBTWorksheet />} />
+                      <Route path="settings" element={<Settings />} />
+                    </Route>
+                    <Route path="*" element={<NotFound />} />
+                  </Routes>
+                </BrowserRouter>
+              </TooltipProvider>
+            </QueryClientProvider>
+          </FeatureFlagsProvider>
+        </AccessibilityProvider>
       </ThemeProvider>
     );
   } catch (error) {

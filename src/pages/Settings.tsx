@@ -17,16 +17,28 @@ import {
   Upload,
   Lock,
   Database,
-  Trash2
+  Trash2,
+  Brain,
+  Puzzle
 } from 'lucide-react';
 import { storageService } from '@/services/storage';
 import { hapticsService } from '@/services/haptics';
 import { ttsService } from '@/services/tts';
+import { IntelligenceSettings } from '@/components/IntelligenceSettings';
+import { MonthlyReviewCard } from '@/components/MonthlyReviewCard';
+import { PrivacyZoneToggle } from '@/components/PrivacyZoneToggle';
+import { QuickTour } from '@/components/QuickTour';
+import { OptionalModules } from '@/components/OptionalModules';
 
 export const Settings: React.FC = () => {
   const { settings, updateSettings, bubbles, reminders } = useBubbleStore();
   const [isExporting, setIsExporting] = useState(false);
   const [testingTTS, setTestingTTS] = useState(false);
+  const [showQuickTour, setShowQuickTour] = useState(false);
+  const [showMonthlyReview, setShowMonthlyReview] = useState(false);
+  const [showPluginManager, setShowPluginManager] = useState(false);
+  const [showIntelligenceDashboard, setShowIntelligenceDashboard] = useState(false);
+  const [showPerformanceOptimizer, setShowPerformanceOptimizer] = useState(false);
 
   const handleExportData = async () => {
     setIsExporting(true);
@@ -87,6 +99,78 @@ export const Settings: React.FC = () => {
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
+        {/* Intelligence Settings */}
+        <IntelligenceSettings />
+
+        {/* Monthly Review */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Brain className="h-5 w-5" />
+              Monthly Review
+            </CardTitle>
+            <CardDescription>
+              Review your patterns and growth over time
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button
+              variant="outline"
+              onClick={() => setShowMonthlyReview(true)}
+              className="w-full"
+            >
+              <Brain className="h-4 w-4 mr-2" />
+              Review This Month
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Privacy Zones */}
+        <div className="space-y-4">
+          <div>
+            <h2 className="text-lg font-semibold mb-2">Privacy Zones</h2>
+            <p className="text-sm text-muted-foreground mb-4">
+              Control what data layers are active for personalization
+            </p>
+          </div>
+          
+          <PrivacyZoneToggle
+            layer="surface"
+            title="Surface Layer"
+            description="Basic preferences, theme settings, and UI customizations"
+            icon={<Eye className="h-5 w-5" />}
+          />
+          
+          <PrivacyZoneToggle
+            layer="context"
+            title="Context Layer"
+            description="Time patterns, routine detection, and adaptive reminders"
+            icon={<Shield className="h-5 w-5" />}
+            requiresBiometric={false}
+          />
+          
+          <PrivacyZoneToggle
+            layer="deep"
+            title="Deep Layer"
+            description="Emotional patterns, CBT insights, and personal triggers"
+            icon={<Lock className="h-5 w-5" />}
+            requiresBiometric={true}
+          />
+        </div>
+
+        {/* Optional Modules */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Puzzle className="h-5 w-5" />
+              Optional Modules
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <OptionalModules />
+          </CardContent>
+        </Card>
+
         {/* Privacy & Security */}
         <Card>
           <CardHeader>
@@ -344,6 +428,26 @@ export const Settings: React.FC = () => {
           </CardContent>
         </Card>
 
+        {/* Help & Support */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Help & Support</CardTitle>
+            <CardDescription>
+              Learn about features and get started
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Button
+              variant="outline"
+              onClick={() => setShowQuickTour(true)}
+              className="w-full"
+            >
+              <Brain className="h-4 w-4 mr-2" />
+              Take Feature Tour
+            </Button>
+          </CardContent>
+        </Card>
+
         {/* About */}
         <Card>
           <CardHeader>
@@ -365,6 +469,19 @@ export const Settings: React.FC = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Quick Tour Modal */}
+      <QuickTour 
+        isOpen={showQuickTour} 
+        onClose={() => setShowQuickTour(false)} 
+      />
+
+      {/* Monthly Review Modal */}
+      {showMonthlyReview && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <MonthlyReviewCard onClose={() => setShowMonthlyReview(false)} />
+        </div>
+      )}
     </div>
   );
 };

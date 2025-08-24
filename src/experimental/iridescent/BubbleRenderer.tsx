@@ -1,6 +1,5 @@
 import React, { useMemo, useRef, useState, useCallback, useEffect } from "react";
 import { useBubbleStore } from '@/stores/bubbleStore';
-import { useTheme } from '@/hooks/use-theme';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { usePinchZoom } from '@/hooks/usePinchZoom';
 import { useTouchGestures } from '@/hooks/useTouchGestures';
@@ -37,9 +36,8 @@ function dist(a: IridescentNode, b: IridescentNode): number {
   return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
 }
 
-export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, className }: BubbleCanvasProps) {
+export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, className, theme }: BubbleCanvasProps) {
   const { bubbles, selectedBubbles, toggleSelection, clearSelection, mergeBubbles, undoLastMerge } = useBubbleStore();
-  const { currentTheme } = useTheme();
   const { getLODConfig } = useLODSystem();
   const isMobile = useIsMobile();
   const lodConfig = getLODConfig();
@@ -91,9 +89,9 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
       r: Math.max(20, bubble.size * 50 * viewport.scale),
       label: bubble.content?.slice(0, 20) + (bubble.content?.length > 20 ? '...' : '') || `${bubble.type} bubble`,
       type: String(bubble.type || '').toLowerCase(),
-      glow: getGlowColor(bubble, currentTheme.tokens.auraMapping)
+      glow: getGlowColor(bubble, theme?.tokens.auraMapping)
     }));
-  }, [filteredBubbles, currentTheme.tokens.auraMapping, viewport]);
+  }, [filteredBubbles, theme?.tokens.auraMapping, viewport]);
 
   function getGlowColor(bubble: Bubble, auraMapping: any): string {
     const h = (val: string) => (/%/.test(val) ? `hsl(${val})` : val);
@@ -167,7 +165,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
     }
 
     // Check for merge candidates
-    const candidates = nodes.filter(n => n.id !== dragging && overlapRatio(draggedNode, n) > (currentTheme.behavior.mergeThreshold || 0.06));
+    const candidates = nodes.filter(n => n.id !== dragging && overlapRatio(draggedNode, n) > (theme?.behavior.mergeThreshold || 0.06));
     
       if (candidates.length > 0) {
         const closest = candidates.reduce((best, curr) => 
@@ -188,7 +186,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
       }
     
     setDragging(null);
-  }, [dragging, nodes, currentTheme.behavior.mergeThreshold]);
+  }, [dragging, nodes, theme?.behavior.mergeThreshold]);
 
   const handleMerge = useCallback(() => {
     if (!confirm) return;

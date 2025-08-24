@@ -16,6 +16,7 @@ interface GlimmerCardProps {
   onDismiss?: (id: string) => void;
   onToneChange?: (id: string, tone: GlimmerTone) => void;
   className?: string;
+  compact?: boolean;
 }
 
 const TONE_CONFIG = {
@@ -57,7 +58,8 @@ export const GlimmerCard: React.FC<GlimmerCardProps> = ({
   glimmer,
   onDismiss,
   onToneChange,
-  className = ''
+  className = '',
+  compact = false
 }) => {
   const { toast } = useToast();
   const toneConfig = TONE_CONFIG[glimmer.tone];
