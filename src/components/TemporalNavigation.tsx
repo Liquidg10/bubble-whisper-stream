@@ -40,7 +40,9 @@ const TemporalNavigation: React.FC<TemporalNavigationProps> = ({
   // Pinch zoom support for mobile
   const { onTouchStart, onTouchMove, onTouchEnd } = usePinchZoom({
     minScale: 0.5,
-    maxScale: 3
+    maxScale: 3,
+    onZoom: (newScale) => setZoomLevel(newScale),
+    onPan: () => {} // No-op for now
   });
 
   // Generate time points for visualization
