@@ -1,13 +1,15 @@
-// Because Pill Component
-// Shows explainability information for adaptive decisions
-
-import React, { useState } from 'react';
-import { Button } from '@/components/ui/button';
+import React from 'react';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Info, Lightbulb, ChevronDown } from 'lucide-react';
-import { ReminderExplanation } from '@/types/bubble';
+import { Lightbulb, Info } from 'lucide-react';
+// Using inline type instead of import to avoid circular dependencies
+interface ReminderExplanation {
+  reason: string;
+  factors: string[];
+  confidence: number;
+}
 
 interface BecausePillProps {
   explanation: ReminderExplanation | string;
@@ -16,60 +18,45 @@ interface BecausePillProps {
   compact?: boolean;
 }
 
-export const BecausePill: React.FC<BecausePillProps> = ({
-  explanation,
-  variant = 'pill',
+export function BecausePill({ 
+  explanation, 
+  variant = 'pill', 
   className = '',
-  compact = false
-}) => {
-  const [isOpen, setIsOpen] = useState(false);
-
-  // Handle both string and ReminderExplanation types
-  const explanationObj = typeof explanation === 'string' 
-    ? { reason: explanation, factors: [], confidence: 0.8 }
+  compact = false 
+}: BecausePillProps) {
+  const explanationData = typeof explanation === 'string' 
+    ? { reason: explanation, factors: [], confidence: 1 }
     : explanation;
-
-  const confidenceColor = explanationObj.confidence >= 0.8 
-    ? 'text-green-600 dark:text-green-400'
-    : explanationObj.confidence >= 0.6
-    ? 'text-yellow-600 dark:text-yellow-400'
-    : 'text-red-600 dark:text-red-400';
 
   if (variant === 'card') {
     return (
-      <Card className={`${className}`}>
-        <CardContent className="p-4">
-          <div className="flex items-start gap-3">
-            <div className="p-2 bg-primary/10 rounded-full">
-              <Lightbulb className="h-4 w-4 text-primary" />
-            </div>
-            <div className="flex-1 space-y-2">
-              <h4 className="font-medium text-sm">Why this happened</h4>
-              <p className="text-sm text-muted-foreground">{explanationObj.reason}</p>
-              
-              {explanationObj.factors.length > 0 && (
-                <div className="space-y-1">
-                  <p className="text-xs font-medium">Contributing factors:</p>
-                  <ul className="text-xs text-muted-foreground space-y-0.5">
-                    {explanationObj.factors.map((factor, index) => (
-                      <li key={index} className="flex items-start gap-2">
-                        <span className="text-primary mt-1">•</span>
-                        <span>{factor}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              
-              <div className="flex items-center gap-2 pt-1">
-                <span className="text-xs text-muted-foreground">Confidence:</span>
-                <span className={`text-xs font-medium ${confidenceColor}`}>
-                  {Math.round(explanationObj.confidence * 100)}%
-                </span>
+      <Card className={`p-4 border-accent/20 bg-accent/5 ${className}`}>
+        <div className="flex items-start gap-3">
+          <Lightbulb className="h-4 w-4 text-accent mt-0.5 flex-shrink-0" />
+          <div className="space-y-2 flex-1">
+            <p className="text-sm font-medium text-foreground">
+              {explanationData.reason}
+            </p>
+            {explanationData.factors && explanationData.factors.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-xs text-muted-foreground">Contributing factors:</p>
+                <ul className="text-xs text-muted-foreground space-y-0.5">
+                  {explanationData.factors.map((factor, index) => (
+                    <li key={index} className="flex items-center gap-1">
+                      <span className="w-1 h-1 bg-accent rounded-full" />
+                      {factor}
+                    </li>
+                  ))}
+                </ul>
               </div>
-            </div>
+            )}
+            {explanationData.confidence && explanationData.confidence < 1 && (
+              <p className="text-xs text-muted-foreground">
+                Confidence: {Math.round(explanationData.confidence * 100)}%
+              </p>
+            )}
           </div>
-        </CardContent>
+        </div>
       </Card>
     );
   }
@@ -77,32 +64,43 @@ export const BecausePill: React.FC<BecausePillProps> = ({
   if (variant === 'inline') {
     return (
       <div className={`flex items-center gap-2 ${className}`}>
-        <Info className="h-3 w-3 text-muted-foreground" />
-        <span className="text-xs text-muted-foreground">{explanationObj.reason}</span>
-        {explanationObj.factors.length > 0 && (
-          <Popover open={isOpen} onOpenChange={setIsOpen}>
+        <Info className="h-3 w-3 text-accent" />
+        <span className="text-xs text-muted-foreground">
+          {explanationData.reason}
+        </span>
+        {(explanationData.factors?.length || explanationData.confidence < 1) && (
+          <Popover>
             <PopoverTrigger asChild>
-              <Button variant="ghost" size="sm" className="h-4 px-1">
-                <ChevronDown className="h-3 w-3" />
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                className="h-auto p-0 text-xs text-accent hover:text-accent/80"
+              >
+                Details
               </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-80" align="start">
+            <PopoverContent className="w-80 p-3" align="start">
               <div className="space-y-2">
-                <h4 className="font-medium text-sm">More details</h4>
-                <ul className="text-xs text-muted-foreground space-y-1">
-                  {explanationObj.factors.map((factor, index) => (
-                    <li key={index} className="flex items-start gap-2">
-                      <span className="text-primary mt-0.5">•</span>
-                      <span>{factor}</span>
-                    </li>
-                  ))}
-                </ul>
-                <div className="flex items-center gap-2 pt-2 border-t">
-                  <span className="text-xs text-muted-foreground">Confidence:</span>
-                  <span className={`text-xs font-medium ${confidenceColor}`}>
-                    {Math.round(explanationObj.confidence * 100)}%
-                  </span>
-                </div>
+                {explanationData.factors && explanationData.factors.length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium text-foreground mb-1">
+                      Contributing factors:
+                    </p>
+                    <ul className="text-xs text-muted-foreground space-y-0.5">
+                      {explanationData.factors.map((factor, index) => (
+                        <li key={index} className="flex items-center gap-1">
+                          <span className="w-1 h-1 bg-accent rounded-full" />
+                          {factor}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {explanationData.confidence && explanationData.confidence < 1 && (
+                  <p className="text-xs text-muted-foreground">
+                    Confidence: {Math.round(explanationData.confidence * 100)}%
+                  </p>
+                )}
               </div>
             </PopoverContent>
           </Popover>
@@ -113,57 +111,54 @@ export const BecausePill: React.FC<BecausePillProps> = ({
 
   // Default pill variant
   return (
-    <Popover open={isOpen} onOpenChange={setIsOpen}>
+    <Popover>
       <PopoverTrigger asChild>
         <Badge 
           variant="secondary" 
-          className={`cursor-pointer hover:bg-secondary/80 transition-colors ${className}`}
+          className={`cursor-pointer bg-accent/10 text-accent border-accent/20 hover:bg-accent/20 transition-colors ${
+            compact ? 'px-2 py-0.5 text-xs' : 'px-3 py-1'
+          } ${className}`}
         >
-          <Lightbulb className="h-3 w-3 mr-1" />
+          <Lightbulb className={`${compact ? 'h-3 w-3' : 'h-3.5 w-3.5'} mr-1`} />
           Because...
         </Badge>
       </PopoverTrigger>
-      <PopoverContent className="w-80" align="start">
+      <PopoverContent className="w-80 p-4" align="start">
         <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <Lightbulb className="h-4 w-4 text-primary" />
-            <h4 className="font-medium">Why this happened</h4>
-          </div>
-          
-          <p className="text-sm text-muted-foreground">{explanationObj.reason}</p>
-          
-          {explanationObj.factors.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-xs font-medium">Contributing factors:</p>
-              <ul className="text-xs text-muted-foreground space-y-1">
-                {explanationObj.factors.map((factor, index) => (
-                  <li key={index} className="flex items-start gap-2">
-                    <span className="text-primary mt-0.5">•</span>
-                    <span>{factor}</span>
-                  </li>
-                ))}
-              </ul>
+          <div className="flex items-start gap-2">
+            <Lightbulb className="h-4 w-4 text-accent mt-0.5 flex-shrink-0" />
+            <div className="space-y-2 flex-1">
+              <p className="text-sm font-medium text-foreground">
+                {explanationData.reason}
+              </p>
+              
+              {explanationData.factors && explanationData.factors.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs text-muted-foreground">
+                    This decision was based on:
+                  </p>
+                  <ul className="text-xs text-muted-foreground space-y-0.5">
+                    {explanationData.factors.map((factor, index) => (
+                      <li key={index} className="flex items-center gap-1">
+                        <span className="w-1 h-1 bg-accent rounded-full" />
+                        {factor}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              
+              {explanationData.confidence && explanationData.confidence < 1 && (
+                <div className="pt-1 border-t border-border/50">
+                  <p className="text-xs text-muted-foreground">
+                    Confidence: {Math.round(explanationData.confidence * 100)}%
+                  </p>
+                </div>
+              )}
             </div>
-          )}
-          
-          <div className="flex items-center justify-between pt-2 border-t">
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">Confidence:</span>
-              <span className={`text-xs font-medium ${confidenceColor}`}>
-                {Math.round(explanationObj.confidence * 100)}%
-              </span>
-            </div>
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={() => setIsOpen(false)}
-              className="h-6 px-2 text-xs"
-            >
-              Got it
-            </Button>
           </div>
         </div>
       </PopoverContent>
     </Popover>
   );
-};
+}
