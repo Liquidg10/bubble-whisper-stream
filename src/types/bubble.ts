@@ -91,3 +91,79 @@ export const SNOOZE_PRESETS = [
 ] as const;
 
 export type SnoozePresetKey = typeof SNOOZE_PRESETS[number]['key'];
+
+// Phase 2: Intelligence Layer Types
+
+// CBT (Cognitive Behavioral Therapy) Support
+export type DistortionKey =
+  | 'AllOrNothing' | 'Catastrophizing' | 'Overgeneralization'
+  | 'MindReading' | 'ShouldStatements' | 'Labeling'
+  | 'EmotionalReasoning' | 'FortuneTelling' | 'DisqualifyingPositive';
+
+export interface CBTEntry {
+  id: string;
+  bubbleId?: string;        // optional link to originating bubble
+  createdAt: number;        // epoch ms
+  thought: string;
+  distortions: DistortionKey[];
+  evidenceFor?: string;
+  evidenceAgainst?: string;
+  reframe?: string;         // balanced alternative
+  tags: string[];           // mood/context tags
+}
+
+// Self-Compassion Glimmers
+export type GlimmerTone = 'FutureYou' | 'Friend' | 'Coach' | 'Scientist';
+
+export interface Glimmer {
+  id: string;
+  createdAt: number;
+  tone: GlimmerTone;
+  message: string;          // resolved from template + context
+  cause: string;            // explainability key(s)
+  deliveredVia: 'text' | 'tts' | 'both';
+  dismissed?: boolean;
+}
+
+// Enhanced Self-Model with Layers
+export interface SelfModelV2 {
+  id: 'self';
+  layers: { surface: boolean; context: boolean; deep: boolean };
+  preferences: Record<string, unknown>;
+  routines: { name: string; timeOfDay?: string }[];
+  medicationTimes: { name: string; at: string }[];
+  triggers: string[];
+}
+
+export interface SelfModelAudit {
+  id: string;
+  at: number;
+  change: string;           // json diff summary
+  layer: 'surface' | 'context' | 'deep';
+  userConfirmed: boolean;
+}
+
+// Pattern Recognition for Adaptive Behavior
+export interface PatternHint {
+  id: string;
+  key: string;              // e.g., 'overwhelmed_afternoon'
+  value: string;            // e.g., 'true'
+  confidence: number;       // 0..1
+  lastUpdated: number;
+}
+
+// Enhanced Reminder Types
+export interface ReminderExplanation {
+  reason: string;           // Human-readable explanation
+  factors: string[];       // Contributing factors
+  confidence: number;      // 0..1
+}
+
+// Consent Management
+export interface ConsentRecord {
+  id: string;
+  feature: string;         // e.g., 'context_layer', 'glimmers', 'adaptive_reminders'
+  granted: boolean;
+  timestamp: number;
+  version: string;         // consent version for compliance
+}

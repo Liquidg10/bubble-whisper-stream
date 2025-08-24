@@ -12,6 +12,7 @@ import { Timeline } from './pages/Timeline';
 import { Settings } from './pages/Settings';
 import { Reminders } from './pages/Reminders';
 import { Reflection } from './pages/Reflection';
+import { CBTWorksheet } from './pages/CBTWorksheet';
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -40,6 +41,7 @@ const App = () => {
                   <Route path="timeline" element={<Timeline />} />
                   <Route path="reminders" element={<Reminders />} />
                   <Route path="reflection" element={<Reflection />} />
+                  <Route path="cbt-worksheet" element={<CBTWorksheet />} />
                   <Route path="settings" element={<Settings />} />
                 </Route>
                 <Route path="*" element={<NotFound />} />

@@ -6,11 +6,11 @@ import { Bubble, Reminder, Tag, SelfModel, Settings } from '@/types/bubble';
 class StorageService {
   private db: IDBDatabase | null = null;
   private readonly dbName = 'BubbleUniverse';
-  private readonly dbVersion = 1;
+  private readonly dbVersion = 3;
 
   async initialize(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open(this.dbName, this.dbVersion);
+      const request = indexedDB.open(this.dbName, 3); // Upgrade to v3 for Phase 2
 
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
@@ -55,6 +55,36 @@ class StorageService {
         // Schema version tracking
         if (!db.objectStoreNames.contains('meta')) {
           db.createObjectStore('meta', { keyPath: 'key' });
+        }
+
+        // Phase 2: Add new object stores
+        if (!db.objectStoreNames.contains('cbt_entries')) {
+          const cbtStore = db.createObjectStore('cbt_entries', { keyPath: 'id' });
+          cbtStore.createIndex('createdAt', 'createdAt', { unique: false });
+          cbtStore.createIndex('bubbleId', 'bubbleId', { unique: false });
+        }
+
+        if (!db.objectStoreNames.contains('glimmers')) {
+          const glimmerStore = db.createObjectStore('glimmers', { keyPath: 'id' });
+          glimmerStore.createIndex('createdAt', 'createdAt', { unique: false });
+        }
+
+        if (!db.objectStoreNames.contains('self_model_audit')) {
+          const auditStore = db.createObjectStore('self_model_audit', { keyPath: 'id' });
+          auditStore.createIndex('at', 'at', { unique: false });
+          auditStore.createIndex('layer', 'layer', { unique: false });
+        }
+
+        if (!db.objectStoreNames.contains('pattern_hints')) {
+          const hintStore = db.createObjectStore('pattern_hints', { keyPath: 'id' });
+          hintStore.createIndex('key', 'key', { unique: false });
+          hintStore.createIndex('lastUpdated', 'lastUpdated', { unique: false });
+        }
+
+        if (!db.objectStoreNames.contains('consent_records')) {
+          const consentStore = db.createObjectStore('consent_records', { keyPath: 'id' });
+          consentStore.createIndex('feature', 'feature', { unique: false });
+          consentStore.createIndex('timestamp', 'timestamp', { unique: false });
         }
       };
     });
