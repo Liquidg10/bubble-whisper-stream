@@ -2,8 +2,12 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { Bubble, Reminder, Tag, Settings, SelfModel, BubbleType } from '@/types/bubble';
+import { Bubble, Reminder, Tag, Settings, SelfModel, BubbleType, CBTEntry, Glimmer, PatternHint } from '@/types/bubble';
 import { storageService } from '@/services/storage';
+import { cbtService } from '@/services/cbtService';
+import { glimmerService } from '@/services/glimmerService';
+import { adaptiveReminderService } from '@/services/adaptiveReminderService';
+import { consentService } from '@/services/consentService';
 
 // Helper to assign default bubble type based on content
 function getDefaultBubbleType(content: string): BubbleType {
@@ -24,6 +28,12 @@ interface BubbleStore {
   selfModel: SelfModel;
   isLoading: boolean;
   selectedBubbles: Set<string>;
+  
+  // Phase 2 Intelligence Layer
+  cbtEntries: CBTEntry[];
+  glimmers: Glimmer[];
+  patternHints: PatternHint[];
+  intelligenceEnabled: boolean;
   
   // Merge state
   mergeCandidate: { bubble1: Bubble; bubble2: Bubble } | null;
@@ -68,6 +78,16 @@ interface BubbleStore {
   
   // Self model actions
   updateSelfModel: (model: SelfModel) => Promise<void>;
+  
+  // Phase 2 Intelligence Actions
+  addCBTEntry: (entry: CBTEntry) => Promise<void>;
+  getCBTEntries: () => CBTEntry[];
+  addGlimmer: (glimmer: Glimmer) => Promise<void>;
+  dismissGlimmer: (id: string) => Promise<void>;
+  addPatternHint: (hint: PatternHint) => Promise<void>;
+  updatePatternHint: (hint: PatternHint) => Promise<void>;
+  getAdaptiveExplanation: (reminderId: string) => string | null;
+  toggleIntelligence: (enabled: boolean) => void;
 }
 
 const defaultSettings: Settings = {
@@ -76,6 +96,8 @@ const defaultSettings: Settings = {
   highContrast: false,
   bubbleDensity: 'medium',
   biometricLock: false,
+  quietHours: { start: '22:00', end: '08:00' },
+  intelligenceEnabled: false, // Opt-in for Phase 2 features
 };
 
 const defaultSelfModel: SelfModel = {
@@ -101,6 +123,12 @@ export const useBubbleStore = create<BubbleStore>()(
       selectedBubbles: new Set<string>(),
       mergeCandidate: null,
       lastOperation: null,
+      
+      // Phase 2 Intelligence Layer
+      cbtEntries: [],
+      glimmers: [],
+      patternHints: [],
+      intelligenceEnabled: false,
 
       // Initialize store from IndexedDB
       initializeStore: async () => {
@@ -364,6 +392,77 @@ export const useBubbleStore = create<BubbleStore>()(
           storageService.createBubble(bubble);
         });
         storageService.deleteBubble(mergedBubble.id);
+      },
+
+      // Phase 2 Intelligence Actions
+      addCBTEntry: async (entry) => {
+        try {
+          await storageService.createCBTEntry(entry);
+          set(state => ({ cbtEntries: [...state.cbtEntries, entry] }));
+        } catch (error) {
+          console.error('Failed to add CBT entry:', error);
+        }
+      },
+
+      getCBTEntries: () => {
+        const state = get();
+        return state.cbtEntries;
+      },
+
+      addGlimmer: async (glimmer) => {
+        try {
+          await storageService.createGlimmer(glimmer);
+          set(state => ({ glimmers: [...state.glimmers, glimmer] }));
+        } catch (error) {
+          console.error('Failed to add glimmer:', error);
+        }
+      },
+
+      dismissGlimmer: async (id) => {
+        try {
+          await storageService.updateGlimmer({ 
+            ...get().glimmers.find(g => g.id === id)!,
+            dismissed: true 
+          });
+          set(state => ({
+            glimmers: state.glimmers.filter(g => g.id !== id)
+          }));
+        } catch (error) {
+          console.error('Failed to dismiss glimmer:', error);
+        }
+      },
+
+      addPatternHint: async (hint) => {
+        try {
+          await storageService.createPatternHint(hint);
+          set(state => ({ patternHints: [...state.patternHints, hint] }));
+        } catch (error) {
+          console.error('Failed to add pattern hint:', error);
+        }
+      },
+
+      updatePatternHint: async (hint) => {
+        try {
+          await storageService.updatePatternHint(hint);
+          set(state => ({
+            patternHints: state.patternHints.map(h => h.id === hint.id ? hint : h)
+          }));
+        } catch (error) {
+          console.error('Failed to update pattern hint:', error);
+        }
+      },
+
+      getAdaptiveExplanation: (reminderId: string) => {
+        const state = get();
+        const reminder = state.reminders.find(r => r.id === reminderId);
+        if (!reminder) return null;
+        
+        return adaptiveReminderService.getExplanation(reminder, state.patternHints, state.settings);
+      },
+
+      toggleIntelligence: (enabled: boolean) => {
+        set({ intelligenceEnabled: enabled });
+        get().updateSettings({ intelligenceEnabled: enabled });
       },
     };
     },

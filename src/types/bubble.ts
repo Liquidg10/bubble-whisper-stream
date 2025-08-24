@@ -59,6 +59,10 @@ export interface Settings {
   bubbleDensity: 'low' | 'medium' | 'high';
   quietHours?: { start: string; end: string };
   biometricLock: boolean;
+  intelligenceEnabled?: boolean; // Phase 2 master switch
+  glimmersEnabled?: boolean;
+  adaptiveReminders?: boolean;
+  preferredGlimmerTone?: GlimmerTone;
 }
 
 // Canvas viewport state

@@ -17,11 +17,13 @@ import {
   Upload,
   Lock,
   Database,
-  Trash2
+  Trash2,
+  Brain
 } from 'lucide-react';
 import { storageService } from '@/services/storage';
 import { hapticsService } from '@/services/haptics';
 import { ttsService } from '@/services/tts';
+import { IntelligenceSettings } from '@/components/IntelligenceSettings';
 
 export const Settings: React.FC = () => {
   const { settings, updateSettings, bubbles, reminders } = useBubbleStore();
@@ -87,6 +89,9 @@ export const Settings: React.FC = () => {
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
+        {/* Intelligence Settings */}
+        <IntelligenceSettings />
+
         {/* Privacy & Security */}
         <Card>
           <CardHeader>

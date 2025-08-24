@@ -190,6 +190,19 @@ class AdaptiveReminderService {
     return adjustment;
   }
 
+  // Get explanation for a reminder adjustment
+  getExplanation(reminder: Reminder, patterns: PatternHint[], settings: any): string {
+    // Simple explanation for now - could be enhanced
+    const recentSnoozes = reminder.snoozes?.slice(0, 2) || [];
+    if (recentSnoozes.some(s => s.reason === 'Overwhelmed')) {
+      return "Adjusting timing because you've felt overwhelmed recently";
+    }
+    if (recentSnoozes.some(s => s.reason === 'WithPepper')) {
+      return "Moved to evening since you mentioned being with Pepper";
+    }
+    return "Adjusted based on your recent patterns";
+  }
+
   // Build context for rule evaluation
   private async buildContext(reminder: Reminder): Promise<ReminderContext> {
     const snoozes = reminder.snoozes || [];

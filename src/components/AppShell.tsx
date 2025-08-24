@@ -1,12 +1,14 @@
 import React from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Settings, Calendar, Bell, Home, Flower } from 'lucide-react';
+import { Settings, Calendar, Bell, Home, Flower, Brain } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { CompactThemeToggle } from '@/components/ThemeToggle';
+import { useBubbleStore } from '@/stores/bubbleStore';
 
 export const AppShell: React.FC = () => {
   const location = useLocation();
+  const { intelligenceEnabled } = useBubbleStore();
 
   const navItems = [
     { path: '/', icon: Home, label: 'Canvas' },
@@ -14,6 +16,9 @@ export const AppShell: React.FC = () => {
     { path: '/reminders', icon: Bell, label: 'Reminders' },
     { path: '/reflection', icon: Flower, label: 'Reflect' },
     { path: '/settings', icon: Settings, label: 'Settings' },
+    ...(intelligenceEnabled ? [
+      { path: '/cbt', icon: Brain, label: 'CBT' },
+    ] : []),
   ];
 
   return (
@@ -30,7 +35,7 @@ export const AppShell: React.FC = () => {
 
       {/* Bottom Navigation */}
       <nav className="border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="grid grid-cols-5 items-center py-2 px-2">
+        <div className={`grid items-center py-2 px-2 ${intelligenceEnabled ? 'grid-cols-6' : 'grid-cols-5'}`}>
           {navItems.map(({ path, icon: Icon, label }) => {
             const isActive = location.pathname === path;
             return (

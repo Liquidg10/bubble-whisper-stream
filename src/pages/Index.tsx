@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { BubbleCanvas } from '@/components/BubbleCanvas';
 import { RadialCapture } from '@/components/RadialCapture';
 import { NotificationSystem } from '@/components/NotificationSystem';
+import { GlimmerNotifications } from '@/components/GlimmerNotifications';
 import { MiniMap } from '@/components/MiniMap';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { Bubble, CanvasViewport } from '@/types/bubble';
@@ -74,6 +75,7 @@ export default function Index() {
       />
       <RadialCapture />
       <NotificationSystem />
+      <GlimmerNotifications />
       
       {/* MiniMap positioned in bottom right */}
       <div className="fixed bottom-6 right-6 z-40">

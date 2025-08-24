@@ -10,21 +10,28 @@ import { Info, Lightbulb, ChevronDown } from 'lucide-react';
 import { ReminderExplanation } from '@/types/bubble';
 
 interface BecausePillProps {
-  explanation: ReminderExplanation;
+  explanation: ReminderExplanation | string;
   variant?: 'pill' | 'inline' | 'card';
   className?: string;
+  compact?: boolean;
 }
 
 export const BecausePill: React.FC<BecausePillProps> = ({
   explanation,
   variant = 'pill',
-  className = ''
+  className = '',
+  compact = false
 }) => {
   const [isOpen, setIsOpen] = useState(false);
 
-  const confidenceColor = explanation.confidence >= 0.8 
+  // Handle both string and ReminderExplanation types
+  const explanationObj = typeof explanation === 'string' 
+    ? { reason: explanation, factors: [], confidence: 0.8 }
+    : explanation;
+
+  const confidenceColor = explanationObj.confidence >= 0.8 
     ? 'text-green-600 dark:text-green-400'
-    : explanation.confidence >= 0.6
+    : explanationObj.confidence >= 0.6
     ? 'text-yellow-600 dark:text-yellow-400'
     : 'text-red-600 dark:text-red-400';
 
@@ -38,13 +45,13 @@ export const BecausePill: React.FC<BecausePillProps> = ({
             </div>
             <div className="flex-1 space-y-2">
               <h4 className="font-medium text-sm">Why this happened</h4>
-              <p className="text-sm text-muted-foreground">{explanation.reason}</p>
+              <p className="text-sm text-muted-foreground">{explanationObj.reason}</p>
               
-              {explanation.factors.length > 0 && (
+              {explanationObj.factors.length > 0 && (
                 <div className="space-y-1">
                   <p className="text-xs font-medium">Contributing factors:</p>
                   <ul className="text-xs text-muted-foreground space-y-0.5">
-                    {explanation.factors.map((factor, index) => (
+                    {explanationObj.factors.map((factor, index) => (
                       <li key={index} className="flex items-start gap-2">
                         <span className="text-primary mt-1">•</span>
                         <span>{factor}</span>
@@ -57,7 +64,7 @@ export const BecausePill: React.FC<BecausePillProps> = ({
               <div className="flex items-center gap-2 pt-1">
                 <span className="text-xs text-muted-foreground">Confidence:</span>
                 <span className={`text-xs font-medium ${confidenceColor}`}>
-                  {Math.round(explanation.confidence * 100)}%
+                  {Math.round(explanationObj.confidence * 100)}%
                 </span>
               </div>
             </div>
@@ -71,8 +78,8 @@ export const BecausePill: React.FC<BecausePillProps> = ({
     return (
       <div className={`flex items-center gap-2 ${className}`}>
         <Info className="h-3 w-3 text-muted-foreground" />
-        <span className="text-xs text-muted-foreground">{explanation.reason}</span>
-        {explanation.factors.length > 0 && (
+        <span className="text-xs text-muted-foreground">{explanationObj.reason}</span>
+        {explanationObj.factors.length > 0 && (
           <Popover open={isOpen} onOpenChange={setIsOpen}>
             <PopoverTrigger asChild>
               <Button variant="ghost" size="sm" className="h-4 px-1">
@@ -83,7 +90,7 @@ export const BecausePill: React.FC<BecausePillProps> = ({
               <div className="space-y-2">
                 <h4 className="font-medium text-sm">More details</h4>
                 <ul className="text-xs text-muted-foreground space-y-1">
-                  {explanation.factors.map((factor, index) => (
+                  {explanationObj.factors.map((factor, index) => (
                     <li key={index} className="flex items-start gap-2">
                       <span className="text-primary mt-0.5">•</span>
                       <span>{factor}</span>
@@ -93,7 +100,7 @@ export const BecausePill: React.FC<BecausePillProps> = ({
                 <div className="flex items-center gap-2 pt-2 border-t">
                   <span className="text-xs text-muted-foreground">Confidence:</span>
                   <span className={`text-xs font-medium ${confidenceColor}`}>
-                    {Math.round(explanation.confidence * 100)}%
+                    {Math.round(explanationObj.confidence * 100)}%
                   </span>
                 </div>
               </div>
@@ -123,13 +130,13 @@ export const BecausePill: React.FC<BecausePillProps> = ({
             <h4 className="font-medium">Why this happened</h4>
           </div>
           
-          <p className="text-sm text-muted-foreground">{explanation.reason}</p>
+          <p className="text-sm text-muted-foreground">{explanationObj.reason}</p>
           
-          {explanation.factors.length > 0 && (
+          {explanationObj.factors.length > 0 && (
             <div className="space-y-2">
               <p className="text-xs font-medium">Contributing factors:</p>
               <ul className="text-xs text-muted-foreground space-y-1">
-                {explanation.factors.map((factor, index) => (
+                {explanationObj.factors.map((factor, index) => (
                   <li key={index} className="flex items-start gap-2">
                     <span className="text-primary mt-0.5">•</span>
                     <span>{factor}</span>
@@ -143,7 +150,7 @@ export const BecausePill: React.FC<BecausePillProps> = ({
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground">Confidence:</span>
               <span className={`text-xs font-medium ${confidenceColor}`}>
-                {Math.round(explanation.confidence * 100)}%
+                {Math.round(explanationObj.confidence * 100)}%
               </span>
             </div>
             <Button 
