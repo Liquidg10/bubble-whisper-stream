@@ -1,73 +1,115 @@
-# Welcome to your Lovable project
+# Bubble OS - Phase 2: Intelligence Layer
 
-## Project info
+A compassionate cognitive companion built for neurodivergent minds. Phase 2 introduces gentle, explainable intelligence that remains local-first and completely optional.
 
-**URL**: https://lovable.dev/projects/8d3041fb-8df4-4afe-87e4-b56a10af1d00
+## 🧠 Phase 2 Features
 
-## How can I edit this code?
+### CBT Thought Check
+- **Guided journaling** to transform spiraling thoughts into balanced perspectives
+- **Non-clinical approach** with supportive, shame-free language
+- **Step-by-step flow**: Capture thought → identify patterns → examine evidence → reframe
+- **Voice playback** with compassionate tones for comfort
 
-There are several ways of editing your application.
+### Self-Compassion Glimmers
+- **Gentle nudges** triggered by behavioral patterns
+- **Four tone options**: Future-You, Trusted Friend, Gentle Coach, Neutral Scientist
+- **Smart timing** with frequency caps and quiet hours
+- **Transparent explanations** for every suggestion
 
-**Use Lovable**
+### Adaptive Reminders 2.0
+- **Learning system** that adapts to your snooze patterns
+- **Fatigue guard** prevents reminder burnout
+- **"Because..." explanations** for every adjustment
+- **Context-aware scheduling** based on energy patterns
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/8d3041fb-8df4-4afe-87e4-b56a10af1d00) and start prompting.
+### Enhanced Self-Model v2
+- **Layered privacy**: Surface, Context, and Deep layers with biometric protection
+- **Monthly reviews** with diff views and archival options
+- **Audit trails** for all model changes
+- **Pattern decay** to prevent outdated assumptions
 
-Changes made via Lovable will be committed automatically to this repo.
+## 🛠 Technical Architecture
 
-**Use your preferred IDE**
+### Stack
+- **Frontend**: React + TypeScript + Vite
+- **Styling**: Tailwind CSS with custom design tokens
+- **State Management**: Zustand with IndexedDB persistence
+- **Accessibility**: WCAG 2.1 AA compliant, dyslexia-friendly
+- **Performance**: 60+ FPS target with Level-of-Detail optimizations
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+### Key Services
+- `CBTService`: Thought check flows and pattern recognition
+- `GlimmerService`: Context-aware notification system
+- `AdaptiveReminderService`: Rule-based learning engine
+- `ExplainabilityService`: Transparent AI explanations
+- `BiometricService`: Secure access for sensitive data
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+### Privacy & Ethics
+- **Local-first**: All processing happens on-device
+- **Encrypted storage**: AES-256 encryption for sensitive data
+- **Explicit consent**: Granular permissions per feature
+- **Data ownership**: Export and delete capabilities
+- **No tracking**: Zero telemetry or analytics
 
-Follow these steps:
+## 🚀 Getting Started
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+```bash
+# Install dependencies
+npm install
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+# Start development server
 npm run dev
+
+# Build for production
+npm run build
+
+# Run tests
+npm test
 ```
 
-**Edit a file directly in GitHub**
+## 🎛 Feature Flags
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+Features can be toggled via Settings or localStorage:
 
-**Use GitHub Codespaces**
+```javascript
+// Enable/disable features
+localStorage.setItem('featureFlags', JSON.stringify({
+  cbtEnabled: true,
+  glimmersEnabled: true,
+  adaptiveRemindersEnabled: true,
+  performanceMonitoringEnabled: false
+}));
+```
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## ♿ Accessibility Features
 
-## What technologies are used for this project?
+- **Dyslexia support**: OpenDyslexic font, increased spacing
+- **Screen reader compatible**: Full ARIA support and semantic HTML
+- **Keyboard navigation**: Complete app navigation without mouse
+- **High contrast mode**: Enhanced visibility options
+- **Reduced motion**: Respects system preferences
+- **Voice navigation**: TTS integration throughout
 
-This project is built with:
+## 🔧 Configuration
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+### Environment Variables
+```bash
+# Feature toggles (optional)
+VITE_CBT_ENABLED=true
+VITE_GLIMMERS_ENABLED=true
+VITE_ADAPTIVE_REMINDERS_ENABLED=true
 
-## How can I deploy this project?
+# Performance monitoring
+VITE_PERFORMANCE_MONITORING=false
+```
 
-Simply open [Lovable](https://lovable.dev/projects/8d3041fb-8df4-4afe-87e4-b56a10af1d00) and click on Share -> Publish.
+### Theme Customization
+Themes are defined in `src/themes/definitions/`. The app includes:
+- **Iridescent Soap**: High-contrast bubbles with subtle animations
+- **Classic Minimal**: Clean, accessible design with reduced motion
 
-## Can I connect a custom domain to my Lovable project?
+---
 
-Yes, you can!
+**Original Project**: Built with Vite, TypeScript, React, shadcn-ui, and Tailwind CSS.
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+Visit the [Lovable Project](https://lovable.dev/projects/8d3041fb-8df4-4afe-87e4-b56a10af1d00) to continue development.
