@@ -6,6 +6,10 @@ import { useLODSystem } from '@/hooks/useLODSystem';
 import { Bubble } from '@/types/bubble';
 import { BubbleCanvasProps } from '@/themes/ThemeTypes';
 import { MergeConfirmPortal } from '@/components/MergeConfirmPortal';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { PerformanceMonitor } from '@/components/PerformanceMonitor';
+import { ZoomIn, ZoomOut, RotateCcw, Map, Filter, Focus, Layers } from 'lucide-react';
 
 interface IridescentNode {
   id: string;
@@ -42,6 +46,11 @@ export default function IridescentBubbleRenderer({ onBubbleSelect, onBubbleEdit,
   const [confirm, setConfirm] = useState<{ x: number; y: number; a: string; b: string } | null>(null);
   const [toast, setToast] = useState(false);
   const [lastMerge, setLastMerge] = useState<any>(null);
+  const [viewport, setViewport] = useState({ x: 0, y: 0, scale: 1, width: 800, height: 600 });
+  const [declutterMode, setDeclutterMode] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
+  const [bubbleDensity, setBubbleDensity] = useState<'low' | 'medium' | 'high'>('medium');
+  const [showPerformanceMonitor, setShowPerformanceMonitor] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
 
   // Convert bubbles to nodes
@@ -197,6 +206,53 @@ export default function IridescentBubbleRenderer({ onBubbleSelect, onBubbleEdit,
     }
   }, [bubbles, onBubbleSelect, toggleSelection]);
 
+  // Zoom controls
+  const zoomIn = useCallback(() => {
+    setViewport(prev => ({ ...prev, scale: Math.min(prev.scale * 1.2, 3) }));
+  }, []);
+
+  const zoomOut = useCallback(() => {
+    setViewport(prev => ({ ...prev, scale: Math.max(prev.scale / 1.2, 0.1) }));
+  }, []);
+
+  const centerOnBubbles = useCallback(() => {
+    if (bubbles.length === 0) return;
+    
+    // Calculate bounds of all bubbles
+    const minX = Math.min(...bubbles.map(b => b.x));
+    const maxX = Math.max(...bubbles.map(b => b.x));
+    const minY = Math.min(...bubbles.map(b => b.y));
+    const maxY = Math.max(...bubbles.map(b => b.y));
+    
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+    
+    setViewport(prev => ({
+      ...prev,
+      x: -centerX + prev.width / 2,
+      y: -centerY + prev.height / 2,
+      scale: 1
+    }));
+  }, [bubbles]);
+
+  // Initialize viewport dimensions
+  useEffect(() => {
+    const updateViewport = () => {
+      if (canvasRef.current) {
+        const rect = canvasRef.current.getBoundingClientRect();
+        setViewport(prev => ({
+          ...prev,
+          width: rect.width,
+          height: rect.height,
+        }));
+      }
+    };
+
+    updateViewport();
+    window.addEventListener('resize', updateViewport);
+    return () => window.removeEventListener('resize', updateViewport);
+  }, []);
+
   return (
     <div 
       ref={canvasRef}
@@ -266,6 +322,126 @@ export default function IridescentBubbleRenderer({ onBubbleSelect, onBubbleEdit,
         bubble1Label={confirm ? nodes.find(n => n.id === confirm.a)?.label || 'Bubble' : ''}
         bubble2Label={confirm ? nodes.find(n => n.id === confirm.b)?.label || 'Bubble' : ''}
       />
+
+      {/* Zoom & Pan controls */}
+      <div className="absolute top-4 left-4 flex gap-2 z-10">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={zoomIn}
+          className="bg-card/80 backdrop-blur-sm"
+        >
+          <ZoomIn className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={zoomOut}
+          className="bg-card/80 backdrop-blur-sm"
+        >
+          <ZoomOut className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={centerOnBubbles}
+          className="bg-card/80 backdrop-blur-sm"
+        >
+          <RotateCcw className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setViewport(prev => ({ ...prev, scale: 1 }))}
+          className="bg-card/80 backdrop-blur-sm"
+        >
+          <Map className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {/* Declutter & Focus controls */}
+      <div className="absolute top-4 right-4 flex gap-2 z-10">
+        <Button
+          variant={declutterMode ? "default" : "outline"}
+          size="sm"
+          onClick={() => setDeclutterMode(!declutterMode)}
+          className="bg-card/80 backdrop-blur-sm"
+        >
+          <Filter className="h-4 w-4" />
+        </Button>
+        <Button
+          variant={focusMode ? "default" : "outline"}
+          size="sm"
+          onClick={() => setFocusMode(!focusMode)}
+          className="bg-card/80 backdrop-blur-sm"
+        >
+          <Focus className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            const densities: ('low' | 'medium' | 'high')[] = ['low', 'medium', 'high'];
+            const current = densities.indexOf(bubbleDensity);
+            setBubbleDensity(densities[(current + 1) % densities.length]);
+          }}
+          className="bg-card/80 backdrop-blur-sm"
+        >
+          <Layers className="h-4 w-4" />
+        </Button>
+      </div>
+
+      {/* Status indicators */}
+      <div className="absolute bottom-6 left-6 flex gap-2 z-30">
+        {declutterMode && (
+          <Badge variant="secondary" className="bg-card/80 backdrop-blur-sm">
+            Decluttered
+          </Badge>
+        )}
+        {focusMode && (
+          <Badge variant="secondary" className="bg-card/80 backdrop-blur-sm">
+            Focus Mode
+          </Badge>
+        )}
+        {selectedBubbles.size > 0 && (
+          <Badge 
+            variant="default" 
+            className="bg-bubble-selected/90 backdrop-blur-sm cursor-pointer"
+            onClick={clearSelection}
+          >
+            {selectedBubbles.size} selected • tap to clear
+          </Badge>
+        )}
+        <Badge variant="outline" className="bg-card/80 backdrop-blur-sm">
+          Density: {bubbleDensity}
+        </Badge>
+      </div>
+
+      {/* Performance Monitor Controls */}
+      <div className="absolute bottom-6 right-6 z-30">
+        <Button 
+          variant={showPerformanceMonitor ? "default" : "outline"} 
+          size="sm"
+          onClick={() => setShowPerformanceMonitor(!showPerformanceMonitor)}
+          className="bg-card/80 backdrop-blur-sm gap-1"
+        >
+          <Map className="w-4 h-4" />
+          FPS Monitor
+        </Button>
+      </div>
+
+      {/* Performance Stats (Development) */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="absolute bottom-20 right-4 text-xs text-muted-foreground bg-card/80 
+                       backdrop-blur px-2 py-1 rounded border">
+          Rendering: {nodes.length}/{bubbles.length} bubbles
+          <br />
+          Scale: {viewport.scale.toFixed(2)}x
+        </div>
+      )}
+
+      {/* Performance Monitor */}
+      <PerformanceMonitor show={showPerformanceMonitor} />
 
       {/* Undo toast */}
       {toast && lastMerge && (
