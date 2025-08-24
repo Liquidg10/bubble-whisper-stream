@@ -24,7 +24,7 @@ export default function Index() {
   // Create sample bubbles for first-time users
   useEffect(() => {
     if (!isLoading && bubbles.length === 0) {
-      const { addBubble } = useBubbleStore.getState();
+      const { addBubble, updateBubble } = useBubbleStore.getState();
       
       const welcomeBubble: Bubble = {
         id: crypto.randomUUID(),
@@ -39,6 +39,30 @@ export default function Index() {
       };
 
       addBubble(welcomeBubble);
+      
+      // Settle positions to prevent stacking
+      requestAnimationFrame(() => {
+        const { bubbles, updateBubble } = useBubbleStore.getState();
+        const MIN_SEP = 0.62;
+        const list = [...bubbles];
+        for (let iter = 0; iter < 30; iter++) {
+          let moved = false;
+          for (let i = 0; i < list.length; i++) for (let j = i+1; j < list.length; j++) {
+            const a = list[i], b = list[j];
+            const dx = a.x - b.x, dy = a.y - b.y;
+            const d = Math.hypot(dx, dy);
+            const minD = (a.size*50 + b.size*50) * MIN_SEP;
+            if (d > 0 && d < minD) {
+              const f = (minD - d)/d * 0.5;
+              a.x += dx * f; a.y += dy * f;
+              b.x -= dx * f; b.y -= dy * f;
+              moved = true;
+            }
+          }
+          if (!moved) break;
+        }
+        list.forEach(updateBubble);
+      });
     }
   }, [isLoading, bubbles.length]);
 

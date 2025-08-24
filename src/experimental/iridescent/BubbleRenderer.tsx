@@ -8,7 +8,7 @@ import { BubbleCanvasProps } from '@/themes/ThemeTypes';
 import { MergeConfirmPortal } from '@/components/MergeConfirmPortal';
 
 interface IridescentNode {
-  id: number;
+  id: string;
   x: number;
   y: number;
   r: number;
@@ -37,9 +37,9 @@ export default function IridescentBubbleRenderer({ onBubbleSelect, onBubbleEdit,
   const { getLODConfig } = useLODSystem();
   const lodConfig = getLODConfig();
   
-  const [dragging, setDragging] = useState<number | null>(null);
+  const [dragging, setDragging] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const [confirm, setConfirm] = useState<{ x: number; y: number; a: number; b: number } | null>(null);
+  const [confirm, setConfirm] = useState<{ x: number; y: number; a: string; b: string } | null>(null);
   const [toast, setToast] = useState(false);
   const [lastMerge, setLastMerge] = useState<any>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -47,28 +47,30 @@ export default function IridescentBubbleRenderer({ onBubbleSelect, onBubbleEdit,
   // Convert bubbles to nodes
   const nodes: IridescentNode[] = useMemo(() => {
     return bubbles.map((bubble, index) => ({
-      id: parseInt(bubble.id) || index,
+      id: bubble.id,
       x: bubble.x + 400, // Center in viewport
       y: bubble.y + 300,
       r: Math.max(20, bubble.size * 50),
       label: bubble.content?.slice(0, 20) + (bubble.content?.length > 20 ? '...' : '') || `${bubble.type} bubble`,
-      type: bubble.type.toLowerCase(),
+      type: String(bubble.type || '').toLowerCase(),
       glow: getGlowColor(bubble, currentTheme.tokens.auraMapping)
     }));
   }, [bubbles, currentTheme.tokens.auraMapping]);
 
   function getGlowColor(bubble: Bubble, auraMapping: any): string {
+    const h = (val: string) => (/%/.test(val) ? `hsl(${val})` : val);
     const typeMap: Record<string, string> = {
-      'thought': auraMapping?.rocky || '#8A4DFF',
-      'task': auraMapping?.volcanic || '#FF7A00', 
-      'memory': auraMapping?.icy || '#00FFA3',
-      'mood': auraMapping?.cloudy || '#FF3FD4',
-      'remindernote': auraMapping?.gas || '#00E5FF'
+      thought:     h(auraMapping?.cloudy   || '#FF3FD4'),
+      task:        h(auraMapping?.volcanic || '#FF7A00'),
+      memory:      h(auraMapping?.icy      || '#00FFA3'),
+      mood:        h(auraMapping?.rocky    || '#8A4DFF'),
+      remindernote:h(auraMapping?.gas      || '#00E5FF')
     };
-    return typeMap[bubble.type.toLowerCase()] || typeMap['thought'];
+    const key = String(bubble.type || '').toLowerCase();
+    return typeMap[key] || typeMap.thought;
   }
 
-  const handlePointerDown = useCallback((nodeId: number, e: React.PointerEvent) => {
+  const handlePointerDown = useCallback((nodeId: string, e: React.PointerEvent) => {
     e.preventDefault();
     const node = nodes.find(n => n.id === nodeId);
     if (!node) return;
@@ -95,7 +97,7 @@ export default function IridescentBubbleRenderer({ onBubbleSelect, onBubbleEdit,
     if (!dragging) return;
     
     // Update bubble position in store
-    const bubble = bubbles.find(b => parseInt(b.id) === dragging);
+    const bubble = bubbles.find(b => b.id === dragging);
     if (!bubble) return;
 
     const rect = canvasRef.current?.getBoundingClientRect();
@@ -144,8 +146,8 @@ export default function IridescentBubbleRenderer({ onBubbleSelect, onBubbleEdit,
   const handleMerge = useCallback(() => {
     if (!confirm) return;
     
-    const bubbleA = bubbles.find(b => parseInt(b.id) === confirm.a);
-    const bubbleB = bubbles.find(b => parseInt(b.id) === confirm.b);
+    const bubbleA = bubbles.find(b => b.id === confirm.a);
+    const bubbleB = bubbles.find(b => b.id === confirm.b);
     
     if (bubbleA && bubbleB) {
       const nodeA = nodes.find(n => n.id === confirm.a)!;
@@ -175,8 +177,8 @@ export default function IridescentBubbleRenderer({ onBubbleSelect, onBubbleEdit,
     setToast(false);
   }, [lastMerge, undoLastMerge]);
 
-  const handleBubbleClick = useCallback((nodeId: number) => {
-    const bubble = bubbles.find(b => parseInt(b.id) === nodeId);
+  const handleBubbleClick = useCallback((nodeId: string) => {
+    const bubble = bubbles.find(b => b.id === nodeId);
     if (bubble) {
       if (onBubbleSelect) {
         onBubbleSelect(bubble);
@@ -200,7 +202,7 @@ export default function IridescentBubbleRenderer({ onBubbleSelect, onBubbleEdit,
     >
       {/* Render bubbles */}
       {nodes.map((node, index) => {
-        const bubbleId = bubbles.find(b => parseInt(b.id) === node.id)?.id || '';
+        const bubbleId = node.id;
         const isSelected = selectedBubbles.has(bubbleId);
         return (
         <IridescentBubble
