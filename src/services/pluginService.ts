@@ -1,5 +1,26 @@
 // Basic plugin architecture with capability model and sandbox isolation
-import { EventEmitter } from 'events';
+
+// Simple browser-compatible EventEmitter
+class SimpleEventEmitter {
+  private events: { [key: string]: Function[] } = {};
+
+  on(event: string, callback: Function) {
+    if (!this.events[event]) {
+      this.events[event] = [];
+    }
+    this.events[event].push(callback);
+  }
+
+  off(event: string, callback: Function) {
+    if (!this.events[event]) return;
+    this.events[event] = this.events[event].filter(cb => cb !== callback);
+  }
+
+  emit(event: string, ...args: any[]) {
+    if (!this.events[event]) return;
+    this.events[event].forEach(callback => callback(...args));
+  }
+}
 
 export interface PluginCapability {
   scope: 'read' | 'write' | 'admin';
@@ -297,7 +318,7 @@ class PluginSandbox {
 
 class PluginManager {
   private plugins = new Map<string, PluginSandbox>();
-  private eventBus = new EventEmitter();
+  private eventBus = new SimpleEventEmitter();
   private quarantinedPlugins = new Set<string>();
 
   async loadPlugin(manifest: PluginManifest): Promise<void> {
@@ -636,7 +657,7 @@ class PluginQuotaManager implements QuotaManager {
 }
 
 // Global event bus for plugin system
-export const globalPluginEventBus = new EventEmitter();
+export const globalPluginEventBus = new SimpleEventEmitter();
 
 export const pluginManager = new PluginManager();
 
