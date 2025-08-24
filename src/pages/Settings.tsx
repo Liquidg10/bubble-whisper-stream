@@ -29,6 +29,7 @@ import { MonthlyReviewCard } from '@/components/MonthlyReviewCard';
 import { PrivacyZoneToggle } from '@/components/PrivacyZoneToggle';
 import { QuickTour } from '@/components/QuickTour';
 import { OptionalModules } from '@/components/OptionalModules';
+import { PerformanceMonitor } from '@/components/PerformanceMonitor';
 
 export const Settings: React.FC = () => {
   const { settings, updateSettings, bubbles, reminders } = useBubbleStore();
@@ -39,6 +40,7 @@ export const Settings: React.FC = () => {
   const [showPluginManager, setShowPluginManager] = useState(false);
   const [showIntelligenceDashboard, setShowIntelligenceDashboard] = useState(false);
   const [showPerformanceOptimizer, setShowPerformanceOptimizer] = useState(false);
+  const [showPerformanceMonitor, setShowPerformanceMonitor] = useState(false);
 
   const handleExportData = async () => {
     setIsExporting(true);
@@ -481,6 +483,38 @@ export const Settings: React.FC = () => {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <MonthlyReviewCard onClose={() => setShowMonthlyReview(false)} />
         </div>
+      )}
+      {/* Performance Monitor (Development) */}
+      {process.env.NODE_ENV === 'development' && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Brain className="h-5 w-5" />
+              Performance Monitor
+            </CardTitle>
+            <CardDescription>
+              Real-time performance metrics and optimization tools
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="performance-monitor">Show Performance Monitor</Label>
+                <Switch
+                  id="performance-monitor"
+                  checked={showPerformanceMonitor}
+                  onCheckedChange={setShowPerformanceMonitor}
+                />
+              </div>
+              
+              {showPerformanceMonitor && (
+                <div className="border rounded-lg p-4 bg-muted/50">
+                  <PerformanceMonitor show={true} />
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

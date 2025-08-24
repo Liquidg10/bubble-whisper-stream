@@ -15,7 +15,6 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { usePinchZoom } from '@/hooks/usePinchZoom';
 import { useLODSystem } from '@/hooks/useLODSystem';
 import { useZoomStandard } from '@/hooks/useZoomStandard';
-import { PerformanceMonitor } from './PerformanceMonitor';
 import { ZoomIn, ZoomOut, RotateCcw, Map, Filter, Focus, Layers } from 'lucide-react';
 
 interface BubbleCanvasProps {
@@ -62,7 +61,6 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
   const [bubbleDensity, setBubbleDensity] = useState<'low' | 'medium' | 'high'>('medium');
   const [showMergePopover, setShowMergePopover] = useState(false);
   const [mergePopoverPosition, setMergePopoverPosition] = useState({ x: 0, y: 0 });
-  const [showPerformanceMonitor, setShowPerformanceMonitor] = useState(false);
   
   // LOD configuration
   const lodConfig = getLODConfig();
@@ -500,31 +498,6 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
         </Badge>
       </div>
 
-      {/* Performance Monitor Controls */}
-      <div className="absolute bottom-6 right-6 z-30">
-        <Button 
-          variant={showPerformanceMonitor ? "default" : "outline"} 
-          size="sm"
-          onClick={() => setShowPerformanceMonitor(!showPerformanceMonitor)}
-          className="bg-card/80 backdrop-blur-sm gap-1"
-        >
-          <Map className="w-4 h-4" />
-          FPS Monitor
-        </Button>
-      </div>
-
-      {/* Performance Stats (Development) */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="absolute bottom-20 right-4 text-xs text-muted-foreground bg-card/80 
-                       backdrop-blur px-2 py-1 rounded border">
-          Rendering: {visibleBubbles.length}/{bubbles.length} bubbles
-          <br />
-          Scale: {viewport.scale.toFixed(2)}x
-        </div>
-      )}
-
-      {/* Performance Monitor */}
-      <PerformanceMonitor show={showPerformanceMonitor} />
     </div>
   );
 }

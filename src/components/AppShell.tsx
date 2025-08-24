@@ -8,7 +8,6 @@ import { useBubbleStore } from '@/stores/bubbleStore';
 import { GlimmerNotificationSystem } from '@/components/GlimmerNotificationSystem';
 import { OfflineDetector } from '@/components/OfflineDetector';
 import { OfflineStatusBanner } from '@/components/OfflineStatusBanner';
-import { PerformanceMonitor } from '@/components/PerformanceMonitor';
 import NarrativeSearch from '@/components/NarrativeSearch';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 
@@ -59,7 +58,7 @@ export const AppShell: React.FC = () => {
         </div>
         <GlimmerNotificationSystem />
         <OfflineDetector />
-        <PerformanceMonitor show={isDev} />
+        
       </main>
 
       {/* Narrative Search Modal */}
