@@ -15,7 +15,7 @@ import { ConflictResolutionDialog } from '@/components/ConflictResolutionDialog'
 import { CollaborationHub } from '@/components/CollaborationHub';
 import { EnhancedVoiceCapture } from '@/components/EnhancedVoiceCapture';
 import { EnhancedPhotoCapture } from '@/components/EnhancedPhotoCapture';
-import { UIControlPanel } from '@/components/UIControlPanel';
+
 import { crossDeviceSyncService } from '@/services/crossDeviceSyncService';
 
 export default function Index() {
@@ -119,21 +119,6 @@ export default function Index() {
         onClose={() => setSelectedBubble(null)}
       />
 
-      {/* Temporal Navigation */}
-      {isPanelVisible('temporal') && (
-        <div style={getPanelStyle('temporal')}>
-          <TemporalNavigation 
-            onTimeRangeChange={() => {}}
-            isVisible={isPanelVisible('temporal')}
-            isMinimized={isPanelMinimized('temporal')}
-            onToggleMinimize={() => toggleMinimize('temporal')}
-            onClose={() => togglePanel('temporal')}
-          />
-        </div>
-      )}
-
-      {/* UI Control Panel */}
-      <UIControlPanel />
 
       {/* Collaboration Hub Access */}
       <div className="fixed top-20 right-4 z-10">

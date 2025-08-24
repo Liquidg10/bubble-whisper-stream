@@ -20,6 +20,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger 
 } from '@/components/ui/dropdown-menu';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import TemporalNavigation from '@/components/TemporalNavigation';
 import { ttsService } from '@/services/tts';
 import { hapticsService } from '@/services/haptics';
 
@@ -29,6 +31,7 @@ export const Timeline: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
   const [selectedDate, setSelectedDate] = useState<string>('');
+  const [activeTab, setActiveTab] = useState('list');
 
   const filteredBubbles = useMemo(() => {
     let filtered = [...bubbles];
@@ -164,150 +167,171 @@ export const Timeline: React.FC = () => {
             Export
           </Button>
         </div>
+        
+        {/* Timeline Tabs */}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="list">List View</TabsTrigger>
+            <TabsTrigger value="temporal">Temporal View</TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="list" className="mt-4">
+            {/* Search and Filters for List View */}
+            <div className="space-y-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search bubbles..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
 
-        {/* Search and Filters */}
-        <div className="space-y-3">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search bubbles..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
+              <div className="flex gap-2 overflow-x-auto pb-2">
+                <Button
+                  variant={filterType === 'all' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setFilterType('all')}
+                >
+                  All
+                </Button>
+                {['Thought', 'Task', 'Memory', 'Mood', 'ReminderNote'].map((type) => (
+                  <Button
+                    key={type}
+                    variant={filterType === type ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setFilterType(type)}
+                    className="whitespace-nowrap"
+                  >
+                    {type}
+                  </Button>
+                ))}
+              </div>
+
+              <Input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="w-auto"
+              />
+            </div>
+          </TabsContent>
+          
+          <TabsContent value="temporal" className="mt-4">
+            <TemporalNavigation 
+              onTimeRangeChange={() => {}}
+              isVisible={true}
+              isMinimized={false}
             />
-          </div>
+          </TabsContent>
+        </Tabs>
 
-          <div className="flex gap-2 overflow-x-auto pb-2">
-            <Button
-              variant={filterType === 'all' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setFilterType('all')}
-            >
-              All
-            </Button>
-            {['Thought', 'Task', 'Memory', 'Mood', 'ReminderNote'].map((type) => (
-              <Button
-                key={type}
-                variant={filterType === type ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setFilterType(type)}
-                className="whitespace-nowrap"
-              >
-                {type}
-              </Button>
-            ))}
-          </div>
-
-          <Input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="w-auto"
-          />
-        </div>
       </div>
 
-      {/* Timeline Content */}
-      <div className="flex-1 overflow-y-auto p-4">
-        {Object.keys(groupedBubbles).length === 0 ? (
-          <div className="text-center text-muted-foreground mt-8">
-            {searchTerm || filterType !== 'all' || selectedDate 
-              ? 'No bubbles match your filters' 
-              : 'No bubbles yet. Start capturing your thoughts!'}
-          </div>
-        ) : (
-          <div className="space-y-6">
-            {Object.entries(groupedBubbles).map(([date, dayBubbles]) => (
-              <div key={date} className="space-y-3">
-                <h2 className="text-lg font-medium text-foreground sticky top-0 bg-background/95 backdrop-blur py-2">
-                  {formatDateHeader(date)}
-                </h2>
-                <div className="space-y-3">
-                  {dayBubbles.map((bubble) => (
-                    <Card 
-                      key={bubble.id} 
-                      className="hover:shadow-md transition-shadow cursor-pointer"
-                      onClick={() => setSelectedBubble(bubble)}
-                    >
-                      <CardContent className="p-4">
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-2">
-                              <Badge 
-                                variant="secondary" 
-                                className={`text-xs ${typeColors[bubble.type]}`}
-                              >
-                                {bubble.type}
-                              </Badge>
-                              <span className="text-xs text-muted-foreground">
-                                {formatTime(bubble.createdAt)}
-                              </span>
-                            </div>
-                            
-                            <p className="text-sm line-clamp-3 mb-2">
-                              {bubble.content || 'No content'}
-                            </p>
-                            
-                            {bubble.tags.length > 0 && (
-                              <div className="flex flex-wrap gap-1">
-                                {bubble.tags.slice(0, 3).map((tag) => (
-                                  <Badge key={tag.id} variant="outline" className="text-xs">
-                                    {tag.emoji} {tag.name}
-                                  </Badge>
-                                ))}
-                                {bubble.tags.length > 3 && (
-                                  <Badge variant="outline" className="text-xs">
-                                    +{bubble.tags.length - 3}
-                                  </Badge>
-                                )}
+      {/* Timeline Content - Only show for List View */}
+      {activeTab === 'list' && (
+        <div className="flex-1 overflow-y-auto p-4">
+          {Object.keys(groupedBubbles).length === 0 ? (
+            <div className="text-center text-muted-foreground mt-8">
+              {searchTerm || filterType !== 'all' || selectedDate 
+                ? 'No bubbles match your filters' 
+                : 'No bubbles yet. Start capturing your thoughts!'}
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {Object.entries(groupedBubbles).map(([date, dayBubbles]) => (
+                <div key={date} className="space-y-3">
+                  <h2 className="text-lg font-medium text-foreground sticky top-0 bg-background/95 backdrop-blur py-2">
+                    {formatDateHeader(date)}
+                  </h2>
+                  <div className="space-y-3">
+                    {dayBubbles.map((bubble) => (
+                      <Card 
+                        key={bubble.id} 
+                        className="hover:shadow-md transition-shadow cursor-pointer"
+                        onClick={() => setSelectedBubble(bubble)}
+                      >
+                        <CardContent className="p-4">
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-2">
+                                <Badge 
+                                  variant="secondary" 
+                                  className={`text-xs ${typeColors[bubble.type]}`}
+                                >
+                                  {bubble.type}
+                                </Badge>
+                                <span className="text-xs text-muted-foreground">
+                                  {formatTime(bubble.createdAt)}
+                                </span>
                               </div>
-                            )}
-                          </div>
+                              
+                              <p className="text-sm line-clamp-3 mb-2">
+                                {bubble.content || 'No content'}
+                              </p>
+                              
+                              {bubble.tags.length > 0 && (
+                                <div className="flex flex-wrap gap-1">
+                                  {bubble.tags.slice(0, 3).map((tag) => (
+                                    <Badge key={tag.id} variant="outline" className="text-xs">
+                                      {tag.emoji} {tag.name}
+                                    </Badge>
+                                  ))}
+                                  {bubble.tags.length > 3 && (
+                                    <Badge variant="outline" className="text-xs">
+                                      +{bubble.tags.length - 3}
+                                    </Badge>
+                                  )}
+                                </div>
+                              )}
+                            </div>
 
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 w-8 p-0"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <MoreVertical className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              {bubble.content && (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <MoreVertical className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                {bubble.content && (
+                                  <DropdownMenuItem
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handlePlayBubble(bubble);
+                                    }}
+                                  >
+                                    <Play className="h-4 w-4 mr-2" />
+                                    Play Audio
+                                  </DropdownMenuItem>
+                                )}
                                 <DropdownMenuItem
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handlePlayBubble(bubble);
+                                    setSelectedBubble(bubble);
                                   }}
                                 >
-                                  <Play className="h-4 w-4 mr-2" />
-                                  Play Audio
+                                  <Calendar className="h-4 w-4 mr-2" />
+                                  View Details
                                 </DropdownMenuItem>
-                              )}
-                              <DropdownMenuItem
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedBubble(bubble);
-                                }}
-                              >
-                                <Calendar className="h-4 w-4 mr-2" />
-                                View Details
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Bubble Detail Modal */}
       <BubbleDetail
