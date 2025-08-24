@@ -53,18 +53,43 @@ export default function IridescentBubbleRenderer({ onBubbleSelect, onBubbleEdit,
   const [showPerformanceMonitor, setShowPerformanceMonitor] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
 
-  // Convert bubbles to nodes
+  // Filter bubbles based on controls
+  const filteredBubbles = useMemo(() => {
+    let filtered = [...bubbles];
+    
+    // Apply focus mode filter
+    if (focusMode && selectedBubbles.size > 0) {
+      filtered = filtered.filter(b => selectedBubbles.has(b.id));
+    }
+    
+    // Apply density filter
+    if (bubbleDensity === 'low') {
+      filtered = filtered.slice(0, Math.ceil(filtered.length * 0.3));
+    } else if (bubbleDensity === 'medium') {
+      filtered = filtered.slice(0, Math.ceil(filtered.length * 0.7));
+    }
+    
+    // Apply declutter mode filter (remove smaller bubbles)
+    if (declutterMode) {
+      const avgSize = filtered.reduce((sum, b) => sum + b.size, 0) / filtered.length;
+      filtered = filtered.filter(b => b.size >= avgSize * 0.8);
+    }
+    
+    return filtered;
+  }, [bubbles, focusMode, selectedBubbles, bubbleDensity, declutterMode]);
+
+  // Convert bubbles to nodes with viewport transformation
   const nodes: IridescentNode[] = useMemo(() => {
-    return bubbles.map((bubble, index) => ({
+    return filteredBubbles.map((bubble, index) => ({
       id: bubble.id,
-      x: bubble.x + 400, // Center in viewport
-      y: bubble.y + 300,
-      r: Math.max(20, bubble.size * 50),
+      x: (bubble.x * viewport.scale) + viewport.x + (viewport.width / 2),
+      y: (bubble.y * viewport.scale) + viewport.y + (viewport.height / 2),
+      r: Math.max(20, bubble.size * 50 * viewport.scale),
       label: bubble.content?.slice(0, 20) + (bubble.content?.length > 20 ? '...' : '') || `${bubble.type} bubble`,
       type: String(bubble.type || '').toLowerCase(),
       glow: getGlowColor(bubble, currentTheme.tokens.auraMapping)
     }));
-  }, [bubbles, currentTheme.tokens.auraMapping]);
+  }, [filteredBubbles, currentTheme.tokens.auraMapping, viewport]);
 
   function getGlowColor(bubble: Bubble, auraMapping: any): string {
     const h = (val: string) => (/%/.test(val) ? `hsl(${val})` : val);
@@ -95,10 +120,6 @@ export default function IridescentBubbleRenderer({ onBubbleSelect, onBubbleEdit,
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
     
-    // Calculate drag offset using bubble coordinates (without the +400/+300 offset)
-    const bubbleX = node.x - 400; // Convert back to bubble coordinate space
-    const bubbleY = node.y - 300;
-    
     setDragOffset({
       x: e.clientX - rect.left - node.x,
       y: e.clientY - rect.top - node.y
@@ -120,9 +141,9 @@ export default function IridescentBubbleRenderer({ onBubbleSelect, onBubbleEdit,
     const canvasX = e.clientX - rect.left - dragOffset.x;
     const canvasY = e.clientY - rect.top - dragOffset.y;
     
-    // Convert from node coordinates (with +400/+300 offset) back to bubble coordinates
-    const newX = canvasX - 400;
-    const newY = canvasY - 300;
+    // Convert back to bubble coordinate space
+    const newX = (canvasX - viewport.x - (viewport.width / 2)) / viewport.scale;
+    const newY = (canvasY - viewport.y - (viewport.height / 2)) / viewport.scale;
     
     const updatedBubble = { ...bubble, x: newX, y: newY, updatedAt: Date.now() };
     useBubbleStore.getState().updateBubble(updatedBubble);
@@ -216,24 +237,50 @@ export default function IridescentBubbleRenderer({ onBubbleSelect, onBubbleEdit,
   }, []);
 
   const centerOnBubbles = useCallback(() => {
-    if (bubbles.length === 0) return;
+    if (filteredBubbles.length === 0) return;
     
     // Calculate bounds of all bubbles
-    const minX = Math.min(...bubbles.map(b => b.x));
-    const maxX = Math.max(...bubbles.map(b => b.x));
-    const minY = Math.min(...bubbles.map(b => b.y));
-    const maxY = Math.max(...bubbles.map(b => b.y));
+    const minX = Math.min(...filteredBubbles.map(b => b.x));
+    const maxX = Math.max(...filteredBubbles.map(b => b.x));
+    const minY = Math.min(...filteredBubbles.map(b => b.y));
+    const maxY = Math.max(...filteredBubbles.map(b => b.y));
     
     const centerX = (minX + maxX) / 2;
     const centerY = (minY + maxY) / 2;
     
     setViewport(prev => ({
       ...prev,
-      x: -centerX + prev.width / 2,
-      y: -centerY + prev.height / 2,
+      x: -centerX * prev.scale,
+      y: -centerY * prev.scale,
       scale: 1
     }));
-  }, [bubbles]);
+  }, [filteredBubbles]);
+
+  // Handle mouse wheel zoom
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    
+    // Calculate zoom
+    const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
+    const newScale = Math.min(Math.max(viewport.scale * zoomFactor, 0.1), 3);
+    
+    // Zoom towards mouse position
+    const dx = mouseX - viewport.width / 2;
+    const dy = mouseY - viewport.height / 2;
+    
+    setViewport(prev => ({
+      ...prev,
+      scale: newScale,
+      x: prev.x - dx * (zoomFactor - 1),
+      y: prev.y - dy * (zoomFactor - 1)
+    }));
+  }, [viewport]);
 
   // Initialize viewport dimensions
   useEffect(() => {
@@ -259,6 +306,7 @@ export default function IridescentBubbleRenderer({ onBubbleSelect, onBubbleEdit,
       className={`relative w-full h-full overflow-hidden bg-universe ${className || ''}`}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
+      onWheel={handleWheel}
       style={{ 
         background: 'var(--bg-universe)', 
         position: 'relative',
@@ -434,7 +482,7 @@ export default function IridescentBubbleRenderer({ onBubbleSelect, onBubbleEdit,
       {process.env.NODE_ENV === 'development' && (
         <div className="absolute bottom-20 right-4 text-xs text-muted-foreground bg-card/80 
                        backdrop-blur px-2 py-1 rounded border">
-          Rendering: {nodes.length}/{bubbles.length} bubbles
+          Rendering: {nodes.length}/{bubbles.length} bubbles ({filteredBubbles.length} filtered)
           <br />
           Scale: {viewport.scale.toFixed(2)}x
         </div>
