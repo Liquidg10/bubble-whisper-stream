@@ -1,5 +1,6 @@
 // Enhanced Text-to-Speech service with compassionate tones
 import { storageService } from './storage';
+import { supabase } from '@/integrations/supabase/client';
 
 interface TTSSettings {
   enabled: boolean;
@@ -12,6 +13,7 @@ interface TTSSettings {
 interface TTSOptions extends Partial<TTSSettings> {
   tone?: 'compassionate' | 'gentle' | 'encouraging' | 'neutral';
   interrupt?: boolean;
+  useAI?: boolean;
 }
 
 class TTSService {
@@ -65,12 +67,27 @@ class TTSService {
   }
 
   async speak(text: string, options: TTSOptions = {}): Promise<void> {
-    if (!this.isSupported || !this.synth || !text.trim() || !this.settings.enabled) {
+    if (!text.trim() || !this.settings.enabled) {
       return;
     }
 
     if (options.interrupt && this.isPlaying) {
       this.stop();
+    }
+
+    // Use AI TTS by default for better quality
+    if (options.useAI !== false) {
+      try {
+        return await this.speakWithAI(text, options);
+      } catch (error) {
+        console.warn('AI TTS failed, falling back to browser TTS:', error);
+        // Fall through to browser TTS
+      }
+    }
+
+    // Browser TTS fallback
+    if (!this.isSupported || !this.synth) {
+      return;
     }
 
     return new Promise((resolve, reject) => {
@@ -92,6 +109,40 @@ class TTSService {
 
       this.synth!.speak(utterance);
     });
+  }
+
+  private async speakWithAI(text: string, options: TTSOptions): Promise<void> {
+    try {
+      const { data, error } = await supabase.functions.invoke('ai-tts-generate', {
+        body: {
+          text,
+          voice: options.voice,
+          tone: options.tone || 'neutral'
+        }
+      });
+
+      if (error) throw error;
+
+      // Play the audio
+      const audio = new Audio(`data:audio/mp3;base64,${data.audioContent}`);
+      audio.volume = options.volume ?? this.settings.volume;
+      
+      return new Promise((resolve, reject) => {
+        audio.onended = () => {
+          this.isPlaying = false;
+          resolve();
+        };
+        audio.onerror = () => {
+          this.isPlaying = false;
+          reject(new Error('Audio playback failed'));
+        };
+        
+        this.isPlaying = true;
+        audio.play().catch(reject);
+      });
+    } catch (error) {
+      throw new Error(`AI TTS failed: ${error.message}`);
+    }
   }
 
   private adjustForTone(text: string, tone: string = 'neutral'): string {
