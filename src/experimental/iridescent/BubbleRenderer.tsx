@@ -5,6 +5,7 @@ import { useTouchGestures } from '@/hooks/useTouchGestures';
 import { useLODSystem } from '@/hooks/useLODSystem';
 import { Bubble } from '@/types/bubble';
 import { BubbleCanvasProps } from '@/themes/ThemeTypes';
+import { MergeConfirmPortal } from '@/components/MergeConfirmPortal';
 
 interface IridescentNode {
   id: number;
@@ -41,6 +42,7 @@ export default function IridescentBubbleRenderer({ onBubbleSelect, onBubbleEdit,
   const [confirm, setConfirm] = useState<{ x: number; y: number; a: number; b: number } | null>(null);
   const [toast, setToast] = useState(false);
   const [lastMerge, setLastMerge] = useState<any>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
 
   // Convert bubbles to nodes
   const nodes: IridescentNode[] = useMemo(() => {
@@ -57,19 +59,27 @@ export default function IridescentBubbleRenderer({ onBubbleSelect, onBubbleEdit,
 
   function getGlowColor(bubble: Bubble, auraMapping: any): string {
     const typeMap: Record<string, string> = {
-      'thought': auraMapping.rocky || '#8A4DFF',
-      'task': auraMapping.volcanic || '#FF7A00', 
-      'memory': auraMapping.icy || '#00FFA3',
-      'mood': auraMapping.cloudy || '#FF3FD4',
-      'reminderNote': auraMapping.gas || '#00E5FF'
+      'thought': auraMapping?.rocky || '#8A4DFF',
+      'task': auraMapping?.volcanic || '#FF7A00', 
+      'memory': auraMapping?.icy || '#00FFA3',
+      'mood': auraMapping?.cloudy || '#FF3FD4',
+      'remindernote': auraMapping?.gas || '#00E5FF'
     };
-    return typeMap[bubble.type.toLowerCase()] || auraMapping.rocky || '#8A4DFF';
+    return typeMap[bubble.type.toLowerCase()] || typeMap['thought'];
   }
 
   const handlePointerDown = useCallback((nodeId: number, e: React.PointerEvent) => {
     e.preventDefault();
     const node = nodes.find(n => n.id === nodeId);
     if (!node) return;
+
+    // Bring selected bubble to front by updating z-order
+    const updatedNodes = [...nodes];
+    const nodeIndex = updatedNodes.findIndex(n => n.id === nodeId);
+    if (nodeIndex >= 0) {
+      const [selectedNode] = updatedNodes.splice(nodeIndex, 1);
+      updatedNodes.push(selectedNode);
+    }
 
     const rect = e.currentTarget.getBoundingClientRect();
     setDragOffset({
@@ -105,16 +115,23 @@ export default function IridescentBubbleRenderer({ onBubbleSelect, onBubbleEdit,
     // Check for merge candidates
     const candidates = nodes.filter(n => n.id !== dragging && overlapRatio(draggedNode, n) > (currentTheme.behavior.mergeThreshold || 0.06));
     
-    if (candidates.length > 0) {
-      const closest = candidates.reduce((best, curr) => 
-        dist(draggedNode, curr) < dist(draggedNode, best) ? curr : best
-      );
-      
-      const midX = (draggedNode.x + closest.x) / 2;
-      const midY = (draggedNode.y + closest.y) / 2;
-      
-      setConfirm({ x: midX, y: midY, a: dragging, b: closest.id });
-    }
+      if (candidates.length > 0) {
+        const closest = candidates.reduce((best, curr) => 
+          dist(draggedNode, curr) < dist(draggedNode, best) ? curr : best
+        );
+        
+        // Convert canvas coords to screen coords for portal
+        const canvasRect = canvasRef.current?.getBoundingClientRect();
+        if (canvasRect) {
+          const midX = (draggedNode.x + closest.x) / 2;
+          const midY = (draggedNode.y + closest.y) / 2;
+          
+          const screenX = canvasRect.left + midX;
+          const screenY = canvasRect.top + midY;
+          
+          setConfirm({ x: screenX, y: screenY, a: dragging, b: closest.id });
+        }
+      }
     
     setDragging(null);
   }, [dragging, nodes, currentTheme.behavior.mergeThreshold]);
@@ -166,71 +183,69 @@ export default function IridescentBubbleRenderer({ onBubbleSelect, onBubbleEdit,
 
   return (
     <div 
+      ref={canvasRef}
       className={`relative w-full h-full overflow-hidden bg-universe ${className || ''}`}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      style={{ background: 'var(--bg-universe)' }}
+      style={{ background: 'var(--bg-universe)', position: 'relative' }}
     >
       {/* Render bubbles */}
       {nodes.map((node, index) => {
         const bubbleId = bubbles.find(b => parseInt(b.id) === node.id)?.id || '';
         const isSelected = selectedBubbles.has(bubbleId);
         return (
-          <IridescentBubble
-            key={node.id}
-            {...node}
-            selected={isSelected}
-            onPointerDown={(e) => handlePointerDown(node.id, e)}
-            onClick={() => handleBubbleClick(node.id)}
-            phase={index}
-            lod={!lodConfig.enableSpecular || dragging === node.id}
-          />
+        <IridescentBubble
+          key={node.id}
+          {...node}
+          selected={isSelected}
+          onPointerDown={(e) => handlePointerDown(node.id, e)}
+          onClick={() => handleBubbleClick(node.id)}
+          phase={index}
+          lod={!lodConfig.enableSpecular || dragging === node.id}
+          zIndex={index}
+        />
         );
       })}
 
       {/* Meniscus at intersections */}
-      {(() => {
-        const rings: JSX.Element[] = [];
-        for (let i = 0; i < nodes.length; i++) {
-          for (let j = i + 1; j < nodes.length; j++) {
-            const a = nodes[i], b = nodes[j];
-            const ratio = overlapRatio(a, b);
-            if (ratio > 0.05) {
-              const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-              const rr = Math.min(a.r, b.r) * 0.18;
-              rings.push(
-                <div
-                  key={`m-${a.id}-${b.id}`}
-                  className="meniscus"
-                  style={{
-                    position: 'absolute',
-                    left: mx - rr,
-                    top: my - rr,
-                    width: rr * 2,
-                    height: rr * 2
-                  }}
-                />
-              );
+        {(() => {
+          const rings: JSX.Element[] = [];
+          for (let i = 0; i < nodes.length; i++) {
+            for (let j = i + 1; j < nodes.length; j++) {
+              const a = nodes[i], b = nodes[j];
+              const ratio = overlapRatio(a, b);
+              if (ratio > 0.05) {
+                const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+                const rr = Math.min(a.r, b.r) * 0.18;
+                rings.push(
+                  <div
+                    key={`m-${a.id}-${b.id}`}
+                    className="meniscus"
+                    style={{
+                      position: 'absolute',
+                      left: mx - rr,
+                      top: my - rr,
+                      width: rr * 2,
+                      height: rr * 2,
+                      pointerEvents: 'none'
+                    }}
+                  />
+                );
+              }
             }
           }
-        }
-        return rings;
-      })()}
+          return rings;
+        })()}
 
-      {/* Merge confirmation popover */}
-      {confirm && (
-        <div
-          className="merge-pop"
-          style={{ left: confirm.x - 70, top: confirm.y - 24 }}
-        >
-          <button onClick={handleMerge} className="btn-merge">
-            Merge
-          </button>
-          <button onClick={() => setConfirm(null)} className="btn-cancel">
-            Keep separate
-          </button>
-        </div>
-      )}
+      {/* Merge confirmation portal */}
+      <MergeConfirmPortal
+        isOpen={!!confirm}
+        screenPosition={confirm ? { x: confirm.x, y: confirm.y } : { x: 0, y: 0 }}
+        onMerge={handleMerge}
+        onCancel={() => setConfirm(null)}
+        bubble1Label={confirm ? nodes.find(n => n.id === confirm.a)?.label || 'Bubble' : ''}
+        bubble2Label={confirm ? nodes.find(n => n.id === confirm.b)?.label || 'Bubble' : ''}
+      />
 
       {/* Undo toast */}
       {toast && lastMerge && (
@@ -265,7 +280,8 @@ function IridescentBubble({
   onPointerDown,
   onClick,
   phase,
-  lod
+  lod,
+  zIndex = 0
 }: {
   x: number;
   y: number;
@@ -277,6 +293,7 @@ function IridescentBubble({
   onClick: () => void;
   phase: number;
   lod: boolean;
+  zIndex?: number;
 }) {
   const [cx, setCx] = useState(35);
   const [cy, setCy] = useState(28);
@@ -320,7 +337,8 @@ function IridescentBubble({
         left: x - r,
         top: y - r,
         width: r * 2,
-        height: r * 2
+        height: r * 2,
+        zIndex: zIndex
       }}
       onPointerDown={onPointerDown}
       onClick={onClick}
@@ -340,7 +358,12 @@ function IridescentBubble({
         <div
           className="soap-rim"
           style={{
-            background: `conic-gradient(${glow} 0 130deg, rgba(255,255,255,.9) 180deg, ${glow} 230deg 360deg)`
+            WebkitMask: 'radial-gradient(circle, transparent 66.2%, black 66.22%)',
+            mask: 'radial-gradient(circle, transparent 66.2%, black 66.22%)',
+            background: `conic-gradient(${glow} 0 130deg, rgba(255,255,255,.9) 180deg, ${glow} 230deg 360deg)`,
+            position: 'absolute',
+            inset: '-0.05%',
+            borderRadius: '999px'
           }}
         />
         <div className="soap-core" />

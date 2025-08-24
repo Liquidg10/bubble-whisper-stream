@@ -517,10 +517,11 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
   const CanvasRenderer = currentTheme.components?.CanvasRenderer ?? DefaultBubbleCanvas;
   
   return (
-    <CanvasRenderer 
-      onBubbleSelect={onBubbleSelect}
-      onBubbleEdit={onBubbleEdit}
-      className={className}
-    />
+    <div className={`relative w-full h-full overflow-hidden ${className || ''}`}>
+      <CanvasRenderer 
+        onBubbleSelect={onBubbleSelect}
+        onBubbleEdit={onBubbleEdit}
+      />
+    </div>
   );
 }

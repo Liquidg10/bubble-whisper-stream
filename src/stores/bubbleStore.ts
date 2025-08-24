@@ -2,8 +2,18 @@
 
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { Bubble, Reminder, Tag, Settings, SelfModel } from '@/types/bubble';
+import { Bubble, Reminder, Tag, Settings, SelfModel, BubbleType } from '@/types/bubble';
 import { storageService } from '@/services/storage';
+
+// Helper to assign default bubble type based on content
+function getDefaultBubbleType(content: string): BubbleType {
+  const lower = content.toLowerCase();
+  if (lower.includes('todo') || lower.includes('task') || lower.includes('complete')) return 'Task';
+  if (lower.includes('remember') || lower.includes('memory')) return 'Memory';
+  if (lower.includes('feeling') || lower.includes('mood')) return 'Mood';
+  if (lower.includes('remind') || lower.includes('alert')) return 'ReminderNote';
+  return 'Thought'; // Default
+}
 
 interface BubbleStore {
   // State
@@ -124,8 +134,13 @@ export const useBubbleStore = create<BubbleStore>()(
       // Bubble actions
       addBubble: async (bubble) => {
         try {
-          await storageService.createBubble(bubble);
-          set(state => ({ bubbles: [...state.bubbles, bubble] }));
+          // Ensure bubble has a type for proper type-colored rims
+          const bubbleWithType = {
+            ...bubble,
+            type: bubble.type || getDefaultBubbleType(bubble.content || '')
+          };
+          await storageService.createBubble(bubbleWithType);
+          set(state => ({ bubbles: [...state.bubbles, bubbleWithType] }));
         } catch (error) {
           console.error('Failed to add bubble:', error);
         }
