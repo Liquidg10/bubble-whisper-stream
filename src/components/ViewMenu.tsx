@@ -19,9 +19,11 @@ import {
   BarChart3,
   Focus,
   Settings,
-  Layers
+  Layers,
+  Palette
 } from 'lucide-react';
 import { useUILayout } from '@/hooks/useUILayout';
+import { useTheme } from '@/hooks/use-theme';
 
 export function ViewMenu() {
   const {
@@ -30,6 +32,8 @@ export function ViewMenu() {
     isPanelVisible,
     focusMode
   } = useUILayout();
+  
+  const { currentTheme, themes, setTheme } = useTheme();
 
   const panels = [
     {
@@ -88,6 +92,32 @@ export function ViewMenu() {
         
         <DropdownMenuSeparator />
         
+        {/* Theme Selection */}
+        <DropdownMenuLabel className="flex items-center gap-2">
+          <Palette className="w-4 h-4" />
+          Theme
+        </DropdownMenuLabel>
+        {themes.map((theme) => (
+          <DropdownMenuCheckboxItem
+            key={theme.id}
+            checked={currentTheme.id === theme.id}
+            onCheckedChange={() => setTheme(theme.id)}
+            className="flex items-start gap-3 p-3"
+          >
+            <div 
+              className="w-4 h-4 rounded border mt-0.5 bg-primary"
+            />
+            <div className="flex-1">
+              <div className="font-medium text-sm">{theme.name}</div>
+              <div className="text-xs text-muted-foreground mt-0.5">
+                {theme.description}
+              </div>
+            </div>
+          </DropdownMenuCheckboxItem>
+        ))}
+        
+        <DropdownMenuSeparator />
+        
         {/* View modes */}
         <DropdownMenuCheckboxItem
           checked={focusMode}
@@ -122,6 +152,10 @@ export function ViewMenu() {
             <div className="flex justify-between">
               <span>Focus Mode</span>
               <kbd className="px-1 py-0.5 bg-muted rounded text-[10px]">F</kbd>
+            </div>
+            <div className="flex justify-between">
+              <span>Theme</span>
+              <kbd className="px-1 py-0.5 bg-muted rounded text-[10px]">H</kbd>
             </div>
             <div className="flex justify-between">
               <span>Hide All</span>

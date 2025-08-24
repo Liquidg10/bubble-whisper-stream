@@ -3,6 +3,7 @@
 import React, { useEffect } from 'react';
 import { ViewMenu } from '@/components/ViewMenu';
 import { useUILayout } from '@/hooks/useUILayout';
+import { useTheme } from '@/hooks/use-theme';
 
 export function UIControlPanel() {
   const {
@@ -10,6 +11,8 @@ export function UIControlPanel() {
     toggleFocusMode,
     isPanelVisible
   } = useUILayout();
+  
+  const { themes, setTheme, currentTheme } = useTheme();
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -29,6 +32,13 @@ export function UIControlPanel() {
           e.preventDefault();
           toggleFocusMode();
           break;
+        case 'h':
+          e.preventDefault();
+          // Cycle through themes
+          const currentIndex = themes.findIndex(t => t.id === currentTheme.id);
+          const nextIndex = (currentIndex + 1) % themes.length;
+          setTheme(themes[nextIndex].id);
+          break;
         case 'escape':
           // Close all panels on escape
           e.preventDefault();
@@ -40,7 +50,7 @@ export function UIControlPanel() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [togglePanel, toggleFocusMode, isPanelVisible]);
+  }, [togglePanel, toggleFocusMode, isPanelVisible, themes, currentTheme, setTheme]);
 
   return (
     <div className="fixed top-4 right-4 z-30">

@@ -3,7 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Settings, Calendar, Bell, Home, Flower, Brain, Search } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { CompactThemeToggle } from '@/components/ThemeToggle';
+
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { GlimmerNotificationSystem } from '@/components/GlimmerNotificationSystem';
 import { OfflineDetector } from '@/components/OfflineDetector';
@@ -42,7 +42,6 @@ export const AppShell: React.FC = () => {
           >
             <Search className="h-4 w-4" />
           </Button>
-          <CompactThemeToggle />
         </div>
       </header>
 

@@ -100,6 +100,18 @@ export default function Index() {
       <NotificationSystem />
       <GlimmerNotifications />
       
+      {/* TemporalNavigation */}
+      {isPanelVisible('temporal') && (
+        <div style={getPanelStyle('temporal')}>
+          <TemporalNavigation
+            isVisible={isPanelVisible('temporal')}
+            isMinimized={isPanelMinimized('temporal')}
+            onToggleMinimize={() => toggleMinimize('temporal')}
+            onClose={() => togglePanel('temporal')}
+          />
+        </div>
+      )}
+
       {/* MiniMap */}
       {isPanelVisible('minimap') && (
         <div style={getPanelStyle('minimap')}>
@@ -121,18 +133,6 @@ export default function Index() {
         onClose={() => setSelectedBubble(null)}
       />
 
-      {/* Temporal Navigation */}
-      {isPanelVisible('temporal') && (
-        <div style={getPanelStyle('temporal')}>
-          <TemporalNavigation 
-            onTimeRangeChange={() => {}}
-            isVisible={isPanelVisible('temporal')}
-            isMinimized={isPanelMinimized('temporal')}
-            onToggleMinimize={() => toggleMinimize('temporal')}
-            onClose={() => togglePanel('temporal')}
-          />
-        </div>
-      )}
 
       {/* UI Control Panel */}
       <UIControlPanel />

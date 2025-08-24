@@ -527,7 +527,7 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, viewport, onViewpor
   
   return (
     <div className={`relative w-full h-full overflow-hidden ${className || ''}`}>
-      <DefaultBubbleCanvas 
+      <CanvasRenderer 
         onBubbleSelect={onBubbleSelect}
         onBubbleEdit={onBubbleEdit}
         viewport={viewport}
