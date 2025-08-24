@@ -11,6 +11,7 @@ import { Bubble, CanvasViewport } from '@/types/bubble';
 import { BubbleDetail } from '@/components/BubbleDetail';
 import TemporalNavigation from '@/components/TemporalNavigation';
 import { ConflictResolutionDialog } from '@/components/ConflictResolutionDialog';
+import { CollaborationHub } from '@/components/CollaborationHub';
 import { crossDeviceSyncService } from '@/services/crossDeviceSyncService';
 import { Settings, BookOpen, Brain } from 'lucide-react';
 
@@ -100,6 +101,11 @@ export default function Index() {
       {/* Temporal Navigation */}
       <div className="fixed bottom-4 left-4 z-10">
         <TemporalNavigation />
+      </div>
+
+      {/* Collaboration Hub Access */}
+      <div className="fixed top-20 right-4 z-10">
+        <CollaborationHub isOpen={false} onClose={() => {}} />
       </div>
 
       {/* Conflict Resolution Dialog */}

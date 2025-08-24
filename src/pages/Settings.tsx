@@ -18,7 +18,8 @@ import {
   Lock,
   Database,
   Trash2,
-  Brain
+  Brain,
+  Puzzle
 } from 'lucide-react';
 import { storageService } from '@/services/storage';
 import { hapticsService } from '@/services/haptics';
@@ -27,6 +28,7 @@ import { IntelligenceSettings } from '@/components/IntelligenceSettings';
 import { MonthlyReviewCard } from '@/components/MonthlyReviewCard';
 import { PrivacyZoneToggle } from '@/components/PrivacyZoneToggle';
 import { QuickTour } from '@/components/QuickTour';
+import { OptionalModules } from '@/components/OptionalModules';
 
 export const Settings: React.FC = () => {
   const { settings, updateSettings, bubbles, reminders } = useBubbleStore();
@@ -36,6 +38,7 @@ export const Settings: React.FC = () => {
   const [showMonthlyReview, setShowMonthlyReview] = useState(false);
   const [showPluginManager, setShowPluginManager] = useState(false);
   const [showIntelligenceDashboard, setShowIntelligenceDashboard] = useState(false);
+  const [showPerformanceOptimizer, setShowPerformanceOptimizer] = useState(false);
 
   const handleExportData = async () => {
     setIsExporting(true);
@@ -154,6 +157,19 @@ export const Settings: React.FC = () => {
             requiresBiometric={true}
           />
         </div>
+
+        {/* Optional Modules */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Puzzle className="h-5 w-5" />
+              Optional Modules
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <OptionalModules />
+          </CardContent>
+        </Card>
 
         {/* Privacy & Security */}
         <Card>
