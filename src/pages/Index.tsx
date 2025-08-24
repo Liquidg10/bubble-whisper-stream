@@ -9,6 +9,9 @@ import { MiniMap } from '@/components/MiniMap';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { Bubble, CanvasViewport } from '@/types/bubble';
 import { BubbleDetail } from '@/components/BubbleDetail';
+import TemporalNavigation from '@/components/TemporalNavigation';
+import { ConflictResolutionDialog } from '@/components/ConflictResolutionDialog';
+import { crossDeviceSyncService } from '@/services/crossDeviceSyncService';
 import { Settings, BookOpen, Brain } from 'lucide-react';
 
 export default function Index() {
@@ -21,6 +24,8 @@ export default function Index() {
     width: window.innerWidth,
     height: window.innerHeight,
   });
+  const [currentConflict, setCurrentConflict] = useState<any>(null);
+  const [showConflictDialog, setShowConflictDialog] = useState(false);
 
   // Create sample bubbles for first-time users
   useEffect(() => {
@@ -90,6 +95,26 @@ export default function Index() {
         bubble={selectedBubble}
         isOpen={!!selectedBubble}
         onClose={() => setSelectedBubble(null)}
+      />
+
+      {/* Temporal Navigation */}
+      <div className="fixed bottom-4 left-4 z-10">
+        <TemporalNavigation />
+      </div>
+
+      {/* Conflict Resolution Dialog */}
+      <ConflictResolutionDialog
+        conflict={currentConflict}
+        isOpen={showConflictDialog}
+        onClose={() => {
+          setShowConflictDialog(false);
+          setCurrentConflict(null);
+        }}
+        onResolve={(conflictId, resolution, mergedData) => {
+          crossDeviceSyncService.resolveConflict(conflictId, resolution, mergedData);
+          setShowConflictDialog(false);
+          setCurrentConflict(null);
+        }}
       />
     </div>
   );

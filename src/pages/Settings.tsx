@@ -34,6 +34,8 @@ export const Settings: React.FC = () => {
   const [testingTTS, setTestingTTS] = useState(false);
   const [showQuickTour, setShowQuickTour] = useState(false);
   const [showMonthlyReview, setShowMonthlyReview] = useState(false);
+  const [showPluginManager, setShowPluginManager] = useState(false);
+  const [showIntelligenceDashboard, setShowIntelligenceDashboard] = useState(false);
 
   const handleExportData = async () => {
     setIsExporting(true);

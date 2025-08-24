@@ -33,6 +33,10 @@ interface BubbleStore {
       context: boolean;
       deep: boolean;
     };
+    groceryHelperEnabled?: boolean;
+    cleaningCuesEnabled?: boolean;
+    personalVoiceEnabled?: boolean;
+    biometricEnabled?: boolean;
   };
   selfModel: SelfModel;
   isLoading: boolean;

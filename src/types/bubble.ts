@@ -64,6 +64,10 @@ export interface Settings {
   glimmersEnabled?: boolean;
   adaptiveReminders?: boolean;
   preferredGlimmerTone?: GlimmerTone;
+  groceryHelperEnabled?: boolean;
+  cleaningCuesEnabled?: boolean;
+  personalVoiceEnabled?: boolean;
+  biometricEnabled?: boolean;
 }
 
 // Canvas viewport state
