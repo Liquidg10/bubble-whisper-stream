@@ -84,8 +84,8 @@ init();
       description: 'Track mood patterns and create mood bubbles',
       author: 'Bubble OS Team',
       capabilities: [
-        { scope: 'write', resource: 'bubble' },
-        { scope: 'read', resource: 'bubble', filters: { types: ['Mood'] } }
+        { scope: 'write' as const, resource: 'bubble' as const },
+        { scope: 'read' as const, resource: 'bubble' as const, filters: { types: ['Mood'] } }
       ],
       entryPoint: `
 // Mood Tracker Plugin

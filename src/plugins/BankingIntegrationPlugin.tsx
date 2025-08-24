@@ -223,7 +223,7 @@ export function BankingIntegrationPlugin() {
     const bubble = {
       id: bubbleId,
       content: `💰 ${insight.title}\n\n${insight.description}${insight.amount ? `\n\nAmount: $${insight.amount.toFixed(2)}` : ''}`,
-      type: insight.severity === 'critical' ? 'ReminderNote' : 'Task' as const,
+      type: insight.severity === 'critical' ? 'ReminderNote' as const : 'Task' as const,
       tags: [{ id: 'finance', name: 'finance', color: '#059669' }, { id: 'money', name: 'money', color: '#dc2626' }],
       x: Math.random() * 400,
       y: Math.random() * 400,
@@ -244,7 +244,7 @@ export function BankingIntegrationPlugin() {
         description: insight.description,
         scheduledFor: Date.now() + (24 * 60 * 60 * 1000),
         scheduledAt: Date.now() + (24 * 60 * 60 * 1000),
-        level: insight.severity === 'critical' ? 3 : 2,
+        level: (insight.severity === 'critical' ? 3 : 2) as 1 | 2 | 3,
         status: 'Active' as const,
         createdAt: Date.now(),
         snoozes: []

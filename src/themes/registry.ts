@@ -12,9 +12,17 @@ class ThemeRegistry {
   private defaultThemeId = 'iridescent-soap';
 
   constructor() {
-    // Register built-in themes
-    this.register(iridescentSoapTheme);
-    this.register(classicMinimalTheme);
+    // Themes will be registered lazily to avoid circular dependencies
+  }
+
+  /**
+   * Initialize built-in themes (called after all modules are loaded)
+   */
+  private initializeBuiltInThemes() {
+    if (this.themes.size === 0) {
+      this.register(iridescentSoapTheme);
+      this.register(classicMinimalTheme);
+    }
   }
 
   /**
@@ -36,6 +44,7 @@ class ThemeRegistry {
    * @returns Theme or undefined if not found
    */
   get(id: string): Theme | undefined {
+    this.initializeBuiltInThemes(); // Lazy initialization
     return this.themes.get(id);
   }
 
@@ -44,6 +53,7 @@ class ThemeRegistry {
    * @returns Array of all themes
    */
   list(): Theme[] {
+    this.initializeBuiltInThemes(); // Lazy initialization
     return Array.from(this.themes.values());
   }
 
@@ -52,6 +62,7 @@ class ThemeRegistry {
    * @returns Default theme
    */
   getDefault(): Theme {
+    this.initializeBuiltInThemes(); // Lazy initialization
     const defaultTheme = this.themes.get(this.defaultThemeId);
     if (!defaultTheme) {
       throw new Error(`Default theme "${this.defaultThemeId}" not found`);

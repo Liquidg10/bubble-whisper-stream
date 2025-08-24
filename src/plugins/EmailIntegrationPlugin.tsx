@@ -219,7 +219,7 @@ export function EmailIntegrationPlugin() {
         description: `Reply to email from ${email.from}`,
         scheduledFor: Date.now() + (4 * 60 * 60 * 1000),
         scheduledAt: Date.now() + (4 * 60 * 60 * 1000),
-        level: 2,
+        level: 2 as 1 | 2 | 3,
         status: 'Active' as const,
         createdAt: Date.now(),
         snoozes: []

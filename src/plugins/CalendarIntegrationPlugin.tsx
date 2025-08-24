@@ -157,7 +157,7 @@ export function CalendarIntegrationPlugin() {
         description: `Event starts in 15 minutes at ${event.location || 'scheduled location'}`,
         scheduledFor: reminderTime,
         scheduledAt: reminderTime,
-        level: 2,
+        level: 2 as 1 | 2 | 3,
         status: 'Active' as const,
         createdAt: Date.now(),
         snoozes: []
