@@ -1,6 +1,6 @@
-// AI-Powered Text-to-Speech service using OpenAI
+// AI-Powered Text-to-Speech service using OpenAI with Queue Management
 import { storageService } from './storage';
-import { supabase } from '@/integrations/supabase/client';
+import { audioQueueService } from './audioQueue';
 import { useBubbleStore } from '@/stores/bubbleStore';
 
 interface TTSSettings {
@@ -42,117 +42,94 @@ class TTSService {
     }
   }
 
-  async speak(text: string, options: TTSOptions = {}): Promise<void> {
+  async speak(text: string, options: TTSOptions = {}): Promise<string> {
     if (!text.trim() || !this.settings.enabled) {
-      return;
+      return '';
     }
 
-    if (options.interrupt && this.isPlaying) {
-      this.stop();
-    }
-
-    console.log('🎤 Using AI TTS for:', text.substring(0, 50) + '...', 'context:', options.context, 'tone:', options.tone);
+    console.log('🎤 Queuing AI TTS for:', text.substring(0, 50) + '...', 'context:', options.context, 'tone:', options.tone);
     
     try {
-      await this.speakWithAI(text, options);
-      console.log('✅ AI TTS completed successfully');
-    } catch (error) {
-      console.error('❌ AI TTS failed:', error);
-      throw new Error(`TTS failed: ${error.message}`);
-    }
-  }
-
-  private async speakWithAI(text: string, options: TTSOptions): Promise<void> {
-    // Get user voice preferences from store
-    const storeState = useBubbleStore.getState();
-    const { voicePreferences, globalVoice } = storeState.settings;
-    
-    // Determine which voice to use based on user preferences
-    let selectedVoice = globalVoice; // Default fallback
-    if (options.context && voicePreferences[options.context]) {
-      selectedVoice = voicePreferences[options.context];
-    }
-
-    console.log('📡 Calling AI TTS edge function with:', { 
-      textLength: text.length, 
-      voice: selectedVoice,
-      tone: options.tone || 'neutral',
-      context: options.context 
-    });
-
-    try {
-      const { data, error } = await supabase.functions.invoke('ai-tts-generate', {
-        body: {
-          text,
-          voice: selectedVoice, // Pass user's preferred voice
-          tone: options.tone || 'neutral',
-          context: options.context
-        }
+      // Use audio queue for better management
+      const queueId = await audioQueueService.enqueue(text, {
+        tone: options.tone,
+        context: options.context,
+        interrupt: options.interrupt,
+        priority: options.interrupt ? 10 : 0 // High priority for interrupts
       });
-
-      console.log('📡 Edge function response:', { data: data ? 'received' : 'null', error });
-
-      if (error) {
-        console.error('Edge function error:', error);
-        throw new Error(`Edge function error: ${JSON.stringify(error)}`);
-      }
-
-      if (!data || !data.audioContent) {
-        throw new Error('No audio content received from edge function');
-      }
-
-      console.log('🎵 Creating audio element with base64 data length:', data.audioContent.length);
-
-      // Stop any currently playing audio
-      this.stop();
-
-      // Play the audio
-      this.currentAudio = new Audio(`data:audio/mp3;base64,${data.audioContent}`);
-      this.currentAudio.volume = options.volume ?? this.settings.volume;
       
-      return new Promise((resolve, reject) => {
-        if (!this.currentAudio) {
-          reject(new Error('Audio element not created'));
-          return;
-        }
-
-        this.currentAudio.onended = () => {
-          console.log('🎵 AI TTS audio playback completed');
-          this.isPlaying = false;
-          this.currentAudio = null;
-          resolve();
-        };
-        this.currentAudio.onerror = (e) => {
-          console.error('🎵 Audio playback error:', e);
-          this.isPlaying = false;
-          this.currentAudio = null;
-          reject(new Error('Audio playback failed - invalid audio data'));
-        };
-        this.currentAudio.oncanplay = () => {
-          console.log('🎵 Audio can play, starting playback');
-        };
-        
-        this.isPlaying = true;
-        console.log('🎵 Starting audio playback...');
-        this.currentAudio.play().catch(err => {
-          console.error('🎵 Audio play() failed:', err);
-          this.isPlaying = false;
-          this.currentAudio = null;
-          reject(err);
-        });
-      });
+      console.log('✅ TTS queued successfully with ID:', queueId);
+      return queueId;
     } catch (error) {
-      console.error('❌ AI TTS complete failure:', error);
-      throw new Error(`AI TTS failed: ${error.message}`);
+      console.error('❌ TTS queueing failed:', error);
+      
+      // Fallback to browser TTS
+      try {
+        await this.fallbackToBrowserTTS(text, options);
+        return 'browser-fallback';
+      } catch (fallbackError) {
+        console.error('❌ Browser TTS fallback failed:', fallbackError);
+        throw new Error(`All TTS methods failed: ${error.message}`);
+      }
     }
   }
 
-  async speakCBTReframe(reframe: string): Promise<void> {
+  // Browser TTS fallback method
+  private async fallbackToBrowserTTS(text: string, options: TTSOptions): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (!('speechSynthesis' in window)) {
+        reject(new Error('Browser TTS not supported'));
+        return;
+      }
+
+      console.log('🔄 Using browser TTS fallback for:', text.substring(0, 50) + '...');
+
+      const utterance = new SpeechSynthesisUtterance(text);
+      const storeState = useBubbleStore.getState();
+      
+      utterance.rate = storeState.settings.voiceSpeed || 1.0;
+      utterance.volume = options.volume ?? storeState.settings.voiceVolume ?? this.settings.volume;
+      
+      // Try to match tone with browser voices
+      const voices = speechSynthesis.getVoices();
+      if (voices.length > 0) {
+        switch (options.tone) {
+          case 'compassionate':
+          case 'gentle':
+            utterance.voice = voices.find(v => v.name.includes('Female')) || voices[0];
+            break;
+          case 'professional':
+            utterance.voice = voices.find(v => v.name.includes('Male')) || voices[0];
+            break;
+          default:
+            utterance.voice = voices[0];
+        }
+      }
+      
+      utterance.onend = () => {
+        console.log('✅ Browser TTS completed successfully');
+        this.isPlaying = false;
+        resolve();
+      };
+      
+      utterance.onerror = (error) => {
+        console.error('❌ Browser TTS failed:', error);
+        this.isPlaying = false;
+        reject(new Error(`Browser TTS failed: ${error.error}`));
+      };
+
+      this.isPlaying = true;
+      speechSynthesis.speak(utterance);
+    });
+  }
+
+  async speakCBTReframe(reframe: string): Promise<string> {
     const compassionateText = `Here's a kinder way to think about this: ${reframe}`;
-    return this.speak(compassionateText, { tone: 'compassionate', interrupt: true });
+    return this.speak(compassionateText, { tone: 'compassionate', context: 'cbt', interrupt: true });
   }
 
   stop(): void {
+    audioQueueService.stop();
     if (this.currentAudio) {
       this.currentAudio.pause();
       this.currentAudio.currentTime = 0;
@@ -162,17 +139,31 @@ class TTSService {
   }
 
   pause(): void {
+    audioQueueService.pause();
     if (this.currentAudio && !this.currentAudio.paused) {
       this.currentAudio.pause();
     }
   }
 
   resume(): void {
+    audioQueueService.resume();
     if (this.currentAudio && this.currentAudio.paused) {
       this.currentAudio.play().catch(err => {
         console.error('Failed to resume audio:', err);
       });
     }
+  }
+
+  clearQueue(): void {
+    audioQueueService.clearQueue();
+  }
+
+  skipCurrent(): void {
+    audioQueueService.skipCurrent();
+  }
+
+  getQueueState() {
+    return audioQueueService.getState();
   }
 
   isAvailable(): boolean {
