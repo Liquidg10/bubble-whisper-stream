@@ -21,11 +21,12 @@ export function updateTimeHorizon(moleculeId: string, fromRing: number, toRing: 
   ) || [];
   
   updatedTags.push({
+    id: generateId(),
     name: newTimeHorizon,
     emoji: getTimeHorizonEmoji(newTimeHorizon)
   });
 
-  updateBubble(bubble.id, { ...bubble, tags: updatedTags });
+  updateBubble({ ...bubble, tags: updatedTags });
   console.log(`Time horizon updated: ${bubble.content} moved to ${newTimeHorizon}`);
 }
 
@@ -41,10 +42,12 @@ export function createMoleculeFromDomain(domain: string) {
     y: Math.random() * 300 + 150,
     tags: [
       { 
+        id: generateId(),
         name: domain.toLowerCase(), 
         emoji: domainConfig.emoji
       },
       { 
+        id: generateId(),
         name: 'today', 
         emoji: '⏰'
       }
@@ -76,8 +79,7 @@ export function mergeMolecules(aId: string, bId: string) {
     return exists ? unique : [...unique, tag];
   }, [] as Tag[]);
 
-  // Update the first bubble with merged data
-  updateBubble(bubbleA.id, {
+  updateBubble({
     ...bubbleA,
     content: mergedContent,
     tags: mergedTags,
@@ -104,8 +106,7 @@ export function splitMolecule(id: string) {
   const contentA = words.slice(0, midpoint).join(' ') + ' A';
   const contentB = words.slice(midpoint).join(' ') + ' B';
 
-  // Update original bubble
-  updateBubble(bubble.id, {
+  updateBubble({
     ...bubble,
     content: contentA,
     x: bubble.x - 30,
@@ -219,23 +220,14 @@ function getTimeHorizonEmoji(horizon: string): string {
   }
 }
 
-function getTimeHorizonColor(horizon: string): string {
-  switch (horizon) {
-    case 'today': return 'hsl(var(--danger-soft))';
-    case 'week': return 'hsl(var(--warning-glow))';
-    case 'later': return 'hsl(var(--accent-flow))';
-    default: return 'hsl(var(--accent-void))';
-  }
-}
-
-function getDomainConfig(domain: string): { defaultType: BubbleType; emoji: string; color: string } {
+function getDomainConfig(domain: string): { defaultType: BubbleType; emoji: string } {
   const configs = {
-    Financial: { defaultType: 'Task' as BubbleType, emoji: '💰', color: 'hsl(var(--warning-glow))' },
-    Parenting: { defaultType: 'Memory' as BubbleType, emoji: '👨‍👩‍👧‍👦', color: 'hsl(var(--accent-flow))' },
-    Mental: { defaultType: 'Thought' as BubbleType, emoji: '🧠', color: 'hsl(var(--accent-void))' },
-    Work: { defaultType: 'Task' as BubbleType, emoji: '💼', color: 'hsl(var(--primary))' },
-    Home: { defaultType: 'Task' as BubbleType, emoji: '🏠', color: 'hsl(var(--success-gentle))' },
-    Relationships: { defaultType: 'Memory' as BubbleType, emoji: '❤️', color: 'hsl(var(--danger-soft))' }
+    Financial: { defaultType: 'Task' as BubbleType, emoji: '💰' },
+    Parenting: { defaultType: 'Memory' as BubbleType, emoji: '👨‍👩‍👧‍👦' },
+    Mental: { defaultType: 'Thought' as BubbleType, emoji: '🧠' },
+    Work: { defaultType: 'Task' as BubbleType, emoji: '💼' },
+    Home: { defaultType: 'Task' as BubbleType, emoji: '🏠' },
+    Relationships: { defaultType: 'Memory' as BubbleType, emoji: '❤️' }
   };
   
   return configs[domain as keyof typeof configs] || configs.Work;

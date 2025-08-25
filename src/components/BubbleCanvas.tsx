@@ -556,8 +556,14 @@ export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
   if (viewMode === 'atomic') {
     return (
       <AtomicView 
-        onBubbleSelect={onBubbleSelect}
-        onBubbleEdit={onBubbleEdit}
+        onBubbleSelect={(bubbleId) => {
+          const bubble = useBubbleStore.getState().bubbles.find(b => b.id === bubbleId);
+          if (bubble) onBubbleSelect?.(bubble);
+        }}
+        onBubbleEdit={(bubbleId) => {
+          const bubble = useBubbleStore.getState().bubbles.find(b => b.id === bubbleId);
+          if (bubble) onBubbleEdit?.(bubble);
+        }}
         className={className}
       />
     );

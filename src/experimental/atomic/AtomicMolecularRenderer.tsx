@@ -482,7 +482,7 @@ export default function AtomicMolecularRenderer({
       type: "Task" as BubbleType,
       x: 0,
       y: 0,
-      tags: [{ name: domain.toLowerCase(), emoji: "🔮" }],
+      tags: [{ id: cryptoId(), name: domain.toLowerCase(), emoji: "🔮" }],
       createdAt: Date.now(),
       updatedAt: Date.now()
     };
