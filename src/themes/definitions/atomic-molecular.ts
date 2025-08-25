@@ -4,7 +4,7 @@
  */
 
 import type { Theme } from '../ThemeTypes';
-import { AtomicMolecularCanvas } from '@/experimental/atomic';
+import AtomicRenderer from '@/experimental/atomic/AtomicRenderer';
 
 export const atomicMolecularTheme: Theme = {
   id: 'atomic-molecular',
@@ -109,7 +109,7 @@ export const atomicMolecularTheme: Theme = {
   
   // Custom atomic renderer
   components: {
-    CanvasRenderer: AtomicMolecularCanvas
+    CanvasRenderer: AtomicRenderer
   },
   
   onApply: (document) => {

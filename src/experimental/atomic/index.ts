@@ -1,5 +1,1 @@
-/**
- * Atomic/Molecular Theme Components
- */
-
-export { AtomicMolecularCanvas } from './AtomicRenderer';
+export { default } from './AtomicRenderer';
