@@ -40,7 +40,8 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
     undoLastMerge,
     lastOperation
   } = useBubbleStore();
-  const { currentTheme } = useTheme();
+  const themeContext = useTheme();
+  const currentTheme = themeContext?.currentTheme;
   const isMobile = useIsMobile();
   const { toast } = useToast();
   const { getLODConfig, setDragState, setMultiSelectState } = useLODSystem();
@@ -148,7 +149,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
       const collision = checkBubblesOverlapping(
         draggedBubble, 
         otherBubble, 
-        currentTheme.behavior.mergeThreshold
+        currentTheme?.behavior?.mergeThreshold || 0.1
       );
       
       if (collision.isOverlapping) {
@@ -169,7 +170,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
         break;
       }
     }
-  }, [bubbles, currentTheme.behavior.mergeThreshold, setMergeCandidate, viewport]);
+  }, [bubbles, currentTheme?.behavior?.mergeThreshold || 0.1, setMergeCandidate, viewport]);
 
   // Handle merge confirmation
   const handleMergeConfirm = useCallback(() => {
@@ -506,7 +507,18 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
 
 // Theme-aware canvas wrapper that selects the appropriate renderer
 export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: BubbleCanvasProps) {
-  const { currentTheme } = useTheme();
+  const themeContext = useTheme();
+  
+  // Handle loading state gracefully
+  if (!themeContext || themeContext.isLoading) {
+    return (
+      <div className={`relative w-full h-full overflow-hidden bg-background flex items-center justify-center ${className || ''}`}>
+        <div className="text-muted-foreground">Loading canvas...</div>
+      </div>
+    );
+  }
+  
+  const { currentTheme } = themeContext;
   
   // Use custom renderer if theme provides one, otherwise use default
   const CanvasRenderer = currentTheme.components?.CanvasRenderer ?? DefaultBubbleCanvas;
