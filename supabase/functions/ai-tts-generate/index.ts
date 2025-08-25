@@ -84,7 +84,7 @@ serve(async (req) => {
         input: text,
         voice: selectedVoice,
         response_format: 'mp3',
-        speed: (tone === 'compassionate' || context === 'cbt') ? 0.9 : 1.0,
+        speed: 1.57,
       }),
     });
 
