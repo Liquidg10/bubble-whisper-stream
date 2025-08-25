@@ -6,7 +6,7 @@
  */
 
 export interface TTSDiagnosticResult {
-  test: string;
+  testName: string;
   passed: boolean;
   details: string;
   confidence: number;
@@ -57,7 +57,7 @@ export class TTSDiagnostic {
     const properMatches = decodedProper.every((byte, i) => byte === testBinary[i]);
 
     return {
-      test: 'Base64 Encoding Integrity',
+      testName: 'Base64 Encoding Integrity',
       passed: !matches && properMatches,
       details: `Problematic method integrity: ${matches}, Proper method integrity: ${properMatches}`,
       confidence: matches ? 20 : 95
@@ -74,7 +74,7 @@ export class TTSDiagnostic {
       
       const timeout = setTimeout(() => {
         resolve({
-          test: 'Audio Playability',
+          testName: 'Audio Playability',
           passed: false,
           details: 'Audio load timeout - likely corrupt base64',
           confidence: 90
@@ -84,7 +84,7 @@ export class TTSDiagnostic {
       audio.oncanplaythrough = () => {
         clearTimeout(timeout);
         resolve({
-          test: 'Audio Playability',
+          testName: 'Audio Playability',
           passed: true,
           details: 'Audio loaded successfully',
           confidence: 85
@@ -94,7 +94,7 @@ export class TTSDiagnostic {
       audio.onerror = (e) => {
         clearTimeout(timeout);
         resolve({
-          test: 'Audio Playability',
+          testName: 'Audio Playability',
           passed: false,
           details: `Audio error: ${audio.error?.message || 'Unknown error'}`,
           confidence: 95
@@ -111,50 +111,64 @@ export class TTSDiagnostic {
    */
   static async testEdgeFunctionResponse(): Promise<TTSDiagnosticResult> {
     try {
-      const response = await fetch('/functions/v1/ai-tts-generate', {
+      console.log('Testing edge function deployment and response...');
+      
+      // Use the full URL for the edge function
+      const response = await fetch('https://ekekeywoxvdbfbmqyhjy.supabase.co/functions/v1/ai-tts-generate', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
-          text: 'Test audio',
+          text: 'Test audio generation for diagnostics.',
           voice: 'alloy',
-          tone: 'neutral'
+          tone: 'neutral',
+          context: 'diagnostic'
         })
       });
 
-      const data = await response.json();
+      console.log('Edge function response status:', response.status);
       
-      if (!data.audioContent) {
+      if (!response.ok) {
+        const errorText = await response.text();
         return {
-          test: 'Edge Function Response',
+          testName: 'Edge Function Response',
           passed: false,
-          details: 'No audioContent in response',
-          confidence: 95
+          details: `Function deployment issue - ${response.status}: ${response.statusText}. Response: ${errorText.substring(0, 100)}`,
+          confidence: response.status === 404 ? 98 : 70
         };
       }
 
-      // Test if base64 is valid
+      // Try to parse JSON response
+      let data;
       try {
-        atob(data.audioContent);
+        const responseText = await response.text();
+        data = JSON.parse(responseText);
+      } catch (parseError) {
         return {
-          test: 'Edge Function Response',
-          passed: true,
-          details: 'Valid base64 returned from edge function',
-          confidence: 70
-        };
-      } catch (e) {
-        return {
-          test: 'Edge Function Response',
+          testName: 'Edge Function Response',
           passed: false,
-          details: 'Invalid base64 from edge function',
-          confidence: 98
+          details: `JSON parse error: ${parseError.message}. Function may be returning invalid response.`,
+          confidence: 85
         };
       }
-    } catch (error) {
+
+      const hasAudioContent = data.audioContent && typeof data.audioContent === 'string';
+      const isValidBase64Length = hasAudioContent && data.audioContent.length > 100;
+
       return {
-        test: 'Edge Function Response',
+        testName: 'Edge Function Response',
+        passed: hasAudioContent && isValidBase64Length,
+        details: `Audio content exists: ${hasAudioContent}, Content length: ${data.audioContent?.length || 0}`,
+        confidence: (hasAudioContent && isValidBase64Length) ? 95 : 65
+      };
+    } catch (error) {
+      console.error('Edge function test error:', error);
+      return {
+        testName: 'Edge Function Response',
         passed: false,
-        details: `Edge function error: ${error.message}`,
-        confidence: 60
+        details: `Network/fetch error: ${error.message}`,
+        confidence: 80
       };
     }
   }
@@ -176,14 +190,14 @@ export class TTSDiagnostic {
       const hasValidMP3Header = bytes[0] === 0xFF && (bytes[1] & 0xE0) === 0xE0;
       
       return {
-        test: 'Binary Integrity',
+        testName: 'Binary Integrity',
         passed: hasValidMP3Header,
         details: `MP3 header: ${bytes[0].toString(16)} ${bytes[1].toString(16)}`,
         confidence: hasValidMP3Header ? 85 : 92
       };
     } catch (error) {
       return {
-        test: 'Binary Integrity',
+        testName: 'Binary Integrity',
         passed: false,
         details: `Decoding error: ${error.message}`,
         confidence: 95
@@ -210,7 +224,7 @@ export class TTSDiagnostic {
 
     if (edgeFunctionResult.passed) {
       // Only run audio tests if we have valid base64
-      const response = await fetch('/functions/v1/ai-tts-generate', {
+      const response = await fetch('https://ekekeywoxvdbfbmqyhjy.supabase.co/functions/v1/ai-tts-generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: 'Test', voice: 'alloy' })
@@ -252,7 +266,7 @@ export const runTTSDiagnostic = async () => {
   
   console.log('\n📊 Results:');
   diagnostic.results.forEach(result => {
-    console.log(`${result.passed ? '✅' : '❌'} ${result.test}: ${result.details} (${result.confidence}% confidence)`);
+    console.log(`${result.passed ? '✅' : '❌'} ${result.testName}: ${result.details} (${result.confidence}% confidence)`);
   });
   
   console.log(`\n🎯 Overall Confidence: ${diagnostic.overallConfidence}%`);

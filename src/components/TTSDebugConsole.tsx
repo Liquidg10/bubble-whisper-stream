@@ -53,7 +53,7 @@ export function TTSDebugConsole() {
                       {result.passed ? '✅' : '❌'}
                     </Badge>
                     <div>
-                      <div className="font-medium">{result.test}</div>
+                      <div className="font-medium">{result.testName}</div>
                       <div className="text-sm text-muted-foreground">
                         {result.details}
                       </div>

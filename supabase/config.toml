@@ -15,3 +15,6 @@ additional_redirect_urls = ["https://ekekeywoxvdbfbmqyhjy.supabase.co"]
 
 [edge_functions]
 enabled = true
+
+[functions.ai-tts-generate]
+verify_jwt = false
