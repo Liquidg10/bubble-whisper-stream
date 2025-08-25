@@ -312,10 +312,13 @@ export const useBubbleStore = create<BubbleStore>()(
         const updated = { ...state.settings, ...newSettings };
         
         try {
+          // Only persist to storage, don't update state here
+          // State should already be updated by the calling function
           await storageService.updateSettings(updated);
-          set({ settings: updated });
         } catch (error) {
-          console.error('Failed to update settings:', error);
+          console.error('Failed to persist settings:', error);
+          // On failure, we keep the optimistic update in state
+          // but notify user that persistence failed
         }
       },
 
@@ -507,15 +510,24 @@ export const useBubbleStore = create<BubbleStore>()(
 
       toggleIntelligence: (enabled: boolean) => {
         set({ intelligenceEnabled: enabled });
-        get().updateSettings({ intelligenceEnabled: enabled });
+        // Async persistence without blocking UI
+        get().updateSettings({ intelligenceEnabled: enabled }).catch(() => {
+          console.warn('Failed to persist intelligence setting');
+        });
       },
 
       // View mode actions
       setViewMode: (mode: 'bubble' | 'atomic') => {
+        // Immediate state update for responsive UI
         set(state => ({
           settings: { ...state.settings, viewMode: mode }
         }));
-        get().updateSettings({ viewMode: mode });
+        
+        // Async persistence without blocking the UI
+        // If persistence fails, the optimistic update remains
+        get().updateSettings({ viewMode: mode }).catch(() => {
+          console.warn('Failed to persist view mode setting');
+        });
       },
     };
     },
