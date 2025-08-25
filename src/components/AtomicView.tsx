@@ -5,7 +5,7 @@
 import { useCallback } from 'react';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { useToast } from '@/hooks/use-toast';
-import AtomicRenderer from '@/experimental/atomic/AtomicRenderer';
+import { EnhancedAtomicRenderer } from '@/experimental/atomic/EnhancedAtomicRenderer';
 import { Bubble } from '@/types/bubble';
 
 interface AtomicViewProps {
@@ -104,7 +104,7 @@ export function AtomicView({ onBubbleSelect, onBubbleEdit, className }: AtomicVi
 
   return (
     <div className={`relative w-full h-full overflow-hidden bg-gradient-canvas ${className}`}>
-      <AtomicRenderer
+      <EnhancedAtomicRenderer
         bubbles={moleculeData}
         onBubbleSelect={handleBubbleSelect}
         onTimeHorizonUpdate={handleTimeHorizonUpdate}
