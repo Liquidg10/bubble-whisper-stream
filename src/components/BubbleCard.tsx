@@ -225,22 +225,41 @@ export function BubbleCard({
     >
       {/* Bubble Content */}
       <div className="flex flex-col items-center justify-center p-1 text-text-primary">
-        {/* Type emoji - always visible */}
-        <span 
-          className="text-lg leading-none"
-          style={{ fontSize: Math.max(visualSize * 0.2, 12) }}
-        >
-          {bubble.tags.find(tag => tag.emoji)?.emoji || getTypeEmoji()}
-        </span>
-        
-        {/* Content text - only visible when large enough and not in LOD mode */}
-        {!shouldUseLOD && isLargeEnoughForContent && bubble.content && (
-          <span 
-            className="text-xs font-medium mt-1 leading-tight"
-            style={{ fontSize: Math.max(visualSize * 0.08, 8) }}
+        {/* Photo thumbnail - if present, show instead of type emoji */}
+        {bubble.imageUri && visualSize > 60 ? (
+          <div 
+            className="rounded-full overflow-hidden"
+            style={{ 
+              width: Math.max(visualSize * 0.7, 40),
+              height: Math.max(visualSize * 0.7, 40)
+            }}
           >
-            {getDisplayContent()}
-          </span>
+            <img 
+              src={bubble.imageUri} 
+              alt="Bubble photo"
+              className="w-full h-full object-cover"
+            />
+          </div>
+        ) : (
+          <>
+            {/* Type emoji - visible when no photo or bubble too small */}
+            <span 
+              className="text-lg leading-none"
+              style={{ fontSize: Math.max(visualSize * 0.2, 12) }}
+            >
+              {bubble.tags.find(tag => tag.emoji)?.emoji || getTypeEmoji()}
+            </span>
+            
+            {/* Content text - only visible when large enough and not in LOD mode */}
+            {!shouldUseLOD && isLargeEnoughForContent && bubble.content && (
+              <span 
+                className="text-xs font-medium mt-1 leading-tight"
+                style={{ fontSize: Math.max(visualSize * 0.08, 8) }}
+              >
+                {getDisplayContent()}
+              </span>
+            )}
+          </>
         )}
       </div>
 
