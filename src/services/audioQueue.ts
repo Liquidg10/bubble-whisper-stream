@@ -34,8 +34,7 @@ class AudioQueueService {
   private maxCacheSize = 50;
 
   constructor() {
-    // Initialize cache with common phrases
-    this.preloadCommonPhrases();
+    // Audio queue service initialized - preloading disabled by default
   }
 
   // State management for UI updates
@@ -94,6 +93,9 @@ class AudioQueueService {
       this.queue.splice(insertIndex, 0, item);
     }
 
+    // Mark that user has used TTS
+    localStorage.setItem('bubble_tts_used', 'true');
+    
     this.notifyListeners();
     this.processQueue();
     
@@ -294,24 +296,26 @@ class AudioQueueService {
     this.audioCache.set(key, audioContent);
   }
 
-  private async preloadCommonPhrases(): Promise<void> {
+  // Optional method to preload common phrases - only called when explicitly requested
+  public async preloadCommonPhrases(): Promise<void> {
     const commonPhrases = [
       "Here's your reminder",
-      "You have a new glimmer",
+      "You have a new glimmer", 
       "How are you feeling?",
       "That's completed"
     ];
 
-    // Preload these in background after a delay
-    setTimeout(async () => {
-      for (const phrase of commonPhrases) {
-        try {
-          await this.enqueue(phrase, { priority: -1 }); // Low priority
-        } catch (error) {
-          console.log('Failed to preload phrase:', phrase);
-        }
+    // Only preload if user has previously used TTS
+    const hasUsedTTS = localStorage.getItem('bubble_tts_used') === 'true';
+    if (!hasUsedTTS) return;
+
+    for (const phrase of commonPhrases) {
+      try {
+        await this.enqueue(phrase, { priority: -1 }); // Low priority
+      } catch (error) {
+        console.log('Failed to preload phrase:', phrase);
       }
-    }, 5000);
+    }
   }
 
   // Queue controls
