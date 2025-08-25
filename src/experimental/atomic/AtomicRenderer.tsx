@@ -4,9 +4,7 @@
  */
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { useBubbleStore } from '@/stores/bubbleStore';
 import { Bubble, BubbleType } from '@/types/bubble';
-import { BubbleCanvasProps } from '@/themes/ThemeTypes';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
@@ -74,16 +72,31 @@ const SHELL_CONFIG = [
   { name: 'Later', radius: 200, color: '#10B981', icon: Clock, maxElectrons: 32 }
 ];
 
-const AtomicRenderer: React.FC<BubbleCanvasProps> = ({ onBubbleSelect, onBubbleEdit, className }) => {
-  const { bubbles, settings } = useBubbleStore();
+interface AtomicRendererProps {
+  bubbles?: any[];
+  onBubbleSelect?: (bubble: Bubble) => void;
+  onTimeHorizonUpdate?: (bubbleId: string, fromRing: number, toRing: number) => void;
+  onMoleculeCreate?: (domain: string) => void;
+  onMoleculeMerge?: (aId: string, bId: string) => void;
+  reducedMotion?: boolean;
+  highContrast?: boolean;
+  className?: string;
+}
+
+const AtomicRenderer: React.FC<AtomicRendererProps> = ({ 
+  bubbles = [], 
+  onBubbleSelect, 
+  onTimeHorizonUpdate,
+  onMoleculeCreate,
+  onMoleculeMerge,
+  reducedMotion = false,
+  highContrast = false,
+  className 
+}) => {
   const { toast } = useToast();
   const canvasRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number>();
   const [isDragging, setIsDragging] = useState(false);
-  
-  // Accessibility settings
-  const reducedMotion = settings.reducedMotion || false;
-  const highContrast = settings.highContrast || false;
   
   // Atomic state
   const [atomicState, setAtomicState] = useState<AtomicState>({
@@ -100,14 +113,15 @@ const AtomicRenderer: React.FC<BubbleCanvasProps> = ({ onBubbleSelect, onBubbleE
 
   // Convert bubbles to molecules on load
   const convertBubblesToMolecules = useCallback(() => {
+    if (!Array.isArray(bubbles)) return;
     console.log('Converting bubbles to molecules:', bubbles.length);
     
-    const grouped = bubbles.reduce((acc, bubble) => {
+    const grouped = bubbles.reduce((acc: Record<string, any[]>, bubble: any) => {
       const domain = bubble.tags?.[0]?.name || 'General';
       if (!acc[domain]) acc[domain] = [];
       acc[domain].push(bubble);
       return acc;
-    }, {} as Record<string, Bubble[]>);
+    }, {} as Record<string, any[]>);
 
     const molecules: Molecule[] = Object.entries(grouped).map(([domain, domainBubbles], index) => {
       const angle = (index / Object.keys(grouped).length) * 2 * Math.PI;
@@ -115,11 +129,11 @@ const AtomicRenderer: React.FC<BubbleCanvasProps> = ({ onBubbleSelect, onBubbleE
       const x = Math.cos(angle) * distance;
       const y = Math.sin(angle) * distance;
       
-      const electrons: Electron[] = domainBubbles.map((bubble, electronIndex) => ({
+      const electrons: Electron[] = (domainBubbles as any[]).map((bubble: any, electronIndex: number) => ({
         id: bubble.id,
         moleculeId: domain,
         shell: electronIndex % 3,
-        angle: (electronIndex / domainBubbles.length) * 2 * Math.PI,
+        angle: (electronIndex / (domainBubbles as any[]).length) * 2 * Math.PI,
         phase: Math.random() * 2 * Math.PI,
         content: bubble.content || '',
         type: bubble.type || 'Thought',
@@ -130,8 +144,8 @@ const AtomicRenderer: React.FC<BubbleCanvasProps> = ({ onBubbleSelect, onBubbleE
         id: `mol-${domain}-${index}`,
         x, y,
         nucleus: {
-          protons: Math.min(domainBubbles.length, 20),
-          neutrons: Math.min(domainBubbles.length + 2, 22),
+          protons: Math.min((domainBubbles as any[]).length, 20),
+          neutrons: Math.min((domainBubbles as any[]).length + 2, 22),
           domain
         },
         electrons,
@@ -267,8 +281,8 @@ const AtomicRenderer: React.FC<BubbleCanvasProps> = ({ onBubbleSelect, onBubbleE
         hoveredShell: null
       }));
 
-      // Notify adapter
-      atomicAdapter.updateTimeHorizon(electronId, originalShell, currentShell);
+      // Notify parent component
+      onTimeHorizonUpdate?.(electronId, originalShell, currentShell);
       
       const shellName = SHELL_CONFIG[currentShell]?.name || 'Unknown';
       toast({
@@ -318,7 +332,7 @@ const AtomicRenderer: React.FC<BubbleCanvasProps> = ({ onBubbleSelect, onBubbleE
     if (selectedMols.length !== 2) return;
 
     const [mol1, mol2] = selectedMols;
-    atomicAdapter.mergeMolecules(mol1.id, mol2.id);
+    onMoleculeMerge?.(mol1.id, mol2.id);
 
     const fusedMolecule: Molecule = {
       id: `${mol1.id}-${mol2.id}`,
@@ -355,8 +369,6 @@ const AtomicRenderer: React.FC<BubbleCanvasProps> = ({ onBubbleSelect, onBubbleE
   const handleFission = useCallback((moleculeId: string) => {
     const molecule = atomicState.molecules.find(mol => mol.id === moleculeId);
     if (!molecule || molecule.electrons.length < 2) return;
-
-    atomicAdapter.splitMolecule(moleculeId);
 
     const midpoint = Math.floor(molecule.electrons.length / 2);
     const electrons1 = molecule.electrons.slice(0, midpoint);
@@ -426,7 +438,7 @@ const AtomicRenderer: React.FC<BubbleCanvasProps> = ({ onBubbleSelect, onBubbleE
 
   // Quick add domain preset
   const handleQuickAdd = useCallback((preset: typeof DOMAIN_PRESETS[0]) => {
-    atomicAdapter.createMoleculeFromDomain(preset.name);
+    onMoleculeCreate?.(preset.name);
     
     const angle = Math.random() * 2 * Math.PI;
     const distance = 150 + Math.random() * 100;

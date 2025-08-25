@@ -40,6 +40,7 @@ interface BubbleStore {
     calendarIntegrationEnabled?: boolean;
     emailIntegrationEnabled?: boolean;
     bankingIntegrationEnabled?: boolean;
+    viewMode?: 'bubble' | 'atomic';
   };
   selfModel: SelfModel;
   isLoading: boolean;
@@ -94,6 +95,7 @@ interface BubbleStore {
     calendarIntegrationEnabled?: boolean;
     emailIntegrationEnabled?: boolean;
     bankingIntegrationEnabled?: boolean;
+    viewMode?: 'bubble' | 'atomic';
   }>) => Promise<void>;
   
   // Self model actions
@@ -108,6 +110,9 @@ interface BubbleStore {
   updatePatternHint: (hint: PatternHint) => Promise<void>;
   getAdaptiveExplanation: (reminderId: string) => string | null;
   toggleIntelligence: (enabled: boolean) => void;
+  
+  // View mode actions
+  setViewMode: (mode: 'bubble' | 'atomic') => void;
 }
 
 const defaultSettings = {
@@ -120,6 +125,7 @@ const defaultSettings = {
   intelligenceEnabled: false, // Opt-in for Phase 2 features
   glimmersEnabled: false,
   adaptiveRemindersEnabled: false,
+  viewMode: 'bubble' as const,
   selfModelLayers: {
     surface: true,
     context: false,
@@ -502,6 +508,11 @@ export const useBubbleStore = create<BubbleStore>()(
       toggleIntelligence: (enabled: boolean) => {
         set({ intelligenceEnabled: enabled });
         get().updateSettings({ intelligenceEnabled: enabled });
+      },
+
+      // View mode actions
+      setViewMode: (mode: 'bubble' | 'atomic') => {
+        get().updateSettings({ viewMode: mode });
       },
     };
     },

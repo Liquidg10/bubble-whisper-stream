@@ -108,7 +108,7 @@ export interface Theme {
   // Behavior configuration
   behavior: ThemeBehaviorFlags;
   
-  // Optional custom components
+  // Optional custom components (deprecated - use view modes instead)
   components?: {
     CanvasRenderer?: React.ComponentType<BubbleCanvasProps>;
   };

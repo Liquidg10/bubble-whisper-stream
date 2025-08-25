@@ -5,7 +5,6 @@
 
 import type { Theme } from './ThemeTypes';
 import { iridescentSoapTheme } from './definitions/iridescent-soap';
-import { atomicMolecularTheme } from './definitions/atomic-molecular';
 
 class ThemeRegistry {
   private themes = new Map<string, Theme>();
@@ -22,7 +21,6 @@ class ThemeRegistry {
     if (this.themes.size === 0) {
       try {
         this.register(iridescentSoapTheme);
-        this.register(atomicMolecularTheme);
         console.log('Theme registry initialized with built-in themes');
       } catch (error) {
         console.error('Failed to register built-in themes:', error);

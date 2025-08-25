@@ -15,6 +15,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { usePinchZoom } from '@/hooks/usePinchZoom';
 import { useLODSystem } from '@/hooks/useLODSystem';
 import { useZoomStandard } from '@/hooks/useZoomStandard';
+import { AtomicView } from './AtomicView';
 
 import { ZoomIn, ZoomOut, RotateCcw, Map, Filter, Focus, Layers } from 'lucide-react';
 
@@ -40,6 +41,20 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
     undoLastMerge,
     lastOperation
   } = useBubbleStore();
+
+  // Check if we should render atomic view
+  const viewMode = settings.viewMode || 'bubble';
+  
+  // If atomic view is selected, render AtomicView instead
+  if (viewMode === 'atomic') {
+    return (
+      <AtomicView 
+        onBubbleSelect={onBubbleSelect}
+        onBubbleEdit={onBubbleEdit}
+        className={className}
+      />
+    );
+  }
   const themeContext = useTheme();
   const currentTheme = themeContext?.currentTheme;
   const isMobile = useIsMobile();

@@ -16,6 +16,7 @@ import { CollaborationHub } from '@/components/CollaborationHub';
 import { EnhancedVoiceCapture } from '@/components/EnhancedVoiceCapture';
 import { EnhancedPhotoCapture } from '@/components/EnhancedPhotoCapture';
 import { VoiceAIInterface } from '@/components/VoiceAIInterface';
+import { ViewModeToggle } from '@/components/ViewModeToggle';
 
 import { crossDeviceSyncService } from '@/services/crossDeviceSyncService';
 
@@ -91,6 +92,11 @@ export default function Index() {
 
   return (
     <div className="relative h-full bg-background">
+      {/* View Mode Toggle */}
+      <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20">
+        <ViewModeToggle />
+      </div>
+
       <BubbleCanvas 
         onBubbleSelect={setSelectedBubble}
         onBubbleEdit={setSelectedBubble}
