@@ -190,6 +190,11 @@ export const useBubbleStore = create<BubbleStore>()(
             storageService.getSelfModel(),
           ]);
           
+          // Debug logging for photo bubbles
+          console.log('📊 Loaded bubbles:', bubbles.length);
+          const photoBubbles = bubbles.filter(b => b.imageUri);
+          console.log('📸 Photo bubbles found:', photoBubbles.length, photoBubbles.map(b => ({ id: b.id, hasPhoto: !!b.imageUri, imageUri: b.imageUri?.substring(0, 50) + '...' })));
+          
           set({
             bubbles,
             reminders,

@@ -143,15 +143,37 @@ export const sampleReminderReasons = [
 ];
 
 export const initializeSampleData = async (): Promise<void> => {
-  // This would integrate with your storage service
-  console.log('Sample data initialized for Phase 2 Intelligence Layer');
-  
-  // In a real implementation, this would:
-  // 1. Check if sample data flag is enabled
-  // 2. Clear existing data if needed
-  // 3. Insert sample data into IndexedDB
-  // 4. Set up initial pattern hints
-  // 5. Configure sample self-model
+  try {
+    const { storageService } = await import('../services/storage');
+    await storageService.initialize();
+    
+    console.log('🌟 Loading sample bubbles with photos...');
+    
+    // Load sample bubbles with photos
+    for (const bubble of sampleBubbles) {
+      await storageService.createBubble(bubble);
+      console.log('✅ Created sample bubble:', bubble.id, 'hasPhoto:', !!bubble.imageUri);
+    }
+    
+    // Load sample CBT entries
+    for (const entry of sampleCBTEntries) {
+      await storageService.createCBTEntry(entry);
+    }
+    
+    // Load sample glimmers
+    for (const glimmer of sampleGlimmers) {
+      await storageService.createGlimmer(glimmer);
+    }
+    
+    // Load sample pattern hints
+    for (const hint of samplePatternHints) {
+      await storageService.createPatternHint(hint);
+    }
+    
+    console.log('✅ Sample data initialized successfully');
+  } catch (error) {
+    console.error('❌ Failed to initialize sample data:', error);
+  }
 };
 
 export const clearSampleData = async (): Promise<void> => {
