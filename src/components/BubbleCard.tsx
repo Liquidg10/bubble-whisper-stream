@@ -225,21 +225,13 @@ export function BubbleCard({
     >
       {/* Bubble Content */}
       <div className="flex flex-col items-center justify-center p-1 text-text-primary">
-        {/* Photo thumbnail - if present, show instead of type emoji */}
+        {/* Photo thumbnail - if present, show as full bubble background */}
         {bubble.imageUri && visualSize > 60 ? (
-          <div 
-            className="rounded-full overflow-hidden"
-            style={{ 
-              width: Math.max(visualSize * 0.7, 40),
-              height: Math.max(visualSize * 0.7, 40)
-            }}
-          >
-            <img 
-              src={bubble.imageUri} 
-              alt="Bubble photo"
-              className="w-full h-full object-cover"
-            />
-          </div>
+          <img 
+            src={bubble.imageUri} 
+            alt="Bubble photo"
+            className="absolute inset-0 w-full h-full object-cover rounded-full"
+          />
         ) : (
           <>
             {/* Type emoji - visible when no photo or bubble too small */}
