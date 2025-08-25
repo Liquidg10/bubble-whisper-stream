@@ -30,6 +30,7 @@ import { PrivacyZoneToggle } from '@/components/PrivacyZoneToggle';
 import { QuickTour } from '@/components/QuickTour';
 import { OptionalModules } from '@/components/OptionalModules';
 import { VoiceSettings } from '@/components/VoiceSettings';
+import { TTSDebugConsole } from '@/components/TTSDebugConsole';
 
 export const Settings: React.FC = () => {
   const { settings, updateSettings, bubbles, reminders } = useBubbleStore();
@@ -315,6 +316,9 @@ export const Settings: React.FC = () => {
 
         {/* Voice Settings */}
         <VoiceSettings />
+
+        {/* TTS Debug Console */}
+        <TTSDebugConsole />
 
         {/* Audio & Haptics */}
         <Card>
