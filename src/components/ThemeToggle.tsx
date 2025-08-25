@@ -91,8 +91,7 @@ export function ThemeToggle({
                 className={cn(
                   'w-4 h-4 rounded-full border-2 border-border flex-shrink-0',
                   // Theme-specific preview colors
-                  theme.id === 'iridescent-soap' && 'bg-gradient-aurora',
-                  theme.id === 'classic-minimal' && 'bg-gradient-to-r from-blue-500 to-cyan-500'
+                  theme.id === 'iridescent-soap' && 'bg-gradient-aurora'
                 )}
               />
               
@@ -175,8 +174,7 @@ export function DetailedThemeToggle({ className }: { className?: string }) {
             <div 
               className={cn(
                 'w-12 h-12 rounded-lg border-2 border-border flex-shrink-0',
-                theme.id === 'iridescent-soap' && 'bg-gradient-aurora',
-                theme.id === 'classic-minimal' && 'bg-gradient-to-br from-blue-500 to-cyan-500'
+                theme.id === 'iridescent-soap' && 'bg-gradient-aurora'
               )}
             />
             

@@ -5,7 +5,6 @@
 
 import type { Theme } from './ThemeTypes';
 import { iridescentSoapTheme } from './definitions/iridescent-soap';
-import { classicMinimalTheme } from './definitions/classic-minimal';
 
 class ThemeRegistry {
   private themes = new Map<string, Theme>();
@@ -21,7 +20,6 @@ class ThemeRegistry {
   private initializeBuiltInThemes() {
     if (this.themes.size === 0) {
       this.register(iridescentSoapTheme);
-      this.register(classicMinimalTheme);
     }
   }
 
