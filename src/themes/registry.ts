@@ -19,7 +19,12 @@ class ThemeRegistry {
    */
   private initializeBuiltInThemes() {
     if (this.themes.size === 0) {
-      this.register(iridescentSoapTheme);
+      try {
+        this.register(iridescentSoapTheme);
+        console.log('Theme registry initialized with iridescent-soap theme');
+      } catch (error) {
+        console.error('Failed to register iridescent-soap theme:', error);
+      }
     }
   }
 
@@ -63,6 +68,7 @@ class ThemeRegistry {
     this.initializeBuiltInThemes(); // Lazy initialization
     const defaultTheme = this.themes.get(this.defaultThemeId);
     if (!defaultTheme) {
+      console.error('Available themes:', Array.from(this.themes.keys()));
       throw new Error(`Default theme "${this.defaultThemeId}" not found`);
     }
     return defaultTheme;
@@ -74,9 +80,9 @@ class ThemeRegistry {
    * @returns True if theme exists
    */
   has(id: string): boolean {
+    this.initializeBuiltInThemes(); // Ensure themes are initialized
     return this.themes.has(id);
   }
-
   /**
    * Set default theme ID
    * @param id Theme ID to set as default

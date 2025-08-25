@@ -22,7 +22,21 @@ export function ThemeProvider({
   const [currentTheme, setCurrentTheme] = useState<Theme>(() => {
     // SSR-safe initialization
     if (typeof window === 'undefined') {
-      return getDefaultTheme();
+      try {
+        return getDefaultTheme();
+      } catch (error) {
+        console.error('Failed to get default theme:', error);
+        // Fallback to a basic theme structure if registry fails
+        return {
+          id: 'iridescent-soap',
+          name: 'Iridescent Soap',
+          description: 'Cosmic bubbles floating in deep space',
+          version: '1.0.0',
+          className: 'theme-iridescent-soap',
+          tokens: {} as any,
+          behavior: {} as any
+        };
+      }
     }
     
     // Try to load from localStorage
@@ -37,7 +51,21 @@ export function ThemeProvider({
     }
     
     // Fallback to default
-    return themeRegistry.get(defaultTheme) || getDefaultTheme();
+    try {
+      return themeRegistry.get(defaultTheme) || getDefaultTheme();
+    } catch (error) {
+      console.error('Failed to get any theme, using minimal fallback:', error);
+      // Absolute fallback if everything fails
+      return {
+        id: 'iridescent-soap',
+        name: 'Iridescent Soap',
+        description: 'Cosmic bubbles floating in deep space',
+        version: '1.0.0',
+        className: 'theme-iridescent-soap',
+        tokens: {} as any,
+        behavior: {} as any
+      };
+    }
   });
   
   const [isLoading, setIsLoading] = useState(true);
@@ -66,11 +94,13 @@ export function ThemeProvider({
     }
     
     // Apply CSS custom properties
-    Object.entries(theme.tokens).forEach(([key, value]) => {
-      // Convert camelCase to kebab-case for CSS variables
-      const cssVar = `--${key.replace(/([A-Z])/g, '-$1').toLowerCase()}`;
-      root.style.setProperty(cssVar, value);
-    });
+    if (theme.tokens && typeof theme.tokens === 'object') {
+      Object.entries(theme.tokens).forEach(([key, value]) => {
+        // Convert camelCase to kebab-case for CSS variables
+        const cssVar = `--${key.replace(/([A-Z])/g, '-$1').toLowerCase()}`;
+        root.style.setProperty(cssVar, value);
+      });
+    }
     
     // Apply theme class
     root.className = root.className
@@ -85,10 +115,10 @@ export function ThemeProvider({
       root.style.setProperty('--transition-gentle', 'none');
       root.style.setProperty('--transition-bubble', 'none');
       root.style.setProperty('--transition-flow', 'none');
-    } else {
-      root.style.setProperty('--transition-gentle', theme.tokens.transitionGentle);
-      root.style.setProperty('--transition-bubble', theme.tokens.transitionBubble);
-      root.style.setProperty('--transition-flow', theme.tokens.transitionFlow);
+    } else if (theme.tokens) {
+      root.style.setProperty('--transition-gentle', theme.tokens.transitionGentle || 'all 220ms ease');
+      root.style.setProperty('--transition-bubble', theme.tokens.transitionBubble || 'transform 180ms ease');
+      root.style.setProperty('--transition-flow', theme.tokens.transitionFlow || 'all 320ms ease');
     }
     
     // Call theme lifecycle hook
