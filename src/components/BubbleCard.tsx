@@ -228,20 +228,26 @@ export function BubbleCard({
       {/* Photo thumbnail - always show if present */}
       {bubble.imageUri ? (
         <>
-          {console.log('Rendering bubble with photo:', bubble.id, bubble.imageUri)}
+          {console.log('🖼️ PHOTO BUBBLE:', { id: bubble.id, hasImage: !!bubble.imageUri, size: visualSize, imageStart: bubble.imageUri?.substring(0, 50) })}
           <img
             src={bubble.imageUri}
             alt="Bubble photo"
-            className="absolute inset-0 w-full h-full object-cover rounded-full z-10"
-            style={{ display: hasImageError ? 'none' : 'block' }}
-            onLoad={(e) => console.log('✅ Photo loaded successfully for bubble', bubble.id, e.currentTarget.src)}
+            className="absolute inset-0 w-full h-full object-cover rounded-full"
+            style={{ 
+              display: hasImageError ? 'none' : 'block',
+              zIndex: 50,
+              border: '2px solid rgba(255,255,255,0.3)'
+            }}
+            onLoad={(e) => {
+              console.log('✅ PHOTO LOADED:', bubble.id, 'Size:', e.currentTarget.naturalWidth, 'x', e.currentTarget.naturalHeight);
+            }}
             onError={(e) => {
-              console.error('❌ Photo failed to load for bubble', bubble.id, e.currentTarget.src);
+              console.error('❌ PHOTO ERROR:', bubble.id, e.currentTarget.src?.substring(0, 100));
               setHasImageError(true);
             }}
           />
           {hasImageError && (
-            <div className="absolute inset-0 flex items-center justify-center bg-danger-soft/80 rounded-full z-20">
+            <div className="absolute inset-0 flex items-center justify-center bg-red-500/80 rounded-full" style={{ zIndex: 60 }}>
               <span className="text-white text-xs font-bold">❌</span>
             </div>
           )}
