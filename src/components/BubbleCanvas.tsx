@@ -41,20 +41,6 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
     undoLastMerge,
     lastOperation
   } = useBubbleStore();
-
-  // Check if we should render atomic view
-  const viewMode = settings.viewMode || 'bubble';
-  
-  // If atomic view is selected, render AtomicView instead
-  if (viewMode === 'atomic') {
-    return (
-      <AtomicView 
-        onBubbleSelect={onBubbleSelect}
-        onBubbleEdit={onBubbleEdit}
-        className={className}
-      />
-    );
-  }
   const themeContext = useTheme();
   const currentTheme = themeContext?.currentTheme;
   const isMobile = useIsMobile();
@@ -563,6 +549,32 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
 
 // Theme-aware canvas wrapper that selects the appropriate renderer
 export function BubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: BubbleCanvasProps) {
+  const { settings } = useBubbleStore();
+  const viewMode = settings.viewMode || 'bubble';
+  
+  // If atomic view is selected, render AtomicView directly without theme dependency
+  if (viewMode === 'atomic') {
+    return (
+      <AtomicView 
+        onBubbleSelect={onBubbleSelect}
+        onBubbleEdit={onBubbleEdit}
+        className={className}
+      />
+    );
+  }
+  
+  // For bubble view, use theme-aware rendering
+  return (
+    <ThemeAwareBubbleCanvas 
+      onBubbleSelect={onBubbleSelect}
+      onBubbleEdit={onBubbleEdit}
+      className={className}
+    />
+  );
+}
+
+// Separate component for theme-dependent bubble rendering
+function ThemeAwareBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: BubbleCanvasProps) {
   const themeContext = useTheme();
   
   // Handle loading state gracefully
