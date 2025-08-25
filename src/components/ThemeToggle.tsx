@@ -30,7 +30,32 @@ export function ThemeToggle({
   variant = 'ghost',
   size = 'default'
 }: ThemeToggleProps) {
-  const { currentTheme, themes, setTheme } = useTheme();
+  const themeContext = useTheme();
+  
+  // Handle loading state gracefully
+  if (!themeContext || themeContext.isLoading) {
+    return (
+      <Button
+        variant={variant}
+        size={size}
+        className={cn(
+          'min-h-[44px] min-w-[44px] gap-2 opacity-50',
+          'focus-visible:ring-2 focus-visible:ring-accent-void focus-visible:ring-offset-2',
+          className
+        )}
+        disabled
+      >
+        <Palette className="h-4 w-4" />
+        {showLabel && (
+          <span className="hidden sm:inline-block">
+            Loading...
+          </span>
+        )}
+      </Button>
+    );
+  }
+  
+  const { currentTheme, themes, setTheme } = themeContext;
 
   return (
     <DropdownMenu>
@@ -135,7 +160,24 @@ export function CompactThemeToggle({ className }: { className?: string }) {
  * Detailed theme toggle for settings pages
  */
 export function DetailedThemeToggle({ className }: { className?: string }) {
-  const { currentTheme, themes, setTheme } = useTheme();
+  const themeContext = useTheme();
+  
+  // Handle loading state gracefully
+  if (!themeContext || themeContext.isLoading) {
+    return (
+      <div className={cn('space-y-4', className)}>
+        <div className="flex items-center gap-2">
+          <Palette className="h-5 w-5 text-accent-void" />
+          <h3 className="text-speak font-semibold">Theme</h3>
+        </div>
+        <div className="p-4 text-center text-muted-foreground">
+          Loading themes...
+        </div>
+      </div>
+    );
+  }
+  
+  const { currentTheme, themes, setTheme } = themeContext;
 
   return (
     <div className={cn('space-y-4', className)}>
