@@ -21,16 +21,17 @@ interface BubbleCardProps {
   isDragging?: boolean;
 }
 
-export function BubbleCard({ 
-  bubble, 
-  scale, 
-  onSelect, 
-  onEdit, 
-  style, 
+export function BubbleCard({
+  bubble,
+  scale,
+  onSelect,
+  onEdit,
+  style,
   className,
   isDragging = false
 }: BubbleCardProps) {
   const [isHovered, setIsHovered] = useState(false);
+  const [hasImageError, setHasImageError] = useState(false);
   const { currentTheme } = useTheme();
   const isMobile = useIsMobile();
   const navigate = useNavigate();
@@ -231,15 +232,22 @@ export function BubbleCard({
             src={bubble.imageUri}
             alt="Bubble photo"
             className="absolute inset-0 w-full h-full object-cover rounded-full z-0"
-            onLoad={() => console.log('Photo loaded successfully:', bubble.imageUri)}
-            onError={(e) => console.error('Photo failed to load:', bubble.imageUri, e)}
+            style={{ display: hasImageError ? 'none' : undefined }}
+            onLoad={(e) => console.log('Photo loaded successfully:', e.currentTarget.src)}
+            onError={(e) => {
+              console.error('Photo failed to load:', e.currentTarget.src, (e as any)?.message);
+              setHasImageError(true);
+            }}
           />
-          {/* Overlay for very small bubbles */}
-          {visualSize <= 60 && (
+          {hasImageError ? (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full z-10">
+              <span className="text-white text-xs font-bold">❌</span>
+            </div>
+          ) : visualSize <= 60 ? (
             <div className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full z-10">
               <span className="text-white text-xs font-bold">📷</span>
             </div>
-          )}
+          ) : null}
         </>
       ) : (
         /* Bubble Content - only show when no photo */
