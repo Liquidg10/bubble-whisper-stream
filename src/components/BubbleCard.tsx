@@ -201,7 +201,7 @@ export function BubbleCard({
     <div
       className={cn(
         "bubble-card relative transition-all duration-bubble cursor-pointer select-none",
-        "rounded-full flex items-center justify-center text-center backdrop-blur",
+        "rounded-full flex items-center justify-center text-center backdrop-blur overflow-hidden",
         bubble.completed && "opacity-60",
         shouldUseLOD && "backdrop-blur-none", // Reduce heavy effects during drag
         isSelected && "ring-2 ring-bubble-selected ring-offset-1",
@@ -279,22 +279,22 @@ export function BubbleCard({
 
       {/* Reminder indicator */}
       {bubble.reminderId && (
-        <div className="absolute -top-1 -right-1 w-3 h-3 bg-danger-soft rounded-full 
-                       border border-text-primary animate-pulse" />
+        <div className="absolute -top-1 -right-1 w-3 h-3 bg-danger-soft rounded-full
+                       border border-text-primary animate-pulse z-10" />
       )}
 
       {/* Completion indicator */}
       {bubble.completed && (
-        <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-success-gentle rounded-full 
-                       border border-text-primary flex items-center justify-center">
+        <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-success-gentle rounded-full
+                       border border-text-primary flex items-center justify-center z-10">
           <span className="text-xs">✓</span>
         </div>
       )}
 
       {/* Audio indicator - simplified in LOD mode */}
       {bubble.audioUri && (
-        <div className="absolute -top-1 -left-1 w-3 h-3 bg-accent-flow rounded-full 
-                       border border-text-primary">
+        <div className="absolute -top-1 -left-1 w-3 h-3 bg-accent-flow rounded-full
+                       border border-text-primary z-10">
           {!shouldUseLOD && (
             <div className="absolute inset-0 bg-accent-flow rounded-full animate-ping opacity-50" />
           )}
@@ -303,8 +303,8 @@ export function BubbleCard({
 
       {/* Image indicator - only show for very small bubbles where photo isn't clearly visible */}
       {bubble.imageUri && visualSize <= 40 && (
-        <div className="absolute -bottom-1 -left-1 w-3 h-3 bg-accent-growth rounded-full 
-                       border border-text-primary" />
+        <div className="absolute -bottom-1 -left-1 w-3 h-3 bg-accent-growth rounded-full
+                       border border-text-primary z-10" />
       )}
     </div>
   );
