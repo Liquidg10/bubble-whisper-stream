@@ -9,7 +9,7 @@ import { BubbleCanvasProps } from '@/themes/ThemeTypes';
 import { MergeConfirmPortal } from '@/components/MergeConfirmPortal';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { PerformanceMonitor } from '@/components/PerformanceMonitor';
+
 import { ZoomIn, ZoomOut, RotateCcw, Map, Filter, Focus, Layers } from 'lucide-react';
 
 interface IridescentNode {
@@ -52,7 +52,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
   const [declutterMode, setDeclutterMode] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [bubbleDensity, setBubbleDensity] = useState<'low' | 'medium' | 'high'>('medium');
-  const [showPerformanceMonitor, setShowPerformanceMonitor] = useState(false);
+  
   const canvasRef = useRef<HTMLDivElement>(null);
 
   // Filter bubbles based on controls
@@ -510,18 +510,6 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
         </Badge>
       </div>
 
-      {/* Performance Monitor Controls */}
-      <div className="absolute bottom-6 right-6 z-30">
-        <Button 
-          variant={showPerformanceMonitor ? "default" : "outline"} 
-          size="sm"
-          onClick={() => setShowPerformanceMonitor(!showPerformanceMonitor)}
-          className="bg-card/80 backdrop-blur-sm gap-1"
-        >
-          <Map className="w-4 h-4" />
-          FPS Monitor
-        </Button>
-      </div>
 
       {/* Performance Stats (Development) */}
       {process.env.NODE_ENV === 'development' && (
@@ -533,8 +521,6 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
         </div>
       )}
 
-      {/* Performance Monitor */}
-      <PerformanceMonitor show={showPerformanceMonitor} />
 
       {/* Undo toast */}
       {toast && lastMerge && (

@@ -47,8 +47,10 @@ class TTSService {
           enabled: settings.ttsEnabled ?? this.settings.enabled 
         };
       }
+      console.log('✅ TTS settings loaded:', this.settings);
     } catch (error) {
-      console.warn('Failed to load TTS settings:', error);
+      console.log('📝 TTS using default settings (storage not ready):', this.settings);
+      // Silently continue with default settings - this is normal on first load
     }
   }
 
