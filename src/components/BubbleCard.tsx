@@ -208,7 +208,8 @@ export function BubbleCard({
         ...style,
         width: visualSize,
         height: visualSize,
-        backgroundColor: getBubbleColor(),
+        // Only set background color if no photo
+        backgroundColor: bubble.imageUri ? 'transparent' : getBubbleColor(),
         ...rimStyling,
         ...auraEffects,
         ...selectionStyling,
@@ -223,7 +224,7 @@ export function BubbleCard({
       aria-selected={isSelected}
       aria-label={`${bubble.type}: ${bubble.content}${isSelected ? ' (selected)' : ''}`}
     >
-      {/* Photo thumbnail - always show if present, no size restriction */}
+      {/* Photo thumbnail - always show if present */}
       {bubble.imageUri ? (
         <>
           <img 
@@ -231,10 +232,12 @@ export function BubbleCard({
             alt="Bubble photo"
             className="absolute inset-0 w-full h-full object-cover rounded-full"
             style={{ zIndex: 1 }}
+            onLoad={() => console.log('Photo loaded successfully:', bubble.imageUri)}
+            onError={(e) => console.error('Photo failed to load:', bubble.imageUri, e)}
           />
-          {/* Overlay text for very small bubbles */}
+          {/* Overlay for very small bubbles */}
           {visualSize <= 60 && (
-            <div className="absolute inset-0 flex items-center justify-center z-10 bg-black/40 rounded-full">
+            <div className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full" style={{ zIndex: 2 }}>
               <span className="text-white text-xs font-bold">📷</span>
             </div>
           )}
@@ -286,8 +289,8 @@ export function BubbleCard({
         </div>
       )}
 
-      {/* Image indicator */}
-      {bubble.imageUri && (
+      {/* Image indicator - only show for very small bubbles where photo isn't clearly visible */}
+      {bubble.imageUri && visualSize <= 40 && (
         <div className="absolute -bottom-1 -left-1 w-3 h-3 bg-accent-growth rounded-full 
                        border border-text-primary" />
       )}
