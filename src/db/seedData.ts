@@ -3,7 +3,23 @@
  * Provides sample data for development and testing
  */
 
-import type { CBTEntry, Glimmer, SelfModelV2, PatternHint, DistortionKey } from '../types/bubble';
+import type { CBTEntry, Glimmer, SelfModelV2, PatternHint, DistortionKey, Bubble } from '../types/bubble';
+
+export const sampleBubbles: Bubble[] = [
+  {
+    id: 'seed-photo-bubble',
+    type: 'Memory',
+    content: 'A seeded memory bubble with an image',
+    imageUri:
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    x: 120,
+    y: -80,
+    size: 0.9,
+    tags: []
+  }
+];
 
 export const sampleCBTEntries: CBTEntry[] = [
   {
