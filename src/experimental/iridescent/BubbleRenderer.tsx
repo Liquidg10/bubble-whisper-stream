@@ -341,8 +341,8 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
       
       setViewport(prev => ({
         ...prev,
-        x: viewportStart.x - deltaX / prev.scale,
-        y: viewportStart.y - deltaY / prev.scale
+        x: viewportStart.x + deltaX / prev.scale,
+        y: viewportStart.y + deltaY / prev.scale
       }));
     }
   }, [isPanning, panStart, viewportStart, dragging]);

@@ -171,8 +171,8 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
     
     setViewport(prev => ({
       ...prev,
-      x: viewportStart.x - deltaX / prev.scale,
-      y: viewportStart.y - deltaY / prev.scale
+      x: viewportStart.x + deltaX / prev.scale,
+      y: viewportStart.y + deltaY / prev.scale
     }));
   }, [isPanning, panStart, viewportStart]);
 
