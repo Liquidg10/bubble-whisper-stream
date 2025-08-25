@@ -8,6 +8,10 @@ class StorageService {
   private readonly dbName = 'BubbleUniverse';
   private readonly dbVersion = 3;
 
+  isInitialized(): boolean {
+    return this.db !== null;
+  }
+
   async initialize(): Promise<void> {
     return new Promise((resolve, reject) => {
       const request = indexedDB.open(this.dbName, 3); // Upgrade to v3 for Phase 2

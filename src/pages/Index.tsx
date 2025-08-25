@@ -45,7 +45,7 @@ export default function Index() {
     isMobile
   } = useUILayout();
 
-  // Create sample bubbles for first-time users
+  // Create sample bubbles for first-time users (only after store is fully initialized)
   useEffect(() => {
     if (!isLoading && bubbles.length === 0) {
       const { addBubble, updateBubble } = useBubbleStore.getState();
@@ -62,7 +62,10 @@ export default function Index() {
         tags: [{ id: '1', name: 'Welcome', emoji: '👋' }],
       };
 
-      addBubble(welcomeBubble);
+      // Add a small delay to ensure storage service is fully ready
+      setTimeout(() => {
+        addBubble(welcomeBubble);
+      }, 100);
       
       // Settle positions to prevent stacking
       requestAnimationFrame(() => {

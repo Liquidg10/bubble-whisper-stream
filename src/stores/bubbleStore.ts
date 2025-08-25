@@ -207,6 +207,12 @@ export const useBubbleStore = create<BubbleStore>()(
       // Bubble actions
       addBubble: async (bubble) => {
         try {
+          // Check if database is initialized before attempting to create bubble
+          if (!storageService.isInitialized()) {
+            console.warn('Database not yet initialized, skipping bubble creation');
+            return;
+          }
+          
           // Ensure bubble has a type for proper type-colored rims
           const bubbleWithType = {
             ...bubble,
