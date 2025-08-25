@@ -1,6 +1,7 @@
 // AI-Powered Text-to-Speech service using OpenAI
 import { storageService } from './storage';
 import { supabase } from '@/integrations/supabase/client';
+import { useBubbleStore } from '@/stores/bubbleStore';
 
 interface TTSSettings {
   enabled: boolean;
@@ -62,8 +63,19 @@ class TTSService {
   }
 
   private async speakWithAI(text: string, options: TTSOptions): Promise<void> {
+    // Get user voice preferences from store
+    const storeState = useBubbleStore.getState();
+    const { voicePreferences, globalVoice } = storeState.settings;
+    
+    // Determine which voice to use based on user preferences
+    let selectedVoice = globalVoice; // Default fallback
+    if (options.context && voicePreferences[options.context]) {
+      selectedVoice = voicePreferences[options.context];
+    }
+
     console.log('📡 Calling AI TTS edge function with:', { 
       textLength: text.length, 
+      voice: selectedVoice,
       tone: options.tone || 'neutral',
       context: options.context 
     });
@@ -72,6 +84,7 @@ class TTSService {
       const { data, error } = await supabase.functions.invoke('ai-tts-generate', {
         body: {
           text,
+          voice: selectedVoice, // Pass user's preferred voice
           tone: options.tone || 'neutral',
           context: options.context
         }

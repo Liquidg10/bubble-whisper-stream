@@ -14,8 +14,8 @@ serve(async (req) => {
   console.log('🎤 AI TTS function called');
 
   try {
-    const { text, voice = 'alloy', tone = 'neutral', context } = await req.json();
-    console.log('📝 Request params:', { textLength: text?.length, voice, tone, context });
+    const { text, voice: userVoice, tone = 'neutral', context } = await req.json();
+    console.log('📝 Request params:', { textLength: text?.length, userVoice: userVoice || 'none', tone, context });
 
     if (!text) {
       console.error('❌ No text provided');
@@ -29,11 +29,11 @@ serve(async (req) => {
     }
     console.log('✅ OpenAI API key found');
 
-    // Context-aware voice selection with enhanced personality mapping
-    let selectedVoice = voice;
+    // Voice selection priority: user preference → context mapping → default
+    let selectedVoice = userVoice || 'alloy';
     
-    // Smart voice selection based on context and tone
-    if (context) {
+    // Only use context-based mapping if no user voice preference is provided
+    if (!userVoice && context) {
       switch (context) {
         case 'banking':
         case 'financial':
@@ -64,14 +64,14 @@ serve(async (req) => {
           else if (tone === 'encouraging') selectedVoice = 'echo';
           else if (tone === 'professional') selectedVoice = 'onyx';
       }
-    } else {
+    } else if (!userVoice) {
       // Original tone-based selection as fallback
       if (tone === 'compassionate') selectedVoice = 'nova';
       if (tone === 'gentle') selectedVoice = 'shimmer';
       if (tone === 'encouraging') selectedVoice = 'echo';
     }
 
-    console.log('🎵 Selected voice:', selectedVoice, 'for context:', context, 'tone:', tone);
+    console.log('🎵 Selected voice:', selectedVoice, 'for context:', context, 'tone:', tone, 'user preference:', !!userVoice);
 
     const response = await fetch('https://api.openai.com/v1/audio/speech', {
       method: 'POST',
