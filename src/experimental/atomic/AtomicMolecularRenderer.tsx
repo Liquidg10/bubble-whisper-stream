@@ -218,6 +218,28 @@ export default function AtomicMolecularRenderer({
   const renderNucleus = useCallback((molecule: Molecule) => {
     const particles = [];
     const total = molecule.protons + molecule.neutrons;
+    const bubble = bubbles.find(b => b.id === molecule.bubbleId);
+    
+    // If bubble has photo and nucleus is large enough, show photo thumbnail
+    if (bubble?.imageUri && molecule.radius >= 40) {
+      return (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div 
+            className="rounded-full overflow-hidden border border-white/20"
+            style={{ 
+              width: molecule.radius * 0.8,
+              height: molecule.radius * 0.8
+            }}
+          >
+            <img 
+              src={bubble.imageUri} 
+              alt="Bubble photo"
+              className="w-full h-full object-cover"
+            />
+          </div>
+        </div>
+      );
+    }
     
     if (molecule.opened && zoomLevel === "detail") {
       // Show individual particles when nucleus is opened in detail view
@@ -247,7 +269,7 @@ export default function AtomicMolecularRenderer({
     }
     
     return particles;
-  }, [zoomLevel]);
+  }, [zoomLevel, bubbles]);
 
   // Render electron shells
   const renderShells = useCallback((molecule: Molecule) => {

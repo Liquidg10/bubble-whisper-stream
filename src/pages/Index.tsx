@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { BubbleCanvas } from '@/components/BubbleCanvas';
+import { AtomicView } from '@/components/AtomicView';
 import { RadialCapture } from '@/components/RadialCapture';
 import { NotificationSystem } from '@/components/NotificationSystem';
 import { GlimmerNotifications } from '@/components/GlimmerNotifications';
@@ -21,7 +22,8 @@ import { ViewModeToggle } from '@/components/ViewModeToggle';
 import { crossDeviceSyncService } from '@/services/crossDeviceSyncService';
 
 export default function Index() {
-  const { isLoading, bubbles } = useBubbleStore();
+  const { isLoading, bubbles, settings } = useBubbleStore();
+  const currentViewMode = settings.viewMode || 'bubble';
   const [selectedBubble, setSelectedBubble] = useState<Bubble | null>(null);
   const [viewport, setViewport] = useState<CanvasViewport>({
     x: 0,
@@ -54,10 +56,23 @@ export default function Index() {
         <ViewModeToggle />
       </div>
 
-      <BubbleCanvas 
-        onBubbleSelect={setSelectedBubble}
-        onBubbleEdit={setSelectedBubble}
-      />
+      {currentViewMode === 'bubble' ? (
+        <BubbleCanvas 
+          onBubbleSelect={setSelectedBubble}
+          onBubbleEdit={setSelectedBubble}
+        />
+      ) : (
+        <AtomicView 
+          onBubbleSelect={(bubbleId) => {
+            const bubble = bubbles.find(b => b.id === bubbleId);
+            if (bubble) setSelectedBubble(bubble);
+          }}
+          onBubbleEdit={(bubbleId) => {
+            const bubble = bubbles.find(b => b.id === bubbleId);
+            if (bubble) setSelectedBubble(bubble);
+          }}
+        />
+      )}
       <RadialCapture />
       <NotificationSystem />
       <GlimmerNotifications />
