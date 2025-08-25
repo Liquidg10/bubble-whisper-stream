@@ -234,31 +234,31 @@ export function BubbleCard({
           <img
             src={bubble.imageUri}
             alt="Bubble photo"
-            className="absolute inset-0 w-full h-full object-cover rounded-full"
-            style={{ zIndex: 1, display: hasImageError ? 'none' : undefined }}
+            className="absolute inset-0 w-full h-full object-cover rounded-full z-0"
+            style={{ display: hasImageError ? 'none' : undefined }}
             onLoad={(e) => console.log('Photo loaded successfully:', e.currentTarget.src)}
             onError={(e) => {
-              const message = (e as any)?.message;
+              const message = (e as unknown as { message?: string }).message;
               console.error('Photo failed to load:', e.currentTarget.src, message);
               setHasImageError(true);
             }}
           />
           {/* Error overlay or small-bubble overlay */}
           {hasImageError ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full" style={{ zIndex: 2 }}>
+            <div className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full z-10">
               <span className="text-white text-xs font-bold">❌</span>
             </div>
           ) : visualSize <= 60 ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full" style={{ zIndex: 2 }}>
+            <div className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full z-10">
               <span className="text-white text-xs font-bold">📷</span>
             </div>
           ) : null}
         </>
       ) : (
         /* Bubble Content - only show when no photo */
-        <div className="relative flex flex-col items-center justify-center p-1 text-text-primary" style={{ zIndex: 2 }}>
+        <div className="relative z-10 flex flex-col items-center justify-center p-1 text-text-primary">
           {/* Type emoji */}
-          <span 
+          <span
             className="text-lg leading-none"
             style={{ fontSize: Math.max(visualSize * 0.2, 12) }}
           >
