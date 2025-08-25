@@ -78,10 +78,14 @@ class TTSService {
 
     // Use AI TTS by default for better quality
     if (options.useAI !== false) {
+      console.log('🎤 Attempting AI TTS for:', text.substring(0, 50) + '...', 'context:', options.context, 'tone:', options.tone);
       try {
-        return await this.speakWithAI(text, options);
+        await this.speakWithAI(text, options);
+        console.log('✅ AI TTS completed successfully');
+        return;
       } catch (error) {
-        console.warn('AI TTS failed, falling back to browser TTS:', error);
+        console.error('❌ AI TTS failed:', error);
+        console.warn('🔄 Falling back to browser TTS due to AI TTS failure:', error.message);
         // Fall through to browser TTS
       }
     }
@@ -113,6 +117,13 @@ class TTSService {
   }
 
   private async speakWithAI(text: string, options: TTSOptions): Promise<void> {
+    console.log('📡 Calling AI TTS edge function with:', { 
+      textLength: text.length, 
+      voice: options.voice, 
+      tone: options.tone || 'neutral',
+      context: options.context 
+    });
+
     try {
       const { data, error } = await supabase.functions.invoke('ai-tts-generate', {
         body: {
@@ -123,7 +134,18 @@ class TTSService {
         }
       });
 
-      if (error) throw error;
+      console.log('📡 Edge function response:', { data: data ? 'received' : 'null', error });
+
+      if (error) {
+        console.error('Edge function error:', error);
+        throw new Error(`Edge function error: ${JSON.stringify(error)}`);
+      }
+
+      if (!data || !data.audioContent) {
+        throw new Error('No audio content received from edge function');
+      }
+
+      console.log('🎵 Creating audio element with base64 data length:', data.audioContent.length);
 
       // Play the audio
       const audio = new Audio(`data:audio/mp3;base64,${data.audioContent}`);
@@ -131,18 +153,29 @@ class TTSService {
       
       return new Promise((resolve, reject) => {
         audio.onended = () => {
+          console.log('🎵 AI TTS audio playback completed');
           this.isPlaying = false;
           resolve();
         };
-        audio.onerror = () => {
+        audio.onerror = (e) => {
+          console.error('🎵 Audio playback error:', e);
           this.isPlaying = false;
-          reject(new Error('Audio playback failed'));
+          reject(new Error('Audio playback failed - invalid audio data'));
+        };
+        audio.oncanplay = () => {
+          console.log('🎵 Audio can play, starting playback');
         };
         
         this.isPlaying = true;
-        audio.play().catch(reject);
+        console.log('🎵 Starting audio playback...');
+        audio.play().catch(err => {
+          console.error('🎵 Audio play() failed:', err);
+          this.isPlaying = false;
+          reject(err);
+        });
       });
     } catch (error) {
+      console.error('❌ AI TTS complete failure:', error);
       throw new Error(`AI TTS failed: ${error.message}`);
     }
   }

@@ -11,12 +11,23 @@ serve(async (req) => {
     return new Response('ok', { headers: corsHeaders });
   }
 
+  console.log('🎤 AI TTS function called');
+
   try {
     const { text, voice = 'alloy', tone = 'neutral', context } = await req.json();
+    console.log('📝 Request params:', { textLength: text?.length, voice, tone, context });
 
     if (!text) {
+      console.error('❌ No text provided');
       throw new Error('Text is required');
     }
+
+    const apiKey = Deno.env.get('OPENAI_API_KEY');
+    if (!apiKey) {
+      console.error('❌ OPENAI_API_KEY not found in environment');
+      throw new Error('OpenAI API key not configured');
+    }
+    console.log('✅ OpenAI API key found');
 
     // Context-aware voice selection with enhanced personality mapping
     let selectedVoice = voice;
@@ -60,10 +71,12 @@ serve(async (req) => {
       if (tone === 'encouraging') selectedVoice = 'echo';
     }
 
+    console.log('🎵 Selected voice:', selectedVoice, 'for context:', context, 'tone:', tone);
+
     const response = await fetch('https://api.openai.com/v1/audio/speech', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${Deno.env.get('OPENAI_API_KEY')}`,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -76,11 +89,15 @@ serve(async (req) => {
     });
 
     if (!response.ok) {
+      console.error('❌ OpenAI API error:', response.status, response.statusText);
       const error = await response.json();
+      console.error('❌ OpenAI API error details:', error);
       throw new Error(error.error?.message || 'Failed to generate speech');
     }
 
+    console.log('✅ OpenAI TTS response received, converting to base64...');
     const arrayBuffer = await response.arrayBuffer();
+    console.log('📊 Audio buffer size:', arrayBuffer.byteLength, 'bytes');
     
     // Convert arrayBuffer to base64 in chunks to avoid stack overflow
     const uint8Array = new Uint8Array(arrayBuffer);
@@ -91,6 +108,8 @@ serve(async (req) => {
       const chunk = uint8Array.slice(i, i + chunkSize);
       base64Audio += btoa(String.fromCharCode.apply(null, Array.from(chunk)));
     }
+
+    console.log('✅ Base64 conversion complete, length:', base64Audio.length);
 
     return new Response(
       JSON.stringify({ 
