@@ -220,15 +220,15 @@ export default function AtomicMolecularRenderer({
     const total = molecule.protons + molecule.neutrons;
     const bubble = bubbles.find(b => b.id === molecule.bubbleId);
     
-    // If bubble has photo and nucleus is large enough, show photo thumbnail
-    if (bubble?.imageUri && molecule.radius >= 40) {
+    // If bubble has photo and nucleus is large enough, show photo thumbnail filling the circle
+    if (bubble?.imageUri && molecule.radius >= 30) {
       return (
         <div className="absolute inset-0 flex items-center justify-center">
           <div 
-            className="rounded-full overflow-hidden border border-white/20"
+            className="rounded-full overflow-hidden border-2 border-white/30 shadow-lg"
             style={{ 
-              width: molecule.radius * 0.8,
-              height: molecule.radius * 0.8
+              width: molecule.radius * 1.9,
+              height: molecule.radius * 1.9
             }}
           >
             <img 

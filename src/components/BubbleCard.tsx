@@ -223,35 +223,35 @@ export function BubbleCard({
       aria-selected={isSelected}
       aria-label={`${bubble.type}: ${bubble.content}${isSelected ? ' (selected)' : ''}`}
     >
-      {/* Bubble Content */}
-      <div className="flex flex-col items-center justify-center p-1 text-text-primary">
-        {/* Photo thumbnail - if present, show as full bubble background */}
-        {bubble.imageUri && visualSize > 60 ? (
-          <img 
-            src={bubble.imageUri} 
-            alt="Bubble photo"
-            className="absolute inset-0 w-full h-full object-cover rounded-full"
-          />
-        ) : (
-          <>
-            {/* Type emoji - visible when no photo or bubble too small */}
-            <span 
-              className="text-lg leading-none"
-              style={{ fontSize: Math.max(visualSize * 0.2, 12) }}
-            >
-              {bubble.tags.find(tag => tag.emoji)?.emoji || getTypeEmoji()}
-            </span>
-            
-            {/* Content text - only visible when large enough and not in LOD mode */}
-            {!shouldUseLOD && isLargeEnoughForContent && bubble.content && (
-              <span 
-                className="text-xs font-medium mt-1 leading-tight"
-                style={{ fontSize: Math.max(visualSize * 0.08, 8) }}
-              >
-                {getDisplayContent()}
-              </span>
-            )}
-          </>
+      {/* Photo thumbnail - if present and large enough, show as full bubble background */}
+      {bubble.imageUri && visualSize > 60 ? (
+        <img 
+          src={bubble.imageUri} 
+          alt="Bubble photo"
+          className="absolute inset-0 w-full h-full object-cover rounded-full z-0"
+        />
+      ) : null}
+
+      {/* Bubble Content - always present but overlaid on photo if photo exists */}
+      <div className="relative z-10 flex flex-col items-center justify-center p-1 text-text-primary">
+        {/* Type emoji - visible when no photo or bubble too small */}
+        {(!bubble.imageUri || visualSize <= 60) && (
+          <span 
+            className="text-lg leading-none"
+            style={{ fontSize: Math.max(visualSize * 0.2, 12) }}
+          >
+            {bubble.tags.find(tag => tag.emoji)?.emoji || getTypeEmoji()}
+          </span>
+        )}
+        
+        {/* Content text - only visible when large enough and not in LOD mode and no photo */}
+        {!shouldUseLOD && isLargeEnoughForContent && bubble.content && (!bubble.imageUri || visualSize <= 60) && (
+          <span 
+            className="text-xs font-medium mt-1 leading-tight"
+            style={{ fontSize: Math.max(visualSize * 0.08, 8) }}
+          >
+            {getDisplayContent()}
+          </span>
         )}
       </div>
 
