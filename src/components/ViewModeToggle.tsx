@@ -15,7 +15,10 @@ export function ViewModeToggle() {
       <Button
         variant={currentMode === 'bubble' ? 'default' : 'ghost'}
         size="sm"
-        onClick={() => setViewMode('bubble')}
+        onClick={() => {
+          console.log('🔘 Clicked bubble view mode');
+          setViewMode('bubble');
+        }}
         className="h-8 px-2"
         aria-label="Bubble view mode"
       >
@@ -24,7 +27,10 @@ export function ViewModeToggle() {
       <Button
         variant={currentMode === 'atomic' ? 'default' : 'ghost'}
         size="sm"
-        onClick={() => setViewMode('atomic')}
+        onClick={() => {
+          console.log('⚛️ Clicked atomic view mode');
+          setViewMode('atomic');
+        }}
         className="h-8 px-2"
         aria-label="Atomic view mode"
       >

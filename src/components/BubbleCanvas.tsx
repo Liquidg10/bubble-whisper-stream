@@ -44,6 +44,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
 
   // Check if we should render atomic view
   const viewMode = settings.viewMode || 'bubble';
+  console.log('🎯 BubbleCanvas viewMode:', viewMode, 'settings:', settings);
   
   // If atomic view is selected, render AtomicView instead
   if (viewMode === 'atomic') {

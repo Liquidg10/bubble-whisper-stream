@@ -512,6 +512,10 @@ export const useBubbleStore = create<BubbleStore>()(
 
       // View mode actions
       setViewMode: (mode: 'bubble' | 'atomic') => {
+        console.log('🔄 Setting view mode to:', mode);
+        set(state => ({
+          settings: { ...state.settings, viewMode: mode }
+        }));
         get().updateSettings({ viewMode: mode });
       },
     };
