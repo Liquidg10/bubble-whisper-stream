@@ -69,8 +69,7 @@ export const Settings: React.FC = () => {
     setTestingTTS(true);
     try {
       await ttsService.speak('This is a test of the AI text-to-speech system. How does it sound?', {
-        tone: 'gentle',
-        useAI: true
+        tone: 'gentle'
       });
       hapticsService.success();
     } catch (error) {

@@ -101,8 +101,7 @@ export const CBTThoughtCheck: React.FC<CBTThoughtCheckProps> = ({
     try {
       await ttsService.speak(text, {
         context: 'cbt',
-        tone: 'compassionate',
-        useAI: true
+        tone: 'compassionate'
       });
     } catch (error) {
       toast({

@@ -1,12 +1,9 @@
-// Enhanced Text-to-Speech service with compassionate tones
+// AI-Powered Text-to-Speech service using OpenAI
 import { storageService } from './storage';
 import { supabase } from '@/integrations/supabase/client';
 
 interface TTSSettings {
   enabled: boolean;
-  rate: number;
-  pitch: number;
-  voice?: string;
   volume: number;
 }
 
@@ -14,28 +11,18 @@ interface TTSOptions extends Partial<TTSSettings> {
   tone?: 'compassionate' | 'gentle' | 'encouraging' | 'neutral' | 'professional';
   context?: 'banking' | 'financial' | 'companion' | 'ai-conversation' | 'notes' | 'bubble-detail' | 'cbt' | 'therapy' | 'reminders' | 'glimmers';
   interrupt?: boolean;
-  useAI?: boolean;
 }
 
 class TTSService {
-  private synth: SpeechSynthesis | null = null;
-  private voices: SpeechSynthesisVoice[] = [];
-  private isSupported = false;
   private settings: TTSSettings = {
     enabled: true,
-    rate: 0.9,
-    pitch: 1.0,
     volume: 0.8
   };
   private isPlaying: boolean = false;
+  private currentAudio: HTMLAudioElement | null = null;
 
   constructor() {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      this.synth = window.speechSynthesis;
-      this.isSupported = true;
-      this.loadVoices();
-      this.loadSettings();
-    }
+    this.loadSettings();
   }
 
   private async loadSettings(): Promise<void> {
@@ -54,21 +41,6 @@ class TTSService {
     }
   }
 
-  private loadVoices(): void {
-    if (!this.synth) return;
-
-    const updateVoices = () => {
-      this.voices = this.synth!.getVoices();
-    };
-
-    updateVoices();
-    
-    // Chrome loads voices asynchronously
-    if (this.synth.onvoiceschanged !== undefined) {
-      this.synth.onvoiceschanged = updateVoices;
-    }
-  }
-
   async speak(text: string, options: TTSOptions = {}): Promise<void> {
     if (!text.trim() || !this.settings.enabled) {
       return;
@@ -78,50 +50,20 @@ class TTSService {
       this.stop();
     }
 
-    // Use AI TTS by default for better quality
-    if (options.useAI !== false) {
-      console.log('🎤 Attempting AI TTS for:', text.substring(0, 50) + '...', 'context:', options.context, 'tone:', options.tone);
-      try {
-        await this.speakWithAI(text, options);
-        console.log('✅ AI TTS completed successfully');
-        return;
-      } catch (error) {
-        console.error('❌ AI TTS failed:', error);
-        console.warn('🔄 Falling back to browser TTS due to AI TTS failure:', error.message);
-        // Fall through to browser TTS
-      }
+    console.log('🎤 Using AI TTS for:', text.substring(0, 50) + '...', 'context:', options.context, 'tone:', options.tone);
+    
+    try {
+      await this.speakWithAI(text, options);
+      console.log('✅ AI TTS completed successfully');
+    } catch (error) {
+      console.error('❌ AI TTS failed:', error);
+      throw new Error(`TTS failed: ${error.message}`);
     }
-
-    // Browser TTS fallback
-    if (!this.isSupported || !this.synth) {
-      return;
-    }
-
-    return new Promise((resolve, reject) => {
-      const adjustedText = this.adjustForTone(text, options.tone);
-      const utterance = new SpeechSynthesisUtterance(adjustedText);
-      
-      utterance.rate = options.tone === 'compassionate' ? 0.8 : (options.rate ?? this.settings.rate);
-      utterance.pitch = options.tone === 'gentle' ? 0.9 : (options.pitch ?? this.settings.pitch);
-      utterance.volume = options.volume ?? this.settings.volume;
-
-      if (options.voice) {
-        const voice = this.voices.find(v => v.name === options.voice);
-        if (voice) utterance.voice = voice;
-      }
-
-      utterance.onstart = () => { this.isPlaying = true; };
-      utterance.onend = () => { this.isPlaying = false; resolve(); };
-      utterance.onerror = (event) => { this.isPlaying = false; reject(new Error(`TTS Error: ${event.error}`)); };
-
-      this.synth!.speak(utterance);
-    });
   }
 
   private async speakWithAI(text: string, options: TTSOptions): Promise<void> {
     console.log('📡 Calling AI TTS edge function with:', { 
       textLength: text.length, 
-      voice: options.voice, 
       tone: options.tone || 'neutral',
       context: options.context 
     });
@@ -130,7 +72,6 @@ class TTSService {
       const { data, error } = await supabase.functions.invoke('ai-tts-generate', {
         body: {
           text,
-          voice: options.voice,
           tone: options.tone || 'neutral',
           context: options.context
         }
@@ -149,30 +90,41 @@ class TTSService {
 
       console.log('🎵 Creating audio element with base64 data length:', data.audioContent.length);
 
+      // Stop any currently playing audio
+      this.stop();
+
       // Play the audio
-      const audio = new Audio(`data:audio/mp3;base64,${data.audioContent}`);
-      audio.volume = options.volume ?? this.settings.volume;
+      this.currentAudio = new Audio(`data:audio/mp3;base64,${data.audioContent}`);
+      this.currentAudio.volume = options.volume ?? this.settings.volume;
       
       return new Promise((resolve, reject) => {
-        audio.onended = () => {
+        if (!this.currentAudio) {
+          reject(new Error('Audio element not created'));
+          return;
+        }
+
+        this.currentAudio.onended = () => {
           console.log('🎵 AI TTS audio playback completed');
           this.isPlaying = false;
+          this.currentAudio = null;
           resolve();
         };
-        audio.onerror = (e) => {
+        this.currentAudio.onerror = (e) => {
           console.error('🎵 Audio playback error:', e);
           this.isPlaying = false;
+          this.currentAudio = null;
           reject(new Error('Audio playback failed - invalid audio data'));
         };
-        audio.oncanplay = () => {
+        this.currentAudio.oncanplay = () => {
           console.log('🎵 Audio can play, starting playback');
         };
         
         this.isPlaying = true;
         console.log('🎵 Starting audio playback...');
-        audio.play().catch(err => {
+        this.currentAudio.play().catch(err => {
           console.error('🎵 Audio play() failed:', err);
           this.isPlaying = false;
+          this.currentAudio = null;
           reject(err);
         });
       });
@@ -182,46 +134,36 @@ class TTSService {
     }
   }
 
-  private adjustForTone(text: string, tone: string = 'neutral'): string {
-    switch (tone) {
-      case 'compassionate':
-        return text.replace(/\./g, '... ').replace(/,/g, ', ');
-      case 'gentle':
-        return text.replace(/\!/g, '.').replace(/\?/g, '... ');
-      default:
-        return text;
-    }
-  }
-
   async speakCBTReframe(reframe: string): Promise<void> {
     const compassionateText = `Here's a kinder way to think about this: ${reframe}`;
     return this.speak(compassionateText, { tone: 'compassionate', interrupt: true });
   }
 
   stop(): void {
-    if (this.synth) {
-      this.synth.cancel();
+    if (this.currentAudio) {
+      this.currentAudio.pause();
+      this.currentAudio.currentTime = 0;
+      this.currentAudio = null;
     }
+    this.isPlaying = false;
   }
 
   pause(): void {
-    if (this.synth) {
-      this.synth.pause();
+    if (this.currentAudio && !this.currentAudio.paused) {
+      this.currentAudio.pause();
     }
   }
 
   resume(): void {
-    if (this.synth) {
-      this.synth.resume();
+    if (this.currentAudio && this.currentAudio.paused) {
+      this.currentAudio.play().catch(err => {
+        console.error('Failed to resume audio:', err);
+      });
     }
   }
 
-  getVoices(): SpeechSynthesisVoice[] {
-    return this.voices;
-  }
-
   isAvailable(): boolean {
-    return this.isSupported;
+    return true; // Always available since we use OpenAI TTS
   }
 }
 

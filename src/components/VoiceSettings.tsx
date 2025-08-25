@@ -89,11 +89,9 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({ className = '' }) 
       const text = context ? sampleTexts[context] : "This is how your selected voice sounds. How do you like it?";
       
       await ttsService.speak(text, {
-        voice,
         context,
         tone: context === 'cbt' ? 'compassionate' : context === 'companion' ? 'gentle' : 'neutral',
-        volume: voiceVolume,
-        useAI: true
+        volume: voiceVolume
       });
       
     } catch (error) {

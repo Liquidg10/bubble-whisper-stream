@@ -108,7 +108,6 @@ class ReminderEngine {
       await ttsService.speak(notification.message, {
         context: 'reminders',
         tone: notification.level === 3 ? 'encouraging' : 'gentle',
-        useAI: true,
         interrupt: notification.level === 3
       });
     } catch (error) {

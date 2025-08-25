@@ -69,8 +69,7 @@ export const GlimmerCard: React.FC<GlimmerCardProps> = ({
     try {
       await ttsService.speak(glimmer.message, {
         context: 'glimmers',
-        tone: 'gentle',
-        useAI: true
+        tone: 'gentle'
       });
     } catch (error) {
       toast({

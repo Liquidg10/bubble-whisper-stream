@@ -109,8 +109,7 @@ export const Timeline: React.FC = () => {
     try {
       await ttsService.speak(bubble.content, {
         context: 'notes',
-        tone: 'neutral',
-        useAI: true
+        tone: 'neutral'
       });
       hapticsService.tap();
     } catch (error) {

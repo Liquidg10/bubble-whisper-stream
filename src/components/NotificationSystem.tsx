@@ -23,7 +23,6 @@ export const NotificationSystem: React.FC = () => {
           ttsService.speak(notification.message, {
             context: 'reminders',
             tone: 'encouraging',
-            useAI: true,
             interrupt: true
           }).catch(console.warn);
         } else {
