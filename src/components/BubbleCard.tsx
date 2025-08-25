@@ -223,16 +223,24 @@ export function BubbleCard({
       aria-selected={isSelected}
       aria-label={`${bubble.type}: ${bubble.content}${isSelected ? ' (selected)' : ''}`}
     >
-      {/* Photo thumbnail - if present and large enough, show as full bubble background */}
-      {bubble.imageUri && visualSize > 40 ? (
-        <img 
-          src={bubble.imageUri} 
-          alt="Bubble photo"
-          className="absolute inset-0 w-full h-full object-cover rounded-full"
-          style={{ zIndex: 1 }}
-        />
+      {/* Photo thumbnail - always show if present, no size restriction */}
+      {bubble.imageUri ? (
+        <>
+          <img 
+            src={bubble.imageUri} 
+            alt="Bubble photo"
+            className="absolute inset-0 w-full h-full object-cover rounded-full"
+            style={{ zIndex: 1 }}
+          />
+          {/* Overlay text for very small bubbles */}
+          {visualSize <= 60 && (
+            <div className="absolute inset-0 flex items-center justify-center z-10 bg-black/40 rounded-full">
+              <span className="text-white text-xs font-bold">📷</span>
+            </div>
+          )}
+        </>
       ) : (
-        /* Bubble Content - only show when no photo or photo is too small */
+        /* Bubble Content - only show when no photo */
         <div className="relative flex flex-col items-center justify-center p-1 text-text-primary" style={{ zIndex: 2 }}>
           {/* Type emoji */}
           <span 
