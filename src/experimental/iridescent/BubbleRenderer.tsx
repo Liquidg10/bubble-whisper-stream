@@ -45,6 +45,9 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
   const [dragging, setDragging] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [hasDragged, setHasDragged] = useState(false);
+  const [isPanning, setIsPanning] = useState(false);
+  const [panStart, setPanStart] = useState({ x: 0, y: 0 });
+  const [viewportStart, setViewportStart] = useState({ x: 0, y: 0 });
   const [confirm, setConfirm] = useState<{ x: number; y: number; a: string; b: string } | null>(null);
   const [toast, setToast] = useState(false);
   const [lastMerge, setLastMerge] = useState<any>(null);
@@ -319,6 +322,35 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
     }));
   }, []);
 
+  // Canvas pan handlers for mouse/touch
+  const handleCanvasPointerDown = useCallback((e: React.PointerEvent) => {
+    // Only start panning if clicking on empty canvas (not on a bubble)
+    const target = e.target as HTMLElement;
+    if (target.closest('.iridescent-bubble') || dragging) return;
+    
+    setIsPanning(true);
+    setPanStart({ x: e.clientX, y: e.clientY });
+    setViewportStart({ x: viewport.x, y: viewport.y });
+    e.preventDefault();
+  }, [viewport.x, viewport.y, dragging]);
+
+  const handleCanvasPointerMove = useCallback((e: React.PointerEvent) => {
+    if (isPanning && !dragging) {
+      const deltaX = e.clientX - panStart.x;
+      const deltaY = e.clientY - panStart.y;
+      
+      setViewport(prev => ({
+        ...prev,
+        x: viewportStart.x - deltaX / prev.scale,
+        y: viewportStart.y - deltaY / prev.scale
+      }));
+    }
+  }, [isPanning, panStart, viewportStart, dragging]);
+
+  const handleCanvasPointerUp = useCallback(() => {
+    setIsPanning(false);
+  }, []);
+
   // Bind mobile gestures
   const mobileGestures = usePinchZoom({
     onZoom: handlePinchZoom,
@@ -347,9 +379,17 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
   return (
     <div 
       ref={canvasRef}
-      className={`relative w-full h-full overflow-hidden bg-universe ${className || ''}`}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
+      className={`relative w-full h-full overflow-hidden bg-universe cursor-grab active:cursor-grabbing ${className || ''}`}
+      onPointerDown={handleCanvasPointerDown}
+      onPointerMove={(e) => {
+        handleCanvasPointerMove(e);
+        handlePointerMove(e);
+      }}
+      onPointerUp={(e) => {
+        handleCanvasPointerUp();
+        handlePointerUp(e);
+      }}
+      onPointerCancel={handleCanvasPointerUp}
       onWheel={handleWheel}
       {...(isMobile ? mobileGestures : {})}
       style={{ 
@@ -363,16 +403,17 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
         const bubbleId = node.id;
         const isSelected = selectedBubbles.has(bubbleId);
         return (
-        <IridescentBubble
-          key={node.id}
-          {...node}
-          selected={isSelected}
-          onPointerDown={(e) => handlePointerDown(node.id, e)}
-          onClick={() => handleBubbleClick(node.id)}
-          phase={index}
-          lod={!lodConfig.enableSpecular || dragging === node.id}
-          zIndex={index}
-        />
+        <div className="iridescent-bubble" key={node.id}>
+          <IridescentBubble
+            {...node}
+            selected={isSelected}
+            onPointerDown={(e) => handlePointerDown(node.id, e)}
+            onClick={() => handleBubbleClick(node.id)}
+            phase={index}
+            lod={!lodConfig.enableSpecular || dragging === node.id}
+            zIndex={index}
+          />
+        </div>
         );
       })}
 

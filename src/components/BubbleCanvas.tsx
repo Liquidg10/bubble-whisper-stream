@@ -72,6 +72,9 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [lastPanPoint, setLastPanPoint] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const [panStart, setPanStart] = useState({ x: 0, y: 0 });
+  const [viewportStart, setViewportStart] = useState({ x: 0, y: 0 });
   const [selectedBubbleId, setSelectedBubbleId] = useState<string | null>(null);
   const [declutterMode, setDeclutterMode] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
@@ -146,6 +149,35 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
       x: prev.x - delta.x / prev.scale,
       y: prev.y - delta.y / prev.scale
     }));
+  }, []);
+
+  // Canvas pan handlers for mouse/touch
+  const handleCanvasPointerDown = useCallback((e: React.PointerEvent) => {
+    // Only start panning if clicking on empty canvas (not on a bubble)
+    const target = e.target as HTMLElement;
+    if (target.closest('[data-bubble]')) return;
+    
+    setIsPanning(true);
+    setPanStart({ x: e.clientX, y: e.clientY });
+    setViewportStart({ x: viewport.x, y: viewport.y });
+    e.preventDefault();
+  }, [viewport.x, viewport.y]);
+
+  const handleCanvasPointerMove = useCallback((e: React.PointerEvent) => {
+    if (!isPanning) return;
+    
+    const deltaX = e.clientX - panStart.x;
+    const deltaY = e.clientY - panStart.y;
+    
+    setViewport(prev => ({
+      ...prev,
+      x: viewportStart.x - deltaX / prev.scale,
+      y: viewportStart.y - deltaY / prev.scale
+    }));
+  }, [isPanning, panStart, viewportStart]);
+
+  const handleCanvasPointerUp = useCallback(() => {
+    setIsPanning(false);
   }, []);
 
   // Bind mobile gestures
@@ -364,12 +396,17 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
       {/* Main Canvas */}
       <div
         ref={canvasRef}
-        className="absolute inset-0"
+        className="absolute inset-0 cursor-grab active:cursor-grabbing"
         onWheel={handleWheel}
+        onPointerDown={handleCanvasPointerDown}
+        onPointerMove={handleCanvasPointerMove}
+        onPointerUp={handleCanvasPointerUp}
+        onPointerCancel={handleCanvasPointerUp}
         {...(isMobile ? mobileGestures : {})}
         style={{
           transform: `translate(${viewport.width / 2}px, ${viewport.height / 2}px) scale(${viewport.scale}) translate(${-viewport.x}px, ${-viewport.y}px)`,
           transformOrigin: '0 0',
+          touchAction: 'none'
         }}
       >
         {/* Universe Background Grid */}
@@ -386,25 +423,29 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
         
         {/* Render visible bubbles */}
         {visibleBubbles.map(bubble => (
-          <BubbleCard
+          <div
             key={bubble.id}
-            bubble={bubble}
-            scale={viewport.scale}
-            onSelect={(b) => {
-              setSelectedBubbleId(b.id);
-              onBubbleSelect?.(b);
-            }}
-            onEdit={(editedBubble) => {
-              handleBubbleDragEnd(editedBubble);
-              onBubbleEdit?.(editedBubble);
-            }}
+            data-bubble
             style={{
               position: 'absolute',
               left: bubble.x,
               top: bubble.y,
               transform: 'translate(-50%, -50%)',
             }}
-          />
+          >
+            <BubbleCard
+              bubble={bubble}
+              scale={viewport.scale}
+              onSelect={(b) => {
+                setSelectedBubbleId(b.id);
+                onBubbleSelect?.(b);
+              }}
+              onEdit={(editedBubble) => {
+                handleBubbleDragEnd(editedBubble);
+                onBubbleEdit?.(editedBubble);
+              }}
+            />
+          </div>
         ))}
         
         {/* Merge Confirmation Popover */}
