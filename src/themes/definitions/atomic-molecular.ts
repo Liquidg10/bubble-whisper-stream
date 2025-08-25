@@ -4,7 +4,7 @@
  */
 
 import type { Theme } from '../ThemeTypes';
-import AtomicRenderer from '@/experimental/atomic/AtomicRenderer';
+import AtomicRenderer from '@/experimental/atomic/SimpleAtomicRenderer';
 
 export const atomicMolecularTheme: Theme = {
   id: 'atomic-molecular',

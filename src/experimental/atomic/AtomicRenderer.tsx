@@ -100,6 +100,7 @@ const SHELL_CONFIG = [
 ];
 
 export default function AtomicRenderer({ onBubbleSelect, onBubbleEdit, className }: BubbleCanvasProps) {
+  console.log('AtomicRenderer component loaded');
   const { bubbles, settings, selectedBubbles, mergeBubbles, undoLastMerge } = useBubbleStore();
   const { toast } = useToast();
   const canvasRef = useRef<HTMLDivElement>(null);
