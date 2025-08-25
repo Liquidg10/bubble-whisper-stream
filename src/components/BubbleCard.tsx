@@ -228,26 +228,23 @@ export function BubbleCard({
       {/* Photo thumbnail - always show if present */}
       {bubble.imageUri ? (
         <>
+          {console.log('Rendering bubble with photo:', bubble.id, bubble.imageUri)}
           <img
             src={bubble.imageUri}
             alt="Bubble photo"
-            className="absolute inset-0 w-full h-full object-cover rounded-full z-0"
-            style={{ display: hasImageError ? 'none' : undefined }}
-            onLoad={(e) => console.log('Photo loaded successfully:', e.currentTarget.src)}
+            className="absolute inset-0 w-full h-full object-cover rounded-full z-10"
+            style={{ display: hasImageError ? 'none' : 'block' }}
+            onLoad={(e) => console.log('✅ Photo loaded successfully for bubble', bubble.id, e.currentTarget.src)}
             onError={(e) => {
-              console.error('Photo failed to load:', e.currentTarget.src, (e as any)?.message);
+              console.error('❌ Photo failed to load for bubble', bubble.id, e.currentTarget.src);
               setHasImageError(true);
             }}
           />
-          {hasImageError ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full z-10">
+          {hasImageError && (
+            <div className="absolute inset-0 flex items-center justify-center bg-danger-soft/80 rounded-full z-20">
               <span className="text-white text-xs font-bold">❌</span>
             </div>
-          ) : visualSize <= 60 ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/40 rounded-full z-10">
-              <span className="text-white text-xs font-bold">📷</span>
-            </div>
-          ) : null}
+          )}
         </>
       ) : (
         /* Bubble Content - only show when no photo */
