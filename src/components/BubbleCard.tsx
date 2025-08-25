@@ -238,8 +238,7 @@ export function BubbleCard({
             style={{ display: hasImageError ? 'none' : undefined }}
             onLoad={(e) => console.log('Photo loaded successfully:', e.currentTarget.src)}
             onError={(e) => {
-              const message = (e as unknown as { message?: string }).message;
-              console.error('Photo failed to load:', e.currentTarget.src, message);
+              console.error('Photo failed to load:', e.currentTarget.src, (e as any)?.message);
               setHasImageError(true);
             }}
           />
