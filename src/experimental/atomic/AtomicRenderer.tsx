@@ -97,6 +97,13 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
   const canvasRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number>();
   const [isDragging, setIsDragging] = useState(false);
+  const [isPanning, setIsPanning] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  
+  // Draggable UI state
+  const [domainCardPos, setDomainCardPos] = useState({ x: 0, y: 0 });
+  const [timeHorizonPos, setTimeHorizonPos] = useState({ x: 0, y: 0 });
+  const [isDraggingUI, setIsDraggingUI] = useState<'domain' | 'time' | null>(null);
   
   // Atomic state
   const [atomicState, setAtomicState] = useState<AtomicState>({
@@ -497,6 +504,90 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     }));
   }, [atomicState.molecules]);
 
+  // Pan and zoom handlers
+  const handleCanvasMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.target === canvasRef.current || (e.target as HTMLElement).closest('.molecule-container')) {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      
+      setIsPanning(true);
+      setDragStart({
+        x: e.clientX - viewport.x,
+        y: e.clientY - viewport.y
+      });
+      e.preventDefault();
+    }
+  }, [viewport.x, viewport.y]);
+
+  const handleCanvasMouseMove = useCallback((e: MouseEvent) => {
+    if (isPanning) {
+      setViewport(prev => ({
+        ...prev,
+        x: e.clientX - dragStart.x,
+        y: e.clientY - dragStart.y
+      }));
+    }
+  }, [isPanning, dragStart.x, dragStart.y]);
+
+  const handleCanvasMouseUp = useCallback(() => {
+    setIsPanning(false);
+  }, []);
+
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? 0.9 : 1.1;
+    setViewport(prev => ({
+      ...prev,
+      scale: Math.max(0.1, Math.min(3, prev.scale * delta))
+    }));
+  }, []);
+
+  // Draggable UI handlers
+  const handleUIDragStart = (type: 'domain' | 'time', e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsDraggingUI(type);
+    setDragStart({ x: e.clientX, y: e.clientY });
+  };
+
+  const handleUIDrag = useCallback((e: MouseEvent) => {
+    if (!isDraggingUI) return;
+    
+    const deltaX = e.clientX - dragStart.x;
+    const deltaY = e.clientY - dragStart.y;
+    
+    if (isDraggingUI === 'domain') {
+      setDomainCardPos(prev => ({ x: prev.x + deltaX, y: prev.y + deltaY }));
+    } else if (isDraggingUI === 'time') {
+      setTimeHorizonPos(prev => ({ x: prev.x + deltaX, y: prev.y + deltaY }));
+    }
+    
+    setDragStart({ x: e.clientX, y: e.clientY });
+  }, [isDraggingUI, dragStart.x, dragStart.y]);
+
+  const handleUIDragEnd = useCallback(() => {
+    setIsDraggingUI(null);
+  }, []);
+
+  // Global mouse event handlers
+  useEffect(() => {
+    if (isPanning) {
+      document.addEventListener('mousemove', handleCanvasMouseMove);
+      document.addEventListener('mouseup', handleCanvasMouseUp);
+    }
+    
+    if (isDraggingUI) {
+      document.addEventListener('mousemove', handleUIDrag);
+      document.addEventListener('mouseup', handleUIDragEnd);
+    }
+    
+    return () => {
+      document.removeEventListener('mousemove', handleCanvasMouseMove);
+      document.removeEventListener('mouseup', handleCanvasMouseUp);
+      document.removeEventListener('mousemove', handleUIDrag);
+      document.removeEventListener('mouseup', handleUIDragEnd);
+    };
+  }, [isPanning, isDraggingUI, handleCanvasMouseMove, handleCanvasMouseUp, handleUIDrag, handleUIDragEnd]);
+
   const selectedCount = atomicState.molecules.filter(mol => mol.selected).length;
 
   return (
@@ -527,20 +618,22 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       {/* Main Canvas */}
       <div
         ref={canvasRef}
-        className="absolute inset-0 cursor-grab"
+        className={`absolute inset-0 ${isPanning ? 'cursor-grabbing' : 'cursor-grab'}`}
         style={{
-          transform: `translate(${viewport.width / 2}px, ${viewport.height / 2}px) scale(${viewport.scale}) translate(${-viewport.x}px, ${-viewport.y}px)`,
-          transformOrigin: '0 0',
+          transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`,
+          transformOrigin: 'center center',
         }}
+        onMouseDown={handleCanvasMouseDown}
+        onWheel={handleWheel}
       >
         {/* Render Molecules */}
         {atomicState.molecules.map(molecule => (
           <div
             key={molecule.id}
-            className="absolute"
+            className="absolute molecule-container"
             style={{
-              left: molecule.x,
-              top: molecule.y,
+              left: molecule.x + viewport.width / 2,
+              top: molecule.y + viewport.height / 2,
               transform: 'translate(-50%, -50%)',
             }}
           >
@@ -703,17 +796,35 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         )}
       </div>
 
-      {/* Domain Preset Cards */}
-      <div className="absolute top-4 right-4 max-w-xs z-20">
-        <Card className="p-3 bg-card/80 backdrop-blur-sm">
-          <h3 className="text-sm font-semibold mb-2">Quick Add Domains</h3>
+      {/* Domain Preset Cards - Draggable */}
+      <div 
+        className="absolute z-20 max-w-xs"
+        style={{
+          top: 16 + domainCardPos.y,
+          right: 16 - domainCardPos.x,
+          transform: isDraggingUI === 'domain' ? 'scale(1.02)' : 'scale(1)',
+          transition: isDraggingUI === 'domain' ? 'none' : 'transform 0.2s',
+        }}
+      >
+        <Card className="p-3 bg-card/90 backdrop-blur-sm border-2 hover:border-primary/50 transition-colors">
+          <div 
+            className="flex items-center gap-2 mb-2 cursor-move select-none"
+            onMouseDown={(e) => handleUIDragStart('domain', e)}
+          >
+            <h3 className="text-sm font-semibold flex-1">Quick Add Domains</h3>
+            <div className="w-4 h-4 grid grid-cols-2 gap-0.5">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-sm" />
+              ))}
+            </div>
+          </div>
           <div className="grid grid-cols-2 gap-2">
             {DOMAIN_PRESETS.map(preset => (
               <Button
                 key={preset.name}
                 variant="outline" size="sm"
                 onClick={() => handleQuickAdd(preset)}
-                className="justify-start gap-2 h-auto p-2"
+                className="justify-start gap-2 h-auto p-2 hover:scale-105 transition-transform"
               >
                 <span className="text-base">{preset.emoji}</span>
                 <span className="text-xs">{preset.name}</span>
@@ -723,10 +834,28 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         </Card>
       </div>
 
-      {/* Time Horizon Status */}
-      <div className="absolute bottom-4 right-4 z-20">
-        <Card className="p-2 bg-card/80 backdrop-blur-sm">
-          <div className="text-xs font-semibold mb-2">Time Horizons</div>
+      {/* Time Horizon Status - Draggable */}
+      <div 
+        className="absolute z-20"
+        style={{
+          bottom: 16 + timeHorizonPos.y,
+          right: 16 - timeHorizonPos.x,
+          transform: isDraggingUI === 'time' ? 'scale(1.02)' : 'scale(1)',
+          transition: isDraggingUI === 'time' ? 'none' : 'transform 0.2s',
+        }}
+      >
+        <Card className="p-2 bg-card/90 backdrop-blur-sm border-2 hover:border-primary/50 transition-colors">
+          <div 
+            className="flex items-center gap-2 mb-2 cursor-move select-none"
+            onMouseDown={(e) => handleUIDragStart('time', e)}
+          >
+            <div className="text-xs font-semibold flex-1">Time Horizons</div>
+            <div className="w-4 h-4 grid grid-cols-2 gap-0.5">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-sm" />
+              ))}
+            </div>
+          </div>
           <div className="space-y-1">
             {SHELL_CONFIG.map((shell, index) => {
               const electronCount = atomicState.molecules.reduce(
@@ -756,14 +885,17 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         <Badge variant="secondary" className="bg-card/80 backdrop-blur-sm">
           {atomicState.molecules.reduce((sum, mol) => sum + mol.electrons.length, 0)} electrons
         </Badge>
+        <Badge variant="outline" className="bg-card/80 backdrop-blur-sm">
+          {Math.round(viewport.scale * 100)}% zoom
+        </Badge>
         {reducedMotion && (
           <Badge variant="outline" className="bg-card/80 backdrop-blur-sm">
             Reduced Motion
           </Badge>
         )}
-        {isDragging && (
+        {(isDragging || isPanning) && (
           <Badge variant="outline" className="bg-card/80 backdrop-blur-sm">
-            Dragging
+            {isDragging ? 'Dragging' : 'Panning'}
           </Badge>
         )}
       </div>
