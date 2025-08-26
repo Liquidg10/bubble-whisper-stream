@@ -225,13 +225,33 @@ export function BubbleCard({
       aria-selected={isSelected}
       aria-label={`${bubble.type}: ${bubble.content}${isSelected ? ' (selected)' : ''}`}
     >
-      {/* Photo thumbnail - simplified like atomic view */}
+      {/* Photo thumbnail - matching atomic view structure exactly */}
       {bubble.imageUri ? (
-        <img
-          src={bubble.imageUri}
-          alt="Bubble photo"
-          className="absolute inset-0 w-full h-full object-cover rounded-full border-2 border-white/30"
-        />
+        <>
+          {console.log('🖼️ RENDERING PHOTO:', { 
+            id: bubble.id, 
+            imageUri: bubble.imageUri.substring(0, 50) + '...', 
+            visualSize,
+            hasImage: !!bubble.imageUri 
+          })}
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div 
+              className="rounded-full overflow-hidden border-2 border-white/30 shadow-lg"
+              style={{ 
+                width: '100%',
+                height: '100%'
+              }}
+            >
+              <img 
+                src={bubble.imageUri} 
+                alt="Bubble photo"
+                className="w-full h-full object-cover"
+                onLoad={() => console.log('✅ Photo loaded successfully:', bubble.id)}
+                onError={(e) => console.error('❌ Photo failed to load:', bubble.id, e)}
+              />
+            </div>
+          </div>
+        </>
       ) : (
         /* Bubble Content - only show when no photo */
         <div className="relative z-10 flex flex-col items-center justify-center p-1 text-text-primary">
