@@ -1,8 +1,11 @@
-import { useBubbleStore } from '@/stores/bubbleStore';
-import type { Bubble, BubbleType, Tag } from '@/types/bubble';
+import type { Bubble, Tag } from '@/types/bubble';
+import { TimeHorizon } from '@/types/atomic';
+import { generateId, getDomainConfig, getTimeHorizonEmoji } from '@/utils/atomicHelpers';
+import { getBubbleStoreState } from './store';
+import { logger } from '@/utils/logger';
 
 export function createMoleculeFromDomain(domain: string) {
-  const { addBubble } = useBubbleStore.getState();
+  const { addBubble } = getBubbleStoreState();
 
   const domainConfig = getDomainConfig(domain);
   const newBubble: Partial<Bubble> = {
@@ -19,8 +22,8 @@ export function createMoleculeFromDomain(domain: string) {
       },
       {
         id: generateId(),
-        name: 'today',
-        emoji: '⏰'
+        name: TimeHorizon.Today,
+        emoji: getTimeHorizonEmoji(TimeHorizon.Today)
       }
     ],
     createdAt: Date.now(),
@@ -28,16 +31,19 @@ export function createMoleculeFromDomain(domain: string) {
   };
 
   addBubble(newBubble as Bubble);
-  console.log(`Created new ${domain} molecule`);
+  logger.atomic(`Created new ${domain} molecule`, { domain, domainConfig });
 }
 
 export function mergeMolecules(aId: string, bId: string) {
-  const { bubbles, updateBubble, deleteBubble } = useBubbleStore.getState();
+  const { bubbles, updateBubble, deleteBubble } = getBubbleStoreState();
 
   const bubbleA = bubbles.find(b => `mol-${b.id}` === aId);
   const bubbleB = bubbles.find(b => `mol-${b.id}` === bId);
 
-  if (!bubbleA || !bubbleB) return;
+  if (!bubbleA || !bubbleB) {
+    logger.warn(`Cannot merge molecules: bubbleA=${!!bubbleA}, bubbleB=${!!bubbleB}`, { aId, bId });
+    return;
+  }
 
   const mergedContent = `${bubbleA.content} + ${bubbleB.content}`;
   const mergedTags = [
@@ -59,14 +65,22 @@ export function mergeMolecules(aId: string, bId: string) {
 
   deleteBubble(bubbleB.id);
 
-  console.log(`Merged molecules: ${bubbleA.content} + ${bubbleB.content}`);
+  logger.atomic(`Merged molecules: ${bubbleA.content} + ${bubbleB.content}`, {
+    aId,
+    bId,
+    mergedContent,
+    tagCount: mergedTags.length
+  });
 }
 
 export function splitMolecule(id: string) {
-  const { bubbles, addBubble, updateBubble } = useBubbleStore.getState();
+  const { bubbles, addBubble, updateBubble } = getBubbleStoreState();
 
   const bubble = bubbles.find(b => `mol-${b.id}` === id);
-  if (!bubble) return;
+  if (!bubble) {
+    logger.warn(`Cannot split molecule: bubble not found`, { id });
+    return;
+  }
 
   const words = bubble.content?.split(' ') || ['Split', 'Bubble'];
   const midpoint = Math.ceil(words.length / 2);
@@ -93,22 +107,10 @@ export function splitMolecule(id: string) {
 
   addBubble(newBubble as Bubble);
 
-  console.log(`Split molecule: ${bubble.content} into ${contentA} and ${contentB}`);
-}
-
-function getDomainConfig(domain: string): { defaultType: BubbleType; emoji: string } {
-  const configs = {
-    Financial: { defaultType: 'Task' as BubbleType, emoji: '💰' },
-    Parenting: { defaultType: 'Memory' as BubbleType, emoji: '👨‍👩‍👧‍👦' },
-    Mental: { defaultType: 'Thought' as BubbleType, emoji: '🧠' },
-    Work: { defaultType: 'Task' as BubbleType, emoji: '💼' },
-    Home: { defaultType: 'Task' as BubbleType, emoji: '🏠' },
-    Relationships: { defaultType: 'Memory' as BubbleType, emoji: '❤️' }
-  };
-
-  return configs[domain as keyof typeof configs] || configs.Work;
-}
-
-function generateId(): string {
-  return Math.random().toString(36).slice(2, 9);
+  logger.atomic(`Split molecule: ${bubble.content} into ${contentA} and ${contentB}`, {
+    originalId: id,
+    newId: newBubble.id,
+    contentA,
+    contentB
+  });
 }

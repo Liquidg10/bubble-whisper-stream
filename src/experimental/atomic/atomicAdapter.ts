@@ -3,15 +3,17 @@
  * Provides comprehensive integration with AI-powered features
  */
 
-import { useBubbleStore } from '@/stores/bubbleStore';
+import { getBubbleStoreSettings } from './store';
+import { logger } from '@/utils/logger';
 
+// Re-export all atomic operations from their focused modules
 export { updateTimeHorizon } from './timeHorizons';
 export { createMoleculeFromDomain, mergeMolecules, splitMolecule } from './molecules';
 export { classifyBubbleDomain } from './domainClassification';
 export { suggestOptimalPosition } from './positioning';
 
 export function getAccessibilitySettings() {
-  const { settings } = useBubbleStore.getState();
+  const settings = getBubbleStoreSettings();
   return {
     reducedMotion: settings.reducedMotion || false,
     highContrast: settings.highContrast || false,
@@ -21,16 +23,22 @@ export function getAccessibilitySettings() {
 
 export function notifyElectronMoved(electronId: string, fromShell: number, toShell: number) {
   // This could trigger analytics, notifications, or adaptive learning
-  console.log(`Electron ${electronId} moved from shell ${fromShell} to shell ${toShell}`);
+  logger.atomic(`Electron moved`, {
+    electronId,
+    fromShell,
+    toShell,
+    shellNames: ['Today', 'Week', 'Later']
+  });
 
   // Future: Update user behavior patterns for AI recommendations
 }
 
 export function hasStoreIntegration(): boolean {
   try {
-    useBubbleStore.getState();
+    getBubbleStoreSettings();
     return true;
-  } catch {
+  } catch (error) {
+    logger.error('Store integration check failed', error);
     return false;
   }
 }

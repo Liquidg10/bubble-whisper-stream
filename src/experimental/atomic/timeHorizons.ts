@@ -1,17 +1,24 @@
-import { useBubbleStore } from '@/stores/bubbleStore';
+import { TimeHorizon, TIME_HORIZON_ARRAY } from '@/types/atomic';
+import { generateId, getTimeHorizonEmoji, ringIndexToTimeHorizon } from '@/utils/atomicHelpers';
+import { getBubbleStoreState } from './store';
+import { logger } from '@/utils/logger';
 
 export function updateTimeHorizon(moleculeId: string, fromRing: number, toRing: number) {
-  const { bubbles, updateBubble } = useBubbleStore.getState();
-  const timeHorizons = ['today', 'week', 'later'];
-  const newTimeHorizon = timeHorizons[toRing] || 'today';
+  const { bubbles, updateBubble } = getBubbleStoreState();
+  const newTimeHorizon = ringIndexToTimeHorizon(toRing);
 
   const bubble = bubbles.find(b => `mol-${b.id}` === moleculeId);
-  if (!bubble) return;
+  if (!bubble) {
+    logger.warn(`Bubble not found for molecule ID: ${moleculeId}`);
+    return;
+  }
 
+  // Remove existing time horizon tags
   const updatedTags = bubble.tags?.filter(tag =>
-    !['today', 'week', 'later'].includes(tag.name.toLowerCase())
+    !TIME_HORIZON_ARRAY.includes(tag.name.toLowerCase() as TimeHorizon)
   ) || [];
 
+  // Add new time horizon tag
   updatedTags.push({
     id: generateId(),
     name: newTimeHorizon,
@@ -19,18 +26,10 @@ export function updateTimeHorizon(moleculeId: string, fromRing: number, toRing: 
   });
 
   updateBubble({ ...bubble, tags: updatedTags });
-  console.log(`Time horizon updated: ${bubble.content} moved to ${newTimeHorizon}`);
-}
-
-function getTimeHorizonEmoji(horizon: string): string {
-  switch (horizon) {
-    case 'today': return '🔥';
-    case 'week': return '📅';
-    case 'later': return '🌙';
-    default: return '⏰';
-  }
-}
-
-function generateId(): string {
-  return Math.random().toString(36).slice(2, 9);
+  logger.atomic(`Time horizon updated: ${bubble.content} moved to ${newTimeHorizon}`, {
+    moleculeId,
+    fromRing,
+    toRing,
+    newTimeHorizon
+  });
 }
