@@ -31,7 +31,7 @@ export function BubbleCard({
   isDragging = false
 }: BubbleCardProps) {
   const [isHovered, setIsHovered] = useState(false);
-  const [hasImageError, setHasImageError] = useState(false);
+  
   const { currentTheme } = useTheme();
   const isMobile = useIsMobile();
   const navigate = useNavigate();
@@ -225,33 +225,13 @@ export function BubbleCard({
       aria-selected={isSelected}
       aria-label={`${bubble.type}: ${bubble.content}${isSelected ? ' (selected)' : ''}`}
     >
-      {/* Photo thumbnail - always show if present */}
+      {/* Photo thumbnail - simplified like atomic view */}
       {bubble.imageUri ? (
-        <>
-          {console.log('🖼️ PHOTO BUBBLE:', { id: bubble.id, hasImage: !!bubble.imageUri, size: visualSize, imageStart: bubble.imageUri?.substring(0, 50) })}
-          <img
-            src={bubble.imageUri}
-            alt="Bubble photo"
-            className="absolute inset-0 w-full h-full object-cover rounded-full"
-            style={{ 
-              display: hasImageError ? 'none' : 'block',
-              zIndex: 50,
-              border: '2px solid rgba(255,255,255,0.3)'
-            }}
-            onLoad={(e) => {
-              console.log('✅ PHOTO LOADED:', bubble.id, 'Size:', e.currentTarget.naturalWidth, 'x', e.currentTarget.naturalHeight);
-            }}
-            onError={(e) => {
-              console.error('❌ PHOTO ERROR:', bubble.id, e.currentTarget.src?.substring(0, 100));
-              setHasImageError(true);
-            }}
-          />
-          {hasImageError && (
-            <div className="absolute inset-0 flex items-center justify-center bg-red-500/80 rounded-full" style={{ zIndex: 60 }}>
-              <span className="text-white text-xs font-bold">❌</span>
-            </div>
-          )}
-        </>
+        <img
+          src={bubble.imageUri}
+          alt="Bubble photo"
+          className="absolute inset-0 w-full h-full object-cover rounded-full border-2 border-white/30"
+        />
       ) : (
         /* Bubble Content - only show when no photo */
         <div className="relative z-10 flex flex-col items-center justify-center p-1 text-text-primary">
