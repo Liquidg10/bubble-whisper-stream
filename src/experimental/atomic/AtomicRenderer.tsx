@@ -198,6 +198,43 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     return () => window.removeEventListener('resize', updateViewport);
   }, [convertBubblesToMolecules]);
 
+  // Force-directed layout to prevent molecule overlap
+  const applyMoleculeForces = useCallback((molecules: Molecule[]) => {
+    const updatedMolecules = [...molecules];
+    const repulsionStrength = 0.1;
+    const minDistance = 120;
+
+    for (let i = 0; i < updatedMolecules.length; i++) {
+      for (let j = i + 1; j < updatedMolecules.length; j++) {
+        const mol1 = updatedMolecules[i];
+        const mol2 = updatedMolecules[j];
+        
+        const dx = mol2.x - mol1.x;
+        const dy = mol2.y - mol1.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        if (distance < minDistance && distance > 0) {
+          const force = (minDistance - distance) * repulsionStrength;
+          const normalizedDx = dx / distance;
+          const normalizedDy = dy / distance;
+          
+          mol1.x -= normalizedDx * force;
+          mol1.y -= normalizedDy * force;
+          mol2.x += normalizedDx * force;
+          mol2.y += normalizedDy * force;
+          
+          // Clamp to viewport bounds
+          mol1.x = Math.max(-400, Math.min(400, mol1.x));
+          mol1.y = Math.max(-300, Math.min(300, mol1.y));
+          mol2.x = Math.max(-400, Math.min(400, mol2.x));
+          mol2.y = Math.max(-300, Math.min(300, mol2.y));
+        }
+      }
+    }
+    
+    return updatedMolecules;
+  }, []);
+
   // Animation loop for orbital motion - controlled by motionEnabled
   useEffect(() => {
     if (reducedMotion || !motionEnabled) {
@@ -209,16 +246,24 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     }
     
     const animate = () => {
-      setAtomicState(prev => ({
-        ...prev,
-        molecules: prev.molecules.map(mol => ({
+      setAtomicState(prev => {
+        const updatedMolecules = prev.molecules.map(mol => ({
           ...mol,
           electrons: mol.electrons.map(electron => ({
             ...electron,
             phase: electron.phase + 0.01
           }))
-        }))
-      }));
+        }));
+
+        // Apply collision forces every few frames to avoid performance hit
+        const shouldApplyForces = Math.random() < 0.1; // 10% chance per frame
+        const finalMolecules = shouldApplyForces ? applyMoleculeForces(updatedMolecules) : updatedMolecules;
+
+        return {
+          ...prev,
+          molecules: finalMolecules
+        };
+      });
       animationFrameRef.current = requestAnimationFrame(animate);
     };
     
@@ -226,7 +271,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     return () => {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     };
-  }, [reducedMotion, motionEnabled]);
+  }, [reducedMotion, motionEnabled, applyMoleculeForces]);
 
   // Handle electron drag start
   const handleElectronDragStart = useCallback((electronId: string, originalShell: number, event: React.MouseEvent) => {
@@ -691,17 +736,60 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         onMouseDown={handleCanvasMouseDown}
         onWheel={handleWheel}
       >
+        {/* Molecular bonds (render behind molecules) */}
+        {atomicState.molecules.map(molecule => {
+          return atomicState.molecules
+            .filter(otherMol => otherMol.id !== molecule.id)
+            .map(otherMol => {
+              // Check if molecules have shared domains/tags for bonding
+              const hasSharedTags = molecule.nucleus.domain === otherMol.nucleus.domain ||
+                Math.random() < 0.05; // Simple bonding logic for demo
+              
+              if (!hasSharedTags) return null;
+              
+              const distance = Math.sqrt(
+                Math.pow(molecule.x - otherMol.x, 2) +
+                Math.pow(molecule.y - otherMol.y, 2)
+              );
+              
+              // Only show bonds for nearby molecules
+              if (distance > 200) return null;
+              
+              return (
+                <div
+                  key={`bond-${molecule.id}-${otherMol.id}`}
+                  className="absolute pointer-events-none z-0"
+                  style={{
+                    left: molecule.x + viewport.width / 2,
+                    top: molecule.y + viewport.height / 2,
+                    width: distance,
+                    height: 2,
+                    background: 'linear-gradient(90deg, hsl(var(--muted-foreground) / 0.3), transparent)',
+                    transformOrigin: '0 50%',
+                    transform: `rotate(${Math.atan2(otherMol.y - molecule.y, otherMol.x - molecule.x)}rad)`,
+                    zIndex: 1,
+                  }}
+                />
+              );
+            });
+        })}
+
         {/* Render Molecules */}
-        {atomicState.molecules.map(molecule => (
-          <div
-            key={molecule.id}
-            className="absolute molecule-container"
-            style={{
-              left: molecule.x + viewport.width / 2,
-              top: molecule.y + viewport.height / 2,
-              transform: 'translate(-50%, -50%)',
-            }}
-          >
+        {atomicState.molecules.map(molecule => {
+          const totalElectrons = molecule.electrons.length;
+          const isLOD = atomicState.molecules.reduce((sum, mol) => sum + mol.electrons.length, 0) > 50;
+          
+          return (
+            <div
+              key={molecule.id}
+              className="absolute molecule-container"
+              style={{
+                left: molecule.x + viewport.width / 2,
+                top: molecule.y + viewport.height / 2,
+                transform: 'translate(-50%, -50%)',
+                zIndex: 10,
+              }}
+            >
             {/* Nucleus */}
             <div 
               className={`relative w-16 h-16 rounded-full border-2 cursor-pointer transition-all ${
@@ -733,36 +821,56 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
               )}
             </div>
 
-            {/* Electron Shells */}
-            {SHELL_CONFIG.map((shell, shellIndex) => (
-              <div
-                key={shellIndex}
-                className={`absolute rounded-full border transition-all ${
-                  atomicState.hoveredShell === shellIndex ? 'border-2 opacity-80' : 'border opacity-30'
-                }`}
-                style={{
-                  width: shell.radius * 2,
-                  height: shell.radius * 2,
-                  left: -shell.radius,
-                  top: -shell.radius,
-                  borderColor: shell.color,
-                }}
-              >
-                {/* Shell Label */}
-                <div 
-                  className="absolute text-xs text-gray-400 font-semibold"
+            {/* Electron Shells with capacity indicators */}
+            {SHELL_CONFIG.map((shell, shellIndex) => {
+              const electronsInShell = molecule.electrons.filter(e => e.shell === shellIndex);
+              const maxElectrons = shell.maxElectrons;
+              const isOverflow = electronsInShell.length > maxElectrons;
+              
+              return (
+                <div
+                  key={shellIndex}
+                  className={`absolute rounded-full border transition-all ${
+                    atomicState.hoveredShell === shellIndex ? 'border-2 opacity-80' : 'border opacity-30'
+                  }`}
                   style={{
-                    top: -20,
-                    left: '50%',
-                    transform: 'translateX(-50%)',
+                    width: shell.radius * 2,
+                    height: shell.radius * 2,
+                    left: -shell.radius,
+                    top: -shell.radius,
+                    borderColor: shell.color,
                   }}
                 >
-                  {shell.name}
+                  {/* Shell Label */}
+                  <div 
+                    className="absolute text-xs text-gray-400 font-semibold"
+                    style={{
+                      top: -20,
+                      left: '50%',
+                      transform: 'translateX(-50%)',
+                    }}
+                  >
+                    {shell.name}
+                  </div>
+                  
+                  {/* Shell capacity overflow indicator */}
+                  {isOverflow && (
+                    <div
+                      className="absolute w-4 h-4 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center"
+                      style={{
+                        top: -8,
+                        right: shell.radius / 4,
+                      }}
+                      title={`Overflow: ${electronsInShell.length}/${maxElectrons} electrons`}
+                    >
+                      !
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
 
-            {/* Electrons */}
+            {/* Electrons with LOD optimization */}
             {molecule.electrons.map((electron) => {
               const shell = SHELL_CONFIG[electron.shell];
               if (!shell) return null;
@@ -771,15 +879,23 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
               const x = Math.cos(angle) * shell.radius;
               const y = Math.sin(angle) * shell.radius;
 
+              // LOD: Simplify rendering for many electrons
+              const totalElectrons = atomicState.molecules.reduce((sum, mol) => sum + mol.electrons.length, 0);
+              const isLODMode = totalElectrons > 50;
+              const electronSize = isLODMode ? 2 : 3;
+              const showGlow = !isLODMode;
+
               return (
                 <div
                   key={electron.id}
-                  className="absolute w-3 h-3 rounded-full cursor-grab transition-all hover:scale-125"
+                  className={`absolute rounded-full cursor-grab transition-all ${!isLODMode ? 'hover:scale-125' : ''}`}
                   style={{
-                    left: x - 6,
-                    top: y - 6,
+                    width: `${electronSize * 2}px`,
+                    height: `${electronSize * 2}px`,
+                    left: x - electronSize,
+                    top: y - electronSize,
                     backgroundColor: shell.color,
-                    boxShadow: `0 0 8px ${shell.color}`,
+                    boxShadow: showGlow ? `0 0 8px ${shell.color}` : 'none',
                     zIndex: 10,
                   }}
                   onMouseDown={(e) => handleElectronDragStart(electron.id, electron.shell, e)}
@@ -808,7 +924,8 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
               </div>
             </div>
           </div>
-        ))}
+          );
+        })}
 
         {/* Dragged Electron Ghost */}
         {atomicState.draggedElectron && (
@@ -942,7 +1059,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         </Card>
       </div>
 
-      {/* Status Bar */}
+      {/* Status Bar with performance info */}
       <div className="absolute bottom-4 left-4 flex gap-2 z-20">
         <Badge variant="secondary" className="bg-card/80 backdrop-blur-sm">
           {atomicState.molecules.length} molecules
@@ -953,6 +1070,11 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         <Badge variant="outline" className="bg-card/80 backdrop-blur-sm">
           {Math.round(viewport.scale * 100)}% zoom
         </Badge>
+        {atomicState.molecules.reduce((sum, mol) => sum + mol.electrons.length, 0) > 50 && (
+          <Badge variant="outline" className="bg-card/80 backdrop-blur-sm">
+            LOD: Active
+          </Badge>
+        )}
         {reducedMotion && (
           <Badge variant="outline" className="bg-card/80 backdrop-blur-sm">
             Reduced Motion
