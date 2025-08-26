@@ -598,7 +598,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
   }, [viewport.x, viewport.y]);
 
   const handleCanvasMouseMove = useCallback((e: MouseEvent) => {
-    if (!dragStart || isPanning === false) return;
+    if (!dragStart) return;
     
     const deltaX = e.clientX - dragStart.x;
     const deltaY = e.clientY - dragStart.y;
@@ -619,6 +619,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
 
   const handleCanvasMouseUp = useCallback(() => {
     setIsPanning(false);
+    setDragStart({ x: 0, y: 0 });
   }, []);
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
