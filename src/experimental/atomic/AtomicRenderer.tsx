@@ -98,7 +98,11 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
   const animationFrameRef = useRef<number>();
   const [isDragging, setIsDragging] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [dragStart, setDragStart] = useState<{ x: number; y: number; initialViewportX?: number; initialViewportY?: number }>({ x: 0, y: 0 });
+  
+  // Motion control state
+  const [motionEnabled, setMotionEnabled] = useState(!reducedMotion);
+  const dragThreshold = 5; // pixels
   
   // Draggable UI state
   const [domainCardPos, setDomainCardPos] = useState({ x: 0, y: 0 });
@@ -194,9 +198,15 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     return () => window.removeEventListener('resize', updateViewport);
   }, [convertBubblesToMolecules]);
 
-  // Animation loop for orbital motion
+  // Animation loop for orbital motion - controlled by motionEnabled
   useEffect(() => {
-    if (reducedMotion) return;
+    if (reducedMotion || !motionEnabled) {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = undefined;
+      }
+      return;
+    }
     
     const animate = () => {
       setAtomicState(prev => ({
@@ -216,7 +226,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     return () => {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     };
-  }, [reducedMotion]);
+  }, [reducedMotion, motionEnabled]);
 
   // Handle electron drag start
   const handleElectronDragStart = useCallback((electronId: string, originalShell: number, event: React.MouseEvent) => {
@@ -504,30 +514,63 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     }));
   }, [atomicState.molecules]);
 
-  // Pan and zoom handlers
+  // Motion control handlers
+  const toggleMotion = useCallback(() => {
+    setMotionEnabled(prev => !prev);
+  }, []);
+
+  // Handle keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && !e.repeat) {
+        e.preventDefault();
+        toggleMotion();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [toggleMotion]);
+
+  // Pan and zoom handlers with drag threshold
   const handleCanvasMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.target === canvasRef.current || (e.target as HTMLElement).closest('.molecule-container')) {
-      const rect = canvasRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      
-      setIsPanning(true);
-      setDragStart({
-        x: e.clientX - viewport.x,
-        y: e.clientY - viewport.y
-      });
-      e.preventDefault();
+    // Don't pan if clicking on UI overlays or electrons
+    const target = e.target as HTMLElement;
+    if (target.closest('.ui-overlay') || target.closest('.electron') || target.closest('.domain-preset-item')) {
+      return;
     }
+    
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    
+    setDragStart({
+      x: e.clientX,
+      y: e.clientY,
+      initialViewportX: viewport.x,
+      initialViewportY: viewport.y
+    });
+    e.preventDefault();
   }, [viewport.x, viewport.y]);
 
   const handleCanvasMouseMove = useCallback((e: MouseEvent) => {
-    if (isPanning) {
+    if (!dragStart || isPanning === false) return;
+    
+    const deltaX = e.clientX - dragStart.x;
+    const deltaY = e.clientY - dragStart.y;
+    
+    // Start panning only after threshold
+    if (!isPanning && (Math.abs(deltaX) > dragThreshold || Math.abs(deltaY) > dragThreshold)) {
+      setIsPanning(true);
+    }
+    
+    if (isPanning && dragStart.initialViewportX !== undefined && dragStart.initialViewportY !== undefined) {
       setViewport(prev => ({
         ...prev,
-        x: e.clientX - dragStart.x,
-        y: e.clientY - dragStart.y
+        x: dragStart.initialViewportX + deltaX,
+        y: dragStart.initialViewportY + deltaY
       }));
     }
-  }, [isPanning, dragStart.x, dragStart.y]);
+  }, [isPanning, dragStart, dragThreshold]);
 
   const handleCanvasMouseUp = useCallback(() => {
     setIsPanning(false);
@@ -613,6 +656,28 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
             }}
           />
         )}
+      </div>
+
+      {/* Motion Control */}
+      <div className="absolute top-4 left-4 z-30">
+        <div className="ui-overlay bg-background/80 backdrop-blur-sm border rounded-lg p-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <Button
+              variant={motionEnabled ? "default" : "outline"}
+              size="sm"
+              onClick={toggleMotion}
+              className="w-20"
+            >
+              {motionEnabled ? '⏸️ Pause' : '▶️ Play'}
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              Motion: {motionEnabled ? 'On' : 'Off'}
+            </span>
+          </div>
+          <div className="text-xs text-muted-foreground">
+            Press spacebar to toggle
+          </div>
+        </div>
       </div>
 
       {/* Main Canvas */}
