@@ -17,6 +17,8 @@ import { Reflection } from './pages/Reflection';
 import { CBTWorksheet } from './pages/CBTWorksheet';
 import NotFound from "./pages/NotFound";
 import DevPhotoIridescent from "./pages/DevPhotoIridescent";
+import DevAtomicBasic from "./pages/DevAtomicBasic";
+import DevAtomicStress from "./pages/DevAtomicStress";
 
 const queryClient = new QueryClient();
 
@@ -50,6 +52,8 @@ const App = () => {
                       <Route path="settings" element={<Settings />} />
                     </Route>
                     <Route path="/dev/photo-iridescent" element={<DevPhotoIridescent />} />
+                    <Route path="/dev/atomic-basic" element={<DevAtomicBasic />} />
+                    <Route path="/dev/atomic-stress" element={<DevAtomicStress />} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>
                 </BrowserRouter>
