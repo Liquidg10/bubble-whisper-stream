@@ -198,8 +198,11 @@ export function BubbleCard({
     <div
       className={cn(
         "bubble-card relative transition-all duration-bubble cursor-pointer select-none",
-        "rounded-full flex items-center justify-center text-center backdrop-blur overflow-hidden",
-        bubble.completed && "opacity-60",
+        "rounded-full flex items-center justify-center text-center overflow-hidden",
+        // Only add backdrop-blur for non-photo bubbles
+        !bubble.imageUri && "backdrop-blur",
+        // Don't make photo bubbles transparent when completed
+        bubble.completed && !bubble.imageUri && "opacity-60",
         shouldUseLOD && "backdrop-blur-none", // Reduce heavy effects during drag
         isSelected && "ring-2 ring-bubble-selected ring-offset-1",
         gestureState.isParallaxMode && "transition-transform duration-150",
