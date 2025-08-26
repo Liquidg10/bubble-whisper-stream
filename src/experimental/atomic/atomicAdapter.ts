@@ -4,6 +4,7 @@
  */
 
 import { useBubbleStore } from '@/stores/bubbleStore';
+import { logger } from '@/utils/logger';
 import type { Bubble, BubbleType, Tag } from '@/types/bubble';
 
 export function updateTimeHorizon(moleculeId: string, fromRing: number, toRing: number) {
@@ -27,7 +28,7 @@ export function updateTimeHorizon(moleculeId: string, fromRing: number, toRing: 
   });
 
   updateBubble({ ...bubble, tags: updatedTags });
-  console.log(`Time horizon updated: ${bubble.content} moved to ${newTimeHorizon}`);
+  logger.info(`Time horizon updated: ${bubble.content} moved to ${newTimeHorizon}`);
 }
 
 export function createMoleculeFromDomain(domain: string) {
@@ -57,7 +58,7 @@ export function createMoleculeFromDomain(domain: string) {
   };
 
   addBubble(newBubble as Bubble);
-  console.log(`Created new ${domain} molecule`);
+  logger.info(`Created new ${domain} molecule`);
 }
 
 export function mergeMolecules(aId: string, bId: string) {
@@ -91,7 +92,7 @@ export function mergeMolecules(aId: string, bId: string) {
   // Delete the second bubble
   deleteBubble(bubbleB.id);
   
-  console.log(`Merged molecules: ${bubbleA.content} + ${bubbleB.content}`);
+  logger.info(`Merged molecules: ${bubbleA.content} + ${bubbleB.content}`);
 }
 
 export function splitMolecule(id: string) {
@@ -127,7 +128,7 @@ export function splitMolecule(id: string) {
 
   addBubble(newBubble as Bubble);
   
-  console.log(`Split molecule: ${bubble.content} into ${contentA} and ${contentB}`);
+  logger.info(`Split molecule: ${bubble.content} into ${contentA} and ${contentB}`);
 }
 
 export function getAccessibilitySettings() {
@@ -141,7 +142,7 @@ export function getAccessibilitySettings() {
 
 export function notifyElectronMoved(electronId: string, fromShell: number, toShell: number) {
   // This could trigger analytics, notifications, or adaptive learning
-  console.log(`Electron ${electronId} moved from shell ${fromShell} to shell ${toShell}`);
+  logger.info(`Electron ${electronId} moved from shell ${fromShell} to shell ${toShell}`);
   
   // Future: Update user behavior patterns for AI recommendations
 }
