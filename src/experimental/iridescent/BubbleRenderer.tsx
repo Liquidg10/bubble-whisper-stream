@@ -9,6 +9,7 @@ import { BubbleCanvasProps } from '@/themes/ThemeTypes';
 import { MergeConfirmPortal } from '@/components/MergeConfirmPortal';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { PhotoBubbleIridescent } from './PhotoBubbleIridescent';
 
 import { ZoomIn, ZoomOut, RotateCcw, Map, Filter, Focus, Layers } from 'lucide-react';
 
@@ -20,6 +21,7 @@ interface IridescentNode {
   label: string;
   type: string;
   glow: string;
+  bubble: Bubble; // Add full bubble data for photo access
 }
 
 // Utility functions
@@ -92,7 +94,8 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
       r: Math.max(20, bubble.size * 50 * viewport.scale),
       label: bubble.content?.slice(0, 20) + (bubble.content?.length > 20 ? '...' : '') || `${bubble.type} bubble`,
       type: String(bubble.type || '').toLowerCase(),
-      glow: getGlowColor(bubble, theme?.tokens.auraMapping)
+      glow: getGlowColor(bubble, theme?.tokens.auraMapping),
+      bubble: bubble // Include full bubble data
     }));
   }, [filteredBubbles, theme?.tokens.auraMapping, viewport]);
 
@@ -412,6 +415,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
             phase={index}
             lod={!lodConfig.enableSpecular || dragging === node.id}
             zIndex={index}
+            bubble={node.bubble}
           />
         </div>
         );
@@ -597,7 +601,8 @@ function IridescentBubble({
   onClick,
   phase,
   lod,
-  zIndex = 0
+  zIndex = 0,
+  bubble
 }: {
   x: number;
   y: number;
@@ -610,6 +615,7 @@ function IridescentBubble({
   phase: number;
   lod: boolean;
   zIndex?: number;
+  bubble: Bubble;
 }) {
   const [cx, setCx] = useState(35);
   const [cy, setCy] = useState(28);
@@ -671,6 +677,7 @@ function IridescentBubble({
           ...varStyle
         }}
       >
+        {/* Decorative layers - background (z-index: 1) */}
         <div
           className="soap-rim"
           style={{
@@ -679,18 +686,31 @@ function IridescentBubble({
             background: `conic-gradient(${glow} 0 130deg, rgba(255,255,255,.9) 180deg, ${glow} 230deg 360deg)`,
             position: 'absolute',
             inset: '-0.05%',
-            borderRadius: '999px'
+            borderRadius: '999px',
+            zIndex: 1
           }}
         />
-        <div className="soap-core" />
-        <div className="soap-spec a" />
-        <div className="soap-spec b" />
+        <div className="soap-core" style={{ zIndex: 1 }} />
+        <div className="soap-spec a" style={{ zIndex: 1 }} />
+        <div className="soap-spec b" style={{ zIndex: 1 }} />
         <div
           className="soap-aura"
           style={{
-            boxShadow: `0 0 12px ${glow}40, inset 0 0 6px ${glow}20`
+            boxShadow: `0 0 12px ${glow}40, inset 0 0 6px ${glow}20`,
+            zIndex: 1
           }}
         />
+        
+        {/* Photo renderer - foreground (z-index: 2) */}
+        {bubble.imageUri && (
+          <PhotoBubbleIridescent
+            src={bubble.imageUri}
+            alt={`${bubble.type}: ${bubble.content || 'Photo'}`}
+            size={r * 2}
+            bubbleId={bubble.id}
+            debugMode={process.env.NODE_ENV === 'development'}
+          />
+        )}
       </div>
       {label && (
         <div

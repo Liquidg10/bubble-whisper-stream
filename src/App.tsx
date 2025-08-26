@@ -16,6 +16,7 @@ import { Reminders } from './pages/Reminders';
 import { Reflection } from './pages/Reflection';
 import { CBTWorksheet } from './pages/CBTWorksheet';
 import NotFound from "./pages/NotFound";
+import DevPhotoIridescent from "./pages/DevPhotoIridescent";
 
 const queryClient = new QueryClient();
 
@@ -48,6 +49,7 @@ const App = () => {
                       <Route path="cbt-worksheet" element={<CBTWorksheet />} />
                       <Route path="settings" element={<Settings />} />
                     </Route>
+                    <Route path="/dev/photo-iridescent" element={<DevPhotoIridescent />} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>
                 </BrowserRouter>
