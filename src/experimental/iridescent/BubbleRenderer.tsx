@@ -682,29 +682,46 @@ function IridescentBubble({
           <PhotoBubbleIridescent
             src={bubble.imageUri}
             alt={`${bubble.type}: ${bubble.content || 'Photo'}`}
-            size={r * 2 * 0.85} // Slightly smaller to leave room for bubble effects
+            size={r * 2 * 0.88} // Slightly smaller to leave room for colored rim
             bubbleId={bubble.id}
             debugMode={false} // Remove debug badges for clean UI
           />
         ) : (
-          /* Non-photo bubble core for comparison */
+          /* Non-photo bubble core for standard bubbles */
           <div className="soap-core" style={{ zIndex: 1 }} />
         )}
 
-        {/* Bubble rim effect - outer ring that creates the "bubble" appearance */}
+        {/* Primary colored rim - the important type-based outline */}
         <div
           className="soap-rim"
           style={{
-            WebkitMask: 'radial-gradient(circle, transparent 75%, black 76%, black 84%, transparent 85%)',
-            mask: 'radial-gradient(circle, transparent 75%, black 76%, black 84%, transparent 85%)',
+            WebkitMask: 'radial-gradient(circle, transparent 66.2%, black 66.22%)',
+            mask: 'radial-gradient(circle, transparent 66.2%, black 66.22%)',
             background: `conic-gradient(${glow} 0 130deg, rgba(255,255,255,.9) 180deg, ${glow} 230deg 360deg)`,
             position: 'absolute',
-            inset: '0',
+            inset: '-0.05%',
             borderRadius: '999px',
-            zIndex: 3, // Above photo to create bubble rim effect
+            zIndex: 3, // Above photo to ensure colored rim is visible
             pointerEvents: 'none'
           }}
         />
+
+        {/* Glass bubble effect for photos only - inner highlight ring */}
+        {bubble.imageUri && (
+          <div
+            className="photo-glass-rim"
+            style={{
+              WebkitMask: 'radial-gradient(circle, transparent 80%, rgba(255,255,255,0.3) 81%, rgba(255,255,255,0.6) 83%, transparent 84%)',
+              mask: 'radial-gradient(circle, transparent 80%, rgba(255,255,255,0.3) 81%, rgba(255,255,255,0.6) 83%, transparent 84%)',
+              background: 'rgba(255,255,255,0.4)',
+              position: 'absolute',
+              inset: '0',
+              borderRadius: '999px',
+              zIndex: 4, // Above colored rim to add glass effect
+              pointerEvents: 'none'
+            }}
+          />
+        )}
         
         {/* Specular highlights - the light reflections on the bubble */}
         {!lod && (
@@ -712,14 +729,14 @@ function IridescentBubble({
             <div 
               className="soap-spec a" 
               style={{ 
-                zIndex: 4,
+                zIndex: 5,
                 pointerEvents: 'none'
               }} 
             />
             <div 
               className="soap-spec b" 
               style={{ 
-                zIndex: 4,
+                zIndex: 5,
                 pointerEvents: 'none'
               }} 
             />
@@ -731,7 +748,7 @@ function IridescentBubble({
           className="soap-aura"
           style={{
             boxShadow: `0 0 12px ${glow}40, inset 0 0 6px ${glow}20`,
-            zIndex: 2, // Between photo and rim
+            zIndex: 2, // Behind colored rim but above photo
             pointerEvents: 'none'
           }}
         />
