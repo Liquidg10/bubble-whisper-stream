@@ -4,7 +4,8 @@
  */
 
 import { useBubbleStore } from '@/stores/bubbleStore';
-import type { Bubble, BubbleType, Tag } from '@/types/bubble';
+import type { Bubble, Tag } from '@/types/bubble';
+import { generateId, getTimeHorizonEmoji, getDomainConfig } from '@/utils/atomicHelpers';
 
 export function updateTimeHorizon(moleculeId: string, fromRing: number, toRing: number) {
   const { bubbles, updateBubble } = useBubbleStore.getState();
@@ -206,32 +207,6 @@ export function suggestOptimalPosition(newBubble: Bubble, existingBubbles: Bubbl
   };
 }
 
-// Utility functions
-function generateId(): string {
-  return Math.random().toString(36).slice(2, 9);
-}
-
-function getTimeHorizonEmoji(horizon: string): string {
-  switch (horizon) {
-    case 'today': return '🔥';
-    case 'week': return '📅';
-    case 'later': return '🌙';
-    default: return '⏰';
-  }
-}
-
-function getDomainConfig(domain: string): { defaultType: BubbleType; emoji: string } {
-  const configs = {
-    Financial: { defaultType: 'Task' as BubbleType, emoji: '💰' },
-    Parenting: { defaultType: 'Memory' as BubbleType, emoji: '👨‍👩‍👧‍👦' },
-    Mental: { defaultType: 'Thought' as BubbleType, emoji: '🧠' },
-    Work: { defaultType: 'Task' as BubbleType, emoji: '💼' },
-    Home: { defaultType: 'Task' as BubbleType, emoji: '🏠' },
-    Relationships: { defaultType: 'Memory' as BubbleType, emoji: '❤️' }
-  };
-  
-  return configs[domain as keyof typeof configs] || configs.Work;
-}
 
 export function hasStoreIntegration(): boolean {
   try {
