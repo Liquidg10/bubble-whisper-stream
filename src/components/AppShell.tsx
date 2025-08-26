@@ -9,6 +9,7 @@ import { GlimmerNotificationSystem } from '@/components/GlimmerNotificationSyste
 import { OfflineDetector } from '@/components/OfflineDetector';
 import { OfflineStatusBanner } from '@/components/OfflineStatusBanner';
 import { AudioQueueIndicator } from '@/components/AudioQueueIndicator';
+import { PhotoDebugPanel } from '@/components/PhotoDebugPanel';
 
 import NarrativeSearch from '@/components/NarrativeSearch';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
@@ -61,6 +62,7 @@ export const AppShell: React.FC = () => {
         <GlimmerNotificationSystem />
         <OfflineDetector />
         <AudioQueueIndicator />
+        {process.env.NODE_ENV === 'development' && <PhotoDebugPanel />}
       </main>
 
       {/* Narrative Search Modal */}

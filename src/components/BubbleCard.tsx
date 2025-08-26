@@ -10,6 +10,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } 
 import { Brain, Edit3 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useBubbleStore } from '@/stores/bubbleStore';
+import { PhotoBubbleRenderer } from './PhotoBubbleRenderer';
 
 interface BubbleCardProps {
   bubble: Bubble;
@@ -103,8 +104,11 @@ export function BubbleCard({
     }
   };
 
-  // Get aura effects based on theme and type
+  // Get aura effects based on theme and type - exclude photo bubbles
   const getAuraEffects = () => {
+    // Never apply filters to photo bubbles as they interfere with image visibility
+    if (bubble.imageUri) return {};
+    
     const themeType = getBubbleThemeType();
     const auraColor = currentTheme.tokens.auraMapping[themeType];
     
@@ -212,10 +216,11 @@ export function BubbleCard({
         ...style,
         width: visualSize,
         height: visualSize,
-        // Only set background color if no photo
-        backgroundColor: bubble.imageUri ? 'transparent' : getBubbleColor(),
-        ...rimStyling,
-        ...auraEffects,
+        // Only set background color if no photo, use solid neutral for photos
+        backgroundColor: bubble.imageUri ? 'hsl(var(--panel))' : getBubbleColor(),
+        // Apply rim/aura effects only to non-photo bubbles to avoid layering conflicts
+        ...(bubble.imageUri ? {} : rimStyling),
+        ...(bubble.imageUri ? {} : auraEffects),
         ...selectionStyling,
         transform: `${style?.transform || ''} ${getParallaxTransform()}${
           (isHovered && !isDragging && !isMobile) ? 'scale(1.05)' : 'scale(1)'
@@ -228,32 +233,29 @@ export function BubbleCard({
       aria-selected={isSelected}
       aria-label={`${bubble.type}: ${bubble.content}${isSelected ? ' (selected)' : ''}`}
     >
-      {/* Photo thumbnail - matching atomic view structure exactly */}
+      {/* Photo thumbnail - using isolated PhotoBubbleRenderer */}
       {bubble.imageUri ? (
         <>
-          {console.log('🖼️ RENDERING PHOTO:', { 
-            id: bubble.id, 
-            imageUri: bubble.imageUri.substring(0, 50) + '...', 
-            visualSize,
-            hasImage: !!bubble.imageUri 
-          })}
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div 
-              className="rounded-full overflow-hidden border-2 border-white/30 shadow-lg"
-              style={{ 
-                width: '100%',
-                height: '100%'
-              }}
-            >
-              <img 
-                src={bubble.imageUri} 
-                alt="Bubble photo"
-                className="w-full h-full object-cover"
-                onLoad={() => console.log('✅ Photo loaded successfully:', bubble.id)}
-                onError={(e) => console.error('❌ Photo failed to load:', bubble.id, e)}
-              />
-            </div>
-          </div>
+          {/* Decorative rim/aura layer behind photo (z-index: 1) */}
+          <div 
+            className="absolute inset-0 rounded-full"
+            style={{
+              zIndex: 1,
+              ...getRimStyling(),
+              // Remove filter effects that interfere with photo visibility
+              filter: 'none',
+              boxShadow: getRimStyling().boxShadow
+            }}
+          />
+          
+          {/* Photo renderer with isolation (z-index: 2) */}
+          <PhotoBubbleRenderer
+            src={bubble.imageUri}
+            alt={`${bubble.type}: ${bubble.content || 'Photo'}`}
+            size={visualSize}
+            bubbleId={bubble.id}
+            debugMode={process.env.NODE_ENV === 'development'}
+          />
         </>
       ) : (
         /* Bubble Content - only show when no photo */
