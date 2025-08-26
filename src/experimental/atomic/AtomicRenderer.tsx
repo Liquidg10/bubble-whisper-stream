@@ -645,9 +645,9 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     const deltaY = e.clientY - dragStart.y;
     
     if (isDraggingUI === 'domain') {
-      setDomainCardPos(prev => ({ x: prev.x + deltaX, y: prev.y + deltaY }));
+      setDomainCardPos(prev => ({ x: prev.x + deltaX, y: prev.y - deltaY })); // Invert Y
     } else if (isDraggingUI === 'time') {
-      setTimeHorizonPos(prev => ({ x: prev.x + deltaX, y: prev.y + deltaY }));
+      setTimeHorizonPos(prev => ({ x: prev.x + deltaX, y: prev.y - deltaY })); // Invert Y
     }
     
     setDragStart({ x: e.clientX, y: e.clientY });
@@ -659,7 +659,15 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
 
   // Global mouse event handlers
   useEffect(() => {
-    if (isPanning) {
+    const cleanup = () => {
+      document.removeEventListener('mousemove', handleCanvasMouseMove);
+      document.removeEventListener('mouseup', handleCanvasMouseUp);
+      document.removeEventListener('mousemove', handleUIDrag);
+      document.removeEventListener('mouseup', handleUIDragEnd);
+    };
+
+    // Add listeners when dragging starts
+    if ((dragStart.x !== 0 || dragStart.y !== 0) && !isDraggingUI) {
       document.addEventListener('mousemove', handleCanvasMouseMove);
       document.addEventListener('mouseup', handleCanvasMouseUp);
     }
@@ -669,13 +677,8 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       document.addEventListener('mouseup', handleUIDragEnd);
     }
     
-    return () => {
-      document.removeEventListener('mousemove', handleCanvasMouseMove);
-      document.removeEventListener('mouseup', handleCanvasMouseUp);
-      document.removeEventListener('mousemove', handleUIDrag);
-      document.removeEventListener('mouseup', handleUIDragEnd);
-    };
-  }, [isPanning, isDraggingUI, handleCanvasMouseMove, handleCanvasMouseUp, handleUIDrag, handleUIDragEnd]);
+    return cleanup;
+  }, [dragStart, isDraggingUI, handleCanvasMouseMove, handleCanvasMouseUp, handleUIDrag, handleUIDragEnd]);
 
   const selectedCount = atomicState.molecules.filter(mol => mol.selected).length;
 
