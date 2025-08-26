@@ -155,7 +155,7 @@ class AudioQueueService {
         
         // Determine voice based on context or use provided voice
         let selectedVoice = item.voice || globalVoice;
-        if (!item.voice && item.context && voicePreferences[item.context]) {
+        if (!item.voice && item.context && voicePreferences && voicePreferences[item.context]) {
           selectedVoice = voicePreferences[item.context];
         }
 
