@@ -9,6 +9,12 @@ export interface Tag {
   colorHex?: string;
 }
 
+export enum TimeHorizon {
+  Today = 'today',
+  Week = 'week',
+  Later = 'later'
+}
+
 export interface Snooze {
   id: string;
   reminderId: string;

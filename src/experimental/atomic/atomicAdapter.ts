@@ -4,20 +4,20 @@
  */
 
 import { useBubbleStore } from '@/stores/bubbleStore';
-import type { Bubble, BubbleType, Tag } from '@/types/bubble';
+import { TimeHorizon, type Bubble, type BubbleType, type Tag } from '@/types/bubble';
 
 export function updateTimeHorizon(moleculeId: string, fromRing: number, toRing: number) {
   const { bubbles, updateBubble } = useBubbleStore.getState();
-  const timeHorizons = ['today', 'week', 'later'];
-  const newTimeHorizon = timeHorizons[toRing] || 'today';
+  const timeHorizons = [TimeHorizon.Today, TimeHorizon.Week, TimeHorizon.Later];
+  const newTimeHorizon = timeHorizons[toRing] || TimeHorizon.Today;
   
   // Find the corresponding bubble
   const bubble = bubbles.find(b => `mol-${b.id}` === moleculeId);
   if (!bubble) return;
 
   // Update bubble tags with new time horizon
-  const updatedTags = bubble.tags?.filter(tag => 
-    !['today', 'week', 'later'].includes(tag.name.toLowerCase())
+  const updatedTags = bubble.tags?.filter(tag =>
+    !Object.values(TimeHorizon).includes(tag.name as TimeHorizon)
   ) || [];
   
   updatedTags.push({
@@ -43,13 +43,13 @@ export function createMoleculeFromDomain(domain: string) {
     tags: [
       { 
         id: generateId(),
-        name: domain.toLowerCase(), 
+        name: domain.toLowerCase(),
         emoji: domainConfig.emoji
       },
-      { 
+      {
         id: generateId(),
-        name: 'today', 
-        emoji: '⏰'
+        name: TimeHorizon.Today,
+        emoji: getTimeHorizonEmoji(TimeHorizon.Today)
       }
     ],
     createdAt: Date.now(),
@@ -211,11 +211,11 @@ function generateId(): string {
   return Math.random().toString(36).slice(2, 9);
 }
 
-function getTimeHorizonEmoji(horizon: string): string {
+function getTimeHorizonEmoji(horizon: TimeHorizon): string {
   switch (horizon) {
-    case 'today': return '🔥';
-    case 'week': return '📅';
-    case 'later': return '🌙';
+    case TimeHorizon.Today: return '🔥';
+    case TimeHorizon.Week: return '📅';
+    case TimeHorizon.Later: return '🌙';
     default: return '⏰';
   }
 }

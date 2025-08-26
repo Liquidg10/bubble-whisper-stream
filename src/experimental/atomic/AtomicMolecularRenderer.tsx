@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useBubbleStore } from "@/stores/bubbleStore";
 import { useZoomStandard } from "@/hooks/useZoomStandard";
-import { Bubble } from "@/types/bubble";
+import { Bubble, TimeHorizon } from "@/types/bubble";
 import { Button } from "@/components/ui/button";
 import { ZoomIn, ZoomOut, RotateCcw, Eye, Move, Atom } from "lucide-react";
 
@@ -31,7 +31,7 @@ type Molecule = {
   bond: string; 
   protons: number; 
   neutrons: number;
-  shells: number[]; // electrons per ring: [today, week, later]
+  shells: number[]; // electrons per ring: [TimeHorizon.Today, TimeHorizon.Week, TimeHorizon.Later]
   bubbleId: string;
   domain: string;
   opened: boolean;
@@ -118,18 +118,18 @@ export default function AtomicMolecularRenderer({
         const y = centerY + Math.sin(subAngle) * subRadius;
 
         // Calculate electron distribution based on time sensitivity
-        const todayTasks = bubble.tags?.filter(t => 
-          t.name.toLowerCase().includes("today") || 
+        const todayTasks = bubble.tags?.filter(t =>
+          t.name === TimeHorizon.Today ||
           t.name.toLowerCase().includes("urgent")
         ).length || 1;
-        
-        const weekTasks = bubble.tags?.filter(t => 
-          t.name.toLowerCase().includes("week") || 
+
+        const weekTasks = bubble.tags?.filter(t =>
+          t.name === TimeHorizon.Week ||
           t.name.toLowerCase().includes("soon")
         ).length || 2;
-        
-        const laterTasks = bubble.tags?.filter(t => 
-          t.name.toLowerCase().includes("later") || 
+
+        const laterTasks = bubble.tags?.filter(t =>
+          t.name === TimeHorizon.Later ||
           t.name.toLowerCase().includes("someday")
         ).length || 1;
 
