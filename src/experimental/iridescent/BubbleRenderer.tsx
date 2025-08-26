@@ -677,40 +677,64 @@ function IridescentBubble({
           ...varStyle
         }}
       >
-        {/* Decorative layers - background (z-index: 1) */}
+        {/* Photo renderer first - as the base layer */}
+        {bubble.imageUri ? (
+          <PhotoBubbleIridescent
+            src={bubble.imageUri}
+            alt={`${bubble.type}: ${bubble.content || 'Photo'}`}
+            size={r * 2 * 0.85} // Slightly smaller to leave room for bubble effects
+            bubbleId={bubble.id}
+            debugMode={false} // Remove debug badges for clean UI
+          />
+        ) : (
+          /* Non-photo bubble core for comparison */
+          <div className="soap-core" style={{ zIndex: 1 }} />
+        )}
+
+        {/* Bubble rim effect - outer ring that creates the "bubble" appearance */}
         <div
           className="soap-rim"
           style={{
-            WebkitMask: 'radial-gradient(circle, transparent 66.2%, black 66.22%)',
-            mask: 'radial-gradient(circle, transparent 66.2%, black 66.22%)',
+            WebkitMask: 'radial-gradient(circle, transparent 75%, black 76%, black 84%, transparent 85%)',
+            mask: 'radial-gradient(circle, transparent 75%, black 76%, black 84%, transparent 85%)',
             background: `conic-gradient(${glow} 0 130deg, rgba(255,255,255,.9) 180deg, ${glow} 230deg 360deg)`,
             position: 'absolute',
-            inset: '-0.05%',
+            inset: '0',
             borderRadius: '999px',
-            zIndex: 1
+            zIndex: 3, // Above photo to create bubble rim effect
+            pointerEvents: 'none'
           }}
         />
-        <div className="soap-core" style={{ zIndex: 1 }} />
-        <div className="soap-spec a" style={{ zIndex: 1 }} />
-        <div className="soap-spec b" style={{ zIndex: 1 }} />
+        
+        {/* Specular highlights - the light reflections on the bubble */}
+        {!lod && (
+          <>
+            <div 
+              className="soap-spec a" 
+              style={{ 
+                zIndex: 4,
+                pointerEvents: 'none'
+              }} 
+            />
+            <div 
+              className="soap-spec b" 
+              style={{ 
+                zIndex: 4,
+                pointerEvents: 'none'
+              }} 
+            />
+          </>
+        )}
+        
+        {/* Aura effect - soft glow around the bubble */}
         <div
           className="soap-aura"
           style={{
             boxShadow: `0 0 12px ${glow}40, inset 0 0 6px ${glow}20`,
-            zIndex: 1
+            zIndex: 2, // Between photo and rim
+            pointerEvents: 'none'
           }}
         />
-        
-        {/* Photo renderer - foreground (z-index: 2) */}
-        {bubble.imageUri && (
-          <PhotoBubbleIridescent
-            src={bubble.imageUri}
-            alt={`${bubble.type}: ${bubble.content || 'Photo'}`}
-            size={r * 2}
-            bubbleId={bubble.id}
-            debugMode={process.env.NODE_ENV === 'development'}
-          />
-        )}
       </div>
       {label && (
         <div

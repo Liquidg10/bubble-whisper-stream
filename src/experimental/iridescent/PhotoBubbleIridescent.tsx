@@ -76,7 +76,7 @@ export function PhotoBubbleIridescent({
     <div 
       className="absolute inset-0 flex items-center justify-center" 
       style={{ 
-        zIndex: 2, 
+        zIndex: 1, // Base layer for photo 
         isolation: 'isolate' 
       }}
     >
@@ -85,7 +85,8 @@ export function PhotoBubbleIridescent({
         style={{ 
           width: size, 
           height: size, 
-          background: 'hsl(var(--panel))' 
+          background: 'hsl(var(--muted))', // Subtle fallback background
+          border: '2px solid rgba(255,255,255,0.1)' // Subtle inner border
         }}
       >
         <img
@@ -98,14 +99,14 @@ export function PhotoBubbleIridescent({
             filter: 'none', 
             mixBlendMode: 'normal', 
             maskImage: 'none', 
-            WebkitMaskImage: 'none' 
+            WebkitMaskImage: 'none'
           }}
           onLoad={handleLoad}
           onError={handleError}
         />
         
-        {/* Debug badge */}
-        {debugMode && (
+        {/* Debug badge - only show in development and when debug is explicitly enabled */}
+        {debugMode && localStorage.getItem('DEBUG_PHOTO') === 'true' && (
           <div className="absolute top-0 right-0 bg-black/80 text-white text-xs px-1 rounded text-[8px] leading-3 z-10">
             {src.startsWith('data:') ? 'data:' : 'http:'} 
             <br />
