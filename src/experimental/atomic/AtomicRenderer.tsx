@@ -73,7 +73,7 @@ const SHELL_CONFIG = [
 ];
 
 interface AtomicRendererProps {
-  bubbles?: any[];
+  bubbles?: Bubble[];
   onBubbleSelect?: (bubble: Bubble) => void;
   onTimeHorizonUpdate?: (bubbleId: string, fromRing: number, toRing: number) => void;
   onMoleculeCreate?: (domain: string) => void;
@@ -83,7 +83,7 @@ interface AtomicRendererProps {
   className?: string;
 }
 
-const AtomicRenderer: React.FC<AtomicRendererProps> = ({ 
+export const AtomicRenderer: React.FC<AtomicRendererProps> = ({ 
   bubbles = [], 
   onBubbleSelect, 
   onTimeHorizonUpdate,
@@ -111,41 +111,54 @@ const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     x: 0, y: 0, scale: 1, width: 0, height: 0
   });
 
-  // Convert bubbles to molecules on load
+  // Convert bubbles to molecules using proper domain classification
   const convertBubblesToMolecules = useCallback(() => {
-    if (!Array.isArray(bubbles)) return;
-    console.log('Converting bubbles to molecules:', bubbles.length);
+    if (!Array.isArray(bubbles) || bubbles.length === 0) return;
     
-    const grouped = bubbles.reduce((acc: Record<string, any[]>, bubble: any) => {
-      const domain = bubble.tags?.[0]?.name || 'General';
+    // Import domain classification from adapter
+    const { classifyBubbleDomain } = atomicAdapter;
+    
+    // Group bubbles by classified domain
+    const grouped = bubbles.reduce((acc: Record<string, Bubble[]>, bubble: Bubble) => {
+      const domain = classifyBubbleDomain(bubble);
       if (!acc[domain]) acc[domain] = [];
       acc[domain].push(bubble);
       return acc;
-    }, {} as Record<string, any[]>);
+    }, {} as Record<string, Bubble[]>);
 
     const molecules: Molecule[] = Object.entries(grouped).map(([domain, domainBubbles], index) => {
       const angle = (index / Object.keys(grouped).length) * 2 * Math.PI;
       const distance = 250;
-      const x = Math.cos(angle) * distance;
-      const y = Math.sin(angle) * distance;
+      const x = Math.cos(angle) * distance + (viewport.width / 2 || 400);
+      const y = Math.sin(angle) * distance + (viewport.height / 2 || 300);
       
-      const electrons: Electron[] = (domainBubbles as any[]).map((bubble: any, electronIndex: number) => ({
-        id: bubble.id,
-        moleculeId: domain,
-        shell: electronIndex % 3,
-        angle: (electronIndex / (domainBubbles as any[]).length) * 2 * Math.PI,
-        phase: Math.random() * 2 * Math.PI,
-        content: bubble.content || '',
-        type: bubble.type || 'Thought',
-        originalBubble: bubble
-      }));
+      const electrons: Electron[] = domainBubbles.map((bubble, electronIndex) => {
+        // Determine shell based on time horizon tags
+        let shell = 2; // default to "Later"
+        if (bubble.tags?.some(tag => ['today', 'urgent', 'now'].includes(tag.name.toLowerCase()))) {
+          shell = 0;
+        } else if (bubble.tags?.some(tag => ['week', 'soon', 'this week'].includes(tag.name.toLowerCase()))) {
+          shell = 1;
+        }
+
+        return {
+          id: bubble.id,
+          moleculeId: `mol-${domain}-${index}`,
+          shell,
+          angle: (electronIndex / Math.max(1, domainBubbles.length)) * 2 * Math.PI,
+          phase: Math.random() * 2 * Math.PI,
+          content: bubble.content || '',
+          type: bubble.type || 'Thought',
+          originalBubble: bubble
+        };
+      });
 
       return {
         id: `mol-${domain}-${index}`,
         x, y,
         nucleus: {
-          protons: Math.min((domainBubbles as any[]).length, 20),
-          neutrons: Math.min((domainBubbles as any[]).length + 2, 22),
+          protons: Math.min(domainBubbles.length, 20),
+          neutrons: Math.min(domainBubbles.length + 2, 22),
           domain
         },
         electrons,
@@ -157,7 +170,7 @@ const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     });
 
     setAtomicState(prev => ({ ...prev, molecules }));
-  }, [bubbles]);
+  }, [bubbles, viewport.width, viewport.height]);
 
   // Initialize viewport and convert bubbles
   useEffect(() => {

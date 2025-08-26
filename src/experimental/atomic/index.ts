@@ -1,1 +1,1 @@
-export { default } from './AtomicRenderer';
+export { AtomicRenderer } from './AtomicRenderer';
