@@ -1,6 +1,8 @@
 import React, { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { X, Save, Camera, Upload } from 'lucide-react';
+import { X, Save, Camera, Upload, Loader2 } from 'lucide-react';
+import { photoService } from '@/services/photoService';
+import { useToast } from '@/hooks/use-toast';
 
 interface PhotoCaptureProps {
   onSave: (dataUrl: string) => void;
@@ -10,6 +12,8 @@ interface PhotoCaptureProps {
 export const PhotoCapture: React.FC<PhotoCaptureProps> = ({ onSave, onCancel }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const { toast } = useToast();
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -28,9 +32,26 @@ export const PhotoCapture: React.FC<PhotoCaptureProps> = ({ onSave, onCancel }) 
     reader.readAsDataURL(file);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (previewUrl) {
-      onSave(previewUrl);
+      setIsUploading(true);
+      try {
+        const publicUrl = await photoService.uploadPhoto(previewUrl);
+        onSave(publicUrl);
+        toast({
+          title: "Photo uploaded",
+          description: "Your photo has been saved successfully.",
+        });
+      } catch (error) {
+        console.error('Failed to upload photo:', error);
+        toast({
+          title: "Upload failed",
+          description: "Could not upload photo. Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        setIsUploading(false);
+      }
     }
   };
 
@@ -102,11 +123,20 @@ export const PhotoCapture: React.FC<PhotoCaptureProps> = ({ onSave, onCancel }) 
           </Button>
           <Button
             onClick={handleSave}
-            disabled={!previewUrl}
+            disabled={!previewUrl || isUploading}
             className="flex-1 flex items-center gap-1"
           >
-            <Save className="h-3 w-3" />
-            Save Photo
+            {isUploading ? (
+              <>
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Uploading...
+              </>
+            ) : (
+              <>
+                <Save className="h-3 w-3" />
+                Save Photo
+              </>
+            )}
           </Button>
         </div>
       </div>

@@ -3,8 +3,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Camera, Upload, Sparkles, X, Eye } from 'lucide-react';
+import { Camera, Upload, Sparkles, X, Eye, Loader2 } from 'lucide-react';
 import { modalityService } from '@/services/modalityService';
+import { photoService } from '@/services/photoService';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface EnhancedPhotoCaptureProps {
@@ -23,6 +24,7 @@ export const EnhancedPhotoCapture: React.FC<EnhancedPhotoCaptureProps> = ({
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState<any>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -63,7 +65,7 @@ export const EnhancedPhotoCapture: React.FC<EnhancedPhotoCaptureProps> = ({
     }
   }, []);
 
-  const capturePhoto = useCallback(() => {
+  const capturePhoto = useCallback(async () => {
     if (videoRef.current && canvasRef.current) {
       const canvas = canvasRef.current;
       const video = videoRef.current;
@@ -79,33 +81,71 @@ export const EnhancedPhotoCapture: React.FC<EnhancedPhotoCaptureProps> = ({
         setShowPreview(true);
         stopCamera();
         
-        if (autoAnalyze) {
-          analyzePhoto(imageData);
+        // Upload to storage and get URL
+        setIsUploading(true);
+        try {
+          const publicUrl = await photoService.uploadPhoto(imageData);
+          
+          if (autoAnalyze) {
+            analyzePhoto(imageData);
+          }
+          
+          onPhotoCapture?.(publicUrl);
+          toast({
+            title: "Photo captured",
+            description: "Your photo has been saved successfully.",
+          });
+        } catch (error) {
+          console.error('Failed to upload photo:', error);
+          toast({
+            title: "Upload failed",
+            description: "Could not upload photo. Please try again.",
+            variant: "destructive",
+          });
+        } finally {
+          setIsUploading(false);
         }
-        
-        onPhotoCapture?.(imageData);
       }
     }
-  }, [autoAnalyze, onPhotoCapture, stopCamera]);
+  }, [autoAnalyze, onPhotoCapture, stopCamera, toast]);
 
-  const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onload = (e) => {
+      reader.onload = async (e) => {
         const imageData = e.target?.result as string;
         setCapturedImage(imageData);
         setShowPreview(true);
         
-        if (autoAnalyze) {
-          analyzePhoto(imageData);
+        // Upload to storage and get URL
+        setIsUploading(true);
+        try {
+          const publicUrl = await photoService.uploadPhoto(file);
+          
+          if (autoAnalyze) {
+            analyzePhoto(imageData);
+          }
+          
+          onPhotoCapture?.(publicUrl);
+          toast({
+            title: "Photo uploaded",
+            description: "Your photo has been saved successfully.",
+          });
+        } catch (error) {
+          console.error('Failed to upload photo:', error);
+          toast({
+            title: "Upload failed",
+            description: "Could not upload photo. Please try again.",
+            variant: "destructive",
+          });
+        } finally {
+          setIsUploading(false);
         }
-        
-        onPhotoCapture?.(imageData);
       };
       reader.readAsDataURL(file);
     }
-  }, [autoAnalyze, onPhotoCapture]);
+  }, [autoAnalyze, onPhotoCapture, toast]);
 
   const analyzePhoto = useCallback(async (imageData: string) => {
     setIsAnalyzing(true);
@@ -252,7 +292,21 @@ export const EnhancedPhotoCapture: React.FC<EnhancedPhotoCaptureProps> = ({
           </div>
         )}
 
-        {/* Processing Indicator */}
+        {/* Processing Indicators */}
+        <AnimatePresence>
+          {isUploading && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex items-center justify-center space-x-2 p-3 bg-muted rounded-lg"
+            >
+              <Loader2 className="w-4 h-4 animate-spin" />
+              <span className="text-sm">Uploading photo...</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <AnimatePresence>
           {isAnalyzing && (
             <motion.div
