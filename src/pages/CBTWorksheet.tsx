@@ -184,7 +184,7 @@ export const CBTWorksheet: React.FC = () => {
             </CardContent>
           </Card>
         ) : (
-          <ScrollArea className="h-[600px]">
+          <ScrollArea className="h-[calc(100vh-24rem)]">
             <div className="space-y-3">
               {entries.map((entry) => (
                 <Card key={entry.id} className="hover:shadow-md transition-shadow">
