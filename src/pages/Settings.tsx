@@ -28,12 +28,15 @@ import { IntelligenceSettings } from '@/components/IntelligenceSettings';
 import { MonthlyReviewCard } from '@/components/MonthlyReviewCard';
 import { PrivacyZoneToggle } from '@/components/PrivacyZoneToggle';
 import { QuickTour } from '@/components/QuickTour';
+import { useFeatureFlags } from '@/components/FeatureFlags';
+import { DebugDataPanel } from '@/components/DebugDataPanel';
 import { OptionalModules } from '@/components/OptionalModules';
 import { VoiceSettings } from '@/components/VoiceSettings';
 import { TTSDebugConsole } from '@/components/TTSDebugConsole';
 
 export const Settings: React.FC = () => {
   const { settings, updateSettings, bubbles, reminders } = useBubbleStore();
+  const { isFeatureEnabled } = useFeatureFlags();
   const [isExporting, setIsExporting] = useState(false);
   const [testingTTS, setTestingTTS] = useState(false);
   const [showQuickTour, setShowQuickTour] = useState(false);
@@ -478,6 +481,24 @@ export const Settings: React.FC = () => {
             </Badge>
           </CardContent>
         </Card>
+
+        {/* Debug Panel - Only in dev mode */}
+        {isFeatureEnabled('debugMode') && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Database className="h-5 w-5" />
+                Debug Data Panel
+              </CardTitle>
+              <CardDescription>
+                Development tools for debugging bubble data
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <DebugDataPanel />
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Quick Tour Modal */}

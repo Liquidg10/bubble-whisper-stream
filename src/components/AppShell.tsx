@@ -12,7 +12,6 @@ import { AudioQueueIndicator } from '@/components/AudioQueueIndicator';
 
 import NarrativeSearch from '@/components/NarrativeSearch';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
-import { DebugDataPanel } from '@/components/DebugDataPanel';
 
 export const AppShell: React.FC = () => {
   const location = useLocation();
@@ -62,11 +61,6 @@ export const AppShell: React.FC = () => {
         <GlimmerNotificationSystem />
         <OfflineDetector />
         <AudioQueueIndicator />
-        
-        {/* Debug Panel - Remove in production */}
-        <div className="fixed top-4 right-4 z-50">
-          <DebugDataPanel />
-        </div>
       </main>
 
       {/* Narrative Search Modal */}
