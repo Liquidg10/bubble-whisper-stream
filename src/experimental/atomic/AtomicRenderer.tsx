@@ -127,8 +127,8 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       setViewport(prev => ({
         ...prev,
         scale: state.scale,
-        x: state.centerX,
-        y: state.centerY
+        x: prev.x + (state.centerX - viewport.width / 2),
+        y: prev.y + (state.centerY - viewport.height / 2)
       }));
     },
     getContainerRect: () => canvasRef.current?.getBoundingClientRect() || null
@@ -973,13 +973,18 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       </div>
 
       {/* Interaction Help */}
-      <div className="absolute top-4 left-4 mt-16 text-white/60 text-xs max-w-xs">
-        <div>🖱️ Click + drag: Pan canvas</div>
-        <div>🔬 Molecules: Click to select, Shift+click for multi-select</div>
-        <div>⚛️ Electrons: Drag between shells</div>
-        <div>🔗 Fusion: Select 2 molecules, then click fuse button</div>
-        <div>⌨️ Shortcuts: Space (motion), +/- (zoom), F (fit), 0 (reset)</div>
-      </div>
+      {(() => {
+        const selectedCount = atomicState.molecules.filter(mol => mol.selected).length;
+        return selectedCount === 0 && (
+          <div className="absolute top-4 left-4 mt-16 text-white/60 text-xs max-w-xs">
+            <div>🖱️ Click + drag: Pan canvas</div>
+            <div>🔬 Molecules: Click to select, Shift+click for multi-select</div>
+            <div>⚛️ Electrons: Drag between shells</div>
+            <div>🔗 Fusion: Select 2 molecules, then click fuse button</div>
+            <div>⌨️ Shortcuts: Space (motion), +/- (zoom), F (fit), 0 (reset)</div>
+          </div>
+        );
+      })()}
     </div>
   );
 };
