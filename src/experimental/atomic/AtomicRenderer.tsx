@@ -1,6 +1,7 @@
 /**
  * Complete Atomic/Molecular Canvas Renderer
  * Interactive physics simulation with draggable electrons, fusion/fission, photon pulses
+ * NOW WITH STABLE ARCHITECTURE - No more orbital drift!
  */
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
@@ -11,55 +12,24 @@ import { Card } from '@/components/ui/card';
 import { Undo2, Zap, RotateCcw, Home, Calendar, Clock, Plus } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useZoomStandard } from '@/hooks/useZoomStandard';
 import * as atomicAdapter from './atomicAdapter';
+import { CoordinateSystem, ViewportState } from './coordinateSystem';
+import { 
+  StableElectron, 
+  StableMolecule, 
+  calculateElectronScreenPosition, 
+  determineShellFromDistance,
+  updateElectronPhases,
+  redistributeElectronsInShell
+} from './stableElectrons';
+import { EventSystem, EventSystemState } from './eventSystem';
 
-// Atomic state types
-interface Electron {
-  id: string;
-  moleculeId: string;
-  shell: number; // 0=Today, 1=Week, 2=Later
-  angle: number;
-  phase: number;
-  content: string;
-  type: BubbleType;
-  originalBubble?: Bubble;
-}
-
-interface Molecule {
-  id: string;
-  x: number;
-  y: number;
-  nucleus: {
-    protons: number;
-    neutrons: number;
-    domain: string;
-  };
-  electrons: Electron[];
-  bonds: string[];
-  pulseActive: boolean;
-  pulseType: 'shell' | 'bond' | null;
-  selected: boolean;
-}
-
+// Stable atomic state - no more coordinate conflicts!
 interface AtomicState {
-  molecules: Molecule[];
+  molecules: StableMolecule[];
   selectedMolecule: string | null;
-  draggedElectron: {
-    electronId: string;
-    originalShell: number;
-    currentShell: number;
-    dragX: number;
-    dragY: number;
-  } | null;
-  draggedMolecule: {
-    moleculeId: string;
-    startX: number;
-    startY: number;
-    offsetX: number;
-    offsetY: number;
-  } | null;
-  undoStack: Molecule[][];
-  hoveredShell: number | null;
+  undoStack: StableMolecule[][];
 }
 
 // Domain presets
@@ -74,9 +44,9 @@ const DOMAIN_PRESETS = [
 
 // Shell configuration with time horizons
 const SHELL_CONFIG = [
-  { name: 'Today', radius: 140, color: '#EF4444', icon: Home, maxElectrons: 8 },
-  { name: 'Week', radius: 200, color: '#F59E0B', icon: Calendar, maxElectrons: 18 },
-  { name: 'Later', radius: 280, color: '#10B981', icon: Clock, maxElectrons: 32 }
+  { name: 'Today', radius: 60, color: '#EF4444', icon: Home, maxElectrons: 8 },
+  { name: 'Week', radius: 100, color: '#F59E0B', icon: Calendar, maxElectrons: 18 },
+  { name: 'Later', radius: 140, color: '#10B981', icon: Clock, maxElectrons: 32 }
 ];
 
 interface AtomicRendererProps {
@@ -103,41 +73,61 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
   const { toast } = useToast();
   const canvasRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number>();
-  const [isDragging, setIsDragging] = useState(false);
-  const [isPanning, setIsPanning] = useState(false);
-  const [dragStart, setDragStart] = useState<{ x: number; y: number; initialViewportX?: number; initialViewportY?: number }>({ x: 0, y: 0 });
   
   // Motion control state
   const [motionEnabled, setMotionEnabled] = useState(!reducedMotion);
-  const dragThreshold = 5; // pixels
   
   // Draggable UI state
   const [domainCardPos, setDomainCardPos] = useState({ x: 0, y: 0 });
   const [timeHorizonPos, setTimeHorizonPos] = useState({ x: 0, y: 0 });
-  const [isDraggingUI, setIsDraggingUI] = useState<'domain' | 'time' | null>(null);
   
-  // Atomic state
+  // Stable atomic state
   const [atomicState, setAtomicState] = useState<AtomicState>({
     molecules: [],
     selectedMolecule: null,
-    draggedElectron: null,
-    draggedMolecule: null,
-    undoStack: [],
-    hoveredShell: null
+    undoStack: []
   });
   
-  const [viewport, setViewport] = useState({
+  // Viewport state for zoom/pan
+  const [viewport, setViewport] = useState<ViewportState>({
     x: 0, y: 0, scale: 1, width: 0, height: 0
   });
 
-  // Convert bubbles to molecules using proper domain classification
+  // Initialize coordinate system and event system
+  const coordinateSystemRef = useRef<CoordinateSystem>(new CoordinateSystem(viewport));
+  const eventSystemRef = useRef<EventSystem>(new EventSystem());
+  const [eventState, setEventState] = useState<EventSystemState>(eventSystemRef.current.getState());
+
+  // Update coordinate system when viewport changes
+  useEffect(() => {
+    coordinateSystemRef.current.updateViewport(viewport);
+  }, [viewport]);
+
+  // Subscribe to event system changes
+  useEffect(() => {
+    return eventSystemRef.current.subscribe(setEventState);
+  }, []);
+
+  // Integrate zoom system properly
+  const zoomSystem = useZoomStandard({
+    onZoomChange: ({ scale, centerX, centerY }) => {
+      setViewport(prev => ({
+        ...prev,
+        scale,
+        x: centerX,
+        y: centerY
+      }));
+    },
+    getContainerRect: () => canvasRef.current?.getBoundingClientRect() || null
+  });
+
+  // Convert bubbles to stable molecules
   const convertBubblesToMolecules = useCallback(() => {
     if (!Array.isArray(bubbles) || bubbles.length === 0) return;
     
-    // Import domain classification from adapter
     const { classifyBubbleDomain } = atomicAdapter;
     
-    // Group bubbles by classified domain
+    // Group bubbles by domain
     const grouped = bubbles.reduce((acc: Record<string, Bubble[]>, bubble: Bubble) => {
       const domain = classifyBubbleDomain(bubble);
       if (!acc[domain]) acc[domain] = [];
@@ -145,13 +135,17 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       return acc;
     }, {} as Record<string, Bubble[]>);
 
-    const molecules: Molecule[] = Object.entries(grouped).map(([domain, domainBubbles], index) => {
+    const molecules: StableMolecule[] = Object.entries(grouped).map(([domain, domainBubbles], index) => {
       const angle = (index / Object.keys(grouped).length) * 2 * Math.PI;
-      const distance = 150 + Math.random() * 100; // More varied positioning
-      const x = Math.cos(angle) * distance;
-      const y = Math.sin(angle) * distance;
+      const distance = 150 + Math.random() * 100;
       
-      const electrons: Electron[] = domainBubbles.map((bubble, electronIndex) => {
+      // Store position in world coordinates
+      const worldPosition = {
+        x: Math.cos(angle) * distance,
+        y: Math.sin(angle) * distance
+      };
+      
+      const electrons: StableElectron[] = domainBubbles.map((bubble, electronIndex) => {
         // Determine shell based on time horizon tags
         let shell = 2; // default to "Later"
         if (bubble.tags?.some(tag => ['today', 'urgent', 'now'].includes(tag.name.toLowerCase()))) {
@@ -164,7 +158,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           id: bubble.id,
           moleculeId: `mol-${domain}-${index}`,
           shell,
-          angle: (electronIndex / Math.max(1, domainBubbles.length)) * 2 * Math.PI,
+          baseAngle: (electronIndex / Math.max(1, domainBubbles.length)) * 2 * Math.PI,
           phase: Math.random() * 2 * Math.PI,
           content: bubble.content || '',
           type: bubble.type || 'Thought',
@@ -174,7 +168,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
 
       return {
         id: `mol-${domain}-${index}`,
-        x, y,
+        worldPosition,
         nucleus: {
           protons: Math.min(domainBubbles.length, 20),
           neutrons: Math.min(domainBubbles.length + 2, 22),
@@ -189,7 +183,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     });
 
     setAtomicState(prev => ({ ...prev, molecules }));
-  }, [bubbles, viewport.width, viewport.height]);
+  }, [bubbles]);
 
   // Initialize viewport and convert bubbles
   useEffect(() => {
@@ -206,44 +200,19 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     return () => window.removeEventListener('resize', updateViewport);
   }, [convertBubblesToMolecules]);
 
-  // Force-directed layout to prevent molecule overlap
-  const applyMoleculeForces = useCallback((molecules: Molecule[]) => {
-    const updatedMolecules = [...molecules];
-    const repulsionStrength = 0.1;
-    const minDistance = 120;
-
-    for (let i = 0; i < updatedMolecules.length; i++) {
-      for (let j = i + 1; j < updatedMolecules.length; j++) {
-        const mol1 = updatedMolecules[i];
-        const mol2 = updatedMolecules[j];
-        
-        const dx = mol2.x - mol1.x;
-        const dy = mol2.y - mol1.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        
-        if (distance < minDistance && distance > 0) {
-          const force = (minDistance - distance) * repulsionStrength;
-          const normalizedDx = dx / distance;
-          const normalizedDy = dy / distance;
-          
-          mol1.x -= normalizedDx * force;
-          mol1.y -= normalizedDy * force;
-          mol2.x += normalizedDx * force;
-          mol2.y += normalizedDy * force;
-          
-          // Clamp to viewport bounds
-          mol1.x = Math.max(-400, Math.min(400, mol1.x));
-          mol1.y = Math.max(-300, Math.min(300, mol1.y));
-          mol2.x = Math.max(-400, Math.min(400, mol2.x));
-          mol2.y = Math.max(-300, Math.min(300, mol2.y));
-        }
-      }
+  // Stable animation system - only updates phases, not positions
+  const updateStableAnimation = useCallback((molecules: StableMolecule[]) => {
+    if (eventSystemRef.current.shouldPreventAnimation()) {
+      return molecules; // Don't animate during interactions
     }
-    
-    return updatedMolecules;
+
+    return molecules.map(mol => ({
+      ...mol,
+      electrons: updateElectronPhases(mol.electrons, 0.02)
+    }));
   }, []);
 
-  // Animation loop for orbital motion - controlled by motionEnabled
+  // Stable animation loop - no more conflicts!
   useEffect(() => {
     if (reducedMotion || !motionEnabled) {
       if (animationFrameRef.current) {
@@ -254,24 +223,10 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     }
     
     const animate = () => {
-      setAtomicState(prev => {
-        const updatedMolecules = prev.molecules.map(mol => ({
-          ...mol,
-          electrons: mol.electrons.map(electron => ({
-            ...electron,
-            phase: electron.phase + 0.01
-          }))
-        }));
-
-        // Only apply collision forces occasionally and when not dragging to prevent visual jumping
-        const shouldApplyForces = !prev.draggedMolecule && !prev.draggedElectron && Math.random() < 0.02; // 2% chance per frame, and not while dragging
-        const finalMolecules = shouldApplyForces ? applyMoleculeForces(updatedMolecules) : updatedMolecules;
-
-        return {
-          ...prev,
-          molecules: finalMolecules
-        };
-      });
+      setAtomicState(prev => ({
+        ...prev,
+        molecules: updateStableAnimation(prev.molecules)
+      }));
       animationFrameRef.current = requestAnimationFrame(animate);
     };
     
@@ -279,179 +234,118 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     return () => {
       if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     };
-  }, [reducedMotion, motionEnabled, applyMoleculeForces]);
+  }, [reducedMotion, motionEnabled, updateStableAnimation]);
 
-  // Handle electron drag start
+  // Clean event handlers using the event system
   const handleElectronDragStart = useCallback((electronId: string, originalShell: number, event: React.MouseEvent) => {
     event.preventDefault();
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    
-    setIsDragging(true);
-    setAtomicState(prev => ({
-      ...prev,
-      draggedElectron: {
-        electronId,
-        originalShell,
-        currentShell: originalShell,
-        dragX: event.clientX - rect.left,
-        dragY: event.clientY - rect.top
-      }
-    }));
-    
-    // Event listeners are now handled centrally in the useEffect
+    event.stopPropagation();
+    eventSystemRef.current.startElectronDrag(electronId, originalShell);
   }, []);
 
-  // Handle molecule drag start
   const handleMoleculeDragStart = useCallback((moleculeId: string, event: React.MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
-    
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    
-    const molecule = atomicState.molecules.find(mol => mol.id === moleculeId);
-    if (!molecule) return;
-    
-    // Store initial molecule position to calculate deltas properly
-    setAtomicState(prev => ({
-      ...prev,
-      draggedMolecule: {
-        moleculeId,
-        startX: event.clientX,
-        startY: event.clientY,
-        offsetX: 0,
-        offsetY: 0
-      }
-    }));
-    
-    // Event listeners are now handled centrally in the useEffect
-  }, [atomicState.molecules]);
+    eventSystemRef.current.startMoleculeDrag(moleculeId, event.clientX, event.clientY);
+  }, []);
 
-  // Handle molecule mouse move during drag
-  const handleMoleculeMouseMove = useCallback((event: MouseEvent) => {
-    if (!atomicState.draggedMolecule) return;
-    
-    const deltaX = (event.clientX - atomicState.draggedMolecule.startX) / viewport.scale;
-    const deltaY = (event.clientY - atomicState.draggedMolecule.startY) / viewport.scale;
-    
-    setAtomicState(prev => {
-      if (!prev.draggedMolecule) return prev;
-      
-      const targetMolecule = prev.molecules.find(mol => mol.id === prev.draggedMolecule?.moleculeId);
-      if (!targetMolecule) return prev;
-      
-      const newX = targetMolecule.x + deltaX - (prev.draggedMolecule.offsetX || 0);
-      const newY = targetMolecule.y + deltaY - (prev.draggedMolecule.offsetY || 0);
-      
-      return {
-        ...prev,
-        draggedMolecule: {
-          ...prev.draggedMolecule,
-          offsetX: deltaX,
-          offsetY: deltaY
-        },
-        molecules: prev.molecules.map(mol =>
-          mol.id === prev.draggedMolecule?.moleculeId
-            ? { ...mol, x: newX, y: newY }
-            : mol
-        )
-      };
-    });
-  }, [atomicState.draggedMolecule, viewport.scale]);
-
-  // Handle molecule mouse up (end drag)
-  const handleMoleculeMouseUp = useCallback(() => {
-    if (!atomicState.draggedMolecule) return;
-    
-    setAtomicState(prev => ({ ...prev, draggedMolecule: null }));
-  }, [atomicState.draggedMolecule]);
-
-  // Handle mouse move during electron drag
   const handleMouseMove = useCallback((event: MouseEvent) => {
-    if (!atomicState.draggedElectron) return;
+    const currentEventState = eventSystemRef.current.getState();
     
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    
-    const dragX = event.clientX - rect.left;
-    const dragY = event.clientY - rect.top;
-    
-    // Calculate which shell we're hovering over relative to the molecule center
-    const draggedElectron = atomicState.draggedElectron;
-    const molecule = atomicState.molecules.find(mol => 
-      mol.electrons.some(e => e.id === draggedElectron.electronId)
-    );
-    
-    if (!molecule) return;
-    
-    // Calculate molecule screen position accounting for transforms
-    const moleculeScreenX = molecule.x + viewport.width / 2;
-    const moleculeScreenY = molecule.y + viewport.height / 2;
-    
-    // Convert drag position to world coordinates
-    const worldDragX = (dragX - viewport.x) / viewport.scale - viewport.width / 2;
-    const worldDragY = (dragY - viewport.y) / viewport.scale - viewport.height / 2;
-    
-    const distance = Math.sqrt((worldDragX - molecule.x) ** 2 + (worldDragY - molecule.y) ** 2);
-    
-    let hoveredShell = null;
-    for (let i = 0; i < SHELL_CONFIG.length; i++) {
-      const shell = SHELL_CONFIG[i];
-      if (distance <= shell.radius + 20) {
-        hoveredShell = i;
-        break;
-      }
-    }
-    
-    setAtomicState(prev => ({
-      ...prev,
-      draggedElectron: prev.draggedElectron ? {
-        ...prev.draggedElectron,
-        dragX,
-        dragY,
-        currentShell: hoveredShell ?? prev.draggedElectron.originalShell
-      } : null,
-      hoveredShell
-    }));
-  }, [atomicState.draggedElectron, atomicState.molecules, viewport]);
-
-  // Handle mouse up (end drag)
-  const handleMouseUp = useCallback(() => {
-    if (!atomicState.draggedElectron) return;
-    
-    const { electronId, originalShell, currentShell } = atomicState.draggedElectron;
-    
-    setIsDragging(false);
-    
-    if (currentShell !== originalShell && currentShell !== null) {
-      // Save state for undo
+    if (currentEventState.interaction.type === 'dragging-electron') {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      
+      const screenPos = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+      const worldPos = coordinateSystemRef.current.screenToWorld(screenPos);
+      
+      // Find the molecule this electron belongs to
+      const molecule = atomicState.molecules.find(mol => 
+        mol.electrons.some(e => e.id === (currentEventState.interaction as any).electronId)
+      );
+      
+      if (!molecule) return;
+      
+      const distance = coordinateSystemRef.current.worldDistance(worldPos, molecule.worldPosition);
+      const currentShell = determineShellFromDistance(distance);
+      const hoveredShell = currentShell;
+      
+      eventSystemRef.current.updateElectronDrag(currentShell, hoveredShell);
+    } else if (currentEventState.interaction.type === 'dragging-molecule') {
+      const deltaX = (event.clientX - (currentEventState.interaction as any).startX) / viewport.scale;
+      const deltaY = (event.clientY - (currentEventState.interaction as any).startY) / viewport.scale;
+      
       setAtomicState(prev => ({
         ...prev,
-        undoStack: [...prev.undoStack.slice(-9), prev.molecules],
-        molecules: prev.molecules.map(molecule => ({
-          ...molecule,
-          electrons: molecule.electrons.map(electron =>
-            electron.id === electronId ? { ...electron, shell: currentShell } : electron
-          )
-        })),
-        draggedElectron: null,
-        hoveredShell: null
+        molecules: prev.molecules.map(mol =>
+          mol.id === (currentEventState.interaction as any).moleculeId
+            ? { 
+                ...mol, 
+                worldPosition: {
+                  x: mol.worldPosition.x + deltaX,
+                  y: mol.worldPosition.y + deltaY
+                }
+              }
+            : mol
+        )
       }));
-
-      // Notify parent component
-      onTimeHorizonUpdate?.(electronId, originalShell, currentShell);
-      
-      const shellName = SHELL_CONFIG[currentShell]?.name || 'Unknown';
-      toast({
-        title: "Time horizon updated",
-        description: `Moved to ${shellName}`,
-        duration: 2000,
-      });
-    } else {
-      setAtomicState(prev => ({ ...prev, draggedElectron: null, hoveredShell: null }));
     }
-  }, [atomicState.draggedElectron, toast, onTimeHorizonUpdate]);
+  }, [atomicState.molecules, viewport.scale]);
+
+  const handleMouseUp = useCallback(() => {
+    const currentEventState = eventSystemRef.current.getState();
+    
+    if (currentEventState.interaction.type === 'dragging-electron') {
+      const result = eventSystemRef.current.endElectronDrag();
+      if (!result) return;
+      
+      const { electronId, originalShell, currentShell } = result;
+      
+      if (currentShell !== null && currentShell !== originalShell) {
+        // Update electron shell
+        setAtomicState(prev => ({
+          ...prev,
+          undoStack: [...prev.undoStack.slice(-9), prev.molecules],
+          molecules: prev.molecules.map(molecule => ({
+            ...molecule,
+            electrons: redistributeElectronsInShell(
+              molecule.electrons.map(electron =>
+                electron.id === electronId ? { ...electron, shell: currentShell } : electron
+              ),
+              currentShell
+            )
+          }))
+        }));
+
+        onTimeHorizonUpdate?.(electronId, originalShell, currentShell);
+        
+        const shellName = SHELL_CONFIG[currentShell]?.name || 'Unknown';
+        toast({
+          title: "Time horizon updated",
+          description: `Moved to ${shellName}`,
+          duration: 2000,
+        });
+      }
+    } else if (currentEventState.interaction.type === 'dragging-molecule') {
+      eventSystemRef.current.endMoleculeDrag();
+    }
+  }, [toast, onTimeHorizonUpdate]);
+
+  // Global mouse event handlers
+  useEffect(() => {
+    const currentEventState = eventSystemRef.current.getState();
+    
+    if (currentEventState.interaction.type === 'dragging-electron' || 
+        currentEventState.interaction.type === 'dragging-molecule') {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [eventState, handleMouseMove, handleMouseUp]);
 
   // Select molecule
   const handleMoleculeSelect = useCallback((moleculeId: string) => {
@@ -492,10 +386,12 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     const [mol1, mol2] = selectedMols;
     onMoleculeMerge?.(mol1.id, mol2.id);
 
-    const fusedMolecule: Molecule = {
+    const fusedMolecule: StableMolecule = {
       id: `${mol1.id}-${mol2.id}`,
-      x: (mol1.x + mol2.x) / 2,
-      y: (mol1.y + mol2.y) / 2,
+      worldPosition: {
+        x: (mol1.worldPosition.x + mol2.worldPosition.x) / 2,
+        y: (mol1.worldPosition.y + mol2.worldPosition.y) / 2
+      },
       nucleus: {
         protons: mol1.nucleus.protons + mol2.nucleus.protons,
         neutrons: mol1.nucleus.neutrons + mol2.nucleus.neutrons,
@@ -518,10 +414,9 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     toast({
       title: "Fusion complete",
       description: "Molecules combined",
-      action: <Button variant="outline" size="sm" onClick={handleUndo}>Undo</Button>,
-      duration: 8000,
+      duration: 2000,
     });
-  }, [atomicState.molecules, toast]);
+  }, [atomicState.molecules, toast, onMoleculeMerge]);
 
   // Fission (split molecule)
   const handleFission = useCallback((moleculeId: string) => {
@@ -532,11 +427,13 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     const electrons1 = molecule.electrons.slice(0, midpoint);
     const electrons2 = molecule.electrons.slice(midpoint);
 
-    const splitMolecules: Molecule[] = [
+    const splitMolecules: StableMolecule[] = [
       {
         id: `${moleculeId}-A`,
-        x: molecule.x - 60,
-        y: molecule.y - 60,
+        worldPosition: {
+          x: molecule.worldPosition.x - 60,
+          y: molecule.worldPosition.y - 60
+        },
         nucleus: {
           protons: Math.ceil(molecule.nucleus.protons / 2),
           neutrons: Math.ceil(molecule.nucleus.neutrons / 2),
@@ -550,8 +447,10 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       },
       {
         id: `${moleculeId}-B`,
-        x: molecule.x + 60,
-        y: molecule.y + 60,
+        worldPosition: {
+          x: molecule.worldPosition.x + 60,
+          y: molecule.worldPosition.y + 60
+        },
         nucleus: {
           protons: Math.floor(molecule.nucleus.protons / 2),
           neutrons: Math.floor(molecule.nucleus.neutrons / 2),
@@ -574,8 +473,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     toast({
       title: "Fission complete",
       description: "Molecule split",
-      action: <Button variant="outline" size="sm" onClick={handleUndo}>Undo</Button>,
-      duration: 8000,
+      duration: 2000,
     });
   }, [atomicState.molecules, toast]);
 
@@ -600,12 +498,14 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     
     const angle = Math.random() * 2 * Math.PI;
     const distance = 150 + Math.random() * 100;
-    const x = Math.cos(angle) * distance;
-    const y = Math.sin(angle) * distance;
+    const worldPosition = {
+      x: Math.cos(angle) * distance,
+      y: Math.sin(angle) * distance
+    };
 
-    const newMolecule: Molecule = {
+    const newMolecule: StableMolecule = {
       id: `${preset.name}-${Date.now()}`,
-      x, y,
+      worldPosition,
       nucleus: preset.nucleus,
       electrons: [],
       bonds: [],
@@ -619,17 +519,17 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       undoStack: [...prev.undoStack.slice(-9), prev.molecules],
       molecules: [...prev.molecules, newMolecule]
     }));
-  }, []);
+  }, [onMoleculeCreate]);
 
   // Center view
   const centerView = useCallback(() => {
     if (atomicState.molecules.length === 0) return;
     const bounds = atomicState.molecules.reduce(
       (acc, mol) => ({
-        minX: Math.min(acc.minX, mol.x),
-        maxX: Math.max(acc.maxX, mol.x),
-        minY: Math.min(acc.minY, mol.y),
-        maxY: Math.max(acc.maxY, mol.y)
+        minX: Math.min(acc.minX, mol.worldPosition.x),
+        maxX: Math.max(acc.maxX, mol.worldPosition.x),
+        minY: Math.min(acc.minY, mol.worldPosition.y),
+        maxY: Math.max(acc.maxY, mol.worldPosition.y)
       }),
       { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity }
     );
@@ -659,121 +559,6 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [toggleMotion]);
-
-  // Pan and zoom handlers with drag threshold
-  const handleCanvasMouseDown = useCallback((e: React.MouseEvent) => {
-    // Don't pan if clicking on UI overlays, electrons, or nuclei
-    const target = e.target as HTMLElement;
-    if (target.closest('.ui-overlay') || target.closest('.electron') || target.closest('.nucleus') || target.closest('.domain-preset-item')) {
-      return;
-    }
-    
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    
-    setDragStart({
-      x: e.clientX,
-      y: e.clientY,
-      initialViewportX: viewport.x,
-      initialViewportY: viewport.y
-    });
-    e.preventDefault();
-  }, [viewport.x, viewport.y]);
-
-  const handleCanvasMouseMove = useCallback((e: MouseEvent) => {
-    if (!dragStart) return;
-    
-    const deltaX = e.clientX - dragStart.x;
-    const deltaY = e.clientY - dragStart.y;
-    
-    // Start panning only after threshold
-    if (!isPanning && (Math.abs(deltaX) > dragThreshold || Math.abs(deltaY) > dragThreshold)) {
-      setIsPanning(true);
-    }
-    
-    if (isPanning && dragStart.initialViewportX !== undefined && dragStart.initialViewportY !== undefined) {
-      setViewport(prev => ({
-        ...prev,
-        x: dragStart.initialViewportX + deltaX,
-        y: dragStart.initialViewportY + deltaY
-      }));
-    }
-  }, [isPanning, dragStart, dragThreshold]);
-
-  const handleCanvasMouseUp = useCallback(() => {
-    setIsPanning(false);
-    setDragStart({ x: 0, y: 0 });
-  }, []);
-
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? 0.9 : 1.1;
-    setViewport(prev => ({
-      ...prev,
-      scale: Math.max(0.1, Math.min(3, prev.scale * delta))
-    }));
-  }, []);
-
-  // Draggable UI handlers
-  const handleUIDragStart = (type: 'domain' | 'time', e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsDraggingUI(type);
-    setDragStart({ x: e.clientX, y: e.clientY });
-  };
-
-  const handleUIDrag = useCallback((e: MouseEvent) => {
-    if (!isDraggingUI) return;
-    
-    const deltaX = e.clientX - dragStart.x;
-    const deltaY = e.clientY - dragStart.y;
-    
-    if (isDraggingUI === 'domain') {
-      setDomainCardPos(prev => ({ x: prev.x + deltaX, y: prev.y - deltaY })); // Invert Y
-    } else if (isDraggingUI === 'time') {
-      setTimeHorizonPos(prev => ({ x: prev.x + deltaX, y: prev.y - deltaY })); // Invert Y
-    }
-    
-    setDragStart({ x: e.clientX, y: e.clientY });
-  }, [isDraggingUI, dragStart.x, dragStart.y]);
-
-  const handleUIDragEnd = useCallback(() => {
-    setIsDraggingUI(null);
-  }, []);
-
-  // Global mouse event handlers - consolidated to prevent conflicts
-  useEffect(() => {
-    const cleanup = () => {
-      document.removeEventListener('mousemove', handleCanvasMouseMove);
-      document.removeEventListener('mouseup', handleCanvasMouseUp);
-      document.removeEventListener('mousemove', handleUIDrag);
-      document.removeEventListener('mouseup', handleUIDragEnd);
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      document.removeEventListener('mousemove', handleMoleculeMouseMove);
-      document.removeEventListener('mouseup', handleMoleculeMouseUp);
-    };
-
-    // Only add listeners when needed and avoid conflicts
-    if (atomicState.draggedElectron) {
-      // Electron dragging takes priority
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-    } else if (atomicState.draggedMolecule) {
-      // Molecule dragging takes priority
-      document.addEventListener('mousemove', handleMoleculeMouseMove);
-      document.addEventListener('mouseup', handleMoleculeMouseUp);
-    } else if (isDraggingUI) {
-      // UI dragging
-      document.addEventListener('mousemove', handleUIDrag);
-      document.addEventListener('mouseup', handleUIDragEnd);
-    } else if ((dragStart.x !== 0 || dragStart.y !== 0)) {
-      // Canvas panning only when no other dragging is active
-      document.addEventListener('mousemove', handleCanvasMouseMove);
-      document.addEventListener('mouseup', handleCanvasMouseUp);
-    }
-    
-    return cleanup;
-  }, [dragStart, isDraggingUI, atomicState.draggedElectron, atomicState.draggedMolecule, handleCanvasMouseMove, handleCanvasMouseUp, handleUIDrag, handleUIDragEnd, handleMouseMove, handleMouseUp, handleMoleculeMouseMove, handleMoleculeMouseUp]);
 
   const selectedCount = atomicState.molecules.filter(mol => mol.selected).length;
 
@@ -827,64 +612,24 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       {/* Main Canvas */}
       <div
         ref={canvasRef}
-        className={`absolute inset-0 ${isPanning ? 'cursor-grabbing' : 'cursor-grab'}`}
+        className="absolute inset-0 cursor-grab"
         style={{
           transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`,
           transformOrigin: 'center center',
         }}
-        onMouseDown={handleCanvasMouseDown}
-        onWheel={handleWheel}
+        onWheel={(e) => zoomSystem.handleWheelZoom(e, viewport.scale)}
       >
-        {/* Molecular bonds (render behind molecules) */}
-        {atomicState.molecules.map(molecule => {
-          return atomicState.molecules
-            .filter(otherMol => otherMol.id !== molecule.id)
-            .map(otherMol => {
-              // Check if molecules have shared domains/tags for bonding
-              const hasSharedTags = molecule.nucleus.domain === otherMol.nucleus.domain ||
-                Math.random() < 0.05; // Simple bonding logic for demo
-              
-              if (!hasSharedTags) return null;
-              
-              const distance = Math.sqrt(
-                Math.pow(molecule.x - otherMol.x, 2) +
-                Math.pow(molecule.y - otherMol.y, 2)
-              );
-              
-              // Only show bonds for nearby molecules
-              if (distance > 200) return null;
-              
-              return (
-                <div
-                  key={`bond-${molecule.id}-${otherMol.id}`}
-                  className="absolute pointer-events-none"
-                  style={{
-                    left: molecule.x + viewport.width / 2,
-                    top: molecule.y + viewport.height / 2,
-                    width: distance,
-                    height: 2,
-                    background: 'linear-gradient(90deg, hsl(var(--muted-foreground) / 0.3), transparent)',
-                    transformOrigin: '0 50%',
-                    transform: `rotate(${Math.atan2(otherMol.y - molecule.y, otherMol.x - molecule.x)}rad)`,
-                    zIndex: 1,
-                  }}
-                />
-              );
-            });
-        })}
-
         {/* Render Molecules */}
         {atomicState.molecules.map(molecule => {
-          const totalElectrons = molecule.electrons.length;
-          const isLOD = atomicState.molecules.reduce((sum, mol) => sum + mol.electrons.length, 0) > 50;
+          const moleculeScreenPos = coordinateSystemRef.current.worldToScreen(molecule.worldPosition);
           
           return (
             <div
               key={molecule.id}
               className="absolute molecule-container"
               style={{
-                left: molecule.x + viewport.width / 2,
-                top: molecule.y + viewport.height / 2,
+                left: moleculeScreenPos.x,
+                top: moleculeScreenPos.y,
                 transform: 'translate(-50%, -50%)',
                 zIndex: 10,
               }}
@@ -925,17 +670,16 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
               )}
             </div>
 
-            {/* Electron Shells with capacity indicators */}
+            {/* Electron Shells */}
             {SHELL_CONFIG.map((shell, shellIndex) => {
               const electronsInShell = molecule.electrons.filter(e => e.shell === shellIndex);
-              const maxElectrons = shell.maxElectrons;
-              const isOverflow = electronsInShell.length > maxElectrons;
+              const isOverflow = electronsInShell.length > shell.maxElectrons;
               
               return (
                   <div
                     key={shellIndex}
                     className={`absolute rounded-full border transition-all ${
-                      atomicState.hoveredShell === shellIndex ? 'border-2 opacity-80' : 'border opacity-30'
+                      eventState.hoveredShell === shellIndex ? 'border-2 opacity-80' : 'border opacity-30'
                     }`}
                     style={{
                       width: shell.radius * 2,
@@ -966,7 +710,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                         top: -8,
                         right: shell.radius / 4,
                       }}
-                      title={`Overflow: ${electronsInShell.length}/${maxElectrons} electrons`}
+                      title={`Overflow: ${electronsInShell.length}/${shell.maxElectrons} electrons`}
                     >
                       !
                     </div>
@@ -975,37 +719,29 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
               );
             })}
 
-            {/* Electrons with LOD optimization */}
+            {/* Electrons with stable positioning */}
             {molecule.electrons.map((electron) => {
               const shell = SHELL_CONFIG[electron.shell];
               if (!shell) return null;
 
-              // Calculate consistent orbital position
-              // Base angle from electron configuration, add phase only when motion is enabled
-              const baseAngle = electron.angle;
-              const phaseOffset = (motionEnabled && !reducedMotion) ? electron.phase : 0;
-              const finalAngle = baseAngle + phaseOffset;
-              
-              const x = Math.cos(finalAngle) * shell.radius;
-              const y = Math.sin(finalAngle) * shell.radius;
-
-              // LOD: Simplify rendering for many electrons
-              const totalElectrons = atomicState.molecules.reduce((sum, mol) => sum + mol.electrons.length, 0);
-              const isLODMode = totalElectrons > 50;
-              const electronSize = isLODMode ? 2 : 3;
-              const showGlow = !isLODMode;
+              const electronScreenPos = calculateElectronScreenPosition(
+                electron,
+                molecule,
+                coordinateSystemRef.current,
+                motionEnabled
+              );
 
               return (
                 <div
                   key={electron.id}
-                  className={`electron absolute rounded-full cursor-grab transition-all hover:scale-125 ${!isLODMode ? 'hover:brightness-125' : ''}`}
+                  className="electron absolute rounded-full cursor-grab transition-all hover:scale-125"
                   style={{
-                    width: `${electronSize * 2}px`,
-                    height: `${electronSize * 2}px`,
-                    left: x - electronSize,
-                    top: y - electronSize,
+                    width: '6px',
+                    height: '6px',
+                    left: electronScreenPos.x - 3,
+                    top: electronScreenPos.y - 3,
                     backgroundColor: shell.color,
-                    boxShadow: showGlow ? `0 0 8px ${shell.color}` : 'none',
+                    boxShadow: `0 0 8px ${shell.color}`,
                     zIndex: 30,
                     pointerEvents: 'auto',
                   }}
@@ -1043,22 +779,10 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           </div>
           );
         })}
-
-        {/* Dragged Electron Ghost */}
-        {atomicState.draggedElectron && (
-          <div
-            className="absolute w-4 h-4 rounded-full bg-cyan-400 pointer-events-none z-50"
-            style={{
-              left: atomicState.draggedElectron.dragX - 8,
-              top: atomicState.draggedElectron.dragY - 8,
-              boxShadow: '0 0 12px #22D3EE',
-            }}
-          />
-        )}
       </div>
 
       {/* Controls */}
-      <div className="absolute top-4 left-4 flex gap-2 z-20">
+      <div className="absolute top-4 right-4 flex gap-2 z-20">
         <Button variant="outline" size="sm" onClick={centerView} className="bg-card/80 backdrop-blur-sm">
           <RotateCcw className="h-4 w-4" />
         </Button>
@@ -1095,88 +819,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         )}
       </div>
 
-      {/* Domain Preset Cards - Draggable */}
-      <div 
-        className="absolute z-20 max-w-xs"
-        style={{
-          top: 16 + domainCardPos.y,
-          right: 16 - domainCardPos.x,
-          transform: isDraggingUI === 'domain' ? 'scale(1.02)' : 'scale(1)',
-          transition: isDraggingUI === 'domain' ? 'none' : 'transform 0.2s',
-        }}
-      >
-        <Card className="p-3 bg-card/90 backdrop-blur-sm border-2 hover:border-primary/50 transition-colors">
-          <div 
-            className="flex items-center gap-2 mb-2 cursor-move select-none"
-            onMouseDown={(e) => handleUIDragStart('domain', e)}
-          >
-            <h3 className="text-sm font-semibold flex-1">Quick Add Domains</h3>
-            <div className="w-4 h-4 grid grid-cols-2 gap-0.5">
-              {[...Array(4)].map((_, i) => (
-                <div key={i} className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-sm" />
-              ))}
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            {DOMAIN_PRESETS.map(preset => (
-              <Button
-                key={preset.name}
-                variant="outline" size="sm"
-                onClick={() => handleQuickAdd(preset)}
-                className="justify-start gap-2 h-auto p-2 hover:scale-105 transition-transform"
-              >
-                <span className="text-base">{preset.emoji}</span>
-                <span className="text-xs">{preset.name}</span>
-              </Button>
-            ))}
-          </div>
-        </Card>
-      </div>
-
-      {/* Time Horizon Status - Draggable */}
-      <div 
-        className="absolute z-20"
-        style={{
-          bottom: 16 + timeHorizonPos.y,
-          right: 16 - timeHorizonPos.x,
-          transform: isDraggingUI === 'time' ? 'scale(1.02)' : 'scale(1)',
-          transition: isDraggingUI === 'time' ? 'none' : 'transform 0.2s',
-        }}
-      >
-        <Card className="p-2 bg-card/90 backdrop-blur-sm border-2 hover:border-primary/50 transition-colors">
-          <div 
-            className="flex items-center gap-2 mb-2 cursor-move select-none"
-            onMouseDown={(e) => handleUIDragStart('time', e)}
-          >
-            <div className="text-xs font-semibold flex-1">Time Horizons</div>
-            <div className="w-4 h-4 grid grid-cols-2 gap-0.5">
-              {[...Array(4)].map((_, i) => (
-                <div key={i} className="w-1.5 h-1.5 bg-muted-foreground/50 rounded-sm" />
-              ))}
-            </div>
-          </div>
-          <div className="space-y-1">
-            {SHELL_CONFIG.map((shell, index) => {
-              const electronCount = atomicState.molecules.reduce(
-                (sum, mol) => sum + mol.electrons.filter(e => e.shell === index).length, 0
-              );
-              return (
-                <div key={index} className="flex items-center justify-between gap-3 text-xs">
-                  <div className="flex items-center gap-2">
-                    <shell.icon className="h-3 w-3" style={{ color: shell.color }} />
-                    <span>{shell.name}</span>
-                  </div>
-                  <Badge variant="outline" style={{ borderColor: shell.color }}>
-                    {electronCount}
-                  </Badge>
-                </div>
-              );
-            })}
-          </div>
-        </Card>
-      </div>
-
-      {/* Status Bar with performance info */}
+      {/* Status Bar */}
       <div className="absolute bottom-4 left-4 flex gap-2 z-20">
         <Badge variant="secondary" className="bg-card/80 backdrop-blur-sm">
           {atomicState.molecules.length} molecules
@@ -1187,19 +830,14 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         <Badge variant="outline" className="bg-card/80 backdrop-blur-sm">
           {Math.round(viewport.scale * 100)}% zoom
         </Badge>
-        {atomicState.molecules.reduce((sum, mol) => sum + mol.electrons.length, 0) > 50 && (
-          <Badge variant="outline" className="bg-card/80 backdrop-blur-sm">
-            LOD: Active
-          </Badge>
-        )}
         {reducedMotion && (
           <Badge variant="outline" className="bg-card/80 backdrop-blur-sm">
             Reduced Motion
           </Badge>
         )}
-        {(isDragging || isPanning) && (
+        {eventState.interaction.type !== 'idle' && (
           <Badge variant="outline" className="bg-card/80 backdrop-blur-sm">
-            {isDragging ? 'Dragging' : 'Panning'}
+            {eventState.interaction.type.replace('-', ' ')}
           </Badge>
         )}
       </div>
@@ -1209,8 +847,8 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         {atomicState.selectedMolecule && (
           <div>Selected molecule: {atomicState.selectedMolecule}</div>
         )}
-        {atomicState.draggedElectron && (
-          <div>Dragging electron to {SHELL_CONFIG[atomicState.draggedElectron.currentShell]?.name}</div>
+        {eventState.interaction.type === 'dragging-electron' && (
+          <div>Dragging electron to {SHELL_CONFIG[eventState.hoveredShell || 0]?.name}</div>
         )}
       </div>
     </div>
