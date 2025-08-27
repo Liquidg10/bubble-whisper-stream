@@ -51,6 +51,13 @@ interface AtomicState {
     dragX: number;
     dragY: number;
   } | null;
+  draggedMolecule: {
+    moleculeId: string;
+    startX: number;
+    startY: number;
+    offsetX: number;
+    offsetY: number;
+  } | null;
   undoStack: Molecule[][];
   hoveredShell: number | null;
 }
@@ -114,6 +121,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     molecules: [],
     selectedMolecule: null,
     draggedElectron: null,
+    draggedMolecule: null,
     undoStack: [],
     hoveredShell: null
   });
@@ -139,9 +147,9 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
 
     const molecules: Molecule[] = Object.entries(grouped).map(([domain, domainBubbles], index) => {
       const angle = (index / Object.keys(grouped).length) * 2 * Math.PI;
-      const distance = 250;
-      const x = Math.cos(angle) * distance + (viewport.width / 2 || 400);
-      const y = Math.sin(angle) * distance + (viewport.height / 2 || 300);
+      const distance = 150 + Math.random() * 100; // More varied positioning
+      const x = Math.cos(angle) * distance;
+      const y = Math.sin(angle) * distance;
       
       const electrons: Electron[] = domainBubbles.map((bubble, electronIndex) => {
         // Determine shell based on time horizon tags
@@ -295,7 +303,64 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     document.addEventListener('mouseup', handleMouseUp);
   }, []);
 
-  // Handle mouse move during drag
+  // Handle molecule drag start
+  const handleMoleculeDragStart = useCallback((moleculeId: string, event: React.MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    
+    const molecule = atomicState.molecules.find(mol => mol.id === moleculeId);
+    if (!molecule) return;
+    
+    setAtomicState(prev => ({
+      ...prev,
+      draggedMolecule: {
+        moleculeId,
+        startX: event.clientX,
+        startY: event.clientY,
+        offsetX: 0,
+        offsetY: 0
+      }
+    }));
+    
+    document.addEventListener('mousemove', handleMoleculeMouseMove);
+    document.addEventListener('mouseup', handleMoleculeMouseUp);
+  }, [atomicState.molecules]);
+
+  // Handle molecule mouse move during drag
+  const handleMoleculeMouseMove = useCallback((event: MouseEvent) => {
+    if (!atomicState.draggedMolecule) return;
+    
+    const deltaX = event.clientX - atomicState.draggedMolecule.startX;
+    const deltaY = event.clientY - atomicState.draggedMolecule.startY;
+    
+    setAtomicState(prev => ({
+      ...prev,
+      draggedMolecule: prev.draggedMolecule ? {
+        ...prev.draggedMolecule,
+        offsetX: deltaX / viewport.scale,
+        offsetY: deltaY / viewport.scale
+      } : null,
+      molecules: prev.molecules.map(mol =>
+        mol.id === prev.draggedMolecule?.moleculeId
+          ? { ...mol, x: mol.x + (deltaX / viewport.scale) - (prev.draggedMolecule?.offsetX || 0), y: mol.y + (deltaY / viewport.scale) - (prev.draggedMolecule?.offsetY || 0) }
+          : mol
+      )
+    }));
+  }, [atomicState.draggedMolecule, viewport.scale]);
+
+  // Handle molecule mouse up (end drag)
+  const handleMoleculeMouseUp = useCallback(() => {
+    if (!atomicState.draggedMolecule) return;
+    
+    setAtomicState(prev => ({ ...prev, draggedMolecule: null }));
+    document.removeEventListener('mousemove', handleMoleculeMouseMove);
+    document.removeEventListener('mouseup', handleMoleculeMouseUp);
+  }, [atomicState.draggedMolecule]);
+
+  // Handle mouse move during electron drag
   const handleMouseMove = useCallback((event: MouseEvent) => {
     if (!atomicState.draggedElectron) return;
     
@@ -305,10 +370,18 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     const dragX = event.clientX - rect.left;
     const dragY = event.clientY - rect.top;
     
-    // Calculate which shell we're hovering over
-    const centerX = rect.width / 2;
-    const centerY = rect.height / 2;
-    const distance = Math.sqrt((dragX - centerX) ** 2 + (dragY - centerY) ** 2);
+    // Calculate which shell we're hovering over relative to the molecule center
+    const draggedElectron = atomicState.draggedElectron;
+    const molecule = atomicState.molecules.find(mol => 
+      mol.electrons.some(e => e.id === draggedElectron.electronId)
+    );
+    
+    if (!molecule) return;
+    
+    const moleculeScreenX = (molecule.x + viewport.width / 2) * viewport.scale + viewport.x;
+    const moleculeScreenY = (molecule.y + viewport.height / 2) * viewport.scale + viewport.y;
+    
+    const distance = Math.sqrt((dragX - moleculeScreenX) ** 2 + (dragY - moleculeScreenY) ** 2) / viewport.scale;
     
     let hoveredShell = null;
     for (let i = 0; i < SHELL_CONFIG.length; i++) {
@@ -329,7 +402,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       } : null,
       hoveredShell
     }));
-  }, [atomicState.draggedElectron]);
+  }, [atomicState.draggedElectron, atomicState.molecules, viewport]);
 
   // Handle mouse up (end drag)
   const handleMouseUp = useCallback(() => {
@@ -579,9 +652,9 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
 
   // Pan and zoom handlers with drag threshold
   const handleCanvasMouseDown = useCallback((e: React.MouseEvent) => {
-    // Don't pan if clicking on UI overlays or electrons
+    // Don't pan if clicking on UI overlays, electrons, or nuclei
     const target = e.target as HTMLElement;
-    if (target.closest('.ui-overlay') || target.closest('.electron') || target.closest('.domain-preset-item')) {
+    if (target.closest('.ui-overlay') || target.closest('.electron') || target.closest('.nucleus') || target.closest('.domain-preset-item')) {
       return;
     }
     
@@ -762,7 +835,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
               return (
                 <div
                   key={`bond-${molecule.id}-${otherMol.id}`}
-                  className="absolute pointer-events-none z-0"
+                  className="absolute pointer-events-none"
                   style={{
                     left: molecule.x + viewport.width / 2,
                     top: molecule.y + viewport.height / 2,
@@ -796,15 +869,17 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
             >
             {/* Nucleus */}
             <div 
-              className={`relative w-16 h-16 rounded-full border-2 cursor-pointer transition-all ${
+              className={`nucleus relative w-16 h-16 rounded-full border-2 cursor-move transition-all hover:scale-110 ${
                 molecule.selected ? 'border-yellow-400 shadow-lg shadow-yellow-400/50' : 'border-gray-400'
               }`}
               style={{
                 background: `radial-gradient(circle, ${
                   DOMAIN_PRESETS.find(p => p.name === molecule.nucleus.domain)?.color || '#6B7280'
                 }, #1F2937)`,
+                zIndex: 20,
               }}
               onClick={() => handleMoleculeSelect(molecule.id)}
+              onMouseDown={(e) => handleMoleculeDragStart(molecule.id, e)}
               role="button"
               tabIndex={0}
               aria-label={`${molecule.nucleus.domain} molecule: ${molecule.nucleus.protons} protons, ${molecule.nucleus.neutrons} neutrons, ${molecule.electrons.length} electrons`}
@@ -892,7 +967,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
               return (
                 <div
                   key={electron.id}
-                  className={`absolute rounded-full cursor-grab transition-all ${!isLODMode ? 'hover:scale-125' : ''}`}
+                  className={`electron absolute rounded-full cursor-grab transition-all hover:scale-125 ${!isLODMode ? 'hover:brightness-125' : ''}`}
                   style={{
                     width: `${electronSize * 2}px`,
                     height: `${electronSize * 2}px`,
@@ -900,10 +975,17 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                     top: y - electronSize,
                     backgroundColor: shell.color,
                     boxShadow: showGlow ? `0 0 8px ${shell.color}` : 'none',
-                    zIndex: 10,
+                    zIndex: 30,
+                    pointerEvents: 'auto',
                   }}
-                  onMouseDown={(e) => handleElectronDragStart(electron.id, electron.shell, e)}
-                  onClick={() => onBubbleSelect?.(electron.originalBubble!)}
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    handleElectronDragStart(electron.id, electron.shell, e);
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onBubbleSelect?.(electron.originalBubble!);
+                  }}
                   title={`${electron.type}: ${electron.content.substring(0, 50)}...`}
                   role="button"
                   tabIndex={0}
