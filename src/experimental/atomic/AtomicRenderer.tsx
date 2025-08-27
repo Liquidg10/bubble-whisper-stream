@@ -8,7 +8,7 @@ import { Bubble, BubbleType } from '@/types/bubble';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
-import { Undo2, Zap, RotateCcw, Home, Calendar, Clock, Plus } from 'lucide-react';
+import { Undo2, Zap, RotateCcw, Home, Calendar, Clock, Plus, ZoomIn, ZoomOut, RotateCcw as FitIcon } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useZoomStandard } from '@/hooks/useZoomStandard';
@@ -269,6 +269,20 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     }));
   }, []);
 
+  const handleCanvasDragStart = useCallback((event: React.MouseEvent) => {
+    // Only start canvas drag if clicking on empty space
+    if (event.target === event.currentTarget) {
+      setAtomicState(prev => ({
+        ...prev,
+        dragState: {
+          isDragging: true,
+          type: 'canvas',
+          lastMousePos: { x: event.clientX, y: event.clientY }
+        }
+      }));
+    }
+  }, []);
+
   const handleMouseMove = useCallback((event: MouseEvent) => {
     if (!atomicState.dragState.isDragging) return;
     
@@ -327,6 +341,21 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
             y: mol.y + deltaY / viewport.scale
           } : mol
         ),
+        dragState: {
+          ...prev.dragState,
+          lastMousePos: { x: event.clientX, y: event.clientY }
+        }
+      }));
+    } else if (atomicState.dragState.type === 'canvas') {
+      // Handle canvas panning
+      setViewport(prev => ({
+        ...prev,
+        x: prev.x + deltaX,
+        y: prev.y + deltaY
+      }));
+      
+      setAtomicState(prev => ({
+        ...prev,
         dragState: {
           ...prev.dragState,
           lastMousePos: { x: event.clientX, y: event.clientY }
@@ -581,18 +610,64 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     setMotionEnabled(prev => !prev);
   }, []);
 
+  // Zoom and pan controls
+  const handleZoomIn = useCallback(() => {
+    zoomControls.zoomIn(viewport.scale);
+  }, [zoomControls, viewport.scale]);
+
+  const handleZoomOut = useCallback(() => {
+    zoomControls.zoomOut(viewport.scale);
+  }, [zoomControls, viewport.scale]);
+
+  const handleZoomReset = useCallback(() => {
+    zoomControls.resetZoom(viewport.scale);
+  }, [zoomControls, viewport.scale]);
+
+  const handleZoomToFit = useCallback(() => {
+    if (atomicState.molecules.length === 0) return;
+    
+    const padding = 100;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    
+    atomicState.molecules.forEach(mol => {
+      minX = Math.min(minX, mol.x - 150);
+      maxX = Math.max(maxX, mol.x + 150);
+      minY = Math.min(minY, mol.y - 150);
+      maxY = Math.max(maxY, mol.y + 150);
+    });
+    
+    const contentBounds = {
+      width: maxX - minX,
+      height: maxY - minY
+    };
+    
+    zoomControls.zoomToFit(contentBounds, viewport.scale, padding);
+  }, [atomicState.molecules, zoomControls, viewport.scale]);
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.code === 'Space') {
+      if (event.code === 'Space' && !event.repeat) {
         event.preventDefault();
         toggleMotion();
+      } else if ((event.key === '+' || event.key === '=') && !event.repeat) {
+        event.preventDefault();
+        handleZoomIn();
+      } else if (event.key === '-' && !event.repeat) {
+        event.preventDefault();
+        handleZoomOut();
+      } else if (event.key === '0' && !event.repeat) {
+        event.preventDefault();
+        handleZoomReset();
+      } else if (event.key === 'f' && !event.repeat) {
+        event.preventDefault();
+        handleZoomToFit();
       }
     };
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [toggleMotion]);
+  }, [toggleMotion, handleZoomIn, handleZoomOut, handleZoomReset, handleZoomToFit]);
 
   return (
     <div className={`relative w-full h-full bg-gradient-to-br from-slate-900 via-blue-900 to-purple-900 overflow-hidden ${className}`}>
@@ -627,6 +702,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           transformOrigin: 'center'
         }}
         onWheel={(e) => zoomControls.handleWheelZoom(e, viewport.scale)}
+        onMouseDown={handleCanvasDragStart}
       >
         {/* Molecules */}
         {atomicState.molecules.map((molecule) => (
@@ -732,13 +808,56 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         ))}
       </div>
 
-      {/* Control buttons */}
+      {/* Zoom Controls */}
       <div className="absolute top-4 right-4 z-10 flex flex-col gap-2">
+        <div className="flex flex-col gap-1 bg-black/20 backdrop-blur-sm border border-white/20 rounded-lg p-1">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleZoomIn}
+            className="bg-transparent border-white/20 text-white hover:bg-white/10"
+            title="Zoom In (+)"
+          >
+            <ZoomIn className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleZoomOut}
+            className="bg-transparent border-white/20 text-white hover:bg-white/10"
+            title="Zoom Out (-)"
+          >
+            <ZoomOut className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleZoomToFit}
+            className="bg-transparent border-white/20 text-white hover:bg-white/10"
+            title="Zoom to Fit (F)"
+          >
+            <FitIcon className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleZoomReset}
+            className="bg-transparent border-white/20 text-white hover:bg-white/10"
+            title="Reset Zoom (0)"
+          >
+            1:1
+          </Button>
+        </div>
+      </div>
+
+      {/* Control buttons */}
+      <div className="absolute bottom-4 right-4 z-10 flex flex-col gap-2">
         <Button
           variant="outline"
           size="sm"
           onClick={centerView}
           className="bg-black/20 backdrop-blur-sm border-white/20"
+          title="Center View"
         >
           <Home className="w-4 h-4" />
         </Button>
@@ -748,6 +867,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           onClick={handleUndo}
           disabled={atomicState.undoStack.length === 0}
           className="bg-black/20 backdrop-blur-sm border-white/20"
+          title="Undo"
         >
           <Undo2 className="w-4 h-4" />
         </Button>
@@ -756,6 +876,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           size="sm"
           onClick={() => handlePhotonPulse('shell')}
           className="bg-black/20 backdrop-blur-sm border-white/20"
+          title="Photon Pulse"
         >
           <Zap className="w-4 h-4" />
         </Button>
@@ -764,6 +885,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           size="sm"
           onClick={handleFusion}
           className="bg-black/20 backdrop-blur-sm border-white/20"
+          title="Fuse Molecules"
         >
           🔗
         </Button>
@@ -772,13 +894,14 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           size="sm"
           onClick={handleFission}
           className="bg-black/20 backdrop-blur-sm border-white/20"
+          title="Split Molecule"
         >
           ⚡
         </Button>
       </div>
 
-      {/* Status display */}
-      <div className="absolute bottom-4 left-4 z-10 flex gap-2">
+      {/* Status display - Moved to top right to avoid domain controls */}
+      <div className="absolute top-4 right-4 mr-20 z-10 flex gap-2">
         <Badge variant="outline" className="bg-black/20 backdrop-blur-sm border-white/20 text-white">
           Molecules: {atomicState.molecules.length}
         </Badge>
@@ -795,8 +918,8 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         )}
       </div>
 
-      {/* Domain quick-add */}
-      <Card className="absolute top-4 left-1/2 transform -translate-x-1/2 bg-black/20 backdrop-blur-sm border-white/20 p-2">
+      {/* Domain quick-add - Moved to bottom left to avoid overlap */}
+      <Card className="absolute bottom-4 left-4 mt-16 bg-black/20 backdrop-blur-sm border-white/20 p-2">
         <div className="flex gap-1">
           {DOMAIN_PRESETS.slice(0, 4).map((preset) => (
             <Button
@@ -817,6 +940,14 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       <div className="sr-only" aria-live="polite">
         {atomicState.dragState.isDragging && 
           `Dragging ${atomicState.dragState.type}. Current position updated.`}
+      </div>
+
+      {/* Interaction Help */}
+      <div className="absolute top-4 left-4 mt-16 text-white/60 text-xs max-w-xs">
+        <div>🖱️ Click + drag: Pan canvas</div>
+        <div>🔬 Molecules: Click to select, drag to move</div>
+        <div>⚛️ Electrons: Drag between shells</div>
+        <div>⌨️ Shortcuts: Space (motion), +/- (zoom), F (fit), 0 (reset)</div>
       </div>
     </div>
   );
