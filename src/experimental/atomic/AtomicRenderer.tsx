@@ -745,9 +745,14 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
 
             {/* Nucleus */}
             <div
-              className={`relative w-12 h-12 rounded-full border-2 border-white/50 cursor-move
+              className={`absolute w-12 h-12 rounded-full border-2 border-white/50 cursor-move
                 ${molecule.selected ? 'bg-yellow-500/80 shadow-lg shadow-yellow-500/50' : 'bg-blue-500/80'}
                 transition-all duration-200 hover:scale-110`}
+              style={{
+                left: '50%',
+                top: '50%',
+                transform: 'translate(-50%, -50%)'
+              }}
               onMouseDown={(e) => handleMoleculeDragStart(molecule, e)}
               onClick={() => handleMoleculeSelect(molecule)}
             >
