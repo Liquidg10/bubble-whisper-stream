@@ -110,7 +110,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     x: 0, y: 0, scale: 1, width: 0, height: 0
   });
   
-  // Atomic state with multi-selection support
+  // Atomic state
   const [atomicState, setAtomicState] = useState<AtomicState>({
     molecules: [],
     selectedMolecule: null,
@@ -121,10 +121,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     undoStack: []
   });
 
-  // Track shift key for multi-selection
-  const [isShiftPressed, setIsShiftPressed] = useState(false);
-
-  // Initialize zoom behavior with proper state reset
+  // Initialize zoom behavior
   const zoomControls = useZoomStandard({
     onZoomChange: (state) => {
       setViewport(prev => ({
@@ -136,18 +133,6 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     },
     getContainerRect: () => canvasRef.current?.getBoundingClientRect() || null
   });
-
-  // Reset zoom state after drag operations to prevent zoom conflicts
-  const resetZoomState = useCallback(() => {
-    if (canvasRef.current) {
-      const rect = canvasRef.current.getBoundingClientRect();
-      setViewport(prev => ({
-        ...prev,
-        width: rect.width,
-        height: rect.height
-      }));
-    }
-  }, []);
 
   // Convert bubbles to molecules
   const convertBubblesToMolecules = useCallback((bubbles: Bubble[]): Molecule[] => {
@@ -164,14 +149,10 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       const moleculeId = `mol-${domain}-${Math.floor(index / 8)}`;
       
       if (!moleculeMap.has(moleculeId)) {
-        // Center nucleus properly in molecule display
-        const centerX = (index % 4) * 300 + Math.random() * 100 - 50;
-        const centerY = Math.floor(index / 4) * 300 + Math.random() * 100 - 50;
-        
         moleculeMap.set(moleculeId, {
           id: moleculeId,
-          x: centerX,
-          y: centerY,
+          x: (index % 4) * 300 + Math.random() * 100 - 50,
+          y: Math.floor(index / 4) * 300 + Math.random() * 100 - 50,
           nucleus: domainPreset.nucleus,
           electrons: [],
           bonds: [],
@@ -398,9 +379,6 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       }
     }
     
-    // Reset zoom state after any drag operation to prevent conflicts
-    resetZoomState();
-    
     setAtomicState(prev => ({
       ...prev,
       dragState: {
@@ -409,7 +387,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         hoveredShell: undefined
       }
     }));
-  }, [atomicState.dragState, atomicState.molecules, onTimeHorizonUpdate, resetZoomState]);
+  }, [atomicState.dragState, atomicState.molecules, onTimeHorizonUpdate]);
 
   // Attach global mouse events
   useEffect(() => {
@@ -424,52 +402,17 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     }
   }, [atomicState.dragState.isDragging, handleMouseMove, handleMouseUp]);
 
-  // Keyboard event handlers for shift key tracking
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Shift') {
-        setIsShiftPressed(true);
-      }
-    };
-
-    const handleKeyUp = (event: KeyboardEvent) => {
-      if (event.key === 'Shift') {
-        setIsShiftPressed(false);
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    document.addEventListener('keyup', handleKeyUp);
-
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      document.removeEventListener('keyup', handleKeyUp);
-    };
+  // Additional handlers
+  const handleMoleculeSelect = useCallback((molecule: Molecule) => {
+    setAtomicState(prev => ({
+      ...prev,
+      selectedMolecule: prev.selectedMolecule === molecule.id ? null : molecule.id,
+      molecules: prev.molecules.map(mol => ({
+        ...mol,
+        selected: mol.id === molecule.id ? !mol.selected : false
+      }))
+    }));
   }, []);
-
-  // Multi-selection molecule handler with shift+click support
-  const handleMoleculeSelect = useCallback((molecule: Molecule, event?: React.MouseEvent) => {
-    if (event?.shiftKey || isShiftPressed) {
-      // Multi-selection mode
-      setAtomicState(prev => ({
-        ...prev,
-        molecules: prev.molecules.map(mol => ({
-          ...mol,
-          selected: mol.id === molecule.id ? !mol.selected : mol.selected
-        }))
-      }));
-    } else {
-      // Single selection mode
-      setAtomicState(prev => ({
-        ...prev,
-        selectedMolecule: prev.selectedMolecule === molecule.id ? null : molecule.id,
-        molecules: prev.molecules.map(mol => ({
-          ...mol,
-          selected: mol.id === molecule.id ? !mol.selected : false
-        }))
-      }));
-    }
-  }, [isShiftPressed]);
 
   const handlePhotonPulse = useCallback((type: 'shell' | 'bond') => {
     const selectedMol = atomicState.molecules.find(mol => mol.selected);
@@ -806,7 +749,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                 ${molecule.selected ? 'bg-yellow-500/80 shadow-lg shadow-yellow-500/50' : 'bg-blue-500/80'}
                 transition-all duration-200 hover:scale-110`}
               onMouseDown={(e) => handleMoleculeDragStart(molecule, e)}
-              onClick={(e) => handleMoleculeSelect(molecule, e)}
+              onClick={() => handleMoleculeSelect(molecule)}
             >
               <div className="absolute inset-0 flex items-center justify-center text-white text-xs font-bold">
                 {molecule.nucleus.protons}p
@@ -957,8 +900,8 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         </Button>
       </div>
 
-      {/* Status display - Moved below zoom controls to avoid overlap */}
-      <div className="absolute top-20 right-4 z-10 flex gap-2">
+      {/* Status display - Moved to top right to avoid domain controls */}
+      <div className="absolute top-4 right-4 mr-20 z-10 flex gap-2">
         <Badge variant="outline" className="bg-black/20 backdrop-blur-sm border-white/20 text-white">
           Molecules: {atomicState.molecules.length}
         </Badge>
@@ -999,13 +942,12 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           `Dragging ${atomicState.dragState.type}. Current position updated.`}
       </div>
 
-      {/* Interaction Help - Moved up to avoid Voice AI overlap */}
-      <div className="absolute top-24 left-4 text-white/60 text-xs max-w-xs">
+      {/* Interaction Help */}
+      <div className="absolute top-4 left-4 mt-16 text-white/60 text-xs max-w-xs">
         <div>🖱️ Click + drag: Pan canvas</div>
-        <div>🔬 Molecules: Click to select, drag to move {isShiftPressed && '(Multi-select enabled)'}</div>
+        <div>🔬 Molecules: Click to select, drag to move</div>
         <div>⚛️ Electrons: Drag between shells</div>
         <div>⌨️ Shortcuts: Space (motion), +/- (zoom), F (fit), 0 (reset)</div>
-        <div>⇧ Hold Shift: Multi-select molecules</div>
       </div>
     </div>
   );
