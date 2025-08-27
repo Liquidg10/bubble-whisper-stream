@@ -104,8 +104,8 @@ export default function Index() {
         <CollaborationHub isOpen={false} onClose={() => {}} />
       </div>
       
-      {/* Voice AI Interface */}
-      <div className="fixed bottom-20 right-4 z-10">
+      {/* Voice AI Interface - Moved to avoid overlap */}
+      <div className="fixed bottom-4 left-4 z-10">
         <VoiceAIInterface />
       </div>
 
