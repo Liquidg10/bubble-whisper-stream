@@ -74,9 +74,9 @@ const DOMAIN_PRESETS = [
 
 // Shell configuration with time horizons
 const SHELL_CONFIG = [
-  { name: 'Today', radius: 100, color: '#EF4444', icon: Home, maxElectrons: 8 },
-  { name: 'Week', radius: 150, color: '#F59E0B', icon: Calendar, maxElectrons: 18 },
-  { name: 'Later', radius: 200, color: '#10B981', icon: Clock, maxElectrons: 32 }
+  { name: 'Today', radius: 140, color: '#EF4444', icon: Home, maxElectrons: 8 },
+  { name: 'Week', radius: 200, color: '#F59E0B', icon: Calendar, maxElectrons: 18 },
+  { name: 'Later', radius: 280, color: '#10B981', icon: Clock, maxElectrons: 32 }
 ];
 
 interface AtomicRendererProps {
