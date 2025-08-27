@@ -869,10 +869,13 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
             >
             {/* Nucleus */}
             <div 
-              className={`nucleus relative w-16 h-16 rounded-full border-2 cursor-move transition-all hover:scale-110 ${
+              className={`nucleus absolute w-16 h-16 rounded-full border-2 cursor-move transition-all hover:scale-110 ${
                 molecule.selected ? 'border-yellow-400 shadow-lg shadow-yellow-400/50' : 'border-gray-400'
               }`}
               style={{
+                left: '50%',
+                top: '50%',
+                transform: 'translate(-50%, -50%)',
                 background: `radial-gradient(circle, ${
                   DOMAIN_PRESETS.find(p => p.name === molecule.nucleus.domain)?.color || '#6B7280'
                 }, #1F2937)`,
@@ -907,19 +910,20 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
               const isOverflow = electronsInShell.length > maxElectrons;
               
               return (
-                <div
-                  key={shellIndex}
-                  className={`absolute rounded-full border transition-all ${
-                    atomicState.hoveredShell === shellIndex ? 'border-2 opacity-80' : 'border opacity-30'
-                  }`}
-                  style={{
-                    width: shell.radius * 2,
-                    height: shell.radius * 2,
-                    left: -shell.radius,
-                    top: -shell.radius,
-                    borderColor: shell.color,
-                  }}
-                >
+                  <div
+                    key={shellIndex}
+                    className={`absolute rounded-full border transition-all ${
+                      atomicState.hoveredShell === shellIndex ? 'border-2 opacity-80' : 'border opacity-30'
+                    }`}
+                    style={{
+                      width: shell.radius * 2,
+                      height: shell.radius * 2,
+                      left: '50%',
+                      top: '50%',
+                      transform: 'translate(-50%, -50%)',
+                      borderColor: shell.color,
+                    }}
+                  >
                   {/* Shell Label */}
                   <div 
                     className="absolute text-xs text-gray-400 font-semibold"
@@ -954,9 +958,11 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
               const shell = SHELL_CONFIG[electron.shell];
               if (!shell) return null;
 
-              const angle = electron.angle + (reducedMotion ? 0 : electron.phase);
-              const x = Math.cos(angle) * shell.radius;
-              const y = Math.sin(angle) * shell.radius;
+              // Use consistent orbital positioning - when motion paused, use angle only
+              // When motion enabled, add phase for smooth orbital animation
+              const finalAngle = motionEnabled && !reducedMotion ? electron.angle + electron.phase : electron.angle;
+              const x = Math.cos(finalAngle) * shell.radius;
+              const y = Math.sin(finalAngle) * shell.radius;
 
               // LOD: Simplify rendering for many electrons
               const totalElectrons = atomicState.molecules.reduce((sum, mol) => sum + mol.electrons.length, 0);
