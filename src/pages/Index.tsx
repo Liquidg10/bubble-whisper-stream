@@ -105,7 +105,7 @@ export default function Index() {
       </div>
       
       {/* Voice AI Interface */}
-      <div className="fixed bottom-20 right-4 z-10">
+      <div className="fixed bottom-32 right-4 z-10">
         <VoiceAIInterface />
       </div>
 
