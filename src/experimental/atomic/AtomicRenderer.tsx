@@ -263,8 +263,8 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           }))
         }));
 
-        // Apply collision forces every few frames to avoid performance hit
-        const shouldApplyForces = Math.random() < 0.1; // 10% chance per frame
+        // Only apply collision forces occasionally and when not dragging to prevent visual jumping
+        const shouldApplyForces = !prev.draggedMolecule && !prev.draggedElectron && Math.random() < 0.02; // 2% chance per frame, and not while dragging
         const finalMolecules = shouldApplyForces ? applyMoleculeForces(updatedMolecules) : updatedMolecules;
 
         return {
