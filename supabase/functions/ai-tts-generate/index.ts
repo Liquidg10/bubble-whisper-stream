@@ -80,7 +80,7 @@ serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'tts-1-hd',
+        model: 'tts-1', // Use faster tts-1 instead of tts-1-hd for lower latency
         input: text,
         voice: selectedVoice,
         response_format: 'mp3',

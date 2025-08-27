@@ -126,8 +126,8 @@ class AudioQueueService {
     this.isProcessing = false;
     this.notifyListeners();
 
-    // Continue with next item
-    setTimeout(() => this.processQueue(), 100);
+    // Continue with next item immediately
+    setTimeout(() => this.processQueue(), 10);
   }
 
   // Load audio with caching and retry logic
@@ -145,8 +145,8 @@ class AudioQueueService {
     item.status = 'loading';
     this.notifyListeners();
 
-    const maxRetries = 3;
-    const retryDelays = [1000, 2000, 4000]; // Exponential backoff
+    const maxRetries = 2; // Reduce retries for faster response
+    const retryDelays = [500, 1000]; // Faster retry delays
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
@@ -356,7 +356,7 @@ class AudioQueueService {
 
   skipCurrent(): void {
     this.stop();
-    setTimeout(() => this.processQueue(), 100);
+    setTimeout(() => this.processQueue(), 10);
   }
 
   // Utility methods
