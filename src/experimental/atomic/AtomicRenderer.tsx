@@ -851,7 +851,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       </div>
 
       {/* Control buttons */}
-      <div className="absolute bottom-4 right-4 z-10 flex flex-col gap-2">
+      <div className="absolute bottom-32 right-4 z-10 flex flex-col gap-2">
         <Button
           variant="outline"
           size="sm"
