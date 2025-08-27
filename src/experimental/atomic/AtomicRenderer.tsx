@@ -457,7 +457,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     } else {
       setAtomicState(prev => ({ ...prev, draggedElectron: null, hoveredShell: null }));
     }
-  }, [atomicState.draggedElectron, toast, handleMouseMove]);
+  }, [atomicState.draggedElectron, toast, onTimeHorizonUpdate]);
 
   // Select molecule
   const handleMoleculeSelect = useCallback((moleculeId: string) => {
