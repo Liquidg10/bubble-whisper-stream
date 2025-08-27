@@ -299,8 +299,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       }
     }));
     
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
+    // Event listeners are now handled centrally in the useEffect
   }, []);
 
   // Handle molecule drag start
@@ -326,8 +325,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       }
     }));
     
-    document.addEventListener('mousemove', handleMoleculeMouseMove);
-    document.addEventListener('mouseup', handleMoleculeMouseUp);
+    // Event listeners are now handled centrally in the useEffect
   }, [atomicState.molecules]);
 
   // Handle molecule mouse move during drag
@@ -367,8 +365,6 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     if (!atomicState.draggedMolecule) return;
     
     setAtomicState(prev => ({ ...prev, draggedMolecule: null }));
-    document.removeEventListener('mousemove', handleMoleculeMouseMove);
-    document.removeEventListener('mouseup', handleMoleculeMouseUp);
   }, [atomicState.draggedMolecule]);
 
   // Handle mouse move during electron drag
@@ -427,8 +423,6 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     const { electronId, originalShell, currentShell } = atomicState.draggedElectron;
     
     setIsDragging(false);
-    document.removeEventListener('mousemove', handleMouseMove);
-    document.removeEventListener('mouseup', handleMouseUp);
     
     if (currentShell !== originalShell && currentShell !== null) {
       // Save state for undo
@@ -746,28 +740,40 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     setIsDraggingUI(null);
   }, []);
 
-  // Global mouse event handlers
+  // Global mouse event handlers - consolidated to prevent conflicts
   useEffect(() => {
     const cleanup = () => {
       document.removeEventListener('mousemove', handleCanvasMouseMove);
       document.removeEventListener('mouseup', handleCanvasMouseUp);
       document.removeEventListener('mousemove', handleUIDrag);
       document.removeEventListener('mouseup', handleUIDragEnd);
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('mousemove', handleMoleculeMouseMove);
+      document.removeEventListener('mouseup', handleMoleculeMouseUp);
     };
 
-    // Add listeners when dragging starts
-    if ((dragStart.x !== 0 || dragStart.y !== 0) && !isDraggingUI) {
+    // Only add listeners when needed and avoid conflicts
+    if (atomicState.draggedElectron) {
+      // Electron dragging takes priority
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+    } else if (atomicState.draggedMolecule) {
+      // Molecule dragging takes priority
+      document.addEventListener('mousemove', handleMoleculeMouseMove);
+      document.addEventListener('mouseup', handleMoleculeMouseUp);
+    } else if (isDraggingUI) {
+      // UI dragging
+      document.addEventListener('mousemove', handleUIDrag);
+      document.addEventListener('mouseup', handleUIDragEnd);
+    } else if ((dragStart.x !== 0 || dragStart.y !== 0)) {
+      // Canvas panning only when no other dragging is active
       document.addEventListener('mousemove', handleCanvasMouseMove);
       document.addEventListener('mouseup', handleCanvasMouseUp);
     }
     
-    if (isDraggingUI) {
-      document.addEventListener('mousemove', handleUIDrag);
-      document.addEventListener('mouseup', handleUIDragEnd);
-    }
-    
     return cleanup;
-  }, [dragStart, isDraggingUI, handleCanvasMouseMove, handleCanvasMouseUp, handleUIDrag, handleUIDragEnd]);
+  }, [dragStart, isDraggingUI, atomicState.draggedElectron, atomicState.draggedMolecule, handleCanvasMouseMove, handleCanvasMouseUp, handleUIDrag, handleUIDragEnd, handleMouseMove, handleMouseUp, handleMoleculeMouseMove, handleMoleculeMouseUp]);
 
   const selectedCount = atomicState.molecules.filter(mol => mol.selected).length;
 
