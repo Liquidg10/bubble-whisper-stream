@@ -314,6 +314,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     const molecule = atomicState.molecules.find(mol => mol.id === moleculeId);
     if (!molecule) return;
     
+    // Store initial molecule position to calculate deltas properly
     setAtomicState(prev => ({
       ...prev,
       draggedMolecule: {
@@ -333,22 +334,32 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
   const handleMoleculeMouseMove = useCallback((event: MouseEvent) => {
     if (!atomicState.draggedMolecule) return;
     
-    const deltaX = event.clientX - atomicState.draggedMolecule.startX;
-    const deltaY = event.clientY - atomicState.draggedMolecule.startY;
+    const deltaX = (event.clientX - atomicState.draggedMolecule.startX) / viewport.scale;
+    const deltaY = (event.clientY - atomicState.draggedMolecule.startY) / viewport.scale;
     
-    setAtomicState(prev => ({
-      ...prev,
-      draggedMolecule: prev.draggedMolecule ? {
-        ...prev.draggedMolecule,
-        offsetX: deltaX / viewport.scale,
-        offsetY: deltaY / viewport.scale
-      } : null,
-      molecules: prev.molecules.map(mol =>
-        mol.id === prev.draggedMolecule?.moleculeId
-          ? { ...mol, x: mol.x + (deltaX / viewport.scale) - (prev.draggedMolecule?.offsetX || 0), y: mol.y + (deltaY / viewport.scale) - (prev.draggedMolecule?.offsetY || 0) }
-          : mol
-      )
-    }));
+    setAtomicState(prev => {
+      if (!prev.draggedMolecule) return prev;
+      
+      const targetMolecule = prev.molecules.find(mol => mol.id === prev.draggedMolecule?.moleculeId);
+      if (!targetMolecule) return prev;
+      
+      const newX = targetMolecule.x + deltaX - (prev.draggedMolecule.offsetX || 0);
+      const newY = targetMolecule.y + deltaY - (prev.draggedMolecule.offsetY || 0);
+      
+      return {
+        ...prev,
+        draggedMolecule: {
+          ...prev.draggedMolecule,
+          offsetX: deltaX,
+          offsetY: deltaY
+        },
+        molecules: prev.molecules.map(mol =>
+          mol.id === prev.draggedMolecule?.moleculeId
+            ? { ...mol, x: newX, y: newY }
+            : mol
+        )
+      };
+    });
   }, [atomicState.draggedMolecule, viewport.scale]);
 
   // Handle molecule mouse up (end drag)
@@ -378,10 +389,15 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     
     if (!molecule) return;
     
-    const moleculeScreenX = (molecule.x + viewport.width / 2) * viewport.scale + viewport.x;
-    const moleculeScreenY = (molecule.y + viewport.height / 2) * viewport.scale + viewport.y;
+    // Calculate molecule screen position accounting for transforms
+    const moleculeScreenX = molecule.x + viewport.width / 2;
+    const moleculeScreenY = molecule.y + viewport.height / 2;
     
-    const distance = Math.sqrt((dragX - moleculeScreenX) ** 2 + (dragY - moleculeScreenY) ** 2) / viewport.scale;
+    // Convert drag position to world coordinates
+    const worldDragX = (dragX - viewport.x) / viewport.scale - viewport.width / 2;
+    const worldDragY = (dragY - viewport.y) / viewport.scale - viewport.height / 2;
+    
+    const distance = Math.sqrt((worldDragX - molecule.x) ** 2 + (worldDragY - molecule.y) ** 2);
     
     let hoveredShell = null;
     for (let i = 0; i < SHELL_CONFIG.length; i++) {
@@ -958,9 +974,12 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
               const shell = SHELL_CONFIG[electron.shell];
               if (!shell) return null;
 
-              // Use consistent orbital positioning - when motion paused, use angle only
-              // When motion enabled, add phase for smooth orbital animation
-              const finalAngle = motionEnabled && !reducedMotion ? electron.angle + electron.phase : electron.angle;
+              // Calculate consistent orbital position
+              // Base angle from electron configuration, add phase only when motion is enabled
+              const baseAngle = electron.angle;
+              const phaseOffset = (motionEnabled && !reducedMotion) ? electron.phase : 0;
+              const finalAngle = baseAngle + phaseOffset;
+              
               const x = Math.cos(finalAngle) * shell.radius;
               const y = Math.sin(finalAngle) * shell.radius;
 
