@@ -65,10 +65,11 @@ export const VoiceAIInterface: React.FC<VoiceAIInterfaceProps> = ({ className = 
   ];
 
   return (
-    <div className={className}>
+    <div className={`w-fit ${className}`}>
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogTrigger asChild>
           <motion.div
+            className="w-fit"
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >
