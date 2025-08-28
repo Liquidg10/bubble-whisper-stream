@@ -11,7 +11,7 @@ import { Card } from '@/components/ui/card';
 import { Undo2, Zap, RotateCcw, Home, Calendar, Clock, Plus, ZoomIn, ZoomOut, RotateCcw as FitIcon } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useZoomStandard } from '@/hooks/useZoomStandard';
+
 import * as atomicAdapter from './atomicAdapter';
 
 // Atomic structures
@@ -121,18 +121,36 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     undoStack: []
   });
 
-  // Initialize zoom behavior
-  const zoomControls = useZoomStandard({
-    onZoomChange: (state) => {
-      setViewport(prev => ({
-        ...prev,
-        scale: state.scale,
-        x: prev.x + (state.centerX - viewport.width / 2),
-        y: prev.y + (state.centerY - viewport.height / 2)
-      }));
-    },
-    getContainerRect: () => canvasRef.current?.getBoundingClientRect() || null
-  });
+  // Simple zoom functions
+  const zoomIn = useCallback(() => {
+    setViewport(prev => ({
+      ...prev,
+      scale: Math.min(prev.scale * 1.2, 3)
+    }));
+  }, []);
+
+  const zoomOut = useCallback(() => {
+    setViewport(prev => ({
+      ...prev,
+      scale: Math.max(prev.scale / 1.2, 0.1)
+    }));
+  }, []);
+
+  const resetZoom = useCallback(() => {
+    setViewport(prev => ({
+      ...prev,
+      scale: 1
+    }));
+  }, []);
+
+  const handleWheelZoom = useCallback((event: React.WheelEvent) => {
+    event.preventDefault();
+    const zoomFactor = event.deltaY > 0 ? 0.9 : 1.1;
+    setViewport(prev => ({
+      ...prev,
+      scale: Math.max(0.1, Math.min(prev.scale * zoomFactor, 3))
+    }));
+  }, []);
 
   // Convert bubbles to molecules
   const convertBubblesToMolecules = useCallback((bubbles: Bubble[]): Molecule[] => {
@@ -627,19 +645,6 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     setMotionEnabled(prev => !prev);
   }, []);
 
-  // Zoom and pan controls
-  const handleZoomIn = useCallback(() => {
-    zoomControls.zoomIn(viewport.scale);
-  }, [zoomControls, viewport.scale]);
-
-  const handleZoomOut = useCallback(() => {
-    zoomControls.zoomOut(viewport.scale);
-  }, [zoomControls, viewport.scale]);
-
-  const handleZoomReset = useCallback(() => {
-    zoomControls.resetZoom(viewport.scale);
-  }, [zoomControls, viewport.scale]);
-
   const handleZoomToFit = useCallback(() => {
     if (atomicState.molecules.length === 0) return;
     
@@ -658,8 +663,18 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       height: maxY - minY
     };
     
-    zoomControls.zoomToFit(contentBounds, viewport.scale, padding);
-  }, [atomicState.molecules, zoomControls, viewport.scale]);
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const scaleX = (rect.width - padding * 2) / contentBounds.width;
+    const scaleY = (rect.height - padding * 2) / contentBounds.height;
+    const newScale = Math.max(0.1, Math.min(Math.min(scaleX, scaleY), 3));
+
+    setViewport(prev => ({
+      ...prev,
+      scale: newScale
+    }));
+  }, [atomicState.molecules]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -669,13 +684,13 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         toggleMotion();
       } else if ((event.key === '+' || event.key === '=') && !event.repeat) {
         event.preventDefault();
-        handleZoomIn();
+        zoomIn();
       } else if (event.key === '-' && !event.repeat) {
         event.preventDefault();
-        handleZoomOut();
+        zoomOut();
       } else if (event.key === '0' && !event.repeat) {
         event.preventDefault();
-        handleZoomReset();
+        resetZoom();
       } else if (event.key === 'f' && !event.repeat) {
         event.preventDefault();
         handleZoomToFit();
@@ -684,7 +699,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [toggleMotion, handleZoomIn, handleZoomOut, handleZoomReset, handleZoomToFit]);
+  }, [toggleMotion, zoomIn, zoomOut, resetZoom, handleZoomToFit]);
 
   return (
     <div className={`relative w-full h-full bg-gradient-to-br from-slate-900 via-blue-900 to-purple-900 overflow-hidden ${className}`}>
@@ -718,7 +733,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`,
           transformOrigin: 'center'
         }}
-        onWheel={(e) => zoomControls.handleWheelZoom(e, viewport.scale)}
+        onWheel={handleWheelZoom}
         onMouseDown={handleCanvasDragStart}
       >
         {/* Molecules */}
@@ -836,7 +851,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           <Button
             variant="outline"
             size="sm"
-            onClick={handleZoomIn}
+            onClick={zoomIn}
             className="bg-transparent border-white/20 text-white hover:bg-white/10"
             title="Zoom In (+)"
           >
@@ -845,7 +860,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           <Button
             variant="outline"
             size="sm"
-            onClick={handleZoomOut}
+            onClick={zoomOut}
             className="bg-transparent border-white/20 text-white hover:bg-white/10"
             title="Zoom Out (-)"
           >
@@ -863,7 +878,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           <Button
             variant="outline"
             size="sm"
-            onClick={handleZoomReset}
+            onClick={resetZoom}
             className="bg-transparent border-white/20 text-white hover:bg-white/10"
             title="Reset Zoom (0)"
           >
