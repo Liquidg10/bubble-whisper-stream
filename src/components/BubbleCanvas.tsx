@@ -67,15 +67,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
     resetZoom,
     cursor
   } = usePanZoom({
-    getContainerRect: () => canvasRef.current?.getBoundingClientRect() || null,
-    onStateChange: (state) => {
-      setViewport(prev => ({
-        ...prev,
-        x: state.x,
-        y: state.y,
-        scale: state.scale
-      }));
-    }
+    getContainerRect: () => canvasRef.current?.getBoundingClientRect() || null
   });
   
   const { 
@@ -95,20 +87,14 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
       const canvasRect = canvasRef.current?.getBoundingClientRect();
       if (!canvasRect) return { x: bubbleX, y: bubbleY };
       
-      const screenX = canvasRect.left + (bubbleX - viewport.x) * viewport.scale + viewport.width / 2;
-      const screenY = canvasRect.top + (bubbleY - viewport.y) * viewport.scale + viewport.height / 2;
+      const screenX = canvasRect.left + (bubbleX + panZoomState.x) * panZoomState.scale + canvasRect.width / 2;
+      const screenY = canvasRect.top + (bubbleY + panZoomState.y) * panZoomState.scale + canvasRect.height / 2;
       
       return { x: screenX, y: screenY };
     }
   });
   
-  const [viewport, setViewport] = useState<CanvasViewport>({
-    x: 0,
-    y: 0,
-    scale: 1,
-    width: 0,
-    height: 0,
-  });
+  const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
 
   const [selectedBubbleId, setSelectedBubbleId] = useState<string | null>(null);
   const [declutterMode, setDeclutterMode] = useState(false);
@@ -121,22 +107,18 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
   // LOD configuration
   const lodConfig = getLODConfig();
 
-  // Initialize viewport dimensions
+  // Initialize canvas dimensions
   useEffect(() => {
-    const updateViewport = () => {
+    const updateCanvasSize = () => {
       if (canvasRef.current) {
         const rect = canvasRef.current.getBoundingClientRect();
-        setViewport(prev => ({
-          ...prev,
-          width: rect.width,
-          height: rect.height,
-        }));
+        setCanvasSize({ width: rect.width, height: rect.height });
       }
     };
 
-    updateViewport();
-    window.addEventListener('resize', updateViewport);
-    return () => window.removeEventListener('resize', updateViewport);
+    updateCanvasSize();
+    window.addEventListener('resize', updateCanvasSize);
+    return () => window.removeEventListener('resize', updateCanvasSize);
   }, []);
 
 
@@ -162,8 +144,8 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
         const canvasRect = canvasRef.current?.getBoundingClientRect();
         
         if (canvasRect) {
-          const screenX = canvasRect.left + (midpoint.x - viewport.x) * viewport.scale + viewport.width / 2;
-          const screenY = canvasRect.top + (midpoint.y - viewport.y) * viewport.scale + viewport.height / 2;
+          const screenX = canvasRect.left + (midpoint.x + panZoomState.x) * panZoomState.scale + canvasRect.width / 2;
+          const screenY = canvasRect.top + (midpoint.y + panZoomState.y) * panZoomState.scale + canvasRect.height / 2;
           
           setMergePopoverPosition({ x: screenX, y: screenY });
           setShowMergePopover(true);
@@ -171,7 +153,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
         break;
       }
     }
-  }, [bubbles, currentTheme?.behavior?.mergeThreshold || 0.1, setMergeCandidate, viewport]);
+  }, [bubbles, currentTheme?.behavior?.mergeThreshold || 0.1, setMergeCandidate, panZoomState]);
 
   // Handle merge confirmation
   const handleMergeConfirm = useCallback(() => {
@@ -258,14 +240,14 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
 
     // Viewport culling
     const visibleBubbles = filteredBubbles.filter(bubble => {
-      const bubbleScreenX = (bubble.x - viewport.x) * viewport.scale + viewport.width / 2;
-      const bubbleScreenY = (bubble.y - viewport.y) * viewport.scale + viewport.height / 2;
-      const bubbleSize = Math.max(60 * bubble.size * viewport.scale, 20);
+      const bubbleScreenX = (bubble.x + panZoomState.x) * panZoomState.scale + canvasSize.width / 2;
+      const bubbleScreenY = (bubble.y + panZoomState.y) * panZoomState.scale + canvasSize.height / 2;
+      const bubbleSize = Math.max(60 * bubble.size * panZoomState.scale, 20);
       
       return bubbleScreenX + bubbleSize > 0 && 
-             bubbleScreenX - bubbleSize < viewport.width &&
+             bubbleScreenX - bubbleSize < canvasSize.width &&
              bubbleScreenY + bubbleSize > 0 && 
-             bubbleScreenY - bubbleSize < viewport.height;
+             bubbleScreenY - bubbleSize < canvasSize.height;
     });
 
     // Apply LOD performance limits
@@ -276,8 +258,8 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
       const unselected = visibleBubbles.filter(bubble => !selectedBubbles.has(bubble.id));
       
       // Sort unselected by distance from viewport center
-      const centerX = viewport.x + viewport.width / 2;
-      const centerY = viewport.y + viewport.height / 2;
+      const centerX = -panZoomState.x;
+      const centerY = -panZoomState.y;
       
       unselected.sort((a, b) => {
         const distA = Math.sqrt((a.x - centerX) ** 2 + (a.y - centerY) ** 2);
@@ -290,7 +272,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
     }
 
     return visibleBubbles;
-  }, [bubbles, viewport, declutterMode, focusMode, selectedBubbles, selectedBubbleId, bubbleDensity, lodConfig.maxVisibleBubbles]);
+  }, [bubbles, panZoomState, canvasSize, declutterMode, focusMode, selectedBubbles, selectedBubbleId, bubbleDensity, lodConfig.maxVisibleBubbles]);
 
   // Density-based filtering for performance
   const getDensityFilteredBubbles = useCallback(() => {
@@ -338,20 +320,17 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
     const centerX = (bounds.minX + bounds.maxX) / 2;
     const centerY = (bounds.minY + bounds.maxY) / 2;
     
-    setViewport(prev => ({
-      ...prev,
-      x: centerX,
-      y: centerY,
-      scale: 1,
-    }));
+    // Center by setting pan offset to negative of bubble center
+    resetZoom();
+    // Note: This would need to be implemented in usePanZoom to properly center
   }, [bubbles]);
 
   // Auto-center on first load
   useEffect(() => {
-    if (bubbles.length > 0 && viewport.x === 0 && viewport.y === 0) {
+    if (bubbles.length > 0 && panZoomState.x === 0 && panZoomState.y === 0) {
       centerOnBubbles();
     }
-  }, [bubbles, centerOnBubbles, viewport.x, viewport.y]);
+  }, [bubbles, centerOnBubbles, panZoomState.x, panZoomState.y]);
 
   return (
     <div className={`relative w-full h-full overflow-hidden bg-gradient-canvas ${className}`}>
@@ -369,7 +348,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
         onTouchEnd={onTouchEnd}
         style={{
           cursor,
-          transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`,
+          transform: `translate(${panZoomState.x}px, ${panZoomState.y}px) scale(${panZoomState.scale})`,
           transformOrigin: 'center',
           touchAction: 'none'
         }}
@@ -382,7 +361,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
               radial-gradient(circle at 1px 1px, hsl(var(--accent-void)) 1px, transparent 0)
             `,
             backgroundSize: '50px 50px',
-            transform: `translate(${viewport.x % 50}px, ${viewport.y % 50}px)`,
+            transform: `translate(${panZoomState.x % 50}px, ${panZoomState.y % 50}px)`,
           }}
         />
         
@@ -400,7 +379,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
           >
             <BubbleCard
               bubble={bubble}
-              scale={viewport.scale}
+              scale={panZoomState.scale}
               onSelect={(b) => {
                 setSelectedBubbleId(b.id);
                 onBubbleSelect?.(b);
