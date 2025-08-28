@@ -438,7 +438,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
 
 
       {/* Canvas controls with motion toggle */}
-      <div className="absolute top-4 left-4 flex gap-2 z-10">
+      <div className="absolute bottom-4 left-4 flex gap-2 z-10">
         <Button
           variant="outline"
           size="sm"

@@ -62,8 +62,8 @@ export const GlimmerNotifications: React.FC = () => {
   }
 
   return (
-    <div className="fixed top-4 left-4 z-40 max-w-sm">
-      <div className="bg-card/95 backdrop-blur-sm border border-primary/20 rounded-lg shadow-lg p-4 animate-in slide-in-from-left-5 duration-300">
+    <div className="fixed bottom-4 right-4 z-40 max-w-sm">
+      <div className="bg-card/95 backdrop-blur-sm border border-primary/20 rounded-lg shadow-lg p-4 animate-in slide-in-from-bottom-5 duration-300">
         <div className="flex items-start justify-between gap-2 mb-3">
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-primary" />

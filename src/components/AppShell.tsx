@@ -62,7 +62,7 @@ export const AppShell: React.FC = () => {
         <GlimmerNotificationSystem />
         <OfflineDetector />
         <AudioQueueIndicator />
-        {process.env.NODE_ENV === 'development' && <PhotoDebugPanel />}
+        
       </main>
 
       {/* Narrative Search Modal */}
