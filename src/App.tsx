@@ -19,6 +19,8 @@ import NotFound from "./pages/NotFound";
 import DevPhotoIridescent from "./pages/DevPhotoIridescent";
 import DevAtomicBasic from "./pages/DevAtomicBasic";
 import DevAtomicStress from "./pages/DevAtomicStress";
+import DevBubblesBasic from "./pages/DevBubblesBasic";
+import DevBubblesStress from "./pages/DevBubblesStress";
 
 const queryClient = new QueryClient();
 
@@ -54,6 +56,8 @@ const App = () => {
                     <Route path="/dev/photo-iridescent" element={<DevPhotoIridescent />} />
                     <Route path="/dev/atomic-basic" element={<DevAtomicBasic />} />
                     <Route path="/dev/atomic-stress" element={<DevAtomicStress />} />
+                    <Route path="/dev/bubbles-basic" element={<DevBubblesBasic />} />
+                    <Route path="/dev/bubbles-stress" element={<DevBubblesStress />} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>
                 </BrowserRouter>

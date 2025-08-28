@@ -18,6 +18,9 @@ import { useZoomStandard } from '@/hooks/useZoomStandard';
 import { AtomicView } from './AtomicView';
 
 import { ZoomIn, ZoomOut, RotateCcw, Map, Filter, Focus, Layers } from 'lucide-react';
+import { usePanZoomControl } from '@/hooks/usePanZoomControl';
+import { useBubbleDragMerge } from '@/hooks/useBubbleDragMerge';
+import { FloatMotionToggle } from '@/components/FloatMotionToggle';
 
 interface BubbleCanvasProps {
   onBubbleSelect?: (bubble: Bubble) => void;
@@ -39,13 +42,51 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
     clearMergeCandidate,
     mergeBubbles,
     undoLastMerge,
-    lastOperation
+    lastOperation,
+    updateBubble
   } = useBubbleStore();
   const themeContext = useTheme();
   const currentTheme = themeContext?.currentTheme;
   const isMobile = useIsMobile();
   const { toast } = useToast();
   const { getLODConfig, setDragState, setMultiSelectState } = useLODSystem();
+  
+  // Import new hooks
+  const { state: panZoomState, handlers: panZoomHandlers, actions: panZoomActions, cursors } = usePanZoomControl({
+    onStateChange: (newState) => {
+      setViewport(prev => ({
+        ...prev,
+        x: newState.x,
+        y: newState.y,
+        scale: newState.scale
+      }));
+    },
+    getContainerRect: () => canvasRef.current?.getBoundingClientRect() || null
+  });
+  
+  const { 
+    startDrag, 
+    updateDrag, 
+    endDrag, 
+    confirmMerge, 
+    getDragState 
+  } = useBubbleDragMerge({
+    onMergeCandidate: (bubble1, bubble2, position) => {
+      setMergeCandidate(bubble1, bubble2);
+      setMergePopoverPosition(position);
+      setShowMergePopover(true);
+    },
+    mergeThreshold: currentTheme?.behavior?.mergeThreshold || 0.1,
+    getScreenPosition: (bubbleX, bubbleY) => {
+      const canvasRect = canvasRef.current?.getBoundingClientRect();
+      if (!canvasRect) return { x: bubbleX, y: bubbleY };
+      
+      const screenX = canvasRect.left + (bubbleX - viewport.x) * viewport.scale + viewport.width / 2;
+      const screenY = canvasRect.top + (bubbleY - viewport.y) * viewport.scale + viewport.height / 2;
+      
+      return { x: screenX, y: screenY };
+    }
+  });
   
   const [viewport, setViewport] = useState<CanvasViewport>({
     x: 0,
@@ -382,12 +423,12 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
       {/* Main Canvas */}
       <div
         ref={canvasRef}
-        className="absolute inset-0 cursor-grab active:cursor-grabbing"
-        onWheel={handleWheel}
-        onPointerDown={handleCanvasPointerDown}
-        onPointerMove={handleCanvasPointerMove}
-        onPointerUp={handleCanvasPointerUp}
-        onPointerCancel={handleCanvasPointerUp}
+        className={`absolute inset-0 ${cursors.canvas}`}
+        onWheel={panZoomHandlers.onWheel}
+        onPointerDown={panZoomHandlers.onPointerDown}
+        onPointerMove={panZoomHandlers.onPointerMove}
+        onPointerUp={panZoomHandlers.onPointerUp}
+        onPointerCancel={panZoomHandlers.onPointerUp}
         {...(isMobile ? mobileGestures : {})}
         style={{
           transform: `translate(${viewport.width / 2}px, ${viewport.height / 2}px) scale(${viewport.scale}) translate(${-viewport.x}px, ${-viewport.y}px)`,
@@ -449,21 +490,23 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
       </div>
 
 
-      {/* Canvas controls */}
+      {/* Canvas controls with motion toggle */}
       <div className="absolute top-4 left-4 flex gap-2 z-10">
         <Button
           variant="outline"
           size="sm"
-          onClick={zoomIn}
+          onClick={panZoomActions.zoomIn}
           className="bg-card/80 backdrop-blur-sm"
+          title="Zoom in"
         >
           <ZoomIn className="h-4 w-4" />
         </Button>
         <Button
           variant="outline"
           size="sm"
-          onClick={zoomOut}
+          onClick={panZoomActions.zoomOut}
           className="bg-card/80 backdrop-blur-sm"
+          title="Zoom out"
         >
           <ZoomOut className="h-4 w-4" />
         </Button>
@@ -472,17 +515,20 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
           size="sm"
           onClick={centerOnBubbles}
           className="bg-card/80 backdrop-blur-sm"
+          title="Center on bubbles"
         >
           <RotateCcw className="h-4 w-4" />
         </Button>
         <Button
           variant="outline"
           size="sm"
-          onClick={() => setViewport(prev => ({ ...prev, scale: 1 }))}
+          onClick={panZoomActions.resetZoom}
           className="bg-card/80 backdrop-blur-sm"
+          title="Reset zoom to 1:1"
         >
           <Map className="h-4 w-4" />
         </Button>
+        <FloatMotionToggle />
       </div>
 
       {/* Declutter & Focus controls */}

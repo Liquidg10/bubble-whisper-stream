@@ -201,7 +201,7 @@ export function BubbleCard({
   const BubbleContent = (
     <div
       className={cn(
-        "bubble-card relative transition-all duration-bubble cursor-pointer select-none",
+        "bubble-card relative transition-all duration-bubble select-none float-motion",
         "rounded-full flex items-center justify-center text-center overflow-hidden",
         // Only add backdrop-blur for non-photo bubbles
         !bubble.imageUri && "backdrop-blur",
@@ -230,32 +230,93 @@ export function BubbleCard({
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       {...(isMobile ? handlers : {})}
+      role="button"
+      tabIndex={0}
       aria-selected={isSelected}
-      aria-label={`${bubble.type}: ${bubble.content}${isSelected ? ' (selected)' : ''}`}
+      aria-label={`${bubble.type} bubble: ${bubble.content || 'No content'}${isSelected ? ' (selected)' : ''}`}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelect?.(bubble);
+        }
+        // Arrow key nudging for accessibility
+        if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+          e.preventDefault();
+          const nudgeAmount = e.shiftKey ? 1 : e.ctrlKey ? 8 : 24; // Fine/normal/fast
+          const dx = e.key === 'ArrowRight' ? nudgeAmount : e.key === 'ArrowLeft' ? -nudgeAmount : 0;
+          const dy = e.key === 'ArrowDown' ? nudgeAmount : e.key === 'ArrowUp' ? -nudgeAmount : 0;
+          
+          if (dx !== 0 || dy !== 0) {
+            const updatedBubble = { 
+              ...bubble, 
+              x: bubble.x + dx, 
+              y: bubble.y + dy, 
+              updatedAt: Date.now() 
+            };
+            onEdit?.(updatedBubble);
+          }
+        }
+      }}
     >
-      {/* Photo thumbnail - using isolated PhotoBubbleRenderer */}
+      {/* Photo bubbles - bulletproof rendering with proper z-index isolation */}
       {bubble.imageUri ? (
         <>
-          {/* Decorative rim/aura layer behind photo (z-index: 1) */}
+          {/* Type-colored rim layer (z-index: 3) - always visible */}
           <div 
             className="absolute inset-0 rounded-full"
             style={{
-              zIndex: 1,
+              zIndex: 3,
               ...getRimStyling(),
-              // Remove filter effects that interfere with photo visibility
+              // Ensure rim visibility without affecting photo
               filter: 'none',
-              boxShadow: getRimStyling().boxShadow
+              mixBlendMode: 'normal',
+              backdropFilter: 'none'
             }}
           />
           
-          {/* Photo renderer with isolation (z-index: 2) */}
-          <PhotoBubbleRenderer
-            src={bubble.imageUri}
-            alt={`${bubble.type}: ${bubble.content || 'Photo'}`}
-            size={visualSize}
-            bubbleId={bubble.id}
-            debugMode={process.env.NODE_ENV === 'development'}
+          {/* Aura glow layer (z-index: 2) */}
+          <div 
+            className="absolute inset-0 rounded-full opacity-60"
+            style={{
+              zIndex: 2,
+              background: `radial-gradient(circle, transparent 45%, ${getBubbleColor()} 70%)`,
+              filter: getAuraEffects().filter || 'none'
+            }}
           />
+          
+          {/* Photo content layer (z-index: 1) - isolated container */}
+          <div 
+            className="absolute inset-0 rounded-full overflow-hidden bg-panel"
+            style={{ 
+              zIndex: 1,
+              // Solid background prevents transparency issues
+              backgroundColor: 'hsl(var(--panel))'
+            }}
+          >
+            <PhotoBubbleRenderer
+              src={bubble.imageUri}
+              alt={`${bubble.type}: ${bubble.content || 'Photo'}`}
+              size={visualSize}
+              bubbleId={bubble.id}
+              debugMode={process.env.NODE_ENV === 'development'}
+            />
+          </div>
+          
+          {/* Specular highlights layer (z-index: 5) - only for iridescent theme */}
+          {currentTheme.tokens.rimPolicy === 'specular' && !shouldUseLOD && (
+            <div 
+              className="absolute inset-0 rounded-full opacity-30"
+              style={{
+                zIndex: 5,
+                background: `linear-gradient(135deg, 
+                  hsl(var(--accent-flow) / 0.3) 0%, 
+                  transparent 30%, 
+                  transparent 70%, 
+                  hsl(var(--accent-growth) / 0.2) 100%)`,
+                pointerEvents: 'none'
+              }}
+            />
+          )}
         </>
       ) : (
         /* Bubble Content - only show when no photo */
