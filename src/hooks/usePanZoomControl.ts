@@ -128,38 +128,101 @@ export function usePanZoomControl({
     const zoomFactor = 1 + (zoomDirection * 0.1);
     const newScale = Math.max(minScale, Math.min(state.scale * zoomFactor, maxScale));
 
-    // For center-anchored zoom, we don't need to change x,y at all
-    // The view center should remain the same world point
+    // Calculate center point of the viewport
+    const viewCenterX = rect.width / 2;
+    const viewCenterY = rect.height / 2;
+    
+    // Convert to world coordinates
+    const worldCenterX = (viewCenterX / state.scale) - state.x;
+    const worldCenterY = (viewCenterY / state.scale) - state.y;
+    
+    // Calculate new offset to keep the same world point at the center
+    const newX = (viewCenterX / newScale) - worldCenterX;
+    const newY = (viewCenterY / newScale) - worldCenterY;
+
     updateState({
-      scale: newScale
-      // x and y stay the same - this keeps the center fixed
+      scale: newScale,
+      x: newX,
+      y: newY
     });
-  }, [state.scale, minScale, maxScale, getContainerRect, updateState]);
+  }, [state.scale, state.x, state.y, minScale, maxScale, getContainerRect, updateState]);
 
   // Handle mobile pinch zoom - anchor to center of current view  
   const handlePinchZoom = useCallback((scaleFactor: number, center: { x: number; y: number }) => {
     const newScale = Math.max(minScale, Math.min(state.scale * scaleFactor, maxScale));
     
-    // For center-anchored zoom, we don't need to change x,y at all
-    // The view center should remain the same world point
+    const rect = getContainerRect();
+    if (!rect) return;
+    
+    // Calculate center point of the viewport
+    const viewCenterX = rect.width / 2;
+    const viewCenterY = rect.height / 2;
+    
+    // Convert to world coordinates
+    const worldCenterX = (viewCenterX / state.scale) - state.x;
+    const worldCenterY = (viewCenterY / state.scale) - state.y;
+    
+    // Calculate new offset to keep the same world point at the center
+    const newX = (viewCenterX / newScale) - worldCenterX;
+    const newY = (viewCenterY / newScale) - worldCenterY;
+    
     updateState({
-      scale: newScale
-      // x and y stay the same - this keeps the center fixed
+      scale: newScale,
+      x: newX,
+      y: newY
     });
-  }, [state.scale, minScale, maxScale, updateState]);
+  }, [state.scale, state.x, state.y, minScale, maxScale, getContainerRect, updateState]);
 
   // Utility functions - all zoom to view center
   const zoomIn = useCallback(() => {
     const newScale = Math.min(state.scale * 1.2, maxScale);
-    // Keep current view center fixed during button zoom
-    updateState({ scale: newScale });
-  }, [state.scale, maxScale, updateState]);
+    
+    const rect = getContainerRect();
+    if (!rect) return;
+    
+    // Calculate center point of the viewport
+    const viewCenterX = rect.width / 2;
+    const viewCenterY = rect.height / 2;
+    
+    // Convert to world coordinates
+    const worldCenterX = (viewCenterX / state.scale) - state.x;
+    const worldCenterY = (viewCenterY / state.scale) - state.y;
+    
+    // Calculate new offset to keep the same world point at the center
+    const newX = (viewCenterX / newScale) - worldCenterX;
+    const newY = (viewCenterY / newScale) - worldCenterY;
+    
+    updateState({ 
+      scale: newScale,
+      x: newX,
+      y: newY
+    });
+  }, [state.scale, state.x, state.y, maxScale, getContainerRect, updateState]);
 
   const zoomOut = useCallback(() => {
     const newScale = Math.max(state.scale / 1.2, minScale);
-    // Keep current view center fixed during button zoom
-    updateState({ scale: newScale });
-  }, [state.scale, minScale, updateState]);
+    
+    const rect = getContainerRect();
+    if (!rect) return;
+    
+    // Calculate center point of the viewport
+    const viewCenterX = rect.width / 2;
+    const viewCenterY = rect.height / 2;
+    
+    // Convert to world coordinates
+    const worldCenterX = (viewCenterX / state.scale) - state.x;
+    const worldCenterY = (viewCenterY / state.scale) - state.y;
+    
+    // Calculate new offset to keep the same world point at the center
+    const newX = (viewCenterX / newScale) - worldCenterX;
+    const newY = (viewCenterY / newScale) - worldCenterY;
+    
+    updateState({ 
+      scale: newScale,
+      x: newX,
+      y: newY
+    });
+  }, [state.scale, state.x, state.y, minScale, getContainerRect, updateState]);
 
   const resetZoom = useCallback(() => {
     updateState({ scale: 1, x: 0, y: 0 });
