@@ -108,52 +108,29 @@ export function usePanZoomControl({
     const rect = getContainerRect();
     if (!rect) return;
 
-    // Always zoom to the center of the current view
-    const viewCenterX = rect.width / 2;
-    const viewCenterY = rect.height / 2;
-
     const zoomDirection = e.deltaY > 0 ? -1 : 1;
     const zoomFactor = 1 + (zoomDirection * 0.1);
     const newScale = Math.max(minScale, Math.min(state.scale * zoomFactor, maxScale));
 
-    // Calculate the world position at the view center
-    const worldCenterX = state.x;
-    const worldCenterY = state.y;
-    
-    // Calculate how much the view center moves in world coordinates due to scale change
-    const scaleDelta = newScale - state.scale;
-    const worldDeltaX = (viewCenterX - rect.width / 2) * scaleDelta / newScale;
-    const worldDeltaY = (viewCenterY - rect.height / 2) * scaleDelta / newScale;
-
+    // For center-anchored zoom, we don't need to change x,y at all
+    // The view center should remain the same world point
     updateState({
-      scale: newScale,
-      x: worldCenterX - worldDeltaX,
-      y: worldCenterY - worldDeltaY
+      scale: newScale
+      // x and y stay the same - this keeps the center fixed
     });
-  }, [state.scale, state.x, state.y, minScale, maxScale, getContainerRect, updateState]);
+  }, [state.scale, minScale, maxScale, getContainerRect, updateState]);
 
   // Handle mobile pinch zoom - anchor to center of current view  
   const handlePinchZoom = useCallback((scaleFactor: number, center: { x: number; y: number }) => {
     const newScale = Math.max(minScale, Math.min(state.scale * scaleFactor, maxScale));
     
-    const rect = getContainerRect();
-    if (!rect) return;
-
-    // Use the center of the current view as anchor point, not the pinch center
-    const viewCenterX = rect.width / 2;
-    const viewCenterY = rect.height / 2;
-    
-    // Calculate the world position at the view center before zoom
-    const worldCenterX = state.x;
-    const worldCenterY = state.y;
-    
-    // Keep the world center point fixed during zoom
+    // For center-anchored zoom, we don't need to change x,y at all
+    // The view center should remain the same world point
     updateState({
-      scale: newScale,
-      x: worldCenterX,
-      y: worldCenterY
+      scale: newScale
+      // x and y stay the same - this keeps the center fixed
     });
-  }, [state.scale, state.x, state.y, minScale, maxScale, getContainerRect, updateState]);
+  }, [state.scale, minScale, maxScale, updateState]);
 
   // Utility functions - all zoom to view center
   const zoomIn = useCallback(() => {

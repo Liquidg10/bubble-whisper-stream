@@ -14,7 +14,7 @@ import { useTheme } from '@/themes/provider';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { usePinchZoom } from '@/hooks/usePinchZoom';
 import { useLODSystem } from '@/hooks/useLODSystem';
-import { useZoomStandard } from '@/hooks/useZoomStandard';
+
 import { AtomicView } from './AtomicView';
 
 import { ZoomIn, ZoomOut, RotateCcw, Map, Filter, Focus, Layers } from 'lucide-react';
@@ -96,12 +96,6 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
     height: 0,
   });
 
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [lastPanPoint, setLastPanPoint] = useState({ x: 0, y: 0 });
-  const [isPanning, setIsPanning] = useState(false);
-  const [panStart, setPanStart] = useState({ x: 0, y: 0 });
-  const [viewportStart, setViewportStart] = useState({ x: 0, y: 0 });
   const [selectedBubbleId, setSelectedBubbleId] = useState<string | null>(null);
   const [declutterMode, setDeclutterMode] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
@@ -131,45 +125,8 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
     return () => window.removeEventListener('resize', updateViewport);
   }, []);
 
-  // Standardized zoom system
-  const { 
-    zoomIn: standardZoomIn, 
-    zoomOut: standardZoomOut, 
-    handleWheelZoom,
-    handlePinchZoom: standardPinchZoom,
-    resetZoom,
-    cleanup
-  } = useZoomStandard({
-    onZoomChange: ({ scale }) => {
-      setViewport(prev => ({ ...prev, scale }));
-    },
-    getContainerRect: () => canvasRef.current?.getBoundingClientRect() || null
-  });
 
-  // Cleanup zoom animations on unmount
-  useEffect(() => {
-    return () => cleanup();
-  }, [cleanup]);
-
-  // Handle zoom buttons
-  const zoomIn = useCallback(() => {
-    standardZoomIn(viewport.scale);
-  }, [standardZoomIn, viewport.scale]);
-
-  const zoomOut = useCallback(() => {
-    standardZoomOut(viewport.scale);
-  }, [standardZoomOut, viewport.scale]);
-
-  // Handle mouse wheel zoom
-  const handleWheel = useCallback((e: React.WheelEvent) => {
-    handleWheelZoom(e, viewport.scale);
-  }, [handleWheelZoom, viewport.scale]);
-
-  // Mobile pinch zoom and pan handlers
-  const handlePinchZoom = useCallback((scaleFactor: number, center: { x: number; y: number }) => {
-    standardPinchZoom(scaleFactor, viewport.scale, center);
-  }, [standardPinchZoom, viewport.scale]);
-
+  // Handle mobile pan (separate from zoom)
   const handlePan = useCallback((delta: { x: number; y: number }) => {
     setViewport(prev => ({
       ...prev,
@@ -178,38 +135,10 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
     }));
   }, []);
 
-  // Canvas pan handlers for mouse/touch
-  const handleCanvasPointerDown = useCallback((e: React.PointerEvent) => {
-    // Only start panning if clicking on empty canvas (not on a bubble)
-    const target = e.target as HTMLElement;
-    if (target.closest('[data-bubble]')) return;
-    
-    setIsPanning(true);
-    setPanStart({ x: e.clientX, y: e.clientY });
-    setViewportStart({ x: viewport.x, y: viewport.y });
-    e.preventDefault();
-  }, [viewport.x, viewport.y]);
-
-  const handleCanvasPointerMove = useCallback((e: React.PointerEvent) => {
-    if (!isPanning) return;
-    
-    const deltaX = e.clientX - panStart.x;
-    const deltaY = e.clientY - panStart.y;
-    
-    setViewport(prev => ({
-      ...prev,
-      x: viewportStart.x + deltaX / prev.scale,
-      y: viewportStart.y + deltaY / prev.scale
-    }));
-  }, [isPanning, panStart, viewportStart]);
-
-  const handleCanvasPointerUp = useCallback(() => {
-    setIsPanning(false);
-  }, []);
 
   // Bind mobile gestures
   const mobileGestures = usePinchZoom({
-    onZoom: handlePinchZoom,
+    onZoom: panZoomActions.handlePinchZoom,
     onPan: handlePan,
     enabled: isMobile
   });
