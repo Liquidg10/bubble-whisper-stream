@@ -1327,7 +1327,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       {(() => {
         const selectedCount = atomicState.molecules.filter(mol => mol.selected).length;
         return selectedCount === 0 && (
-          <div className="absolute bottom-24 left-4 text-white/60 text-xs max-w-xs">
+          <div className="absolute bottom-45 left-4 text-white/60 text-xs max-w-xs">
             <div>🖱️ Click + drag: Pan canvas</div>
             <div>🔬 Molecules: Click to select, Shift+click for multi-select</div>
             <div>⚛️ Electrons: Drag between shells</div>
