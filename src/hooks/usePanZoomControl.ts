@@ -101,74 +101,70 @@ export function usePanZoomControl({
     updateState({ isDragging: false, isPanning: false });
   }, [updateState]);
 
-  // Handle wheel zoom
+  // Handle wheel zoom - anchor to center of current view
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
     
     const rect = getContainerRect();
     if (!rect) return;
 
-    // Zoom to cursor position
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-    const centerX = rect.width / 2;
-    const centerY = rect.height / 2;
+    // Always zoom to the center of the current view
+    const viewCenterX = rect.width / 2;
+    const viewCenterY = rect.height / 2;
 
     const zoomDirection = e.deltaY > 0 ? -1 : 1;
     const zoomFactor = 1 + (zoomDirection * 0.1);
     const newScale = Math.max(minScale, Math.min(state.scale * zoomFactor, maxScale));
 
-    // Calculate new position to zoom toward cursor
-    const worldX = (mouseX - centerX) / state.scale;
-    const worldY = (mouseY - centerY) / state.scale;
+    // Calculate the world position at the view center
+    const worldCenterX = state.x;
+    const worldCenterY = state.y;
     
-    const newWorldX = (mouseX - centerX) / newScale;
-    const newWorldY = (mouseY - centerY) / newScale;
-    
-    const deltaWorldX = worldX - newWorldX;
-    const deltaWorldY = worldY - newWorldY;
+    // Calculate how much the view center moves in world coordinates due to scale change
+    const scaleDelta = newScale - state.scale;
+    const worldDeltaX = (viewCenterX - rect.width / 2) * scaleDelta / newScale;
+    const worldDeltaY = (viewCenterY - rect.height / 2) * scaleDelta / newScale;
 
     updateState({
       scale: newScale,
-      x: state.x + deltaWorldX,
-      y: state.y + deltaWorldY
+      x: worldCenterX - worldDeltaX,
+      y: worldCenterY - worldDeltaY
     });
   }, [state.scale, state.x, state.y, minScale, maxScale, getContainerRect, updateState]);
 
-  // Handle mobile pinch zoom
+  // Handle mobile pinch zoom - anchor to center of current view  
   const handlePinchZoom = useCallback((scaleFactor: number, center: { x: number; y: number }) => {
     const newScale = Math.max(minScale, Math.min(state.scale * scaleFactor, maxScale));
     
     const rect = getContainerRect();
     if (!rect) return;
 
-    // Calculate world position of pinch center
-    const centerX = rect.width / 2;
-    const centerY = rect.height / 2;
-    const worldX = (center.x - centerX) / state.scale;
-    const worldY = (center.y - centerY) / state.scale;
+    // Use the center of the current view as anchor point, not the pinch center
+    const viewCenterX = rect.width / 2;
+    const viewCenterY = rect.height / 2;
     
-    const newWorldX = (center.x - centerX) / newScale;
-    const newWorldY = (center.y - centerY) / newScale;
+    // Calculate the world position at the view center before zoom
+    const worldCenterX = state.x;
+    const worldCenterY = state.y;
     
-    const deltaWorldX = worldX - newWorldX;
-    const deltaWorldY = worldY - newWorldY;
-
+    // Keep the world center point fixed during zoom
     updateState({
       scale: newScale,
-      x: state.x + deltaWorldX,
-      y: state.y + deltaWorldY
+      x: worldCenterX,
+      y: worldCenterY
     });
   }, [state.scale, state.x, state.y, minScale, maxScale, getContainerRect, updateState]);
 
-  // Utility functions
+  // Utility functions - all zoom to view center
   const zoomIn = useCallback(() => {
     const newScale = Math.min(state.scale * 1.2, maxScale);
+    // Keep current view center fixed during button zoom
     updateState({ scale: newScale });
   }, [state.scale, maxScale, updateState]);
 
   const zoomOut = useCallback(() => {
     const newScale = Math.max(state.scale / 1.2, minScale);
+    // Keep current view center fixed during button zoom
     updateState({ scale: newScale });
   }, [state.scale, minScale, updateState]);
 

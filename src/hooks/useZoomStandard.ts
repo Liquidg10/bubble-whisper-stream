@@ -36,11 +36,13 @@ export function useZoomStandard({
   const zoomConfig = { ...DEFAULT_CONFIG, ...config };
   const animationRef = useRef<number>();
 
-  // Calculate zoom center point (always use viewport center for consistency)
+  // Calculate zoom center point (always use current view center for predictable zoom)
   const getZoomCenter = useCallback(() => {
     const rect = getContainerRect();
     if (!rect) return { x: 0, y: 0 };
     
+    // Always return the center of the current viewport - this ensures
+    // consistent zoom behavior anchored to whatever is currently centered
     return {
       x: rect.width / 2,
       y: rect.height / 2
@@ -103,14 +105,14 @@ export function useZoomStandard({
     smoothZoomTo(currentScale, newScale, center.x, center.y);
   }, [getZoomCenter, zoomConfig.zoomSpeed, zoomConfig.minScale, smoothZoomTo]);
 
-  // Handle mouse wheel zoom
+  // Handle mouse wheel zoom - zoom to center of current view
   const handleWheelZoom = useCallback((
     event: React.WheelEvent,
     currentScale: number
   ) => {
     event.preventDefault();
     
-    // Always zoom from viewport center, not cursor position for consistency
+    // Always zoom from the center of the current view for predictable behavior
     const center = getZoomCenter();
     
     const zoomDirection = event.deltaY > 0 ? -1 : 1;
@@ -123,14 +125,14 @@ export function useZoomStandard({
     smoothZoomTo(currentScale, newScale, center.x, center.y);
   }, [getZoomCenter, zoomConfig.minScale, zoomConfig.maxScale, smoothZoomTo]);
 
-  // Handle pinch zoom (mobile)
+  // Handle pinch zoom (mobile) - zoom to center of current view
   const handlePinchZoom = useCallback((
     scaleFactor: number,
     currentScale: number,
     gestureCenter?: { x: number; y: number }
   ) => {
-    // Use gesture center if provided, otherwise viewport center
-    const center = gestureCenter || getZoomCenter();
+    // Always use view center for consistent zoom behavior, ignore gesture center
+    const center = getZoomCenter();
     const newScale = Math.max(
       zoomConfig.minScale,
       Math.min(currentScale * scaleFactor, zoomConfig.maxScale)
