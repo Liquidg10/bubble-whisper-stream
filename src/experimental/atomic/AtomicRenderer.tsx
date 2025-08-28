@@ -13,6 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { HorizonFlashLabel } from '@/components/HorizonFlashLabel';
 import { crossViewUndoService } from '@/services/crossViewUndoService';
+import { viewportMemoryService } from '@/services/viewportMemoryService';
 
 import * as atomicAdapter from './atomicAdapter';
 
@@ -129,10 +130,33 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     element: null
   });
   
-  // Canvas viewport state
+  // Canvas viewport state with viewport memory service integration
   const [viewport, setViewport] = useState({
     x: 0, y: 0, scale: 1, width: 0, height: 0
   });
+  
+  // Save viewport on changes
+  useEffect(() => {
+    viewportMemoryService.saveViewport('atomic', {
+      x: viewport.x,
+      y: viewport.y,
+      scale: viewport.scale
+    });
+  }, [viewport.x, viewport.y, viewport.scale]);
+  
+  // Restore viewport on mount
+  useEffect(() => {
+    const restored = viewportMemoryService.restoreViewport('atomic');
+    if (restored) {
+      setViewport(prev => ({
+        ...prev,
+        x: restored.x,
+        y: restored.y,
+        scale: restored.scale
+      }));
+      console.log('🧪 Restored atomic viewport:', restored);
+    }
+  }, []);
   
   // Atomic state
   const [atomicState, setAtomicState] = useState<AtomicState>({
@@ -256,7 +280,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     return applyMoleculeRepulsion(molecules);
   }, [applyMoleculeRepulsion]);
 
-  // Initialize viewport and convert bubbles
+  // Initialize viewport and convert bubbles - ONLY use real bubbles from store
   useEffect(() => {
     if (canvasRef.current) {
       const rect = canvasRef.current.getBoundingClientRect();
@@ -267,8 +291,11 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       }));
     }
     
-    const molecules = convertBubblesToMolecules(bubbles);
+    // Only convert actual bubbles from the store, no test/sample data
+    const molecules = convertBubblesToMolecules(bubbles || []);
     setAtomicState(prev => ({ ...prev, molecules }));
+    
+    console.log(`🧪 Atomic view: ${bubbles?.length || 0} bubbles → ${molecules.length} molecules`);
   }, [bubbles, convertBubblesToMolecules]);
 
   // Handle window resize

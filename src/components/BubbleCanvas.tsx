@@ -13,13 +13,14 @@ import { useToast } from '@/hooks/use-toast';
 import { useTheme } from '@/themes/provider';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { usePinchZoom } from '@/hooks/usePinchZoom';
+import { usePanZoomControl } from '@/hooks/usePanZoomControl';
 import { useLODSystem } from '@/hooks/useLODSystem';
 import { crossViewUndoService } from '@/services/crossViewUndoService';
 
 import { AtomicView } from './AtomicView';
 
 import { ZoomIn, ZoomOut, RotateCcw, Map, Filter, Focus, Layers } from 'lucide-react';
-import { usePanZoomControl } from '@/hooks/usePanZoomControl';
+import { viewportMemoryService } from '@/services/viewportMemoryService';
 import { useBubbleDragMerge } from '@/hooks/useBubbleDragMerge';
 import { FloatMotionToggle } from '@/components/FloatMotionToggle';
 
@@ -52,19 +53,26 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
   const { toast } = useToast();
   const { getLODConfig, setDragState, setMultiSelectState } = useLODSystem();
   
-  // Pan/zoom control with viewport memory
-  const { state: panZoomState, handlers: panZoomHandlers, actions: panZoomActions, cursors } = usePanZoomControl({
-    viewKey: 'bubble-canvas',
-    onStateChange: (newState) => {
-      setViewport(prev => ({
-        ...prev,
-        x: newState.x,
-        y: newState.y,
-        scale: newState.scale
-      }));
-    },
+  // Pan and zoom with viewport memory
+  const { 
+    state: panZoomState, 
+    handlers: panZoomHandlers, 
+    actions: panZoomActions,
+    cursors
+  } = usePanZoomControl({
+    viewKey: 'bubbles',
     getContainerRect: () => canvasRef.current?.getBoundingClientRect() || null
   });
+  
+  // Update local viewport state from panZoom state
+  useEffect(() => {
+    setViewport(prev => ({
+      ...prev,
+      x: panZoomState.x,
+      y: panZoomState.y,
+      scale: panZoomState.scale
+    }));
+  }, [panZoomState.x, panZoomState.y, panZoomState.scale]);
   
   const { 
     startDrag, 

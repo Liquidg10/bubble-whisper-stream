@@ -5,11 +5,12 @@
 
 import type { CBTEntry, Glimmer, SelfModelV2, PatternHint, DistortionKey, Bubble } from '../types/bubble';
 
+// Sample data for development testing (opt-in only)
 export const sampleBubbles: Bubble[] = [
   {
     id: 'seed-photo-bubble',
     type: 'Memory',
-    content: 'A seeded memory bubble with an image',
+    content: 'Sample memory bubble with photo',
     imageUri:
       'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=',
     createdAt: Date.now(),
@@ -17,7 +18,10 @@ export const sampleBubbles: Bubble[] = [
     x: 120,
     y: -80,
     size: 0.9,
-    tags: []
+    tags: [
+      { id: 'tag-memory', name: 'personal', emoji: '🏠' },
+      { id: 'tag-today', name: 'today', emoji: '🔥' }
+    ]
   }
 ];
 
@@ -177,11 +181,17 @@ export const initializeSampleData = async (): Promise<void> => {
 };
 
 export const clearSampleData = async (): Promise<void> => {
-  console.log('Sample data cleared');
-  
-  // In a real implementation, this would:
-  // 1. Remove all sample CBT entries
-  // 2. Clear sample glimmers
-  // 3. Reset self-model to defaults
-  // 4. Remove sample pattern hints
+  try {
+    const { storageService } = await import('../services/storage');
+    await storageService.initialize();
+    
+    // Only clear sample/seed data, not user data
+    for (const bubble of sampleBubbles) {
+      await storageService.deleteBubble(bubble.id);
+    }
+    
+    console.log('✅ Sample data cleared successfully');
+  } catch (error) {
+    console.error('❌ Failed to clear sample data:', error);
+  }
 };
