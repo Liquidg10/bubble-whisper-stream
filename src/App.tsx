@@ -22,11 +22,15 @@ import DevAtomicStress from "./pages/DevAtomicStress";
 import DevBubblesBasic from "./pages/DevBubblesBasic";
 import DevBubblesStress from "./pages/DevBubblesStress";
 import { DevSettings } from "./components/DevSettings";
+import DevAtomicUnified from "./pages/DevAtomicUnified";
+import { DevMenu } from "./components/DevMenu";
+import { useDevMenu } from "./hooks/useDevMenu";
 
 const queryClient = new QueryClient();
 
 const App = () => {
   console.log('App component rendering...');
+  const { isOpen: isDevMenuOpen, closeMenu: closeDevMenu } = useDevMenu();
   
   try {
     const initializeStore = useBubbleStore(state => state.initializeStore);
@@ -54,15 +58,17 @@ const App = () => {
                       <Route path="cbt-worksheet" element={<CBTWorksheet />} />
                       <Route path="settings" element={<Settings />} />
                     </Route>
-                    <Route path="/dev/photo-iridescent" element={<DevPhotoIridescent />} />
+                    <Route path="/dev/photo" element={<DevPhotoIridescent />} />
                     <Route path="/dev/atomic-basic" element={<DevAtomicBasic />} />
                     <Route path="/dev/atomic-stress" element={<DevAtomicStress />} />
+                    <Route path="/dev/atomic-unified" element={<DevAtomicUnified />} />
                     <Route path="/dev/bubbles-basic" element={<DevBubblesBasic />} />
                     <Route path="/dev/bubbles-stress" element={<DevBubblesStress />} />
                     <Route path="/dev/settings" element={<DevSettings />} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>
                 </BrowserRouter>
+                <DevMenu isOpen={isDevMenuOpen} onClose={closeDevMenu} />
               </TooltipProvider>
             </QueryClientProvider>
           </FeatureFlagsProvider>
