@@ -13,7 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { HorizonFlashLabel } from '@/components/HorizonFlashLabel';
 import { crossViewUndoService } from '@/services/crossViewUndoService';
-import { viewportMemoryService } from '@/services/viewportMemoryService';
+import { usePanZoom } from '@/hooks/usePanZoom';
 
 import * as atomicAdapter from './atomicAdapter';
 
@@ -130,34 +130,29 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     element: null
   });
   
-  // Canvas viewport state with viewport memory service integration
+  // Unified pan/zoom system
+  const {
+    state: panZoomState,
+    onPanStart,
+    onPanMove,
+    onPanEnd,
+    onWheel,
+    onTouchStart,
+    onTouchMove,
+    onTouchEnd,
+    zoomIn: panZoomIn,
+    zoomOut: panZoomOut,
+    resetZoom: panResetZoom,
+    cursor
+  } = usePanZoom({
+    getContainerRect: () => canvasRef.current?.getBoundingClientRect() || null
+  });
+
+  // Canvas viewport state - derived from panZoom state
   const [viewport, setViewport] = useState({
     x: 0, y: 0, scale: 1, width: 0, height: 0
   });
-  
-  // Save viewport on changes
-  useEffect(() => {
-    viewportMemoryService.saveViewport('atomic', {
-      x: viewport.x,
-      y: viewport.y,
-      scale: viewport.scale
-    });
-  }, [viewport.x, viewport.y, viewport.scale]);
-  
-  // Restore viewport on mount
-  useEffect(() => {
-    const restored = viewportMemoryService.restoreViewport('atomic');
-    if (restored) {
-      setViewport(prev => ({
-        ...prev,
-        x: restored.x,
-        y: restored.y,
-        scale: restored.scale
-      }));
-      console.log('🧪 Restored atomic viewport:', restored);
-    }
-  }, []);
-  
+
   // Atomic state
   const [atomicState, setAtomicState] = useState<AtomicState>({
     molecules: [],
@@ -169,36 +164,15 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     undoStack: []
   });
 
-  // Simple zoom functions
-  const zoomIn = useCallback(() => {
+  // Update viewport from panZoom state
+  useEffect(() => {
     setViewport(prev => ({
       ...prev,
-      scale: Math.min(prev.scale * 1.2, 3)
+      x: panZoomState.x,
+      y: panZoomState.y,
+      scale: panZoomState.scale
     }));
-  }, []);
-
-  const zoomOut = useCallback(() => {
-    setViewport(prev => ({
-      ...prev,
-      scale: Math.max(prev.scale / 1.2, 0.1)
-    }));
-  }, []);
-
-  const resetZoom = useCallback(() => {
-    setViewport(prev => ({
-      ...prev,
-      scale: 1
-    }));
-  }, []);
-
-  const handleWheelZoom = useCallback((event: React.WheelEvent) => {
-    event.preventDefault();
-    const zoomFactor = event.deltaY > 0 ? 0.9 : 1.1;
-    setViewport(prev => ({
-      ...prev,
-      scale: Math.max(0.1, Math.min(prev.scale * zoomFactor, 3))
-    }));
-  }, []);
+  }, [panZoomState.x, panZoomState.y, panZoomState.scale]);
 
   // Collision detection and repulsion system
   const applyMoleculeRepulsion = useCallback((molecules: Molecule[]): Molecule[] => {
@@ -435,35 +409,6 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     }));
   }, []);
 
-  const [panThreshold] = useState(8); // pixels before panning starts
-  const [panStartPos, setPanStartPos] = useState<{ x: number; y: number } | null>(null);
-
-  const handleCanvasDragStart = useCallback((event: React.MouseEvent) => {
-    // Only start canvas drag if clicking on empty space
-    if (event.target === event.currentTarget) {
-      setPanStartPos({ x: event.clientX, y: event.clientY });
-    }
-  }, []);
-
-  const handleCanvasPanCheck = useCallback((event: MouseEvent) => {
-    if (!panStartPos || atomicState.dragState.isDragging) return;
-    
-    const deltaX = event.clientX - panStartPos.x;
-    const deltaY = event.clientY - panStartPos.y;
-    const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
-    
-    if (distance > panThreshold) {
-      setAtomicState(prev => ({
-        ...prev,
-        dragState: {
-          isDragging: true,
-          type: 'canvas',
-          lastMousePos: { x: event.clientX, y: event.clientY }
-        }
-      }));
-      setPanStartPos(null);
-    }
-  }, [panStartPos, panThreshold, atomicState.dragState.isDragging]);
 
   const handleMouseMove = useCallback((event: MouseEvent) => {
     if (!atomicState.dragState.isDragging) return;
@@ -624,24 +569,20 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         hoveredShell: undefined
       }
     }));
-    setPanStartPos(null);
   }, [atomicState.dragState, atomicState.molecules, onTimeHorizonUpdate, toast]);
 
   // Attach global mouse events
   useEffect(() => {
-    if (atomicState.dragState.isDragging || panStartPos) {
+    if (atomicState.dragState.isDragging) {
       document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mousemove', handleCanvasPanCheck);
       document.addEventListener('mouseup', handleMouseUp);
       
       return () => {
         document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mousemove', handleCanvasPanCheck);
         document.removeEventListener('mouseup', handleMouseUp);
       };
     }
-  }, [atomicState.dragState.isDragging, panStartPos, handleMouseMove, handleCanvasPanCheck, handleMouseUp]);
-
+  }, [atomicState.dragState.isDragging, handleMouseMove, handleMouseUp]);
   // Additional handlers
   const handleMoleculeSelect = useCallback((molecule: Molecule, event?: React.MouseEvent) => {
     const isShiftClick = event?.shiftKey;
@@ -904,13 +845,13 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         toggleMotion();
       } else if ((event.key === '+' || event.key === '=') && !event.repeat) {
         event.preventDefault();
-        zoomIn();
+        panZoomIn();
       } else if (event.key === '-' && !event.repeat) {
         event.preventDefault();
-        zoomOut();
+        panZoomOut();
       } else if (event.key === '0' && !event.repeat) {
         event.preventDefault();
-        resetZoom();
+        panResetZoom();
       } else if (event.key === 'f' && !event.repeat) {
         event.preventDefault();
         handleZoomToFit();
@@ -919,7 +860,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [toggleMotion, zoomIn, zoomOut, resetZoom, handleZoomToFit]);
+  }, [toggleMotion, panZoomIn, panZoomOut, panResetZoom, handleZoomToFit]);
 
   return (
     <div className={`relative w-full h-full bg-gradient-to-br from-slate-900 via-blue-900 to-purple-900 overflow-hidden ${className}`}>
@@ -948,13 +889,19 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       {/* Main Canvas */}
       <div
         ref={canvasRef}
-        className="absolute inset-0 cursor-grab active:cursor-grabbing"
+        className="absolute inset-0"
         style={{
+          cursor,
           transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`,
           transformOrigin: 'center'
         }}
-        onWheel={handleWheelZoom}
-        onMouseDown={handleCanvasDragStart}
+        onWheel={onWheel}
+        onPointerDown={onPanStart}
+        onPointerMove={onPanMove}
+        onPointerUp={onPanEnd}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
       >
         {/* Molecules */}
         {atomicState.molecules.map((molecule) => (
@@ -1092,7 +1039,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           <Button
             variant="outline"
             size="sm"
-            onClick={zoomIn}
+            onClick={panZoomIn}
             className="bg-transparent border-white/20 text-white hover:bg-white/10"
             title="Zoom In (+)"
           >
@@ -1101,7 +1048,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           <Button
             variant="outline"
             size="sm"
-            onClick={zoomOut}
+            onClick={panZoomOut}
             className="bg-transparent border-white/20 text-white hover:bg-white/10"
             title="Zoom Out (-)"
           >
@@ -1119,7 +1066,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           <Button
             variant="outline"
             size="sm"
-            onClick={resetZoom}
+            onClick={panResetZoom}
             className="bg-transparent border-white/20 text-white hover:bg-white/10"
             title="Reset Zoom (0)"
           >

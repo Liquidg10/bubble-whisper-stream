@@ -12,8 +12,7 @@ import { checkBubblesOverlapping, calculateMidpoint } from '@/utils/collision';
 import { useToast } from '@/hooks/use-toast';
 import { useTheme } from '@/themes/provider';
 import { useIsMobile } from '@/hooks/use-mobile';
-import { usePinchZoom } from '@/hooks/usePinchZoom';
-import { usePanZoomControl } from '@/hooks/usePanZoomControl';
+import { usePanZoom } from '@/hooks/usePanZoom';
 import { useLODSystem } from '@/hooks/useLODSystem';
 import { crossViewUndoService } from '@/services/crossViewUndoService';
 
@@ -53,26 +52,31 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
   const { toast } = useToast();
   const { getLODConfig, setDragState, setMultiSelectState } = useLODSystem();
   
-  // Pan and zoom with viewport memory
-  const { 
-    state: panZoomState, 
-    handlers: panZoomHandlers, 
-    actions: panZoomActions,
-    cursors
-  } = usePanZoomControl({
-    viewKey: 'bubbles',
-    getContainerRect: () => canvasRef.current?.getBoundingClientRect() || null
+  // Unified pan/zoom system
+  const {
+    state: panZoomState,
+    onPanStart,
+    onPanMove,
+    onPanEnd,
+    onWheel,
+    onTouchStart,
+    onTouchMove,
+    onTouchEnd,
+    zoomIn,
+    zoomOut,
+    resetZoom,
+    cursor
+  } = usePanZoom({
+    getContainerRect: () => canvasRef.current?.getBoundingClientRect() || null,
+    onStateChange: (state) => {
+      setViewport(prev => ({
+        ...prev,
+        x: state.x,
+        y: state.y,
+        scale: state.scale
+      }));
+    }
   });
-  
-  // Update local viewport state from panZoom state
-  useEffect(() => {
-    setViewport(prev => ({
-      ...prev,
-      x: panZoomState.x,
-      y: panZoomState.y,
-      scale: panZoomState.scale
-    }));
-  }, [panZoomState.x, panZoomState.y, panZoomState.scale]);
   
   const { 
     startDrag, 
@@ -136,22 +140,6 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
   }, []);
 
 
-  // Handle mobile pan (separate from zoom)
-  const handlePan = useCallback((delta: { x: number; y: number }) => {
-    setViewport(prev => ({
-      ...prev,
-      x: prev.x - delta.x / prev.scale,
-      y: prev.y - delta.y / prev.scale
-    }));
-  }, []);
-
-
-  // Bind mobile gestures
-  const mobileGestures = usePinchZoom({
-    onZoom: panZoomActions.handlePinchZoom,
-    onPan: handlePan,
-    enabled: isMobile
-  });
 
   // Merge detection on bubble position change
   const handleBubbleDragEnd = useCallback((draggedBubble: Bubble) => {
@@ -370,14 +358,17 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
       {/* Main Canvas */}
       <div
         ref={canvasRef}
-        className={`absolute inset-0 ${cursors.canvas}`}
-        onWheel={panZoomHandlers.onWheel}
-        onPointerDown={panZoomHandlers.onPointerDown}
-        onPointerMove={panZoomHandlers.onPointerMove}
-        onPointerUp={panZoomHandlers.onPointerUp}
-        onPointerCancel={panZoomHandlers.onPointerUp}
-        {...(isMobile ? mobileGestures : {})}
+        className={`absolute inset-0`}
+        onWheel={onWheel}
+        onPointerDown={onPanStart}
+        onPointerMove={onPanMove}
+        onPointerUp={onPanEnd}
+        onPointerCancel={onPanEnd}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
         style={{
+          cursor,
           transform: `translate(${viewport.width / 2}px, ${viewport.height / 2}px) scale(${viewport.scale}) translate(${-viewport.x}px, ${-viewport.y}px)`,
           transformOrigin: '0 0',
           touchAction: 'none'
@@ -442,7 +433,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
         <Button
           variant="outline"
           size="sm"
-          onClick={panZoomActions.zoomIn}
+          onClick={zoomIn}
           className="bg-card/80 backdrop-blur-sm"
           title="Zoom in"
         >
@@ -451,7 +442,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
         <Button
           variant="outline"
           size="sm"
-          onClick={panZoomActions.zoomOut}
+          onClick={zoomOut}
           className="bg-card/80 backdrop-blur-sm"
           title="Zoom out"
         >
@@ -469,7 +460,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
         <Button
           variant="outline"
           size="sm"
-          onClick={panZoomActions.resetZoom}
+          onClick={resetZoom}
           className="bg-card/80 backdrop-blur-sm"
           title="Reset zoom to 1:1"
         >
