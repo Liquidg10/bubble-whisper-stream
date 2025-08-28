@@ -8,6 +8,8 @@ import { cbtService } from '@/services/cbtService';
 import { glimmerService } from '@/services/glimmerService';
 import { adaptiveReminderService } from '@/services/adaptiveReminderService';
 import { consentService } from '@/services/consentService';
+import { setHorizon, createHorizonMoveEntry, type Horizon } from '@/lib/horizon';
+import { crossViewUndoService } from '@/services/crossViewUndoService';
 
 // Helper to assign default bubble type based on content
 function getDefaultBubbleType(content: string): BubbleType {
@@ -111,6 +113,9 @@ interface BubbleStore {
   updatePatternHint: (hint: PatternHint) => Promise<void>;
   getAdaptiveExplanation: (reminderId: string) => string | null;
   toggleIntelligence: (enabled: boolean) => void;
+  
+  // Horizon management actions
+  moveBubbleToHorizon: (id: string, horizon: Horizon) => void;
   
   // View mode actions
   setViewMode: (mode: 'bubble' | 'atomic') => void;
@@ -544,6 +549,31 @@ export const useBubbleStore = create<BubbleStore>()(
         get().updateSettings({ intelligenceEnabled: enabled }).catch(() => {
           console.warn('Failed to persist intelligence setting');
         });
+      },
+
+      // Horizon management actions
+      moveBubbleToHorizon: (id, horizon) => {
+        const state = get();
+        const bubble = state.bubbles.find(b => b.id === id);
+        if (!bubble) return;
+        
+        const currentHorizon = bubble.tags?.find(t => 
+          ['today', 'week', 'later'].includes(t.name.toLowerCase())
+        )?.name.toLowerCase() as Horizon | undefined;
+        
+        const updatedBubble = setHorizon(bubble, horizon);
+        
+        // Update in store
+        set({
+          bubbles: state.bubbles.map(b => b.id === id ? updatedBubble : b)
+        });
+        
+        // Add undo entry
+        const undoEntry = createHorizonMoveEntry(id, currentHorizon || null, horizon, state.settings.viewMode || 'bubble');
+        crossViewUndoService.addEntry(undoEntry);
+        
+        // Save to storage
+        storageService.updateBubble(updatedBubble);
       },
 
       // View mode actions

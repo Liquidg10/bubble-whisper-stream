@@ -7,10 +7,12 @@ import { getBubbleStoreSettings } from './store';
 import { logger } from '@/utils/logger';
 
 // Re-export all atomic operations from their focused modules
-export { updateTimeHorizon } from './timeHorizons';
 export { createMoleculeFromDomain, mergeMolecules, splitMolecule } from './molecules';
-export { classifyBubbleDomain } from './domainClassification';
 export { suggestOptimalPosition } from './positioning';
+
+// Use canonical helpers for domain and horizon management
+export { classifyDomain as classifyBubbleDomain } from '@/lib/classifyDomain';
+export { getHorizon, setHorizon, ringIndexToHorizon, horizonToRingIndex } from '@/lib/horizon';
 
 export function getAccessibilitySettings() {
   const settings = getBubbleStoreSettings();

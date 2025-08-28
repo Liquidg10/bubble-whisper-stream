@@ -33,10 +33,13 @@ Import operations from the main adapter:
 
 ```typescript
 import { 
-  updateTimeHorizon, 
   createMoleculeFromDomain, 
   classifyBubbleDomain 
 } from '@/experimental/atomic/atomicAdapter';
+
+// Use canonical helpers directly for domain and horizon management
+import { classifyDomain, getDomainEmoji } from '@/lib/classifyDomain';
+import { getHorizon, setHorizon, moveBubbleToHorizon } from '@/lib/horizon';
 ```
 
 All existing imports continue to work exactly as before.

@@ -1,10 +1,10 @@
 import type { Bubble } from '@/types/bubble';
-import { classifyBubbleDomain } from './domainClassification';
+import { classifyDomain } from '@/lib/classifyDomain';
 import { logger } from '@/utils/logger';
 
 export function suggestOptimalPosition(newBubble: Bubble, existingBubbles: Bubble[]): { x: number; y: number } {
-  const domain = classifyBubbleDomain(newBubble);
-  const relatedBubbles = existingBubbles.filter(b => classifyBubbleDomain(b) === domain);
+  const domain = classifyDomain(newBubble);
+  const relatedBubbles = existingBubbles.filter(b => classifyDomain(b) === domain);
 
   logger.debug(`Positioning bubble in domain: ${domain}`, {
     relatedBubblesCount: relatedBubbles.length,

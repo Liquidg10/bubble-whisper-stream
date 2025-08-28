@@ -1,7 +1,7 @@
 import type { Bubble, Tag } from '@/types/bubble';
-import { TimeHorizon } from '@/types/atomic';
-import { generateId, getDomainConfig, getTimeHorizonEmoji } from '@/utils/atomicHelpers';
+import { generateId, getDomainConfig } from '@/utils/atomicHelpers';
 import { getBubbleStoreState } from './store';
+import { setHorizon } from '@/lib/horizon';
 import { logger } from '@/utils/logger';
 
 export function createMoleculeFromDomain(domain: string) {
@@ -20,17 +20,15 @@ export function createMoleculeFromDomain(domain: string) {
         name: domain.toLowerCase(),
         emoji: domainConfig.emoji
       },
-      {
-        id: generateId(),
-        name: TimeHorizon.Today,
-        emoji: getTimeHorizonEmoji(TimeHorizon.Today)
-      }
     ],
     createdAt: Date.now(),
     updatedAt: Date.now()
   };
 
-  addBubble(newBubble as Bubble);
+  // Use canonical horizon setter
+  const bubbleWithHorizon = setHorizon(newBubble as Bubble, 'today');
+
+  addBubble(bubbleWithHorizon);
   logger.atomic(`Created new ${domain} molecule`, { domain, domainConfig });
 }
 

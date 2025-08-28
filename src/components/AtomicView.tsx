@@ -1,7 +1,8 @@
 import React from 'react';
 import { AtomicRenderer } from '@/experimental/atomic/AtomicRenderer';
 import { useBubbleStore } from '@/stores/bubbleStore';
-import { updateTimeHorizon, createMoleculeFromDomain, mergeMolecules } from '@/experimental/atomic/atomicAdapter';
+import { createMoleculeFromDomain, mergeMolecules } from '@/experimental/atomic/atomicAdapter';
+import { ringIndexToHorizon } from '@/lib/horizon';
 
 interface AtomicViewProps {
   onBubbleSelect?: (bubbleId: string) => void;
@@ -10,10 +11,11 @@ interface AtomicViewProps {
 }
 
 export function AtomicView({ onBubbleSelect, onBubbleEdit, className }: AtomicViewProps) {
-  const { bubbles, settings } = useBubbleStore();
+  const { bubbles, settings, moveBubbleToHorizon } = useBubbleStore();
 
   const handleTimeHorizonUpdate = (bubbleId: string, fromRing: number, toRing: number) => {
-    updateTimeHorizon(`mol-${bubbleId}`, fromRing, toRing);
+    const horizon = ringIndexToHorizon(toRing);
+    moveBubbleToHorizon(bubbleId, horizon);
   };
 
   const handleMoleculeCreate = (domain: string) => {
