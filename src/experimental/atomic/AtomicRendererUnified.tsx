@@ -257,8 +257,9 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         const rect = canvasRef.current?.getBoundingClientRect();
         if (!rect || !electronId) return;
         
-        const mouseX = event.clientX - rect.left;
-        const mouseY = event.clientY - rect.top;
+        // Transform mouse coordinates to account for pan/zoom
+        const mouseX = (event.clientX - rect.left - panZoomState.x) / panZoomState.scale;
+        const mouseY = (event.clientY - rect.top - panZoomState.y) / panZoomState.scale;
         
         setAtomicState(prev => {
           let nearestShell = 0;
@@ -269,8 +270,9 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
               const electron = mol.electrons.find(e => e.id === electronId);
               if (!electron) return mol;
               
-              const molCenterX = mol.x + viewport.width / 2;
-              const molCenterY = mol.y + viewport.height / 2;
+              // Calculate molecule center in the same coordinate space as transformed mouse
+              const molCenterX = mol.x;
+              const molCenterY = mol.y;
               const distToMouse = Math.sqrt((mouseX - molCenterX) ** 2 + (mouseY - molCenterY) ** 2);
               
               // Find nearest shell
