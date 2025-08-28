@@ -1,5 +1,5 @@
 import React from 'react';
-import { AtomicRenderer } from '@/experimental/atomic/AtomicRenderer';
+import { AtomicRenderer } from '@/experimental/atomic/AtomicRendererUnified';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { createMoleculeFromDomain, mergeMolecules } from '@/experimental/atomic/atomicAdapter';
 import { ringIndexToHorizon } from '@/lib/horizon';
