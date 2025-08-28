@@ -1086,8 +1086,8 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         ))}
       </div>
 
-      {/* Zoom Controls - Moved to bottom right */}
-      <div className="absolute bottom-4 right-4 z-10 flex flex-col gap-2">
+      {/* Zoom Controls */}
+      <div className="absolute top-4 right-4 z-10 flex flex-col gap-2">
         <div className="flex flex-col gap-1 bg-black/20 backdrop-blur-sm border border-white/20 rounded-lg p-1">
           <Button
             variant="outline"
@@ -1178,8 +1178,8 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         </Button>
       </div>
 
-      {/* Motion Control - Top left */}
-      <div className="absolute top-4 left-4 z-10">
+      {/* Status display with motion control - Moved to top right to avoid domain controls */}
+      <div className="absolute top-4 right-4 mr-20 z-10 flex gap-2">
         <Button
           variant="outline"
           size="sm"
@@ -1188,55 +1188,46 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           title="Toggle Motion (Space)"
         >
           {motionEnabled ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-          <span className="ml-2">{motionEnabled ? 'ON' : 'OFF'}</span>
         </Button>
-      </div>
-
-      {/* Status badges - Top right, organized in rows */}
-      <div className="absolute top-4 right-4 z-10 flex flex-col gap-2 items-end">
-        {/* Primary stats row */}
-        <div className="flex gap-2">
-          <Badge variant="outline" className="bg-black/20 backdrop-blur-sm border-white/20 text-white">
-            Molecules: {atomicState.molecules.length}
-          </Badge>
-          <Badge variant="outline" className="bg-black/20 backdrop-blur-sm border-white/20 text-white">
-            Electrons: {atomicState.molecules.reduce((sum, mol) => sum + mol.electrons.length, 0)}
-          </Badge>
-          <Badge variant="outline" className="bg-black/20 backdrop-blur-sm border-white/20 text-white">
-            FPS: {currentFPS.toFixed(1)}
-          </Badge>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowDebugPanel(!showDebugPanel)}
-            className="bg-black/20 backdrop-blur-sm border-white/20 text-white hover:bg-white/10"
-            title="Toggle Debug Panel"
-          >
-            🐛
-          </Button>
-        </div>
-        
-        {/* Dynamic status row */}
-        <div className="flex gap-2">
-          {(() => {
-            const selectedCount = atomicState.molecules.filter(mol => mol.selected).length;
-            return selectedCount > 0 && (
-              <Badge variant="outline" className="bg-green-500/20 backdrop-blur-sm border-green-400/50 text-green-300">
-                Selected: {selectedCount}
-              </Badge>
-            );
-          })()}
-          {atomicState.dragState.isDragging && (
-            <Badge variant="outline" className="bg-yellow-500/20 backdrop-blur-sm border-yellow-400/50 text-yellow-300">
-              Dragging: {atomicState.dragState.type}
+        <Badge variant={motionEnabled ? "default" : "outline"} className="bg-black/20 backdrop-blur-sm border-white/20 text-white">
+          Motion: {motionEnabled ? 'ON' : 'OFF'}
+        </Badge>
+        <Badge variant="outline" className="bg-black/20 backdrop-blur-sm border-white/20 text-white">
+          Molecules: {atomicState.molecules.length}
+        </Badge>
+        <Badge variant="outline" className="bg-black/20 backdrop-blur-sm border-white/20 text-white">
+          Electrons: {atomicState.molecules.reduce((sum, mol) => sum + mol.electrons.length, 0)}
+        </Badge>
+        <Badge variant="outline" className="bg-black/20 backdrop-blur-sm border-white/20 text-white">
+          FPS: {currentFPS.toFixed(1)}
+        </Badge>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setShowDebugPanel(!showDebugPanel)}
+          className="bg-black/20 backdrop-blur-sm border-white/20 text-white hover:bg-white/10"
+          title="Toggle Debug Panel"
+        >
+          🐛
+        </Button>
+        {(() => {
+          const selectedCount = atomicState.molecules.filter(mol => mol.selected).length;
+          return selectedCount > 0 && (
+            <Badge variant="outline" className="bg-green-500/20 backdrop-blur-sm border-green-400/50 text-green-300">
+              Selected: {selectedCount}
             </Badge>
-          )}
-        </div>
+          );
+        })()}
+        {atomicState.dragState.isDragging && (
+          <Badge variant="outline" className="bg-yellow-500/20 backdrop-blur-sm border-yellow-400/50 text-yellow-300">
+            Dragging: {atomicState.dragState.type}
+          </Badge>
+        )}
       </div>
 
-      {/* Debug Panel - Positioned below status badges */}
+      {/* Debug Panel */}
       {showDebugPanel && (
-        <Card className="absolute top-24 right-4 w-80 max-h-60 bg-black/20 backdrop-blur-sm border-white/20 p-3">
+        <Card className="absolute top-20 right-4 w-80 max-h-60 bg-black/20 backdrop-blur-sm border-white/20 p-3">
           <div className="flex justify-between items-center mb-2">
             <h3 className="text-white font-medium">Debug Log</h3>
             <Button
