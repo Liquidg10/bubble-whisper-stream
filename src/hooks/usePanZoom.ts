@@ -107,8 +107,10 @@ export function usePanZoom({
   const onPanStart = useCallback((e: React.PointerEvent) => {
     const target = e.target as HTMLElement;
     
-    // Don't start panning if clicking on bubble or UI element
+    // Don't start panning if clicking on bubble, molecule, electron or UI element
     if (target.closest('[data-bubble]') || 
+        target.closest('[data-molecule]') ||
+        target.closest('[data-electron]') ||
         target.closest('button') || 
         target.closest('[data-panel]') ||
         target.closest('.ui-overlay')) {

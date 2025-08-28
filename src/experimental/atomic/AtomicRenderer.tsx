@@ -859,6 +859,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         {atomicState.molecules.map((molecule) => (
           <div
             key={molecule.id}
+            data-molecule="true"
             className="absolute group"
             style={{
               left: molecule.x + viewport.width / 2,
@@ -940,6 +941,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
               return (
                 <div
                   key={electron.id}
+                  data-electron="true"
                   className="absolute w-6 h-6 rounded-full bg-red-500 border-2 border-white cursor-move
                     hover:scale-125 transition-transform duration-150 group-hover:shadow-lg"
                   style={{
