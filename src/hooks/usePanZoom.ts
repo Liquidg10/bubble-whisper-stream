@@ -62,7 +62,7 @@ export function usePanZoom({
     });
   }, [onStateChange]);
 
-  // Center-anchored zoom - always zoom to viewport center, no drift
+  // Center-anchored zoom - zoom to center of what's currently visible
   const performZoom = useCallback((zoomDirection: number, sourceEvent?: string) => {
     const rect = getContainerRect();
     if (!rect) return;
@@ -72,25 +72,27 @@ export function usePanZoom({
     
     if (newScale === state.scale) return; // Already at limit
 
-    // Calculate center point of the viewport
+    // Find the center of what's currently visible in world coordinates
+    // This is the world point that appears at the center of the viewport
     const viewCenterX = rect.width / 2;
     const viewCenterY = rect.height / 2;
     
-    // Convert to world coordinates
-    const worldCenterX = (viewCenterX / state.scale) - state.x;
-    const worldCenterY = (viewCenterY / state.scale) - state.y;
+    // Convert viewport center to world coordinates (what world point is at viewport center)
+    const worldCenterX = (viewCenterX - state.x * state.scale) / state.scale;
+    const worldCenterY = (viewCenterY - state.y * state.scale) / state.scale;
     
-    // Calculate new offset to keep the same world point at the center
-    const newX = (viewCenterX / newScale) - worldCenterX;
-    const newY = (viewCenterY / newScale) - worldCenterY;
+    // Calculate new pan offset to keep the same world point at viewport center
+    const newX = (viewCenterX - worldCenterX * newScale) / newScale;
+    const newY = (viewCenterY - worldCenterY * newScale) / newScale;
 
     devLog('pan-zoom-transition', {
       source: sourceEvent || 'unknown',
       fromScale: state.scale,
       toScale: newScale,
       zoomDirection,
-      centerAnchor: { x: viewCenterX, y: viewCenterY },
-      worldPoint: { x: worldCenterX, y: worldCenterY },
+      viewportCenter: { x: viewCenterX, y: viewCenterY },
+      worldCenter: { x: worldCenterX, y: worldCenterY },
+      oldOffset: { x: state.x, y: state.y },
       newOffset: { x: newX, y: newY }
     });
 
