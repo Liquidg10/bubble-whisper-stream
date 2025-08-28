@@ -80,6 +80,7 @@ interface BubbleStore {
   addBubble: (bubble: Bubble) => Promise<void>;
   updateBubble: (bubble: Bubble) => Promise<void>;
   deleteBubble: (id: string) => Promise<void>;
+  clearAllBubbles: () => Promise<void>;
   
   // Reminder actions
   addReminder: (reminder: Reminder) => Promise<void>;
@@ -249,6 +250,24 @@ export const useBubbleStore = create<BubbleStore>()(
           }));
         } catch (error) {
           console.error('Failed to delete bubble:', error);
+        }
+      },
+
+      clearAllBubbles: async () => {
+        try {
+          const state = get();
+          // Delete all bubbles from storage
+          await Promise.all(state.bubbles.map(bubble => storageService.deleteBubble(bubble.id)));
+          // Clear state
+          set({
+            bubbles: [],
+            selectedBubbles: new Set<string>(),
+            mergeCandidate: null,
+            lastOperation: null
+          });
+          console.log('✅ All bubbles cleared');
+        } catch (error) {
+          console.error('Failed to clear all bubbles:', error);
         }
       },
 
