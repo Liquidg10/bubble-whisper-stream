@@ -21,7 +21,8 @@ import { AtomicView } from './AtomicView';
 import { ZoomIn, ZoomOut, RotateCcw, Map, Filter, Focus, Layers } from 'lucide-react';
 import { viewportMemoryService } from '@/services/viewportMemoryService';
 import { useBubbleDragMerge } from '@/hooks/useBubbleDragMerge';
-import { FloatMotionToggle } from '@/components/FloatMotionToggle';
+import { MotionController } from '@/components/MotionController';
+import { startAnimation, stopAnimation, setupGlobalKeyboardHandler } from '@/lib/motion';
 
 interface BubbleCanvasProps {
   onBubbleSelect?: (bubble: Bubble) => void;
@@ -107,7 +108,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
   // LOD configuration
   const lodConfig = getLODConfig();
 
-  // Initialize canvas dimensions
+  // Initialize canvas dimensions and motion control
   useEffect(() => {
     const updateCanvasSize = () => {
       if (canvasRef.current) {
@@ -118,7 +119,28 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
 
     updateCanvasSize();
     window.addEventListener('resize', updateCanvasSize);
-    return () => window.removeEventListener('resize', updateCanvasSize);
+    
+    // Setup global keyboard handler for spacebar
+    const cleanupKeyboard = setupGlobalKeyboardHandler();
+    
+    // Setup float motion animation
+    const floatStep = () => {
+      const elements = document.querySelectorAll('.float-motion');
+      elements.forEach((element) => {
+        const htmlElement = element as HTMLElement;
+        const offset = Math.sin(Date.now() * 0.001) * 2; // subtle float
+        htmlElement.style.transform = `translateY(${offset}px)`;
+      });
+    };
+    
+    // Start float animation
+    startAnimation(floatStep);
+    
+    return () => {
+      window.removeEventListener('resize', updateCanvasSize);
+      cleanupKeyboard();
+      stopAnimation();
+    };
   }, []);
 
 
@@ -445,7 +467,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
         >
           <Map className="h-4 w-4" />
         </Button>
-        <FloatMotionToggle />
+        <MotionController />
       </div>
 
       {/* Declutter & Focus controls */}

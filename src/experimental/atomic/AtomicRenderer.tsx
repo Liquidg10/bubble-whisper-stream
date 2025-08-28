@@ -8,12 +8,14 @@ import { Bubble, BubbleType } from '@/types/bubble';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
-import { Undo2, Zap, RotateCcw, Home, Calendar, Clock, Plus, ZoomIn, ZoomOut, RotateCcw as FitIcon, Play, Pause } from 'lucide-react';
+import { Undo2, Zap, RotateCcw, Home, Calendar, Clock, Plus, ZoomIn, ZoomOut, RotateCcw as FitIcon } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { HorizonFlashLabel } from '@/components/HorizonFlashLabel';
 import { crossViewUndoService } from '@/services/crossViewUndoService';
 import { usePanZoom } from '@/hooks/usePanZoom';
+import { MotionController } from '@/components/MotionController';
+import { startAnimation, stopAnimation, setupGlobalKeyboardHandler } from '@/lib/motion';
 
 import * as atomicAdapter from './atomicAdapter';
 
@@ -102,9 +104,8 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
   const animationFrameRef = useRef<number>();
   const performanceRef = useRef({ frameCount: 0, lastTime: performance.now(), fps: 60 });
   
-  // Motion control state - explicit Play/Pause
-  const [motionEnabled, setMotionEnabled] = useState(!reducedMotion);
-  const rafIdRef = useRef<number | null>(null);
+  // Motion control state
+  const [currentStepFn, setCurrentStepFn] = useState<(() => void) | null>(null);
   
   // Performance and debugging state
   const [currentFPS, setCurrentFPS] = useState(60);
@@ -289,20 +290,17 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Enhanced motion control with performance monitoring
-  const startAnimation = useCallback(() => {
-    if (rafIdRef.current !== null) return;
-    setMotionEnabled(true);
-    
+  // Setup motion control
+  useEffect(() => {
     const addDebugLog = (message: string) => {
       setDebugLog(prev => [`${new Date().toLocaleTimeString()}: ${message}`, ...prev.slice(0, 9)]);
     };
     
-    addDebugLog('Animation started');
+    // Setup global keyboard handler for spacebar
+    const cleanupKeyboard = setupGlobalKeyboardHandler();
     
-    const loop = () => {
-      if (!motionEnabled) return;
-      
+    // Define the atomic animation step function
+    const atomicStep = () => {
       // Performance monitoring
       const now = performance.now();
       performanceRef.current.frameCount++;
@@ -329,57 +327,22 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           }))
         }))
       }));
-      
-      rafIdRef.current = requestAnimationFrame(loop);
     };
-    rafIdRef.current = requestAnimationFrame(loop);
-  }, [motionEnabled, reducedMotion]);
-
-  const stopAnimation = useCallback(() => {
-    setMotionEnabled(false);
-    setDebugLog(prev => [`${new Date().toLocaleTimeString()}: Animation stopped`, ...prev.slice(0, 9)]);
-    if (rafIdRef.current !== null) {
-      cancelAnimationFrame(rafIdRef.current);
-      rafIdRef.current = null;
-    }
-  }, []);
-
-  const toggleMotion = useCallback(() => {
-    if (motionEnabled) {
-      stopAnimation();
-    } else {
-      startAnimation();
-    }
-  }, [motionEnabled, startAnimation, stopAnimation]);
-
-  // Auto-start animation if enabled and not in reduced motion
-  useEffect(() => {
-    if (motionEnabled && !reducedMotion && !atomicState.dragState.isDragging) {
-      startAnimation();
-    } else {
-      stopAnimation();
+    
+    // Store reference to the step function
+    setCurrentStepFn(() => atomicStep);
+    
+    // Start animation if not in reduced motion
+    if (!reducedMotion) {
+      addDebugLog('Animation started');
+      startAnimation(atomicStep);
     }
     
     return () => {
-      if (rafIdRef.current !== null) {
-        cancelAnimationFrame(rafIdRef.current);
-        rafIdRef.current = null;
-      }
+      cleanupKeyboard();
+      stopAnimation();
     };
-  }, [reducedMotion, atomicState.dragState.isDragging, startAnimation, stopAnimation]);
-
-  // Keyboard shortcut for spacebar
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.code === 'Space' && !event.repeat) {
-        event.preventDefault();
-        toggleMotion();
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [toggleMotion]);
+  }, [reducedMotion]);
 
   // Event handlers
   const handleElectronDragStart = useCallback((electron: Electron, event: React.MouseEvent) => {
@@ -804,7 +767,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     }));
   }, [atomicState.molecules]);
 
-  // toggleMotion is already defined above
+  // Motion control is now handled by shared motion system
 
   const handleZoomToFit = useCallback(() => {
     if (atomicState.molecules.length === 0) return;
@@ -837,13 +800,10 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     }));
   }, [atomicState.molecules]);
 
-  // Keyboard shortcuts
+  // Keyboard shortcuts (spacebar handled globally by motion system)
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.code === 'Space' && !event.repeat) {
-        event.preventDefault();
-        toggleMotion();
-      } else if ((event.key === '+' || event.key === '=') && !event.repeat) {
+      if ((event.key === '+' || event.key === '=') && !event.repeat) {
         event.preventDefault();
         panZoomIn();
       } else if (event.key === '-' && !event.repeat) {
@@ -860,7 +820,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [toggleMotion, panZoomIn, panZoomOut, panResetZoom, handleZoomToFit]);
+  }, [panZoomIn, panZoomOut, panResetZoom, handleZoomToFit]);
 
   return (
     <div className={`relative w-full h-full bg-gradient-to-br from-slate-900 via-blue-900 to-purple-900 overflow-hidden ${className}`}>
@@ -872,18 +832,8 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       </div>
 
       {/* Motion controls */}
-      <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
-        <Button
-          variant={motionEnabled ? "default" : "outline"}
-          size="sm"
-          onClick={toggleMotion}
-          className="bg-black/20 backdrop-blur-sm border-white/20"
-        >
-          {motionEnabled ? "⏸️ Pause" : "▶️ Play"}
-        </Button>
-        <Badge variant="outline" className="bg-black/20 backdrop-blur-sm border-white/20 text-white">
-          Motion: {motionEnabled ? "ON" : "OFF"}
-        </Badge>
+      <div className="absolute top-4 right-4 z-10">
+        <MotionController showStatusChip={true} />
       </div>
 
       {/* Main Canvas */}
@@ -979,7 +929,8 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
             {/* Electrons with accessibility */}
             {molecule.electrons.map((electron) => {
               const shell = SHELL_CONFIG[electron.shell];
-              const electronMotion = reducedMotion ? 0 : (motionEnabled ? electron.phase : 0);
+              // Use shared motion state from motion control system
+              const electronMotion = reducedMotion ? 0 : electron.phase;
               const angle = electron.angle + electronMotion;
               const x = Math.cos(angle) * shell.radius;
               const y = Math.sin(angle) * shell.radius;
@@ -1125,20 +1076,8 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         </Button>
       </div>
 
-      {/* Status display with motion control - Moved to top right to avoid domain controls */}
-      <div className="absolute top-4 right-4 mr-20 z-10 flex gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={toggleMotion}
-          className="bg-black/20 backdrop-blur-sm border-white/20 text-white hover:bg-white/10"
-          title="Toggle Motion (Space)"
-        >
-          {motionEnabled ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-        </Button>
-        <Badge variant={motionEnabled ? "default" : "outline"} className="bg-black/20 backdrop-blur-sm border-white/20 text-white">
-          Motion: {motionEnabled ? 'ON' : 'OFF'}
-        </Badge>
+      {/* Status display - Moved to top right to avoid domain controls */}
+      <div className="absolute top-4 right-4 mr-60 z-10 flex gap-2">
         <Badge variant="outline" className="bg-black/20 backdrop-blur-sm border-white/20 text-white">
           Molecules: {atomicState.molecules.length}
         </Badge>
