@@ -8,7 +8,7 @@ import { Bubble, BubbleType } from '@/types/bubble';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
-import { Undo2, Zap, RotateCcw, Home, Calendar, Clock, Plus, ZoomIn, ZoomOut, RotateCcw as FitIcon } from 'lucide-react';
+import { Undo2, Zap, RotateCcw, Home, Calendar, Clock, Plus, ZoomIn, ZoomOut, RotateCcw as FitIcon, Play, Pause } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -98,8 +98,9 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
   const canvasRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number>();
   
-  // Motion control state
+  // Motion control state - explicit Play/Pause
   const [motionEnabled, setMotionEnabled] = useState(!reducedMotion);
+  const rafIdRef = useRef<number | null>(null);
   
   // Draggable UI state
   const [domainCardPos, setDomainCardPos] = useState({ x: 0, y: 0 });
@@ -230,35 +231,72 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Animation loop
-  const updateAnimation = useCallback(() => {
-    setAtomicState(prev => ({
-      ...prev,
-      molecules: prev.molecules.map(mol => ({
-        ...mol,
-        electrons: mol.electrons.map(electron => ({
-          ...electron,
-          phase: electron.phase + 0.02
+  // Explicit motion control functions
+  const startAnimation = useCallback(() => {
+    if (rafIdRef.current !== null) return;
+    setMotionEnabled(true);
+    
+    const loop = () => {
+      if (!motionEnabled) return;
+      setAtomicState(prev => ({
+        ...prev,
+        molecules: prev.molecules.map(mol => ({
+          ...mol,
+          electrons: mol.electrons.map(electron => ({
+            ...electron,
+            phase: electron.phase + 0.02
+          }))
         }))
-      }))
-    }));
+      }));
+      rafIdRef.current = requestAnimationFrame(loop);
+    };
+    rafIdRef.current = requestAnimationFrame(loop);
+  }, [motionEnabled]);
+
+  const stopAnimation = useCallback(() => {
+    setMotionEnabled(false);
+    if (rafIdRef.current !== null) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
   }, []);
 
+  const toggleMotion = useCallback(() => {
+    if (motionEnabled) {
+      stopAnimation();
+    } else {
+      startAnimation();
+    }
+  }, [motionEnabled, startAnimation, stopAnimation]);
+
+  // Auto-start animation if enabled and not in reduced motion
   useEffect(() => {
     if (motionEnabled && !reducedMotion && !atomicState.dragState.isDragging) {
-      const animate = () => {
-        updateAnimation();
-        animationFrameRef.current = requestAnimationFrame(animate);
-      };
-      animationFrameRef.current = requestAnimationFrame(animate);
+      startAnimation();
+    } else {
+      stopAnimation();
     }
     
     return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
       }
     };
-  }, [motionEnabled, reducedMotion, atomicState.dragState.isDragging, updateAnimation]);
+  }, [reducedMotion, atomicState.dragState.isDragging, startAnimation, stopAnimation]);
+
+  // Keyboard shortcut for spacebar
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.code === 'Space' && !event.repeat) {
+        event.preventDefault();
+        toggleMotion();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [toggleMotion]);
 
   // Event handlers
   const handleElectronDragStart = useCallback((electron: Electron, event: React.MouseEvent) => {
@@ -287,9 +325,24 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     }));
   }, []);
 
+  const [panThreshold] = useState(8); // pixels before panning starts
+  const [panStartPos, setPanStartPos] = useState<{ x: number; y: number } | null>(null);
+
   const handleCanvasDragStart = useCallback((event: React.MouseEvent) => {
     // Only start canvas drag if clicking on empty space
     if (event.target === event.currentTarget) {
+      setPanStartPos({ x: event.clientX, y: event.clientY });
+    }
+  }, []);
+
+  const handleCanvasPanCheck = useCallback((event: MouseEvent) => {
+    if (!panStartPos || atomicState.dragState.isDragging) return;
+    
+    const deltaX = event.clientX - panStartPos.x;
+    const deltaY = event.clientY - panStartPos.y;
+    const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+    
+    if (distance > panThreshold) {
       setAtomicState(prev => ({
         ...prev,
         dragState: {
@@ -298,8 +351,9 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           lastMousePos: { x: event.clientX, y: event.clientY }
         }
       }));
+      setPanStartPos(null);
     }
-  }, []);
+  }, [panStartPos, panThreshold, atomicState.dragState.isDragging]);
 
   const handleMouseMove = useCallback((event: MouseEvent) => {
     if (!atomicState.dragState.isDragging) return;
@@ -393,6 +447,22 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         const tagStrings = electron.originalBubble?.tags?.map(tag => typeof tag === 'string' ? tag : tag.name || '').filter(Boolean) || [];
         const originalShell = tagStrings.includes('today') ? 0 : 
                             tagStrings.includes('week') ? 1 : 2;
+        
+        const shellNames = ['Today', 'Week', 'Later'];
+        toast({
+          title: `Moved to ${shellNames[electron.shell]}`,
+          description: `"${electron.content.slice(0, 30)}${electron.content.length > 30 ? '...' : ''}"`,
+          action: (
+            <Button variant="outline" size="sm" onClick={() => {
+              // Undo functionality - restore original shell
+              onTimeHorizonUpdate(electron.originalBubble?.id || '', electron.shell, originalShell);
+              toast({ title: "Undone", description: `Moved back to ${shellNames[originalShell]}` });
+            }}>
+              Undo
+            </Button>
+          )
+        });
+        
         onTimeHorizonUpdate(electron.originalBubble?.id || '', originalShell, electron.shell);
       }
     }
@@ -405,20 +475,23 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         hoveredShell: undefined
       }
     }));
-  }, [atomicState.dragState, atomicState.molecules, onTimeHorizonUpdate]);
+    setPanStartPos(null);
+  }, [atomicState.dragState, atomicState.molecules, onTimeHorizonUpdate, toast]);
 
   // Attach global mouse events
   useEffect(() => {
-    if (atomicState.dragState.isDragging) {
+    if (atomicState.dragState.isDragging || panStartPos) {
       document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mousemove', handleCanvasPanCheck);
       document.addEventListener('mouseup', handleMouseUp);
       
       return () => {
         document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mousemove', handleCanvasPanCheck);
         document.removeEventListener('mouseup', handleMouseUp);
       };
     }
-  }, [atomicState.dragState.isDragging, handleMouseMove, handleMouseUp]);
+  }, [atomicState.dragState.isDragging, panStartPos, handleMouseMove, handleCanvasPanCheck, handleMouseUp]);
 
   // Additional handlers
   const handleMoleculeSelect = useCallback((molecule: Molecule, event?: React.MouseEvent) => {
@@ -641,9 +714,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     }));
   }, [atomicState.molecules]);
 
-  const toggleMotion = useCallback(() => {
-    setMotionEnabled(prev => !prev);
-  }, []);
+  // toggleMotion is already defined above
 
   const handleZoomToFit = useCallback(() => {
     if (atomicState.molecules.length === 0) return;
@@ -937,8 +1008,20 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         </Button>
       </div>
 
-      {/* Status display - Moved to top right to avoid domain controls */}
+      {/* Status display with motion control - Moved to top right to avoid domain controls */}
       <div className="absolute top-4 right-4 mr-20 z-10 flex gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={toggleMotion}
+          className="bg-black/20 backdrop-blur-sm border-white/20 text-white hover:bg-white/10"
+          title="Toggle Motion (Space)"
+        >
+          {motionEnabled ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+        </Button>
+        <Badge variant={motionEnabled ? "default" : "outline"} className="bg-black/20 backdrop-blur-sm border-white/20 text-white">
+          Motion: {motionEnabled ? 'ON' : 'OFF'}
+        </Badge>
         <Badge variant="outline" className="bg-black/20 backdrop-blur-sm border-white/20 text-white">
           Molecules: {atomicState.molecules.length}
         </Badge>
