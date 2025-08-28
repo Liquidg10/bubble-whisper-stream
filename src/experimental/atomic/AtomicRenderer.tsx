@@ -347,6 +347,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
   // Event handlers
   const handleElectronDragStart = useCallback((electron: Electron, event: React.MouseEvent) => {
     event.stopPropagation();
+    event.preventDefault();
     setDebugLog(prev => [`${new Date().toLocaleTimeString()}: Electron drag started - ${electron.content.slice(0, 20)}...`, ...prev.slice(0, 9)]);
     setAtomicState(prev => ({
       ...prev,
@@ -361,6 +362,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
 
   const handleMoleculeDragStart = useCallback((molecule: Molecule, event: React.MouseEvent) => {
     event.stopPropagation();
+    event.preventDefault();
     setAtomicState(prev => ({
       ...prev,
       dragState: {
