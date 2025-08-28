@@ -931,7 +931,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       </div>
 
       {/* Motion controls */}
-      <div className="absolute top-4 left-4 z-10 flex items-center gap-2">
+      <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
         <Button
           variant={motionEnabled ? "default" : "outline"}
           size="sm"
@@ -1327,7 +1327,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       {(() => {
         const selectedCount = atomicState.molecules.filter(mol => mol.selected).length;
         return selectedCount === 0 && (
-          <div className="absolute top-4 left-4 mt-16 text-white/60 text-xs max-w-xs">
+          <div className="absolute bottom-4 left-4 text-white/60 text-xs max-w-xs">
             <div>🖱️ Click + drag: Pan canvas</div>
             <div>🔬 Molecules: Click to select, Shift+click for multi-select</div>
             <div>⚛️ Electrons: Drag between shells</div>
