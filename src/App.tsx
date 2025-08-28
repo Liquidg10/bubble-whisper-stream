@@ -58,6 +58,7 @@ const App = () => {
                       <Route path="cbt-worksheet" element={<CBTWorksheet />} />
                       <Route path="settings" element={<Settings />} />
                     </Route>
+                    {/* Dev routes - now wrapped with theme context */}
                     <Route path="/dev/photo" element={<DevPhotoIridescent />} />
                     <Route path="/dev/atomic-basic" element={<DevAtomicBasic />} />
                     <Route path="/dev/atomic-stress" element={<DevAtomicStress />} />
