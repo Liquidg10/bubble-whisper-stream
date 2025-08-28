@@ -369,8 +369,8 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
         onTouchEnd={onTouchEnd}
         style={{
           cursor,
-          transform: `translate(${viewport.width / 2}px, ${viewport.height / 2}px) scale(${viewport.scale}) translate(${-viewport.x}px, ${-viewport.y}px)`,
-          transformOrigin: '0 0',
+          transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`,
+          transformOrigin: 'center',
           touchAction: 'none'
         }}
       >

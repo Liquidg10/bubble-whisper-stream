@@ -77,17 +77,14 @@ export function usePanZoom({
     const viewCenterX = rect.width / 2;
     const viewCenterY = rect.height / 2;
     
-    // Convert viewport center to world coordinates (what world point is at viewport center)
-    // Transformation: viewportCoord = worldCoord * scale + panOffset
-    // So: worldCoord = (viewportCoord - panOffset) / scale
-    const worldCenterX = (viewCenterX - state.x) / state.scale;
-    const worldCenterY = (viewCenterY - state.y) / state.scale;
+    // For transform: translate(x, y) scale(s) with transformOrigin: center
+    // The world coordinates don't change during zoom since we're scaling from center
+    // We just need to adjust the translation to maintain the view
+    const zoomRatio = newScale / state.scale;
     
-    // Calculate new pan offset to keep the same world point at viewport center
-    // We want: viewCenterX = worldCenterX * newScale + newX
-    // So: newX = viewCenterX - worldCenterX * newScale
-    const newX = viewCenterX - worldCenterX * newScale;
-    const newY = viewCenterY - worldCenterY * newScale;
+    // Keep the same visual content centered
+    const newX = state.x * zoomRatio;
+    const newY = state.y * zoomRatio;
 
     devLog('pan-zoom-transition', {
       source: sourceEvent || 'unknown',
@@ -95,7 +92,6 @@ export function usePanZoom({
       toScale: newScale,
       zoomDirection,
       viewportCenter: { x: viewCenterX, y: viewCenterY },
-      worldCenter: { x: worldCenterX, y: worldCenterY },
       oldOffset: { x: state.x, y: state.y },
       newOffset: { x: newX, y: newY }
     });
