@@ -97,14 +97,24 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
   const { toast } = useToast();
   const canvasRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number>();
+  const performanceRef = useRef({ frameCount: 0, lastTime: performance.now(), fps: 60 });
   
   // Motion control state - explicit Play/Pause
   const [motionEnabled, setMotionEnabled] = useState(!reducedMotion);
   const rafIdRef = useRef<number | null>(null);
   
-  // Draggable UI state
+  // Performance and debugging state
+  const [currentFPS, setCurrentFPS] = useState(60);
+  const [debugLog, setDebugLog] = useState<string[]>([]);
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
+  
+  // Draggable UI state with handles
   const [domainCardPos, setDomainCardPos] = useState({ x: 0, y: 0 });
   const [timeHorizonPos, setTimeHorizonPos] = useState({ x: 0, y: 0 });
+  const [dragUIState, setDragUIState] = useState<{ isDragging: boolean; element: string | null }>({
+    isDragging: false,
+    element: null
+  });
   
   // Canvas viewport state
   const [viewport, setViewport] = useState({
@@ -153,7 +163,35 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     }));
   }, []);
 
-  // Convert bubbles to molecules
+  // Collision detection and repulsion system
+  const applyMoleculeRepulsion = useCallback((molecules: Molecule[]): Molecule[] => {
+    return molecules.map(mol => {
+      let adjustedX = mol.x;
+      let adjustedY = mol.y;
+      
+      molecules.forEach(otherMol => {
+        if (mol.id === otherMol.id) return;
+        
+        const dx = mol.x - otherMol.x;
+        const dy = mol.y - otherMol.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const minDistance = 180; // Minimum distance between molecule centers
+        
+        if (distance < minDistance && distance > 0) {
+          const force = (minDistance - distance) * 0.1;
+          const normalizedDx = dx / distance;
+          const normalizedDy = dy / distance;
+          
+          adjustedX += normalizedDx * force;
+          adjustedY += normalizedDy * force;
+        }
+      });
+      
+      return { ...mol, x: adjustedX, y: adjustedY };
+    });
+  }, []);
+
+  // Convert bubbles to molecules with smart positioning
   const convertBubblesToMolecules = useCallback((bubbles: Bubble[]): Molecule[] => {
     const moleculeMap = new Map<string, Molecule>();
     
@@ -168,10 +206,14 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       const moleculeId = `mol-${domain}-${Math.floor(index / 8)}`;
       
       if (!moleculeMap.has(moleculeId)) {
+        // Golden ratio spiral positioning to avoid overlaps
+        const angle = index * 2.39996; // Golden angle
+        const radius = Math.sqrt(index + 1) * 60;
+        
         moleculeMap.set(moleculeId, {
           id: moleculeId,
-          x: (index % 4) * 300 + Math.random() * 100 - 50,
-          y: Math.floor(index / 4) * 300 + Math.random() * 100 - 50,
+          x: Math.cos(angle) * radius,
+          y: Math.sin(angle) * radius,
           nucleus: domainPreset.nucleus,
           electrons: [],
           bonds: [],
@@ -196,8 +238,10 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       });
     });
     
-    return Array.from(moleculeMap.values());
-  }, []);
+    // Apply repulsion to prevent overlaps
+    const molecules = Array.from(moleculeMap.values());
+    return applyMoleculeRepulsion(molecules);
+  }, [applyMoleculeRepulsion]);
 
   // Initialize viewport and convert bubbles
   useEffect(() => {
@@ -231,30 +275,55 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Explicit motion control functions
+  // Enhanced motion control with performance monitoring
   const startAnimation = useCallback(() => {
     if (rafIdRef.current !== null) return;
     setMotionEnabled(true);
     
+    const addDebugLog = (message: string) => {
+      setDebugLog(prev => [`${new Date().toLocaleTimeString()}: ${message}`, ...prev.slice(0, 9)]);
+    };
+    
+    addDebugLog('Animation started');
+    
     const loop = () => {
       if (!motionEnabled) return;
+      
+      // Performance monitoring
+      const now = performance.now();
+      performanceRef.current.frameCount++;
+      
+      if (now - performanceRef.current.lastTime >= 1000) {
+        const fps = (performanceRef.current.frameCount * 1000) / (now - performanceRef.current.lastTime);
+        performanceRef.current.fps = fps;
+        setCurrentFPS(fps);
+        performanceRef.current.frameCount = 0;
+        performanceRef.current.lastTime = now;
+      }
+      
+      // Apply LOD based on performance and reduced motion
+      const shouldReduceEffects = performanceRef.current.fps < 45 || reducedMotion;
+      const phaseIncrement = shouldReduceEffects ? 0.01 : 0.02;
+      
       setAtomicState(prev => ({
         ...prev,
         molecules: prev.molecules.map(mol => ({
           ...mol,
           electrons: mol.electrons.map(electron => ({
             ...electron,
-            phase: electron.phase + 0.02
+            phase: electron.phase + phaseIncrement
           }))
         }))
       }));
+      
       rafIdRef.current = requestAnimationFrame(loop);
     };
     rafIdRef.current = requestAnimationFrame(loop);
-  }, [motionEnabled]);
+  }, [motionEnabled, reducedMotion]);
 
   const stopAnimation = useCallback(() => {
     setMotionEnabled(false);
+    setDebugLog(prev => [`${new Date().toLocaleTimeString()}: Animation stopped`, ...prev.slice(0, 9)]);
     if (rafIdRef.current !== null) {
       cancelAnimationFrame(rafIdRef.current);
       rafIdRef.current = null;
@@ -301,6 +370,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
   // Event handlers
   const handleElectronDragStart = useCallback((electron: Electron, event: React.MouseEvent) => {
     event.stopPropagation();
+    setDebugLog(prev => [`${new Date().toLocaleTimeString()}: Electron drag started - ${electron.content.slice(0, 20)}...`, ...prev.slice(0, 9)]);
     setAtomicState(prev => ({
       ...prev,
       dragState: {
@@ -387,6 +457,14 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           let targetShell = 2;
           if (distance < 80) targetShell = 0;
           else if (distance < 120) targetShell = 1;
+          
+          // Log shell calculation for debugging
+          if (targetShell !== electron.shell) {
+            setDebugLog(prev => [
+              `${new Date().toLocaleTimeString()}: Shell transition - distance: ${distance.toFixed(1)}, shell: ${targetShell}`, 
+              ...prev.slice(0, 9)
+            ]);
+          }
           
           return {
             ...mol,
@@ -846,7 +924,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
               );
             })}
 
-            {/* Nucleus */}
+            {/* Nucleus with accessibility */}
             <div
               className={`absolute w-12 h-12 rounded-full border-2 border-white/50 cursor-move
                 ${molecule.selected ? 'bg-yellow-500/80 shadow-lg shadow-yellow-500/50' : 'bg-blue-500/80'}
@@ -858,6 +936,15 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
               }}
               onMouseDown={(e) => handleMoleculeDragStart(molecule, e)}
               onClick={(e) => handleMoleculeSelect(molecule, e)}
+              role="button"
+              tabIndex={0}
+              aria-label={`${molecule.nucleus.domain} molecule with ${molecule.nucleus.protons} protons and ${molecule.electrons.length} electrons. ${molecule.selected ? 'Selected.' : 'Click to select.'}`}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  handleMoleculeSelect(molecule);
+                }
+              }}
             >
               <div className="absolute inset-0 flex items-center justify-center text-white text-xs font-bold">
                 {molecule.nucleus.protons}p
@@ -871,10 +958,11 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
               </div>
             </div>
 
-            {/* Electrons */}
+            {/* Electrons with accessibility */}
             {molecule.electrons.map((electron) => {
               const shell = SHELL_CONFIG[electron.shell];
-              const angle = electron.angle + (motionEnabled ? electron.phase : 0);
+              const electronMotion = reducedMotion ? 0 : (motionEnabled ? electron.phase : 0);
+              const angle = electron.angle + electronMotion;
               const x = Math.cos(angle) * shell.radius;
               const y = Math.sin(angle) * shell.radius;
 
@@ -895,7 +983,18 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                       onBubbleSelect(electron.originalBubble);
                     }
                   }}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Electron: ${electron.content}. Currently in ${shell.name} shell. Drag to move between time horizons.`}
                   title={electron.content}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      if (onBubbleSelect && electron.originalBubble) {
+                        onBubbleSelect(electron.originalBubble);
+                      }
+                    }
+                  }}
                 >
                   <div className="absolute inset-0 rounded-full animate-pulse opacity-50" 
                        style={{ backgroundColor: shell.color }} />
@@ -1029,8 +1128,17 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           Electrons: {atomicState.molecules.reduce((sum, mol) => sum + mol.electrons.length, 0)}
         </Badge>
         <Badge variant="outline" className="bg-black/20 backdrop-blur-sm border-white/20 text-white">
-          Zoom: {Math.round(viewport.scale * 100)}%
+          FPS: {currentFPS.toFixed(1)}
         </Badge>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setShowDebugPanel(!showDebugPanel)}
+          className="bg-black/20 backdrop-blur-sm border-white/20 text-white hover:bg-white/10"
+          title="Toggle Debug Panel"
+        >
+          🐛
+        </Button>
         {(() => {
           const selectedCount = atomicState.molecules.filter(mol => mol.selected).length;
           return selectedCount > 0 && (
@@ -1046,20 +1154,94 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         )}
       </div>
 
-      {/* Domain quick-add - Moved to bottom left to avoid overlap */}
-      <Card className="absolute bottom-4 left-4 mt-16 bg-black/20 backdrop-blur-sm border-white/20 p-2">
-        <div className="flex gap-1">
-          {DOMAIN_PRESETS.slice(0, 4).map((preset) => (
+      {/* Debug Panel */}
+      {showDebugPanel && (
+        <Card className="absolute top-20 right-4 w-80 max-h-60 bg-black/20 backdrop-blur-sm border-white/20 p-3">
+          <div className="flex justify-between items-center mb-2">
+            <h3 className="text-white font-medium">Debug Log</h3>
             <Button
-              key={preset.name}
               variant="ghost"
               size="sm"
-              onClick={() => handleQuickAdd(preset.name)}
-              className="text-white hover:bg-white/10"
-              title={`Add ${preset.name} molecule`}
+              onClick={() => setDebugLog([])}
+              className="text-white hover:bg-white/10 h-6 px-2"
             >
-              {preset.emoji}
+              Clear
             </Button>
+          </div>
+          <div className="space-y-1 text-xs text-white/80 max-h-40 overflow-y-auto font-mono">
+            {debugLog.length === 0 ? (
+              <div className="text-white/50">No debug events...</div>
+            ) : (
+              debugLog.map((log, i) => (
+                <div key={i} className="break-words">{log}</div>
+              ))
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* Domain quick-add with drag handle - Moved to bottom left to avoid overlap */}
+      <Card className="absolute bottom-4 left-4 mt-16 bg-black/20 backdrop-blur-sm border-white/20 p-2">
+        <div className="flex items-center gap-2">
+          <div 
+            className="cursor-move text-white/50 hover:text-white p-1"
+            onMouseDown={(e) => {
+              setDragUIState({ isDragging: true, element: 'domain' });
+              e.preventDefault();
+            }}
+            title="Drag to move this panel"
+          >
+            ⋮⋮
+          </div>
+          <div className="flex gap-1"
+            style={{
+              transform: `translate(${domainCardPos.x}px, ${domainCardPos.y}px)`
+            }}
+          >
+            {DOMAIN_PRESETS.slice(0, 4).map((preset) => (
+              <Button
+                key={preset.name}
+                variant="ghost"
+                size="sm"
+                onClick={() => handleQuickAdd(preset.name)}
+                className="text-white hover:bg-white/10"
+                title={`Add ${preset.name} molecule`}
+              >
+                {preset.emoji}
+              </Button>
+            ))}
+          </div>
+        </div>
+      </Card>
+
+      {/* Time Horizons legend with drag handle */}
+      <Card className="absolute top-20 left-4 bg-black/20 backdrop-blur-sm border-white/20 p-3"
+        style={{
+          transform: `translate(${timeHorizonPos.x}px, ${timeHorizonPos.y}px)`
+        }}
+      >
+        <div className="flex items-center gap-2 mb-2">
+          <div 
+            className="cursor-move text-white/50 hover:text-white p-1"
+            onMouseDown={(e) => {
+              setDragUIState({ isDragging: true, element: 'timeHorizon' });
+              e.preventDefault();
+            }}
+            title="Drag to move this panel"
+          >
+            ⋮⋮
+          </div>
+          <h3 className="text-white font-medium">Time Horizons</h3>
+        </div>
+        <div className="space-y-1">
+          {SHELL_CONFIG.map((shell, index) => (
+            <div key={index} className="flex items-center gap-2 text-xs text-white">
+              <div 
+                className="w-3 h-3 rounded-full border"
+                style={{ backgroundColor: shell.color, borderColor: shell.color }}
+              />
+              <span>{shell.name}</span>
+            </div>
           ))}
         </div>
       </Card>

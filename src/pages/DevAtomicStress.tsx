@@ -43,6 +43,7 @@ export default function DevAtomicStress() {
   const { addBubble, bubbles, deleteBubble } = useBubbleStore();
   const [isGenerating, setIsGenerating] = useState(false);
   const [performanceMode, setPerformanceMode] = useState<'motion-on' | 'motion-off'>('motion-off');
+  const [motionEnabled, setMotionEnabled] = useState(false);
 
   const generateBubbles = async (count: number) => {
     setIsGenerating(true);
@@ -133,6 +134,16 @@ export default function DevAtomicStress() {
           <Badge variant="outline">
             Performance Mode: {performanceMode}
           </Badge>
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={() => {
+              setMotionEnabled(!motionEnabled);
+              setPerformanceMode(motionEnabled ? 'motion-off' : 'motion-on');
+            }}
+          >
+            {motionEnabled ? 'Motion OFF' : 'Motion ON'}
+          </Button>
         </div>
         
         {/* Performance Tips */}
