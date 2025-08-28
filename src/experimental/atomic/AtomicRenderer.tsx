@@ -11,6 +11,8 @@ import { Card } from '@/components/ui/card';
 import { Undo2, Zap, RotateCcw, Home, Calendar, Clock, Plus, ZoomIn, ZoomOut, RotateCcw as FitIcon, Play, Pause } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { motion, AnimatePresence } from 'framer-motion';
+import { HorizonFlashLabel } from '@/components/HorizonFlashLabel';
+import { crossViewUndoService } from '@/services/crossViewUndoService';
 
 import * as atomicAdapter from './atomicAdapter';
 
@@ -107,6 +109,17 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
   const [currentFPS, setCurrentFPS] = useState(60);
   const [debugLog, setDebugLog] = useState<string[]>([]);
   const [showDebugPanel, setShowDebugPanel] = useState(false);
+  
+  // Horizon flash label state
+  const [flashLabel, setFlashLabel] = useState<{
+    isVisible: boolean;
+    horizonName: string;
+    position: { x: number; y: number };
+  }>({
+    isVisible: false,
+    horizonName: '',
+    position: { x: 0, y: 0 }
+  });
   
   // Draggable UI state with handles
   const [domainCardPos, setDomainCardPos] = useState({ x: 0, y: 0 });
@@ -527,6 +540,37 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                             tagStrings.includes('week') ? 1 : 2;
         
         const shellNames = ['Today', 'Week', 'Later'];
+        
+        // Show horizon flash label
+        const horizonName = shellNames[electron.shell];
+        const parentMolecule = atomicState.molecules.find(m => m.electrons.some(e => e.id === electronId));
+        if (parentMolecule) {
+          const rect = canvasRef.current?.getBoundingClientRect();
+          if (rect) {
+            const molCenterX = parentMolecule.x * viewport.scale + viewport.width / 2 + viewport.x;
+            const molCenterY = parentMolecule.y * viewport.scale + viewport.height / 2 + viewport.y;
+            
+            setFlashLabel({
+              isVisible: true,
+              horizonName,
+              position: { x: molCenterX + rect.left, y: molCenterY + rect.top }
+            });
+            
+            // Hide after 1 second
+            setTimeout(() => {
+              setFlashLabel(prev => ({ ...prev, isVisible: false }));
+            }, 1000);
+          }
+        }
+        
+        // Add to cross-view undo system
+        crossViewUndoService.addEntry({
+          view: 'atomic',
+          type: 'drag',
+          data: { electronId, fromShell: originalShell, toShell: electron.shell },
+          description: `Moved electron to ${horizonName} horizon`
+        });
+        
         toast({
           title: `Moved to ${shellNames[electron.shell]}`,
           description: `"${electron.content.slice(0, 30)}${electron.content.length > 30 ? '...' : ''}"`,
@@ -1265,6 +1309,14 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           </div>
         );
       })()}
+
+      {/* Horizon Flash Label */}
+      <HorizonFlashLabel
+        isVisible={flashLabel.isVisible}
+        horizonName={flashLabel.horizonName}
+        position={flashLabel.position}
+        onComplete={() => setFlashLabel(prev => ({ ...prev, isVisible: false }))}
+      />
     </div>
   );
 };

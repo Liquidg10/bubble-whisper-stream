@@ -1,6 +1,7 @@
 // Standardized pan/zoom that never conflicts with bubble drag or overlays
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useRef, useState, useEffect } from 'react';
+import { viewportMemoryService } from '@/services/viewportMemoryService';
 
 interface PanZoomState {
   x: number;
@@ -15,6 +16,7 @@ interface UsePanZoomControlOptions {
   minScale?: number;
   maxScale?: number;
   panThreshold?: number; // pixels before panning starts
+  viewKey?: string; // For viewport memory
   onStateChange?: (state: PanZoomState) => void;
   getContainerRect: () => DOMRect | null;
 }
@@ -24,13 +26,17 @@ export function usePanZoomControl({
   minScale = 0.1,
   maxScale = 3,
   panThreshold = 8,
+  viewKey,
   onStateChange,
   getContainerRect
 }: UsePanZoomControlOptions) {
+  // Restore viewport from memory if available
+  const restoredViewport = viewKey ? viewportMemoryService.restoreViewport(viewKey) : null;
+  
   const [state, setState] = useState<PanZoomState>({
-    x: 0,
-    y: 0,
-    scale: 1,
+    x: restoredViewport?.x ?? 0,
+    y: restoredViewport?.y ?? 0,
+    scale: restoredViewport?.scale ?? 1,
     isDragging: false,
     isPanning: false,
     ...initialState
@@ -43,9 +49,19 @@ export function usePanZoomControl({
     setState(prev => {
       const newState = { ...prev, ...updates };
       onStateChange?.(newState);
+      
+      // Save to viewport memory when state changes
+      if (viewKey && ('x' in updates || 'y' in updates || 'scale' in updates)) {
+        viewportMemoryService.saveViewport(viewKey, {
+          x: newState.x,
+          y: newState.y,
+          scale: newState.scale
+        });
+      }
+      
       return newState;
     });
-  }, [onStateChange]);
+  }, [onStateChange, viewKey]);
 
   // Handle pointer down on canvas background (not on bubbles)
   const handlePointerDown = useCallback((e: React.PointerEvent) => {

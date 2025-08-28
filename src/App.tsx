@@ -21,6 +21,7 @@ import DevAtomicBasic from "./pages/DevAtomicBasic";
 import DevAtomicStress from "./pages/DevAtomicStress";
 import DevBubblesBasic from "./pages/DevBubblesBasic";
 import DevBubblesStress from "./pages/DevBubblesStress";
+import { DevSettings } from "./components/DevSettings";
 
 const queryClient = new QueryClient();
 
@@ -58,6 +59,7 @@ const App = () => {
                     <Route path="/dev/atomic-stress" element={<DevAtomicStress />} />
                     <Route path="/dev/bubbles-basic" element={<DevBubblesBasic />} />
                     <Route path="/dev/bubbles-stress" element={<DevBubblesStress />} />
+                    <Route path="/dev/settings" element={<DevSettings />} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>
                 </BrowserRouter>

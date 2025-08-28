@@ -14,6 +14,7 @@ import { useTheme } from '@/themes/provider';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { usePinchZoom } from '@/hooks/usePinchZoom';
 import { useLODSystem } from '@/hooks/useLODSystem';
+import { crossViewUndoService } from '@/services/crossViewUndoService';
 
 import { AtomicView } from './AtomicView';
 
@@ -51,8 +52,9 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
   const { toast } = useToast();
   const { getLODConfig, setDragState, setMultiSelectState } = useLODSystem();
   
-  // Import new hooks
+  // Pan/zoom control with viewport memory
   const { state: panZoomState, handlers: panZoomHandlers, actions: panZoomActions, cursors } = usePanZoomControl({
+    viewKey: 'bubble-canvas',
     onStateChange: (newState) => {
       setViewport(prev => ({
         ...prev,
@@ -178,6 +180,14 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
   // Handle merge confirmation
   const handleMergeConfirm = useCallback(() => {
     if (mergeCandidate) {
+      // Add to cross-view undo system
+      crossViewUndoService.addEntry({
+        view: 'bubble',
+        type: 'merge',
+        data: { original: [mergeCandidate.bubble1, mergeCandidate.bubble2] },
+        description: `Merged "${mergeCandidate.bubble1.content.slice(0, 20)}..." and "${mergeCandidate.bubble2.content.slice(0, 20)}..."`
+      });
+      
       mergeBubbles(mergeCandidate.bubble1, mergeCandidate.bubble2);
       setShowMergePopover(false);
       
