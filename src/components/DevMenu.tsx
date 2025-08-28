@@ -46,8 +46,8 @@ const devRoutes: DevRoute[] = [
   },
   {
     path: '/dev/photo',
-    name: 'Photo Iridescent',
-    description: 'Iridescent photo rendering tests'
+    name: 'Photo Bulletproof',
+    description: 'Bulletproof photo rendering tests (all scenarios)'
   }
 ];
 

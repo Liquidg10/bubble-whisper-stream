@@ -10,7 +10,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuTrigger } 
 import { Brain, Edit3 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useBubbleStore } from '@/stores/bubbleStore';
-import { PhotoBubbleRenderer } from './PhotoBubbleRenderer';
+import { BulletproofPhotoRenderer } from './BulletproofPhotoRenderer';
 
 interface BubbleCardProps {
   bubble: Bubble;
@@ -260,64 +260,15 @@ export function BubbleCard({
     >
       {/* Photo bubbles - bulletproof rendering with proper z-index isolation */}
       {bubble.imageUri ? (
-        <>
-          {/* Type-colored rim layer (z-index: 3) - always visible */}
-          <div 
-            className="absolute inset-0 rounded-full"
-            style={{
-              zIndex: 3,
-              ...getRimStyling(),
-              // Ensure rim visibility without affecting photo
-              filter: 'none',
-              mixBlendMode: 'normal',
-              backdropFilter: 'none'
-            }}
-          />
-          
-          {/* Aura glow layer (z-index: 2) */}
-          <div 
-            className="absolute inset-0 rounded-full opacity-60"
-            style={{
-              zIndex: 2,
-              background: `radial-gradient(circle, transparent 45%, ${getBubbleColor()} 70%)`,
-              filter: getAuraEffects().filter || 'none'
-            }}
-          />
-          
-          {/* Photo content layer (z-index: 1) - isolated container */}
-          <div 
-            className="absolute inset-0 rounded-full overflow-hidden bg-panel"
-            style={{ 
-              zIndex: 1,
-              // Solid background prevents transparency issues
-              backgroundColor: 'hsl(var(--panel))'
-            }}
-          >
-            <PhotoBubbleRenderer
-              src={bubble.imageUri}
-              alt={`${bubble.type}: ${bubble.content || 'Photo'}`}
-              size={visualSize}
-              bubbleId={bubble.id}
-              debugMode={process.env.NODE_ENV === 'development'}
-            />
-          </div>
-          
-          {/* Specular highlights layer (z-index: 5) - only for iridescent theme */}
-          {currentTheme.tokens.rimPolicy === 'specular' && !shouldUseLOD && (
-            <div 
-              className="absolute inset-0 rounded-full opacity-30"
-              style={{
-                zIndex: 5,
-                background: `linear-gradient(135deg, 
-                  hsl(var(--accent-flow) / 0.3) 0%, 
-                  transparent 30%, 
-                  transparent 70%, 
-                  hsl(var(--accent-growth) / 0.2) 100%)`,
-                pointerEvents: 'none'
-              }}
-            />
-          )}
-        </>
+        <BulletproofPhotoRenderer
+          src={bubble.imageUri}
+          alt={`${bubble.type}: ${bubble.content || 'Photo'}`}
+          size={visualSize}
+          bubbleType={bubble.type}
+          completed={bubble.completed}
+          bubbleId={bubble.id}
+          debugMode={false}
+        />
       ) : (
         /* Bubble Content - only show when no photo */
         <div className="relative z-10 flex flex-col items-center justify-center p-1 text-text-primary">

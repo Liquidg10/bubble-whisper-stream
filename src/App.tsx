@@ -16,6 +16,7 @@ import { Reminders } from './pages/Reminders';
 import { Reflection } from './pages/Reflection';
 import { CBTWorksheet } from './pages/CBTWorksheet';
 import NotFound from "./pages/NotFound";
+import DevPhotoTest from "./pages/DevPhotoTest";
 import DevPhotoIridescent from "./pages/DevPhotoIridescent";
 import DevAtomicBasic from "./pages/DevAtomicBasic";
 import DevAtomicStress from "./pages/DevAtomicStress";
@@ -59,7 +60,7 @@ const App = () => {
                       <Route path="settings" element={<Settings />} />
                     </Route>
                     {/* Dev routes - now wrapped with theme context */}
-                    <Route path="/dev/photo" element={<DevPhotoIridescent />} />
+                    <Route path="/dev/photo" element={<DevPhotoTest />} />
                     <Route path="/dev/atomic-basic" element={<DevAtomicBasic />} />
                     <Route path="/dev/atomic-stress" element={<DevAtomicStress />} />
                     <Route path="/dev/atomic-unified" element={<DevAtomicUnified />} />
