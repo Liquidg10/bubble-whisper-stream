@@ -15,8 +15,14 @@ import { BulletproofPhotoRenderer } from './BulletproofPhotoRenderer';
 interface BubbleCardProps {
   bubble: Bubble;
   scale: number;
+  lodConfig?: any;
+  isSelected?: boolean;
+  showPreviewRing?: boolean;
   onSelect?: (bubble: Bubble) => void;
   onEdit?: (bubble: Bubble) => void;
+  onDragStart?: (bubble: Bubble, x: number, y: number) => void;
+  onDragMove?: (x: number, y: number) => void;
+  onDragEnd?: () => void;
   style?: React.CSSProperties;
   className?: string;
   isDragging?: boolean;
@@ -25,8 +31,14 @@ interface BubbleCardProps {
 export function BubbleCard({
   bubble,
   scale,
+  lodConfig,
+  isSelected = false,
+  showPreviewRing = false,
   onSelect,
   onEdit,
+  onDragStart,
+  onDragMove,
+  onDragEnd,
   style,
   className,
   isDragging = false
@@ -39,7 +51,7 @@ export function BubbleCard({
   const { intelligenceEnabled } = useBubbleStore();
 
   // Touch gesture handling for mobile
-  const { gestureState, handlers, isSelected } = useTouchGestures({
+  const { gestureState, handlers, isSelected: isTouchSelected } = useTouchGestures({
     bubbleId: bubble.id,
     onTap: () => onSelect?.(bubble),
     onLongPress: () => {
@@ -208,7 +220,7 @@ export function BubbleCard({
         // Don't make photo bubbles transparent when completed
         bubble.completed && !bubble.imageUri && "opacity-60",
         shouldUseLOD && "backdrop-blur-none", // Reduce heavy effects during drag
-        isSelected && "ring-2 ring-bubble-selected ring-offset-1",
+        (isSelected || isTouchSelected) && "ring-2 ring-bubble-selected ring-offset-1",
         gestureState.isParallaxMode && "transition-transform duration-150",
         className
       )}
@@ -232,8 +244,8 @@ export function BubbleCard({
       {...(isMobile ? handlers : {})}
       role="button"
       tabIndex={0}
-      aria-selected={isSelected}
-      aria-label={`${bubble.type} bubble: ${bubble.content || 'No content'}${isSelected ? ' (selected)' : ''}`}
+      aria-selected={isSelected || isTouchSelected}
+      aria-label={`${bubble.type} bubble: ${bubble.content || 'No content'}${(isSelected || isTouchSelected) ? ' (selected)' : ''}`}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();

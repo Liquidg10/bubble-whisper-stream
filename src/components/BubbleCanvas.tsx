@@ -94,15 +94,80 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
       return { x: screenX, y: screenY };
     }
   });
-  
-  const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
 
+  const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
   const [selectedBubbleId, setSelectedBubbleId] = useState<string | null>(null);
   const [declutterMode, setDeclutterMode] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [bubbleDensity, setBubbleDensity] = useState<'low' | 'medium' | 'high'>('medium');
   const [showMergePopover, setShowMergePopover] = useState(false);
   const [mergePopoverPosition, setMergePopoverPosition] = useState({ x: 0, y: 0 });
+
+  // Keyboard navigation for bubbles
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!selectedBubbleId) return;
+      
+      const selectedBubble = bubbles.find(b => b.id === selectedBubbleId);
+      if (!selectedBubble) return;
+      
+      const { key, shiftKey, ctrlKey, altKey } = event;
+      let moveDistance = 1; // Base movement
+      
+      // Adjust movement distance with modifiers
+      if (shiftKey) moveDistance = 8;
+      if (ctrlKey) moveDistance = 24;
+      
+      let newX = selectedBubble.x;
+      let newY = selectedBubble.y;
+      
+      switch (key) {
+        case 'ArrowUp':
+          newY -= moveDistance;
+          event.preventDefault();
+          break;
+        case 'ArrowDown':
+          newY += moveDistance;
+          event.preventDefault();
+          break;
+        case 'ArrowLeft':
+          newX -= moveDistance;
+          event.preventDefault();
+          break;
+        case 'ArrowRight':
+          newX += moveDistance;
+          event.preventDefault();
+          break;
+        default:
+          return;
+      }
+      
+      const updatedBubble = {
+        ...selectedBubble,
+        x: newX,
+        y: newY,
+        updatedAt: Date.now()
+      };
+      
+      updateBubble(updatedBubble);
+      
+      // Add undo entry for keyboard movement
+      crossViewUndoService.addEntry({
+        view: 'bubble',
+        type: 'drag',
+        data: { 
+          bubbleId: selectedBubble.id, 
+          originalPosition: { x: selectedBubble.x, y: selectedBubble.y },
+          newPosition: { x: newX, y: newY }
+        },
+        description: `Moved bubble with keyboard`
+      });
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedBubbleId, bubbles, updateBubble]);
+  
   
   
   // LOD configuration
@@ -180,35 +245,66 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
   // Handle merge confirmation
   const handleMergeConfirm = useCallback(() => {
     if (mergeCandidate) {
+      const { bubble1, bubble2 } = mergeCandidate;
+      
+      // Store original positions for undo
+      const originalPositions = {
+        bubble1: { x: bubble1.x, y: bubble1.y },
+        bubble2: { x: bubble2.x, y: bubble2.y }
+      };
+      
       // Add to cross-view undo system
       crossViewUndoService.addEntry({
         view: 'bubble',
         type: 'merge',
-        data: { original: [mergeCandidate.bubble1, mergeCandidate.bubble2] },
-        description: `Merged "${mergeCandidate.bubble1.content.slice(0, 20)}..." and "${mergeCandidate.bubble2.content.slice(0, 20)}..."`
+        data: { 
+          original: [bubble1, bubble2],
+          originalPositions 
+        },
+        description: `Merged "${bubble1.content.slice(0, 20)}..." and "${bubble2.content.slice(0, 20)}..."`
       });
       
-      mergeBubbles(mergeCandidate.bubble1, mergeCandidate.bubble2);
+      // Perform merge - new bubble keeps larger bubble's type and combines labels
+      const largerBubble = bubble1.size >= bubble2.size ? bubble1 : bubble2;
+      const smallerBubble = bubble1.size >= bubble2.size ? bubble2 : bubble1;
+      
+      const mergedBubble = {
+        ...largerBubble,
+        content: `${bubble1.content} · ${bubble2.content}`,
+        size: Math.max(largerBubble.size, smallerBubble.size * 1.1),
+        x: (bubble1.x + bubble2.x) / 2,
+        y: (bubble1.y + bubble2.y) / 2,
+        updatedAt: Date.now()
+      };
+      
+      mergeBubbles(bubble1, bubble2);
       setShowMergePopover(false);
+      clearMergeCandidate();
       
       // Show undo toast
       toast({
         title: "Bubbles merged",
-        description: "Combined into a single bubble",
+        description: `Combined "${bubble1.content.slice(0, 15)}..." and "${bubble2.content.slice(0, 15)}..."`,
         action: (
           <Button 
             variant="outline" 
             size="sm" 
-            onClick={undoLastMerge}
+            onClick={() => {
+              crossViewUndoService.undo();
+              toast({
+                title: "Merge undone",
+                description: "Bubbles restored to original positions"
+              });
+            }}
             className="min-h-[32px]"
           >
             Undo
           </Button>
         ),
-        duration: 8000, // 8 second undo window
+        duration: 8000,
       });
     }
-  }, [mergeCandidate, mergeBubbles, toast, undoLastMerge]);
+  }, [mergeCandidate, mergeBubbles, toast, clearMergeCandidate]);
 
   // Handle merge cancellation
   const handleMergeCancel = useCallback(() => {
@@ -387,32 +483,42 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
           }}
         />
         
-        {/* Render visible bubbles */}
-        {visibleBubbles.map(bubble => (
-          <div
-            key={bubble.id}
-            data-bubble
-            style={{
-              position: 'absolute',
-              left: bubble.x,
-              top: bubble.y,
-              transform: 'translate(-50%, -50%)',
-            }}
-          >
-            <BubbleCard
-              bubble={bubble}
-              scale={panZoomState.scale}
-              onSelect={(b) => {
-                setSelectedBubbleId(b.id);
-                onBubbleSelect?.(b);
+        {/* Render visible bubbles with LOD and motion */}
+        {visibleBubbles.map(bubble => {
+          const isSelected = selectedBubbleId === bubble.id;
+          const shouldShowPreviewRing = mergeCandidate && 
+            (mergeCandidate.bubble1.id === bubble.id || mergeCandidate.bubble2.id === bubble.id);
+          
+          return (
+            <div
+              key={bubble.id}
+              data-bubble
+              style={{
+                position: 'absolute',
+                left: bubble.x,
+                top: bubble.y,
+                transform: 'translate(-50%, -50%)',
               }}
-              onEdit={(editedBubble) => {
-                handleBubbleDragEnd(editedBubble);
-                onBubbleEdit?.(editedBubble);
-              }}
-            />
-          </div>
-        ))}
+              className={`${!settings.reducedMotion ? 'float-motion' : ''}`}
+            >
+              <BubbleCard
+                bubble={bubble}
+                scale={panZoomState.scale}
+                lodConfig={lodConfig}
+                isSelected={isSelected}
+                showPreviewRing={shouldShowPreviewRing}
+                onSelect={(b) => {
+                  setSelectedBubbleId(b.id);
+                  onBubbleSelect?.(b);
+                }}
+                onEdit={(editedBubble) => {
+                  handleBubbleDragEnd(editedBubble);
+                  onBubbleEdit?.(editedBubble);
+                }}
+              />
+            </div>
+          );
+        })}
         
         {/* Merge Confirmation Popover */}
         {mergeCandidate && (

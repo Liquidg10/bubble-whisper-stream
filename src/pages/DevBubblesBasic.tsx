@@ -1,9 +1,11 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { BubbleCanvas } from '@/components/BubbleCanvas';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { Bubble } from '@/types/bubble';
 import { Button } from '@/components/ui/button';
-import { Trash2, RefreshCw } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { useLODSystem } from '@/hooks/useLODSystem';
+import { Trash2, RefreshCw, Activity, Settings } from 'lucide-react';
 
 // Create test data for basic testing
 const createTestBubbles = (): Bubble[] => {
@@ -139,7 +141,22 @@ const createTestBubbles = (): Bubble[] => {
 };
 
 export default function DevBubblesBasic() {
-  const { bubbles, addBubble, clearAllBubbles } = useBubbleStore();
+  const { bubbles, addBubble, clearAllBubbles, settings } = useBubbleStore();
+  const { getLODConfig, getCurrentLODLevel, getPerformanceMetrics } = useLODSystem();
+  const [statusUpdateTrigger, setStatusUpdateTrigger] = useState(0);
+  
+  // Update status every second
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setStatusUpdateTrigger(prev => prev + 1);
+    }, 1000);
+    
+    return () => clearInterval(interval);
+  }, []);
+  
+  const lodConfig = getLODConfig();
+  const lodLevel = getCurrentLODLevel();
+  const performanceMetrics = getPerformanceMetrics();
 
   useEffect(() => {
     // Add test bubbles if none exist
@@ -157,15 +174,26 @@ export default function DevBubblesBasic() {
 
   return (
     <div className="h-screen flex flex-col bg-background">
-      {/* Header with dev controls */}
-      <div className="h-16 border-b border-border bg-card/50 backdrop-blur-sm flex items-center justify-between px-4 z-10">
+      {/* Header with dev controls and status */}
+      <div className="h-20 border-b border-border bg-card/50 backdrop-blur-sm flex items-center justify-between px-4 z-10">
         <div>
           <h1 className="text-lg font-semibold text-text-primary">
             Dev: Bubbles Basic Test
           </h1>
-          <p className="text-sm text-text-secondary">
-            {bubbles.length} bubbles • Test drag, pan/zoom, merge, photos, motion
-          </p>
+          <div className="flex gap-2 text-sm text-text-secondary">
+            <span>{bubbles.length} bubbles</span>
+            <span>•</span>
+            <span>LOD: {lodLevel}</span>
+            <span>•</span>
+            <span>FPS: {Math.round(performanceMetrics.averageFPS)}</span>
+            <span>•</span>
+            <Badge 
+              variant={settings.reducedMotion ? "secondary" : "default"} 
+              className="h-5 text-xs"
+            >
+              {settings.reducedMotion ? "Motion: Off" : "Motion: On"}
+            </Badge>
+          </div>
         </div>
         <div className="flex gap-2">
           <Button
@@ -205,12 +233,12 @@ export default function DevBubblesBasic() {
       <div className="absolute bottom-4 left-4 bg-card/90 backdrop-blur-sm border border-border rounded-lg p-3 max-w-sm">
         <h3 className="text-sm font-medium text-text-primary mb-2">Test Instructions</h3>
         <ul className="text-xs text-text-secondary space-y-1">
-          <li>• Drag bubbles to move and test merge</li>
-          <li>• Scroll/pinch to zoom</li>
-          <li>• Click empty space to pan</li>
-          <li>• Check photo visibility & type-colored rims</li>
-          <li>• Test Float motion toggle</li>
-          <li>• Verify Reduced Motion settings</li>
+          <li>• <strong>Drag & Merge:</strong> Drag bubbles to overlap, confirm merge</li>
+          <li>• <strong>Keyboard:</strong> Select bubble, use arrows (1px), Shift (8px), Ctrl (24px)</li>
+          <li>• <strong>Pan/Zoom:</strong> Scroll to zoom, drag empty space to pan</li>
+          <li>• <strong>Undo:</strong> Use undo buttons in merge/move toasts</li>
+          <li>• <strong>Motion:</strong> Test float toggle, verify Reduced Motion</li>
+          <li>• <strong>LOD:</strong> Check photo rendering & rim effects</li>
         </ul>
       </div>
     </div>
