@@ -27,6 +27,8 @@ import { DevSettings } from "./components/DevSettings";
 import DevAtomicUnified from "./pages/DevAtomicUnified";
 import { DevAI } from "./pages/DevAI";
 import { DevReceipts } from "./pages/DevReceipts";
+import DevRealtimeVoice from "./pages/DevRealtimeVoice";
+import { DevVision } from "./pages/DevVision";
 import Inbox from "./pages/Inbox";
 import Search from "./pages/Search";
 import { DevMenu } from "./components/DevMenu";
@@ -76,6 +78,8 @@ const App = () => {
                     <Route path="/dev/atomic-unified" element={<DevAtomicUnified />} />
                     <Route path="/dev/bubbles-basic" element={<DevBubblesBasic />} />
                     <Route path="/dev/bubbles-stress" element={<DevBubblesStress />} />
+                    <Route path="/dev/voice" element={<DevRealtimeVoice />} />
+                    <Route path="/dev/vision" element={<DevVision />} />
                     <Route path="/dev/settings" element={<DevSettings />} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>

@@ -40,6 +40,7 @@ export interface Bubble {
   content?: string;        // text (encrypted)
   audioUri?: string;       // local recording path
   imageUri?: string;       // sketch/photo
+  caption?: string;        // AI-generated caption for images
   createdAt: number;
   updatedAt: number;
   x: number; y: number;    // canvas coordinates (viewport-agnostic units)

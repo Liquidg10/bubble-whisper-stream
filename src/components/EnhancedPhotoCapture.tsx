@@ -5,19 +5,23 @@ import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { Camera, Upload, Sparkles, X, Eye, Loader2 } from 'lucide-react';
 import { modalityService } from '@/services/modalityService';
+import { visionService } from '@/services/vision';
 import { photoService } from '@/services/photoService';
+import { isFeatureEnabled } from '@/config/flags';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface EnhancedPhotoCaptureProps {
   onPhotoCapture?: (imageData: string, analysis?: any) => void;
   autoAnalyze?: boolean;
   analysisType?: 'content' | 'mood';
+  onVisionAnalysis?: (result: any) => void;
 }
 
 export const EnhancedPhotoCapture: React.FC<EnhancedPhotoCaptureProps> = ({
   onPhotoCapture,
   autoAnalyze = true,
-  analysisType = 'content'
+  analysisType = 'content',
+  onVisionAnalysis
 }) => {
   const { toast } = useToast();
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
@@ -148,33 +152,45 @@ export const EnhancedPhotoCapture: React.FC<EnhancedPhotoCaptureProps> = ({
   }, [autoAnalyze, onPhotoCapture, toast]);
 
   const analyzePhoto = useCallback(async (imageData: string) => {
+    if (!isFeatureEnabled('aiVision')) return;
+    
     setIsAnalyzing(true);
     setAnalysis(null);
     
     try {
-      const result = await modalityService.analyzePhoto(imageData, analysisType);
+      // Use vision service for enhanced analysis
+      const visionResult = await visionService.describeImage(imageData);
       
-      if (result.success && result.analysis) {
-        setAnalysis(result);
-        
-        toast({
-          title: "Analysis Complete",
-          description: result.because,
-        });
-      } else {
-        throw new Error(result.error || 'Photo analysis failed');
+      // Convert to legacy format for compatibility
+      const legacyResult = {
+        success: true,
+        analysis: visionResult.caption,
+        analysis_type: analysisType,
+        because: visionResult.because
+      };
+      
+      setAnalysis(legacyResult);
+      
+      // Call new vision analysis callback if provided
+      if (onVisionAnalysis) {
+        onVisionAnalysis(visionResult);
       }
-    } catch (error) {
-      console.error('Photo analysis error:', error);
+      
       toast({
-        title: "Analysis Failed",
-        description: "Could not analyze photo. Please try again.",
+        title: "Photo analyzed",
+        description: visionResult.caption.substring(0, 100) + "...",
+      });
+    } catch (error) {
+      console.error('Photo analysis failed:', error);
+      toast({
+        title: "Analysis failed",
+        description: "Could not analyze the photo",
         variant: "destructive",
       });
     } finally {
       setIsAnalyzing(false);
     }
-  }, [analysisType, toast]);
+  }, [analysisType, onVisionAnalysis, toast]);
 
   const clearPhoto = useCallback(() => {
     setCapturedImage(null);

@@ -229,6 +229,45 @@ export const useBubbleStore = create<BubbleStore>()(
             ...bubble,
             type: bubble.type || getDefaultBubbleType(bubble.content || '')
           };
+
+          // Auto-analyze photo bubbles if vision is enabled
+          if (bubbleWithType.imageUri && !bubbleWithType.caption) {
+            try {
+              const { visionService } = await import('@/services/vision');
+              const visionResult = await visionService.describeImage(bubbleWithType.imageUri);
+              
+              // Update bubble with vision results
+              bubbleWithType.caption = visionResult.caption;
+              if (visionResult.tags.length > 0) {
+                const newTags = visionResult.tags.map(tagName => ({
+                  id: crypto.randomUUID(),
+                  name: tagName,
+                  emoji: tagName === 'photo' ? '📸' : undefined
+                }));
+                bubbleWithType.tags = [...(bubbleWithType.tags || []), ...newTags];
+              }
+
+              // Handle special type routing
+              if (visionResult.typeHint === 'receipt') {
+                // Route to OCR flow (existing receipt handling)
+                console.log('Receipt detected, consider OCR processing');
+              }
+
+              // Mark as Joy candidate if high joy score and user opted in
+              if (visionResult.joyScore && visionResult.joyScore > 0.6) {
+                const { consentService } = await import('@/services/consentService');
+                const hasJoyConsent = await consentService.hasConsent('joy_detection');
+                
+                if (hasJoyConsent) {
+                  const joyTag = { id: crypto.randomUUID(), name: 'joy-candidate', emoji: '✨' };
+                  bubbleWithType.tags = [...(bubbleWithType.tags || []), joyTag];
+                }
+              }
+            } catch (error) {
+              console.log('Vision analysis failed, proceeding without:', error);
+            }
+          }
+          
           await storageService.createBubble(bubbleWithType);
           set(state => ({ bubbles: [...state.bubbles, bubbleWithType] }));
         } catch (error) {

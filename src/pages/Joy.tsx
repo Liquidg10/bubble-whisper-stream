@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { BecausePill } from '@/components/BecausePill';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { JoyCard } from '@/components/JoyCard';
-import { Heart, Search, Filter, Calendar, Star } from 'lucide-react';
+import { Heart, Search, Filter, Calendar, Star, Sparkles } from 'lucide-react';
 import { Bubble } from '@/types/bubble';
 
 export const Joy: React.FC = () => {
@@ -91,8 +91,13 @@ export const Joy: React.FC = () => {
       bubble.tags?.some(tag => tag.name.toLowerCase().includes('favorite')) ||
       bubble.tags?.some(tag => tag.name.toLowerCase().includes('favourite'))
     );
+    
+    // Auto-detected Joy candidates from vision analysis
+    const auto = filteredJoyBubbles.filter(bubble =>
+      bubble.tags?.some(tag => tag.name === 'joy-candidate')
+    );
 
-    return { today, thisWeek, favorites, all: filteredJoyBubbles };
+    return { today, thisWeek, favorites, auto, all: filteredJoyBubbles };
   }, [filteredJoyBubbles]);
 
   const generateBecauseExplanation = (bubble: Bubble): string => {
@@ -176,10 +181,14 @@ export const Joy: React.FC = () => {
 
       {/* Content Tabs */}
       <Tabs defaultValue="all" className="w-full">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="all" className="flex items-center gap-2">
             <Calendar className="h-4 w-4" />
             All ({groupedBubbles.all.length})
+          </TabsTrigger>
+          <TabsTrigger value="auto" className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4" />
+            Auto ({groupedBubbles.auto?.length || 0})
           </TabsTrigger>
           <TabsTrigger value="today" className="flex items-center gap-2">
             <Calendar className="h-4 w-4" />
@@ -194,6 +203,31 @@ export const Joy: React.FC = () => {
             Favorites ({groupedBubbles.favorites.length})
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="auto" className="mt-6">
+          {groupedBubbles.auto?.length === 0 ? (
+            <Card>
+              <CardContent className="text-center py-8">
+                <Sparkles className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                <p className="text-muted-foreground">No AI-detected joy moments yet.</p>
+                <p className="text-xs text-muted-foreground mt-1">Take photos to let AI find joyful moments!</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {groupedBubbles.auto?.map((bubble) => (
+                <div key={bubble.id} className="space-y-2">
+                  <JoyCard bubble={bubble} />
+                  <BecausePill 
+                    explanation="AI detected joyful content"
+                    variant="pill"
+                    compact
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </TabsContent>
 
         <TabsContent value="all" className="mt-6">
           {groupedBubbles.all.length === 0 ? (

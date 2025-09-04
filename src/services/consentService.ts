@@ -68,6 +68,10 @@ class ConsentService {
     return true;
   }
 
+  async recordConsent(feature: string, options: { purpose: string; dataUsage: string; retention: string }): Promise<void> {
+    await this.grantConsent(feature);
+  }
+
   private promisifyRequest<T>(request: IDBRequest<T>): Promise<T> {
     return new Promise((resolve, reject) => {
       request.onsuccess = () => resolve(request.result);

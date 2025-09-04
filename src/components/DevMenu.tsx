@@ -25,6 +25,11 @@ const devRoutes: DevRoute[] = [
     description: 'Full-duplex voice testing with latency monitoring'
   },
   {
+    path: '/dev/vision',
+    name: 'Vision Analysis',
+    description: 'AI vision testing with photo analysis and Joy detection'
+  },
+  {
     path: '/dev/bubbles-basic',
     name: 'Bubbles Basic',
     description: 'Basic bubble canvas testing'
