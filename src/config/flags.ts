@@ -7,6 +7,7 @@ export const flags = {
   atomicUnified: true,
   bubblesFinishing: true,
   aiVision: true,
+  voiceCapture: true,
   joyPage: true,
   emailIngest: true,
   receiptsOCR: true,

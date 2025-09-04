@@ -18,6 +18,8 @@ import { EnhancedVoiceCapture } from '@/components/EnhancedVoiceCapture';
 import { EnhancedPhotoCapture } from '@/components/EnhancedPhotoCapture';
 import { VoiceAIInterface } from '@/components/VoiceAIInterface';
 import { ViewModeToggle } from '@/components/ViewModeToggle';
+import { VoiceIntentCapture } from '@/components/VoiceIntentCapture';
+import { isFeatureEnabled } from '@/config/flags';
 
 import { crossDeviceSyncService } from '@/services/crossDeviceSyncService';
 
@@ -108,6 +110,17 @@ export default function Index() {
       <div className="fixed bottom-20 right-4 z-10">
         <VoiceAIInterface />
       </div>
+
+      {/* Voice Intent Capture - Floating Bottom Center */}
+      {isFeatureEnabled('voiceCapture') && (
+        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50">
+          <VoiceIntentCapture
+            onBubbleCreated={(bubble) => {
+              console.log('Voice bubble created:', bubble);
+            }}
+          />
+        </div>
+      )}
 
       {/* Conflict Resolution Dialog */}
       <ConflictResolutionDialog
