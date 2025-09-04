@@ -94,14 +94,14 @@ export const DevSyncDiff: React.FC = () => {
   };
 
   const renderVersionCard = (version: any, type: 'local' | 'remote', isSelected?: boolean) => {
-    const bgColor = type === 'local' ? 'bg-blue-50' : 'bg-green-50';
-    const borderColor = isSelected ? 'border-primary' : 'border-gray-200';
+    const bgColor = type === 'local' ? 'bg-blue-50 dark:bg-blue-950/20' : 'bg-green-50 dark:bg-green-950/20';
+    const borderColor = isSelected ? 'border-primary' : 'border-border';
     
     return (
       <Card className={`${bgColor} ${borderColor} border-2`}>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <Badge variant="outline" className={type === 'local' ? 'bg-blue-100' : 'bg-green-100'}>
+            <Badge variant="outline" className={type === 'local' ? 'bg-blue-100 dark:bg-blue-900' : 'bg-green-100 dark:bg-green-900'}>
               {type === 'local' ? 'Local' : 'Remote'} Version
             </Badge>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -116,8 +116,8 @@ export const DevSyncDiff: React.FC = () => {
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-            <div className="p-3 bg-white rounded border">
-              <p className="text-sm">{version.content}</p>
+            <div className="p-3 bg-card rounded border border-border">
+              <p className="text-sm text-foreground">{version.content}</p>
             </div>
             
             {version.tags.length > 0 && (
