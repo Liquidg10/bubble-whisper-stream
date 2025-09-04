@@ -20,6 +20,11 @@ interface DevRoute {
 
 const devRoutes: DevRoute[] = [
   {
+    path: '/dev/voice',
+    name: 'Realtime Voice',
+    description: 'Full-duplex voice testing with latency monitoring'
+  },
+  {
     path: '/dev/bubbles-basic',
     name: 'Bubbles Basic',
     description: 'Basic bubble canvas testing'

@@ -8,6 +8,7 @@ export const flags = {
   bubblesFinishing: true,
   aiVision: true,
   voiceCapture: true,
+  realtimeVoice: true,
   joyPage: true,
   emailIngest: true,
   receiptsOCR: true,
