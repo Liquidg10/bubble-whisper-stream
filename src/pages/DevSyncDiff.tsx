@@ -101,7 +101,7 @@ export const DevSyncDiff: React.FC = () => {
       <Card className={`${bgColor} ${borderColor} border-2`}>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <Badge variant="outline" className={type === 'local' ? 'bg-blue-100 dark:bg-blue-900' : 'bg-green-100 dark:bg-green-900'}>
+            <Badge variant="outline" className={`${type === 'local' ? 'bg-blue-100 dark:bg-blue-900' : 'bg-green-100 dark:bg-green-900'} text-gray-900 dark:text-gray-100 font-medium`}>
               {type === 'local' ? 'Local' : 'Remote'} Version
             </Badge>
             <div className="flex items-center gap-2 text-sm text-gray-900 dark:text-gray-100">
@@ -150,9 +150,9 @@ export const DevSyncDiff: React.FC = () => {
     const onlyInRemote = remoteWords.filter(word => !localWords.includes(word));
     
     return (
-      <Card className="bg-gray-50">
+      <Card className="bg-gray-50 dark:bg-gray-900/20">
         <CardHeader>
-          <CardTitle className="text-sm">Change Analysis</CardTitle>
+          <CardTitle className="text-sm text-gray-900 dark:text-gray-100 font-medium">Change Analysis</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           {onlyInLocal.length > 0 && (
@@ -295,7 +295,7 @@ export const DevSyncDiff: React.FC = () => {
             <Button
               variant="outline"
               onClick={() => handleResolution('local')}
-              className="bg-blue-50 hover:bg-blue-100"
+              className="bg-blue-50 hover:bg-blue-100 text-blue-900 dark:text-blue-100 font-medium"
             >
               <Check className="h-4 w-4 mr-2" />
               Keep Local
@@ -304,7 +304,7 @@ export const DevSyncDiff: React.FC = () => {
             <Button
               variant="outline"
               onClick={() => handleResolution('remote')}
-              className="bg-green-50 hover:bg-green-100"
+              className="bg-green-50 hover:bg-green-100 text-green-900 dark:text-green-100 font-medium"
             >
               <Check className="h-4 w-4 mr-2" />
               Keep Remote
@@ -313,7 +313,7 @@ export const DevSyncDiff: React.FC = () => {
             <Button
               variant="outline"
               onClick={() => handleResolution('ai')}
-              className="bg-yellow-50 hover:bg-yellow-100"
+              className="bg-yellow-50 hover:bg-yellow-100 text-yellow-900 dark:text-yellow-100 font-medium"
             >
               <GitMerge className="h-4 w-4 mr-2" />
               AI Merge
