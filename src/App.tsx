@@ -27,6 +27,7 @@ import { DevSettings } from "./components/DevSettings";
 import DevAtomicUnified from "./pages/DevAtomicUnified";
 import { DevAI } from "./pages/DevAI";
 import { DevReceipts } from "./pages/DevReceipts";
+import Inbox from "./pages/Inbox";
 import { DevMenu } from "./components/DevMenu";
 import { useDevMenu } from "./hooks/useDevMenu";
 
@@ -60,6 +61,7 @@ const App = () => {
                       <Route path="reminders" element={<Reminders />} />
                       <Route path="reflection" element={<Reflection />} />
                       <Route path="joy" element={<Joy />} />
+                      <Route path="inbox" element={<Inbox />} />
                       <Route path="cbt-worksheet" element={<CBTWorksheet />} />
                       <Route path="settings" element={<Settings />} />
                     </Route>
