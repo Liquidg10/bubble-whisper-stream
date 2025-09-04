@@ -29,6 +29,8 @@ import { DevAI } from "./pages/DevAI";
 import { DevReceipts } from "./pages/DevReceipts";
 import DevRealtimeVoice from "./pages/DevRealtimeVoice";
 import { DevVision } from "./pages/DevVision";
+import { Focus } from "./pages/Focus";
+import { DevFocus } from "./pages/DevFocus";
 import Inbox from "./pages/Inbox";
 import Search from "./pages/Search";
 import { DevMenu } from "./components/DevMenu";
@@ -67,6 +69,7 @@ const App = () => {
                       <Route path="inbox" element={<Inbox />} />
                       <Route path="search" element={<Search />} />
                       <Route path="cbt-worksheet" element={<CBTWorksheet />} />
+                      <Route path="focus" element={<Focus />} />
                       <Route path="settings" element={<Settings />} />
                     </Route>
                     {/* Dev routes - now wrapped with theme context */}
@@ -80,6 +83,7 @@ const App = () => {
                     <Route path="/dev/bubbles-stress" element={<DevBubblesStress />} />
                     <Route path="/dev/voice" element={<DevRealtimeVoice />} />
                     <Route path="/dev/vision" element={<DevVision />} />
+                    <Route path="/dev/focus" element={<DevFocus />} />
                     <Route path="/dev/settings" element={<DevSettings />} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>

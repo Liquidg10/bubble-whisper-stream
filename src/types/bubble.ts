@@ -53,6 +53,17 @@ export interface Bubble {
   completed?: boolean;
   metadata?: {
     finance?: FinanceMetadata;
+    outliner?: {
+      parentTaskId?: string;
+      stepId?: string;
+      estimatedMinutes?: number;
+      dependsOn?: string;
+    };
+    focusSession?: {
+      duration: number;
+      stepsCompleted: number;
+      log: string[];
+    };
     [key: string]: any;
   };
 }

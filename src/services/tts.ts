@@ -9,8 +9,8 @@ interface TTSSettings {
 }
 
 interface TTSOptions extends Partial<TTSSettings> {
-  tone?: 'compassionate' | 'gentle' | 'encouraging' | 'neutral' | 'professional';
-  context?: 'banking' | 'financial' | 'companion' | 'ai-conversation' | 'notes' | 'bubble-detail' | 'cbt' | 'therapy' | 'reminders' | 'glimmers';
+  tone?: 'compassionate' | 'gentle' | 'encouraging' | 'neutral' | 'professional' | 'celebratory';
+  context?: 'banking' | 'financial' | 'companion' | 'ai-conversation' | 'notes' | 'bubble-detail' | 'cbt' | 'therapy' | 'reminders' | 'glimmers' | 'focus-mode' | 'dev-test';
   interrupt?: boolean;
 }
 

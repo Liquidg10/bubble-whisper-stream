@@ -8,12 +8,14 @@ import { Textarea } from '@/components/ui/textarea';
 import { Slider } from '@/components/ui/slider';
 import { Badge } from '@/components/ui/badge';
 import { TagPicker } from './TagPicker';
-import { Play, Trash2, Plus, Calendar, Image as ImageIcon } from 'lucide-react';
+import { Play, Trash2, Plus, Calendar, Image as ImageIcon, Target } from 'lucide-react';
 import { ttsService } from '@/services/tts';
 import { hapticsService } from '@/services/haptics';
 import { getBubbleColorScheme, getBubbleTypeIcon } from '@/utils/bubbleColors';
 import { ReceiptScanner } from './ReceiptScanner';
 import { useToast } from '@/hooks/use-toast';
+import { TaskOutliner } from './TaskOutliner';
+import { isFeatureEnabled } from '@/config/flags';
 
 interface BubbleDetailProps {
   bubble: Bubble | null;
@@ -31,6 +33,7 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
   const [showTagPicker, setShowTagPicker] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [showImageModal, setShowImageModal] = useState(false);
+  const [showOutliner, setShowOutliner] = useState(false);
   const { toast } = useToast();
 
   // Auto-save debounced function
@@ -290,6 +293,20 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
             >
               Done
             </Button>
+            {bubble.type === 'Task' && isFeatureEnabled('outliner') && (
+              <Button
+                variant="outline"
+                onClick={() => setShowOutliner(true)}
+                size="sm"
+                style={{ 
+                  borderColor: colorScheme.border,
+                  color: colorScheme.text
+                }}
+              >
+                <Target className="h-4 w-4 mr-1" />
+                Break Down
+              </Button>
+            )}
             {!bubble.reminderId && (
               <Button
                 variant="outline"
@@ -319,6 +336,15 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
           <TagPicker
             onSelectTag={handleAddTag}
             onClose={() => setShowTagPicker(false)}
+          />
+        )}
+
+        {/* Task Outliner Modal */}
+        {showOutliner && (
+          <TaskOutliner
+            bubble={bubble}
+            isOpen={showOutliner}
+            onClose={() => setShowOutliner(false)}
           />
         )}
 

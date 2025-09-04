@@ -12,6 +12,8 @@ export const flags = {
   joyPage: true,
   emailIngest: true,
   receiptsOCR: true,
+  outliner: true,
+  focusMode: true,
 } as const;
 
 export type FeatureFlag = keyof typeof flags;

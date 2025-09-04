@@ -58,6 +58,11 @@ const devRoutes: DevRoute[] = [
     path: '/dev/photo',
     name: 'Photo Bulletproof',
     description: 'Bulletproof photo rendering tests (all scenarios)'
+  },
+  {
+    path: '/dev/focus',
+    name: 'Focus Mode',
+    description: 'Task outliner and Pomodoro timer testing'
   }
 ];
 
