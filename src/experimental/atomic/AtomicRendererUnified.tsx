@@ -147,10 +147,25 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     }
   });
 
-  // Convert bubbles to molecules with position persistence
+  // Convert bubbles to molecules with global position persistence
   const convertBubblesToMolecules = useCallback((inputBubbles: Bubble[]): Molecule[] => {
     const moleculeMap = new Map<string, Molecule>();
-    const domains = [...new Set(inputBubbles.map(bubble => classifyDomain(bubble)))];
+    
+    // Step 1: Collect all unique domains first
+    const uniqueDomains = [...new Set(inputBubbles.map(bubble => classifyDomain(bubble)))];
+    console.log(`Global positioning: Found ${uniqueDomains.length} unique domains:`, uniqueDomains);
+    
+    // Step 2: Calculate global positions for all domains at once
+    const globalPositions = calculateMoleculePositions(uniqueDomains);
+    const domainPositionMap = new Map<string, { x: number; y: number }>();
+    
+    uniqueDomains.forEach((domain, index) => {
+      const position = globalPositions[index];
+      if (position) {
+        domainPositionMap.set(domain, { x: position.x, y: position.y });
+        console.log(`Global position assigned to ${domain}:`, { x: position.x, y: position.y });
+      }
+    });
 
     inputBubbles.forEach((bubble, index) => {
       const domain = classifyDomain(bubble);
@@ -160,24 +175,44 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
 
       let molecule = moleculeMap.get(domain);
       if (!molecule) {
-        // Use stored position from representative bubble or calculate new position
+        // Step 3: Use global position or validate stored position
+        let finalPosition = domainPositionMap.get(domain);
+        
+        // Check if bubble has a stored position that doesn't conflict
         const domainBubbles = inputBubbles.filter(b => classifyDomain(b) === domain);
         const representativeBubble = domainBubbles[0];
         
-        let position;
         if (representativeBubble && representativeBubble.x && representativeBubble.y) {
-          // Use stored position
-          position = { x: representativeBubble.x, y: representativeBubble.y };
-        } else {
-          // Calculate new position for this domain only
-          const moleculePositions = calculateMoleculePositions([domain]);
-          position = moleculePositions[0] || { x: 600, y: 375 };
+          const storedPosition = { x: representativeBubble.x, y: representativeBubble.y };
+          
+          // Validate stored position against other global positions
+          const hasConflict = Array.from(domainPositionMap.values()).some(pos => {
+            if (pos.x === finalPosition?.x && pos.y === finalPosition?.y) return false; // Same position
+            const distance = Math.hypot(storedPosition.x - pos.x, storedPosition.y - pos.y);
+            return distance < 350; // MIN_DISTANCE from positioning.ts
+          });
+          
+          if (!hasConflict) {
+            finalPosition = storedPosition;
+            console.log(`Using validated stored position for ${domain}:`, storedPosition);
+          } else {
+            console.log(`Stored position conflicts for ${domain}, using global:`, { 
+              stored: storedPosition, 
+              global: finalPosition 
+            });
+          }
+        }
+        
+        if (!finalPosition) {
+          // Fallback to center if no position available
+          finalPosition = { x: 600, y: 375 };
+          console.warn(`No position available for domain ${domain}, using center fallback`);
         }
         
         molecule = {
           id: `mol-${domain}`,
-          x: position.x,
-          y: position.y,
+          x: finalPosition.x,
+          y: finalPosition.y,
           nucleus: domainPreset.nucleus,
           electrons: [],
           selected: false,
@@ -213,7 +248,10 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       molecule.electrons.push(electron);
     });
 
-    return Array.from(moleculeMap.values());
+    const result = Array.from(moleculeMap.values());
+    console.log(`Molecule conversion complete: ${result.length} molecules with ${result.reduce((sum, mol) => sum + mol.electrons.length, 0)} total electrons`);
+    
+    return result;
   }, []);
 
   // Update molecules when bubbles change
