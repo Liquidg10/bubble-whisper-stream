@@ -15,6 +15,7 @@ import { Settings } from './pages/Settings';
 import { Reminders } from './pages/Reminders';
 import { Reflection } from './pages/Reflection';
 import { CBTWorksheet } from './pages/CBTWorksheet';
+import { Joy } from './pages/Joy';
 import NotFound from "./pages/NotFound";
 import DevPhotoTest from "./pages/DevPhotoTest";
 import DevPhotoIridescent from "./pages/DevPhotoIridescent";
@@ -56,6 +57,7 @@ const App = () => {
                       <Route path="timeline" element={<Timeline />} />
                       <Route path="reminders" element={<Reminders />} />
                       <Route path="reflection" element={<Reflection />} />
+                      <Route path="joy" element={<Joy />} />
                       <Route path="cbt-worksheet" element={<CBTWorksheet />} />
                       <Route path="settings" element={<Settings />} />
                     </Route>
