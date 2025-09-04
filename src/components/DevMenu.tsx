@@ -63,6 +63,11 @@ const devRoutes: DevRoute[] = [
     path: '/dev/focus',
     name: 'Focus Mode',
     description: 'Task outliner and Pomodoro timer testing'
+  },
+  {
+    path: '/dev/prioritizer',
+    name: 'Prioritizer',
+    description: 'Intelligent priority scoring and suggestions'
   }
 ];
 

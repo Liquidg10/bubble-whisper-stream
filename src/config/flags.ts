@@ -14,6 +14,7 @@ export const flags = {
   receiptsOCR: true,
   outliner: true,
   focusMode: true,
+  prioritizer: true,
 } as const;
 
 export type FeatureFlag = keyof typeof flags;

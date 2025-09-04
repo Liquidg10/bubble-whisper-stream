@@ -22,6 +22,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import TemporalNavigation from '@/components/TemporalNavigation';
+import { IntelligenceDashboard } from '@/components/IntelligenceDashboard';
 import { ttsService } from '@/services/tts';
 import { hapticsService } from '@/services/haptics';
 
@@ -227,6 +228,10 @@ export const Timeline: React.FC = () => {
               isVisible={true}
               isMinimized={false}
             />
+            
+            <div className="mt-8">
+              <IntelligenceDashboard />
+            </div>
           </TabsContent>
         </Tabs>
 
