@@ -19,6 +19,7 @@ import { startAnimation, stopAnimation, isMotionEnabled, subscribeToMotionState 
 import { classifyDomain, getAllDomains } from '@/lib/classifyDomain';
 import { getHorizon, getHorizonDisplayName, ringIndexToHorizon } from '@/lib/horizon';
 import { calculateMoleculePositions } from '@/experimental/atomic/positioning';
+import { useMoleculePositionPersistence } from '@/hooks/useMoleculePositionPersistence';
 
 // Atomic structures
 interface Electron {
@@ -75,7 +76,7 @@ const SHELL_CONFIG = [
 
 // Animation configuration
 const ANIMATION_CONFIG = {
-  ELECTRON_SPEED: 0.005, // Slower electron orbit speed
+  ELECTRON_SPEED: 0.012, // Balanced electron orbit speed
   SHELL_SPEED_MULTIPLIERS: [1.2, 1.0, 0.8], // Today faster, Later slower
   MAX_ELECTRONS_FOR_FAST_ANIMATION: 50 // Reduce speed further with many electrons
 };
@@ -103,6 +104,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
 }) => {
   const canvasRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
+  const { updateDomainBubblesPosition } = useMoleculePositionPersistence();
   
   // State management
   const [atomicState, setAtomicState] = useState<AtomicState>({
@@ -145,11 +147,10 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     }
   });
 
-  // Convert bubbles to molecules on input change
+  // Convert bubbles to molecules with position persistence
   const convertBubblesToMolecules = useCallback((inputBubbles: Bubble[]): Molecule[] => {
     const moleculeMap = new Map<string, Molecule>();
     const domains = [...new Set(inputBubbles.map(bubble => classifyDomain(bubble)))];
-    const moleculePositions = calculateMoleculePositions(domains);
 
     inputBubbles.forEach((bubble, index) => {
       const domain = classifyDomain(bubble);
@@ -159,9 +160,19 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
 
       let molecule = moleculeMap.get(domain);
       if (!molecule) {
-        // Get pre-calculated position for this domain
-        const domainIndex = domains.indexOf(domain);
-        const position = moleculePositions[domainIndex] || { x: 0, y: 0 };
+        // Use stored position from representative bubble or calculate new position
+        const domainBubbles = inputBubbles.filter(b => classifyDomain(b) === domain);
+        const representativeBubble = domainBubbles[0];
+        
+        let position;
+        if (representativeBubble && representativeBubble.x && representativeBubble.y) {
+          // Use stored position
+          position = { x: representativeBubble.x, y: representativeBubble.y };
+        } else {
+          // Calculate new position for this domain only
+          const moleculePositions = calculateMoleculePositions([domain]);
+          position = moleculePositions[0] || { x: 600, y: 375 };
+        }
         
         molecule = {
           id: `mol-${domain}`,
@@ -335,15 +346,18 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
 
         setAtomicState(prev => ({
           ...prev,
-          molecules: prev.molecules.map(mol => 
-            mol.id === moleculeId 
-              ? {
-                  ...mol,
-                  x: mol.x + deltaX / viewport.scale,
-                  y: mol.y + deltaY / viewport.scale
-                }
-              : mol
-          ),
+          molecules: prev.molecules.map(mol => {
+            if (mol.id === moleculeId) {
+              const newX = mol.x + deltaX / viewport.scale;
+              const newY = mol.y + deltaY / viewport.scale;
+              
+              // Update representative bubble position for persistence
+              updateDomainBubblesPosition(mol.electrons, newX, newY);
+              
+              return { ...mol, x: newX, y: newY };
+            }
+            return mol;
+          }),
           dragState: {
             ...prev.dragState,
             lastMousePos: { x: event.clientX, y: event.clientY }

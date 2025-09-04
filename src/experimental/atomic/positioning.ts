@@ -4,11 +4,11 @@ import { logger } from '@/utils/logger';
 
 // Configuration for molecule positioning
 const MOLECULE_CONFIG = {
-  MIN_DISTANCE: 200, // Minimum distance between molecules (nucleus + largest shell + padding)
+  MIN_DISTANCE: 350, // Minimum distance between molecules (nucleus + largest shell + padding)
   MAX_SHELL_RADIUS: 140, // From SHELL_CONFIG in AtomicRenderer
-  PADDING: 40, // Additional padding between molecules
-  MAX_ITERATIONS: 100, // Maximum attempts to find non-overlapping position
-  CANVAS_BOUNDS: { minX: 100, maxX: 700, minY: 100, maxY: 400 }
+  PADDING: 60, // Additional padding between molecules
+  MAX_ITERATIONS: 150, // Maximum attempts to find non-overlapping position
+  CANVAS_BOUNDS: { minX: 50, maxX: 1200, minY: 50, maxY: 700 }
 };
 
 interface MoleculePosition {
@@ -17,7 +17,17 @@ interface MoleculePosition {
   radius: number; // Bounding radius (nucleus + largest shell + padding)
 }
 
-export function suggestOptimalPosition(newBubble: Bubble, existingBubbles: Bubble[]): { x: number; y: number } {
+export function suggestOptimalPosition(newBubble: Bubble, existingBubbles: Bubble[], storedPosition?: { x: number; y: number }): { x: number; y: number } {
+  // Use stored position if available and valid
+  if (storedPosition && 
+      storedPosition.x >= MOLECULE_CONFIG.CANVAS_BOUNDS.minX && 
+      storedPosition.x <= MOLECULE_CONFIG.CANVAS_BOUNDS.maxX &&
+      storedPosition.y >= MOLECULE_CONFIG.CANVAS_BOUNDS.minY && 
+      storedPosition.y <= MOLECULE_CONFIG.CANVAS_BOUNDS.maxY) {
+    logger.debug(`Using stored position`, storedPosition);
+    return storedPosition;
+  }
+
   const domain = classifyDomain(newBubble);
   const relatedBubbles = existingBubbles.filter(b => classifyDomain(b) === domain);
 
@@ -27,11 +37,11 @@ export function suggestOptimalPosition(newBubble: Bubble, existingBubbles: Bubbl
   });
 
   if (relatedBubbles.length === 0) {
-    const angle = existingBubbles.length * 2.4;
-    const radius = Math.sqrt(existingBubbles.length + 1) * 40;
+    const angle = existingBubbles.length * 2.8;
+    const radius = Math.sqrt(existingBubbles.length + 1) * 80;
     const position = {
-      x: 500 + Math.cos(angle) * radius,
-      y: 280 + Math.sin(angle) * radius
+      x: 600 + Math.cos(angle) * radius,
+      y: 375 + Math.sin(angle) * radius
     };
     
     logger.debug(`No related bubbles, using spiral positioning`, position);
@@ -41,28 +51,32 @@ export function suggestOptimalPosition(newBubble: Bubble, existingBubbles: Bubbl
   const avgX = relatedBubbles.reduce((sum, b) => sum + b.x, 0) / relatedBubbles.length;
   const avgY = relatedBubbles.reduce((sum, b) => sum + b.y, 0) / relatedBubbles.length;
 
-  // Find optimal position near related bubbles
-  for (let r = 60; r < 200; r += 20) {
-    for (let a = 0; a < Math.PI * 2; a += 0.5) {
+  // Find optimal position near related bubbles with increased spacing
+  for (let r = 180; r < 400; r += 30) {
+    for (let a = 0; a < Math.PI * 2; a += 0.4) {
       const x = avgX + Math.cos(a) * r;
       const y = avgY + Math.sin(a) * r;
 
       const hasOverlap = existingBubbles.some(b => {
         const dist = Math.hypot(x - b.x, y - b.y);
-        return dist < 100;
+        return dist < MOLECULE_CONFIG.MIN_DISTANCE;
       });
 
-      if (!hasOverlap && x > 50 && x < 950 && y > 50 && y < 510) {
+      if (!hasOverlap && 
+          x >= MOLECULE_CONFIG.CANVAS_BOUNDS.minX && 
+          x <= MOLECULE_CONFIG.CANVAS_BOUNDS.maxX && 
+          y >= MOLECULE_CONFIG.CANVAS_BOUNDS.minY && 
+          y <= MOLECULE_CONFIG.CANVAS_BOUNDS.maxY) {
         logger.debug(`Found optimal position near related bubbles`, { x, y, radius: r, angle: a });
         return { x, y };
       }
     }
   }
 
-  // Fallback to random position
+  // Fallback to expanded random position
   const fallbackPosition = {
-    x: Math.random() * 500 + 250,
-    y: Math.random() * 300 + 150
+    x: Math.random() * 800 + 200,
+    y: Math.random() * 400 + 150
   };
   
   logger.warn(`Could not find optimal position, using fallback`, fallbackPosition);
@@ -83,14 +97,14 @@ export function calculateMoleculePositions(domains: string[]): MoleculePosition[
     while (attempts < MOLECULE_CONFIG.MAX_ITERATIONS && !position) {
       // Start with spiral positioning as base
       const angle = (index * 137.5) * (Math.PI / 180); // Golden angle
-      const baseRadius = 100 + (index * 80);
+      const baseRadius = 150 + (index * 120); // Increased spacing
       
       // Add some randomization to avoid perfect spirals
-      const jitter = attempts * 20;
-      const jitterAngle = (Math.random() - 0.5) * Math.PI;
+      const jitter = attempts * 30;
+      const jitterAngle = (Math.random() - 0.5) * Math.PI * 0.5;
       
-      const candidateX = Math.cos(angle + jitterAngle) * (baseRadius + jitter);
-      const candidateY = Math.sin(angle + jitterAngle) * (baseRadius + jitter);
+      const candidateX = 600 + Math.cos(angle + jitterAngle) * (baseRadius + jitter); // Center at 600
+      const candidateY = 375 + Math.sin(angle + jitterAngle) * (baseRadius + jitter); // Center at 375
       
       // Check bounds
       if (candidateX < MOLECULE_CONFIG.CANVAS_BOUNDS.minX || 
