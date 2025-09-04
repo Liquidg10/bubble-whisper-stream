@@ -42,7 +42,7 @@ export const AppShell: React.FC = () => {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setShowSearch(true)}
+            onClick={() => window.location.href = '/search'}
             className="h-8 w-8 p-0"
           >
             <Search className="h-4 w-4" />
@@ -67,10 +67,20 @@ export const AppShell: React.FC = () => {
         
       </main>
 
-      {/* Narrative Search Modal */}
+      {/* Narrative Search Modal - kept for compatibility */}
       <Dialog open={showSearch} onOpenChange={setShowSearch}>
         <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
-          <NarrativeSearch />
+          <div className="text-center py-4">
+            <p className="text-sm text-muted-foreground mb-4">
+              Search is now available as a dedicated page with more features!
+            </p>
+            <Button onClick={() => {
+              setShowSearch(false);
+              window.location.href = '/search';
+            }}>
+              Go to Search Page
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
 
