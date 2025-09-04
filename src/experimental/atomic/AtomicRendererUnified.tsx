@@ -186,13 +186,25 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         moleculeMap.set(domain, molecule);
       }
 
-      // Add electron for this bubble with proper phase distribution
-      const electronCount = molecule.electrons.length;
+      // Add electron for this bubble with improved distribution
+      const electronsInMolecule = molecule.electrons.length;
+      
+      // Improved shell assignment - spread electrons across shells to prevent overcrowding
+      const MAX_ELECTRONS_PER_SHELL = 6; // Limit electrons per shell
+      const adjustedShellIndex = Math.min(
+        Math.floor(electronsInMolecule / MAX_ELECTRONS_PER_SHELL) + shellIndex,
+        2 // Max 3 shells (0, 1, 2)
+      );
+      
+      // Count electrons in the assigned shell for better angle distribution
+      const electronsInShell = molecule.electrons.filter(e => e.shell === adjustedShellIndex).length;
+      const angleStep = (2 * Math.PI) / Math.max(MAX_ELECTRONS_PER_SHELL, electronsInShell + 1);
+      
       const electron: Electron = {
         id: `elec-${bubble.id}`,
         moleculeId: molecule.id,
-        shell: shellIndex,
-        angle: (electronCount * (2 * Math.PI / 8)) + Math.random() * 0.2, // Distribute evenly with slight randomization
+        shell: adjustedShellIndex,
+        angle: electronsInShell * angleStep + Math.random() * 0.1, // Better spacing with minimal randomization
         phase: Math.random() * 2 * Math.PI,
         content: bubble.content || '',
         originalBubble: bubble
