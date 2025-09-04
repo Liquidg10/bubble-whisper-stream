@@ -26,6 +26,7 @@ import DevBubblesStress from "./pages/DevBubblesStress";
 import { DevSettings } from "./components/DevSettings";
 import DevAtomicUnified from "./pages/DevAtomicUnified";
 import { DevAI } from "./pages/DevAI";
+import { DevReceipts } from "./pages/DevReceipts";
 import { DevMenu } from "./components/DevMenu";
 import { useDevMenu } from "./hooks/useDevMenu";
 
@@ -67,6 +68,7 @@ const App = () => {
                     <Route path="/dev/atomic-basic" element={<DevAtomicBasic />} />
                     <Route path="/dev/atomic-stress" element={<DevAtomicStress />} />
                     <Route path="/dev/ai" element={<DevAI />} />
+                    <Route path="/dev/receipts" element={<DevReceipts />} />
                     <Route path="/dev/atomic-unified" element={<DevAtomicUnified />} />
                     <Route path="/dev/bubbles-basic" element={<DevBubblesBasic />} />
                     <Route path="/dev/bubbles-stress" element={<DevBubblesStress />} />

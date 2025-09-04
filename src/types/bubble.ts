@@ -25,6 +25,15 @@ export interface Reminder {
   snoozes: Snooze[];
 }
 
+export interface FinanceMetadata {
+  merchant?: string;
+  total?: number;
+  date?: string;
+  currency?: string;
+  category?: string;
+  receiptProcessed?: boolean;
+}
+
 export interface Bubble {
   id: string;
   type: BubbleType;
@@ -41,6 +50,10 @@ export interface Bubble {
   location?: { lat: number; lon: number };
   reminderId?: string;     // link to Reminder
   completed?: boolean;
+  metadata?: {
+    finance?: FinanceMetadata;
+    [key: string]: any;
+  };
 }
 
 // Self-model baseline

@@ -12,6 +12,7 @@ import { Play, Trash2, Plus, Calendar, Image as ImageIcon } from 'lucide-react';
 import { ttsService } from '@/services/tts';
 import { hapticsService } from '@/services/haptics';
 import { getBubbleColorScheme, getBubbleTypeIcon } from '@/utils/bubbleColors';
+import { ReceiptScanner } from './ReceiptScanner';
 import { useToast } from '@/hooks/use-toast';
 
 interface BubbleDetailProps {
@@ -174,6 +175,17 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
                 </div>
               </div>
             </div>
+          )}
+
+          {/* Receipt Scanner - Only for photo bubbles */}
+          {bubble.imageUri && (
+            <ReceiptScanner
+              bubble={bubble}
+              onUpdate={(updatedBubble) => {
+                setEditedBubble(updatedBubble);
+                updateBubble(updatedBubble);
+              }}
+            />
           )}
 
           {/* Content */}

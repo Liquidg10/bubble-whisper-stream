@@ -15,18 +15,32 @@ export const Joy: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [timeFilter, setTimeFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
 
-  // Filter bubbles to only show Joy-related ones
+  // Filter bubbles to only show Joy-related ones (exclude receipts unless bookmarked)
   const joyBubbles = useMemo(() => {
-    return bubbles.filter(bubble => 
-      bubble.type === 'Memory' && ( // Using Memory type as closest to Joy content
+    return bubbles.filter(bubble => {
+      // Exclude receipt bubbles unless they're explicitly bookmarked/favorited
+      const isReceipt = bubble.tags?.some(tag => tag.name.toLowerCase().includes('receipt')) ||
+                       bubble.metadata?.finance?.receiptProcessed;
+      
+      if (isReceipt) {
+        // Only include receipts if they're explicitly marked as favorites
+        const isFavorite = bubble.tags?.some(tag => 
+          tag.name.toLowerCase().includes('favorite') || 
+          tag.name.toLowerCase().includes('favourite')
+        );
+        return isFavorite;
+      }
+      
+      // Include Memory type bubbles with joy-related content
+      return bubble.type === 'Memory' && ( 
         bubble.tags?.some(tag => tag.name.toLowerCase().includes('joy')) ||
         bubble.content?.toLowerCase().includes('joy') ||
         bubble.content?.toLowerCase().includes('happy') ||
         bubble.content?.toLowerCase().includes('smile') ||
         bubble.content?.toLowerCase().includes('laugh') ||
         bubble.tags?.some(tag => tag.name.toLowerCase().includes('happy'))
-      )
-    );
+      );
+    });
   }, [bubbles]);
 
   // Apply search and time filters
