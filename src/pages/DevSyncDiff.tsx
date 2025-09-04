@@ -116,7 +116,7 @@ export const DevSyncDiff: React.FC = () => {
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-            <div className="p-3 bg-card rounded border border-border">
+            <div className="p-3 bg-transparent rounded border border-border">
               <p className="text-sm text-gray-900 dark:text-gray-100 font-medium">{version.content}</p>
             </div>
             
