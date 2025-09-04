@@ -104,12 +104,12 @@ export const DevSyncDiff: React.FC = () => {
             <Badge variant="outline" className={type === 'local' ? 'bg-blue-100 dark:bg-blue-900' : 'bg-green-100 dark:bg-green-900'}>
               {type === 'local' ? 'Local' : 'Remote'} Version
             </Badge>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="flex items-center gap-2 text-sm text-gray-900 dark:text-gray-100">
               <User className="h-3 w-3" />
               {version.device}
             </div>
           </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300">
             <Clock className="h-3 w-3" />
             {getTimeDiff(version.timestamp)}
           </div>
@@ -117,12 +117,12 @@ export const DevSyncDiff: React.FC = () => {
         <CardContent>
           <div className="space-y-3">
             <div className="p-3 bg-card rounded border border-border">
-              <p className="text-sm text-foreground">{version.content}</p>
+              <p className="text-sm text-gray-900 dark:text-gray-100 font-medium">{version.content}</p>
             </div>
             
             {version.tags.length > 0 && (
               <div>
-                <div className="text-xs font-medium text-muted-foreground mb-1">Tags:</div>
+                <div className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Tags:</div>
                 <div className="flex flex-wrap gap-1">
                   {version.tags.map((tag, index) => (
                     <Badge key={index} variant="secondary" className="text-xs">
@@ -157,8 +157,8 @@ export const DevSyncDiff: React.FC = () => {
         <CardContent className="space-y-3">
           {onlyInLocal.length > 0 && (
             <div>
-              <div className="text-xs font-medium text-blue-700 mb-1">Only in Local:</div>
-              <div className="text-sm bg-blue-100 p-2 rounded">
+              <div className="text-xs font-medium text-blue-800 dark:text-blue-200 mb-1">Only in Local:</div>
+              <div className="text-sm bg-blue-100 dark:bg-blue-900/30 p-2 rounded text-blue-900 dark:text-blue-100 font-medium">
                 {onlyInLocal.join(' ')}
               </div>
             </div>
@@ -166,18 +166,18 @@ export const DevSyncDiff: React.FC = () => {
           
           {onlyInRemote.length > 0 && (
             <div>
-              <div className="text-xs font-medium text-green-700 mb-1">Only in Remote:</div>
-              <div className="text-sm bg-green-100 p-2 rounded">
+              <div className="text-xs font-medium text-green-800 dark:text-green-200 mb-1">Only in Remote:</div>
+              <div className="text-sm bg-green-100 dark:bg-green-900/30 p-2 rounded text-green-900 dark:text-green-100 font-medium">
                 {onlyInRemote.join(' ')}
               </div>
             </div>
           )}
           
           <div className="pt-2 border-t">
-            <div className="text-xs font-medium text-muted-foreground mb-1">
+            <div className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
               AI Suggestion:
             </div>
-            <div className="text-sm bg-yellow-100 p-2 rounded">
+            <div className="text-sm bg-yellow-100 dark:bg-yellow-900/30 p-2 rounded text-yellow-900 dark:text-yellow-100 font-medium">
               Merge both versions: Keep the scheduling info from local and add the snack reminder from remote.
             </div>
           </div>
