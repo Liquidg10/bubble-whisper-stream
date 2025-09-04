@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { BulletproofPhotoRenderer } from '@/components/BulletproofPhotoRenderer';
+import { DevPerformanceMonitor } from '@/components/DevPerformanceMonitor';
 
 // Test cases for all photo scenarios
 const testCases = [
@@ -98,6 +99,9 @@ export default function DevPhotoTest() {
 
   return (
     <div className="min-h-screen bg-gradient-canvas p-6">
+      {/* Performance Monitor */}
+      <DevPerformanceMonitor show={true} acceptanceCriteria={{ targetFPS: 55, memoryThreshold: 300, maxFrameDrops: 5 }} />
+      
       <div className="max-w-6xl mx-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">

@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { classifyDomain, getAllDomains } from '@/lib/classifyDomain';
 import { getAllHorizons } from '@/lib/horizon';
+import { DevPerformanceMonitor } from '@/components/DevPerformanceMonitor';
 import type { Bubble } from '@/types/bubble';
 
 // Test data with 3 domains, ~15 bubbles for comprehensive testing
@@ -106,6 +107,9 @@ export default function DevAtomicBasic() {
 
   return (
     <div className="h-screen flex flex-col bg-background">
+      {/* Performance Monitor */}
+      <DevPerformanceMonitor show={true} acceptanceCriteria={{ targetFPS: 55, memoryThreshold: 300, maxFrameDrops: 5 }} />
+      
       {/* Status Strip with Test Controls and Performance Metrics */}
       <div className="flex items-center gap-4 p-4 bg-muted/50 border-b">
         <div className="flex gap-2">
@@ -163,7 +167,7 @@ export default function DevAtomicBasic() {
       </div>
 
       {/* Unified Atomic View */}
-      <div className="flex-1">
+      <div className="flex-1" role="region" aria-label="Atomic bubble visualization">
         <AtomicView
           onBubbleSelect={handleBubbleSelect}
           onBubbleEdit={handleBubbleEdit}

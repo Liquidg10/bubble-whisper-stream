@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { generateId } from '@/utils/atomicHelpers';
 import { Bubble, BubbleType } from '@/types/bubble';
 import { Badge } from '@/components/ui/badge';
+import { DevPerformanceMonitor } from '@/components/DevPerformanceMonitor';
 
 const DOMAINS = ['Work', 'Personal', 'Health', 'Learning', 'Relationships', 'Finance', 'Mental', 'Home'];
 const TYPES: BubbleType[] = ['Task', 'Thought', 'Memory', 'Mood', 'ReminderNote'];
@@ -90,6 +91,9 @@ export default function DevAtomicStress() {
 
   return (
     <div className="h-screen bg-background flex flex-col">
+      {/* Performance Monitor */}
+      <DevPerformanceMonitor show={true} acceptanceCriteria={{ targetFPS: 55, memoryThreshold: 300, maxFrameDrops: 10 }} />
+      
       {/* Test Controls */}
       <div className="bg-card border-b p-4 z-50 space-y-3">
         <div className="flex items-center gap-4">

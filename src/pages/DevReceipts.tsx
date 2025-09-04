@@ -9,6 +9,7 @@ import { receiptOCRService } from '@/services/receiptOCRService';
 import { useToast } from '@/hooks/use-toast';
 import { isFeatureEnabled, toggleFeatureFlag } from '@/config/flags';
 import { Bubble } from '@/types/bubble';
+import { DevPerformanceMonitor } from '@/components/DevPerformanceMonitor';
 
 const DEBUG = localStorage.getItem('DEBUG') === 'true';
 
@@ -208,6 +209,9 @@ Thank you for your business!
 
   return (
     <div className="container mx-auto p-4 max-w-6xl space-y-6">
+      {/* Performance Monitor */}
+      <DevPerformanceMonitor show={true} acceptanceCriteria={{ targetFPS: 55, memoryThreshold: 300, maxFrameDrops: 5 }} />
+      
       <div className="flex items-center gap-3 mb-6">
         <TestTube className="h-6 w-6 text-primary" />
         <h1 className="text-2xl font-bold">Receipt OCR Development</h1>

@@ -910,6 +910,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
               role="button"
               tabIndex={0}
               aria-label={`${molecule.nucleus.domain} molecule with ${molecule.nucleus.protons} protons and ${molecule.electrons.length} electrons. ${molecule.selected ? 'Selected.' : 'Click to select.'}`}
+              aria-pressed={molecule.selected}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
@@ -959,6 +960,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                   role="button"
                   tabIndex={0}
                   aria-label={`Electron: ${electron.content}. Currently in ${shell.name} shell. Drag to move between time horizons.`}
+                  aria-grabbed={atomicState.dragState.type === 'electron' && atomicState.dragState.electronId === electron.id}
                   title={electron.content}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {

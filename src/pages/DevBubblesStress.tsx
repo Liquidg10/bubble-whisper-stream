@@ -5,6 +5,7 @@ import { Bubble } from '@/types/bubble';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Trash2, RefreshCw, Zap, ZapOff } from 'lucide-react';
+import { DevPerformanceMonitor } from '@/components/DevPerformanceMonitor';
 
 // Create many test bubbles for stress testing
 const createStressBubbles = (): Bubble[] => {
@@ -153,6 +154,9 @@ export default function DevBubblesStress() {
 
   return (
     <div className="h-screen flex flex-col bg-background">
+      {/* Performance Monitor */}
+      <DevPerformanceMonitor show={true} acceptanceCriteria={{ targetFPS: 55, memoryThreshold: 300, maxFrameDrops: 10 }} />
+      
       {/* Header with dev controls and performance stats */}
       <div className="h-20 border-b border-border bg-card/50 backdrop-blur-sm flex items-center justify-between px-4 z-10">
         <div>
