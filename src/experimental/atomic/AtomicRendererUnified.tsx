@@ -18,6 +18,7 @@ import { usePanZoom } from '@/hooks/usePanZoom';
 import { startAnimation, stopAnimation, isMotionEnabled, subscribeToMotionState } from '@/lib/motion';
 import { classifyDomain, getAllDomains } from '@/lib/classifyDomain';
 import { getHorizon, getHorizonDisplayName, ringIndexToHorizon } from '@/lib/horizon';
+import { calculateMoleculePositions } from '@/experimental/atomic/positioning';
 
 // Atomic structures
 interface Electron {
@@ -71,6 +72,13 @@ const SHELL_CONFIG = [
   { name: 'Week', radius: 100, color: '#F59E0B', icon: Calendar, maxElectrons: 18 },
   { name: 'Later', radius: 140, color: '#10B981', icon: Clock, maxElectrons: 32 }
 ];
+
+// Animation configuration
+const ANIMATION_CONFIG = {
+  ELECTRON_SPEED: 0.005, // Slower electron orbit speed
+  SHELL_SPEED_MULTIPLIERS: [1.2, 1.0, 0.8], // Today faster, Later slower
+  MAX_ELECTRONS_FOR_FAST_ANIMATION: 50 // Reduce speed further with many electrons
+};
 
 interface AtomicRendererProps {
   bubbles?: Bubble[];
@@ -140,6 +148,8 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
   // Convert bubbles to molecules on input change
   const convertBubblesToMolecules = useCallback((inputBubbles: Bubble[]): Molecule[] => {
     const moleculeMap = new Map<string, Molecule>();
+    const domains = [...new Set(inputBubbles.map(bubble => classifyDomain(bubble)))];
+    const moleculePositions = calculateMoleculePositions(domains);
 
     inputBubbles.forEach((bubble, index) => {
       const domain = classifyDomain(bubble);
@@ -149,14 +159,14 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
 
       let molecule = moleculeMap.get(domain);
       if (!molecule) {
-        // Create new molecule for this domain
-        const angle = (index * 137.5) * (Math.PI / 180); // Golden angle spiral
-        const radius = 50 + (index * 20);
+        // Get pre-calculated position for this domain
+        const domainIndex = domains.indexOf(domain);
+        const position = moleculePositions[domainIndex] || { x: 0, y: 0 };
         
         molecule = {
           id: `mol-${domain}`,
-          x: Math.cos(angle) * radius,
-          y: Math.sin(angle) * radius,
+          x: position.x,
+          y: position.y,
           nucleus: domainPreset.nucleus,
           electrons: [],
           selected: false,
@@ -165,12 +175,13 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         moleculeMap.set(domain, molecule);
       }
 
-      // Add electron for this bubble
+      // Add electron for this bubble with proper phase distribution
+      const electronCount = molecule.electrons.length;
       const electron: Electron = {
         id: `elec-${bubble.id}`,
         moleculeId: molecule.id,
         shell: shellIndex,
-        angle: Math.random() * 2 * Math.PI,
+        angle: (electronCount * (2 * Math.PI / 8)) + Math.random() * 0.2, // Distribute evenly with slight randomization
         phase: Math.random() * 2 * Math.PI,
         content: bubble.content || '',
         originalBubble: bubble
@@ -197,12 +208,15 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     return unsubscribe;
   }, []);
 
-  // Animation loop
+  // Animation loop with slower electrons
   useEffect(() => {
     if (!motionState || reducedMotion) return;
 
+    const totalElectrons = atomicState.molecules.reduce((sum, mol) => sum + mol.electrons.length, 0);
+    const speedMultiplier = totalElectrons > ANIMATION_CONFIG.MAX_ELECTRONS_FOR_FAST_ANIMATION ? 0.5 : 1.0;
+
     const animate = () => {
-      setAnimationStep(prev => prev + 0.02);
+      setAnimationStep(prev => prev + (ANIMATION_CONFIG.ELECTRON_SPEED * speedMultiplier));
     };
 
     startAnimation(animate);
@@ -210,7 +224,21 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     return () => {
       stopAnimation();
     };
-  }, [motionState, reducedMotion]);
+  }, [motionState, reducedMotion, atomicState.molecules]);
+
+  // Auto-start animation on mount if motion is enabled
+  useEffect(() => {
+    if (isMotionEnabled() && !reducedMotion) {
+      const totalElectrons = atomicState.molecules.reduce((sum, mol) => sum + mol.electrons.length, 0);
+      const speedMultiplier = totalElectrons > ANIMATION_CONFIG.MAX_ELECTRONS_FOR_FAST_ANIMATION ? 0.5 : 1.0;
+
+      const animate = () => {
+        setAnimationStep(prev => prev + (ANIMATION_CONFIG.ELECTRON_SPEED * speedMultiplier));
+      };
+
+      startAnimation(animate);
+    }
+  }, [reducedMotion, atomicState.molecules]);
 
   // Drag handlers with unified event handling
   const handleElectronDragStart = useCallback((electron: Electron, event: React.MouseEvent) => {
@@ -537,7 +565,8 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
             {/* Electrons */}
             {molecule.electrons.map((electron, electronIndex) => {
               const shell = SHELL_CONFIG[electron.shell];
-              const electronMotion = reducedMotion ? 0 : electron.phase + animationStep;
+              const shellSpeedMultiplier = ANIMATION_CONFIG.SHELL_SPEED_MULTIPLIERS[electron.shell] || 1.0;
+              const electronMotion = reducedMotion ? 0 : electron.phase + (animationStep * shellSpeedMultiplier);
               const angle = electron.angle + electronMotion;
               const x = Math.cos(angle) * shell.radius;
               const y = Math.sin(angle) * shell.radius;

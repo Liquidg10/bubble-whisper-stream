@@ -2,7 +2,7 @@
 // Provides explicit Play/Pause control with Reduced Motion support
 
 let rafId: number | null = null;
-let motionEnabled = false;
+let motionEnabled = true; // Enable motion by default
 let currentStepFn: (() => void) | null = null;
 let listeners: Set<(enabled: boolean) => void> = new Set();
 
