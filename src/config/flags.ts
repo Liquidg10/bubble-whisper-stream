@@ -15,6 +15,7 @@ export const flags = {
   outliner: true,
   focusMode: true,
   prioritizer: true,
+  sync: true,
 } as const;
 
 export type FeatureFlag = keyof typeof flags;

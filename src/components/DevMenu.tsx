@@ -68,6 +68,16 @@ const devRoutes: DevRoute[] = [
     path: '/dev/prioritizer',
     name: 'Prioritizer',
     description: 'Intelligent priority scoring and suggestions'
+  },
+  {
+    path: '/dev/sync-basic',
+    name: 'Sync Basic',
+    description: 'Cross-device sync testing with 2-tab simulation'
+  },
+  {
+    path: '/dev/sync-diff',
+    name: 'Sync Diff',
+    description: 'Safe-Mode conflict resolution flows'
   }
 ];
 

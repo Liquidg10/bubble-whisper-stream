@@ -32,6 +32,8 @@ import { DevVision } from "./pages/DevVision";
 import { Focus } from "./pages/Focus";
 import { DevFocus } from "./pages/DevFocus";
 import { DevPrioritizer } from "./pages/DevPrioritizer";
+import { DevSyncBasic } from "./pages/DevSyncBasic";
+import { DevSyncDiff } from "./pages/DevSyncDiff";
 import Inbox from "./pages/Inbox";
 import Search from "./pages/Search";
 import { DevMenu } from "./components/DevMenu";
@@ -86,6 +88,8 @@ const App = () => {
                     <Route path="/dev/vision" element={<DevVision />} />
             <Route path="/dev/focus" element={<DevFocus />} />
             <Route path="/dev/prioritizer" element={<DevPrioritizer />} />
+            <Route path="/dev/sync-basic" element={<DevSyncBasic />} />
+            <Route path="/dev/sync-diff" element={<DevSyncDiff />} />
                     <Route path="/dev/settings" element={<DevSettings />} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>

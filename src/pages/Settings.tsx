@@ -25,6 +25,7 @@ import { storageService } from '@/services/storage';
 import { hapticsService } from '@/services/haptics';
 import { ttsService } from '@/services/tts';
 import { IntelligenceSettings } from '@/components/IntelligenceSettings';
+import { SyncDashboard } from '@/components/SyncDashboard';
 import { MonthlyReviewCard } from '@/components/MonthlyReviewCard';
 import { PrivacyZoneToggle } from '@/components/PrivacyZoneToggle';
 import { QuickTour } from '@/components/QuickTour';
