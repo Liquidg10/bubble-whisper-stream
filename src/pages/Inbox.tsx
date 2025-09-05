@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Inbox as InboxIcon, Mail, MessageSquare, Search, Filter, RefreshCw } from 'lucide-react';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { inboxClassifier } from '@/services/inboxClassifier';
@@ -200,8 +201,8 @@ export default function Inbox() {
   const unprocessedCount = inboxItems.filter(item => !item.processed).length;
 
   return (
-    <div className="min-h-screen bg-background p-4">
-      <div className="max-w-4xl mx-auto space-y-6">
+    <ScrollArea className="h-full">
+      <div className="max-w-4xl mx-auto p-4 space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -306,6 +307,6 @@ export default function Inbox() {
           </Card>
         )}
       </div>
-    </div>
+    </ScrollArea>
   );
 }

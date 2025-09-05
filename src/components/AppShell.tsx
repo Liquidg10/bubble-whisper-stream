@@ -52,12 +52,12 @@ export const AppShell: React.FC = () => {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-hidden">
+      <main className="flex-1 overflow-auto">
         <div className="h-full flex flex-col">
           <div className="container mx-auto p-4 flex-shrink-0">
             <OfflineStatusBanner />
           </div>
-          <div className="flex-1 overflow-hidden">
+          <div className="flex-1">
             <Outlet />
           </div>
         </div>
