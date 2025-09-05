@@ -1,19 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Loader2, Receipt, Scan, AlertCircle, CheckCircle, Edit3 } from 'lucide-react';
 import { receiptOCRService } from '@/services/receiptOCRService';
 import { budgetService, BudgetEnvelope } from '@/services/budgetService';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { useToast } from '@/hooks/use-toast';
 import { isFeatureEnabled } from '@/config/flags';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Bubble, FinanceMetadata } from '@/types/bubble';
 
-interface ReceiptScannerProps {
+interface ReceiptScannerEnhancedProps {
   bubble: Bubble;
   onUpdate?: (updatedBubble: Bubble) => void;
   className?: string;
@@ -21,7 +21,7 @@ interface ReceiptScannerProps {
 
 const DEBUG = localStorage.getItem('DEBUG') === 'true';
 
-export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
+export const ReceiptScannerEnhanced: React.FC<ReceiptScannerEnhancedProps> = ({
   bubble,
   onUpdate,
   className
@@ -54,7 +54,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   const isFeatureActive = isFeatureEnabled('receiptsOCR');
 
   // Load budget envelopes
-  React.useEffect(() => {
+  useEffect(() => {
     const loadEnvelopes = async () => {
       if (isFeatureEnabled('budget')) {
         const data = await budgetService.getEnvelopes();
@@ -278,6 +278,25 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
             </span>
           </div>
         )}
+
+        {/* Budget Envelope Assignment */}
+        {isFeatureEnabled('budget') && envelopes.length > 0 && (
+          <div className="space-y-2">
+            <Label htmlFor="envelope-select" className="text-xs">Assign to Budget Envelope</Label>
+            <Select value={selectedEnvelope} onValueChange={setSelectedEnvelope}>
+              <SelectTrigger id="envelope-select" className="h-8 text-xs">
+                <SelectValue placeholder="Select an envelope (optional)" />
+              </SelectTrigger>
+              <SelectContent>
+                {envelopes.map((envelope) => (
+                  <SelectItem key={envelope.id} value={envelope.id}>
+                    {envelope.name} ({envelope.currency} {envelope.monthlyLimit}/month)
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         
         {/* Finance Data Display/Edit */}
         {(hasFinanceData || isEditing) && (
@@ -395,6 +414,8 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
             <div>OCR Available: {isOCRAvailable ? 'Yes' : 'No'}</div>
             <div>Feature Enabled: {isFeatureActive ? 'Yes' : 'No'}</div>
             <div>Has Image: {bubble.imageUri ? 'Yes' : 'No'}</div>
+            <div>Budget Feature: {isFeatureEnabled('budget') ? 'Yes' : 'No'}</div>
+            <div>Envelopes Found: {envelopes.length}</div>
           </div>
         )}
       </CardContent>

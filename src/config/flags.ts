@@ -18,6 +18,7 @@ export const flags = {
   sync: true,
   searchV2: true,
   ambientModes: true,
+  budget: true,
 } as const;
 
 export type FeatureFlag = keyof typeof flags;

@@ -30,14 +30,17 @@ import { MonthlyReviewCard } from '@/components/MonthlyReviewCard';
 import { PrivacyZoneToggle } from '@/components/PrivacyZoneToggle';
 import { QuickTour } from '@/components/QuickTour';
 import { useFeatureFlags } from '@/components/FeatureFlags';
+import { isFeatureEnabled } from '@/config/flags';
 import { DebugDataPanel } from '@/components/DebugDataPanel';
 import { OptionalModules } from '@/components/OptionalModules';
 import { VoiceSettings } from '@/components/VoiceSettings';
 import { TTSDebugConsole } from '@/components/TTSDebugConsole';
+import { BudgetEnvelopeManager } from '@/components/BudgetEnvelopeManager';
+import { BudgetPaceAlerts } from '@/components/BudgetPaceAlerts';
 
 export const Settings: React.FC = () => {
   const { settings, updateSettings, bubbles, reminders } = useBubbleStore();
-  const { isFeatureEnabled } = useFeatureFlags();
+  const { isFeatureEnabled: isFeatureFlagEnabled } = useFeatureFlags();
   const [isExporting, setIsExporting] = useState(false);
   const [testingTTS, setTestingTTS] = useState(false);
   const [showQuickTour, setShowQuickTour] = useState(false);
@@ -132,6 +135,14 @@ export const Settings: React.FC = () => {
             </Button>
           </CardContent>
         </Card>
+
+        {/* Budget Management */}
+        {isFeatureEnabled('budget') && (
+          <>
+            <BudgetPaceAlerts />
+            <BudgetEnvelopeManager />
+          </>
+        )}
 
         {/* Privacy Zones */}
         <div className="space-y-4">
@@ -484,7 +495,7 @@ export const Settings: React.FC = () => {
         </Card>
 
         {/* Debug Panel - Only in dev mode */}
-        {isFeatureEnabled('debugMode') && (
+        {isFeatureFlagEnabled('debugMode') && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
