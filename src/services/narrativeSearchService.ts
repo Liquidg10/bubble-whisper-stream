@@ -333,11 +333,19 @@ class NarrativeSearchService {
     return content.slice(start, end);
   }
 
-  getIndexStats(): { bubblesIndexed: number; lastBuilt: Date; isBuilding: boolean } {
+  getIndexStats(): { 
+    bubblesIndexed: number; 
+    lastBuilt: Date; 
+    isBuilding: boolean;
+    avgSearchTime: number;
+    cacheHitRate: number;
+  } {
     return {
       bubblesIndexed: this.index.bubbleCount,
       lastBuilt: this.index.lastBuilt,
-      isBuilding: this.isIndexBuilding
+      isBuilding: this.isIndexBuilding,
+      avgSearchTime: 0, // Legacy service doesn't track this
+      cacheHitRate: 0    // Legacy service doesn't have caching
     };
   }
 }

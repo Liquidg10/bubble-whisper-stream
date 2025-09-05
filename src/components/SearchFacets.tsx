@@ -24,6 +24,8 @@ import {
 } from 'lucide-react';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { narrativeSearchService } from '@/services/narrativeSearchService';
+import { enhancedSearchService } from '@/services/enhancedSearchService';
+import { isFeatureEnabled } from '@/config/flags';
 import { SearchMatch, SearchFilter } from '@/types/search';
 import { BecausePill } from '@/components/BecausePill';
 import { format } from 'date-fns';
@@ -58,11 +60,17 @@ export function SearchFacets({ onSearch, onFiltersChange }: SearchFacetsProps) {
   const availableHorizons = ['today', 'thisWeek', 'thisMonth', 'someday'];
 
   useEffect(() => {
-    const loadFilters = async () => {
-      await narrativeSearchService.initialize();
-      setSavedFilters(narrativeSearchService.getSavedFilters());
+    const loadSavedFilters = async () => {
+      try {
+        const searchService = isFeatureEnabled('searchV2') ? enhancedSearchService : narrativeSearchService;
+        const filters = searchService.getSavedFilters();
+        setSavedFilters(filters);
+      } catch (error) {
+        console.error('Failed to load saved filters:', error);
+      }
     };
-    loadFilters();
+    
+    loadSavedFilters();
   }, []);
 
   useEffect(() => {
@@ -80,6 +88,7 @@ export function SearchFacets({ onSearch, onFiltersChange }: SearchFacetsProps) {
   const performSearch = async () => {
     setIsSearching(true);
     try {
+      const searchService = isFeatureEnabled('searchV2') ? enhancedSearchService : narrativeSearchService;
       const filters: Partial<SearchFilter> = {
         timeRange: timeRange ? { preset: timeRange as any } : undefined,
         types: selectedTypes.length ? selectedTypes : undefined,
@@ -88,7 +97,7 @@ export function SearchFacets({ onSearch, onFiltersChange }: SearchFacetsProps) {
         horizon: selectedHorizons.length ? selectedHorizons : undefined,
       };
 
-      const matches = await narrativeSearchService.search(bubbles, query, filters);
+      const matches = await searchService.search(bubbles, query, filters);
       onSearch(matches);
     } finally {
       setIsSearching(false);
@@ -122,7 +131,8 @@ export function SearchFacets({ onSearch, onFiltersChange }: SearchFacetsProps) {
       horizon: selectedHorizons.length ? selectedHorizons : undefined,
     };
 
-    const saved = await narrativeSearchService.saveFilter(filter);
+    const searchService = isFeatureEnabled('searchV2') ? enhancedSearchService : narrativeSearchService;
+    const saved = await searchService.saveFilter(filter);
     setSavedFilters([...savedFilters, saved]);
     setSaveFilterName('');
     setShowSaveDialog(false);
@@ -138,7 +148,8 @@ export function SearchFacets({ onSearch, onFiltersChange }: SearchFacetsProps) {
   };
 
   const deleteSavedFilter = async (filterId: string) => {
-    await narrativeSearchService.deleteFilter(filterId);
+    const searchService = isFeatureEnabled('searchV2') ? enhancedSearchService : narrativeSearchService;
+    await searchService.deleteFilter(filterId);
     setSavedFilters(savedFilters.filter(f => f.id !== filterId));
   };
 

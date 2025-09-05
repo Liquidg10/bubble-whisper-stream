@@ -6,10 +6,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { SearchMatch } from '@/types/search';
 import { useBubbleStore } from '@/stores/bubbleStore';
+import { enhancedSearchService } from '@/services/enhancedSearchService';
 import { narrativeSearchService } from '@/services/narrativeSearchService';
-import { Search, ArrowLeft, Target, Clock, Tag } from 'lucide-react';
+import { Search, ArrowLeft, Target, Clock, Tag, Zap } from 'lucide-react';
 import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
+import { isFeatureEnabled } from '@/config/flags';
 
 export default function SearchPage() {
   const { bubbles } = useBubbleStore();
@@ -18,16 +20,19 @@ export default function SearchPage() {
   const [indexStats, setIndexStats] = useState({
     bubblesIndexed: 0,
     lastBuilt: new Date(),
-    isBuilding: false
+    isBuilding: false,
+    avgSearchTime: 0,
+    cacheHitRate: 0
   });
 
   useEffect(() => {
-    // Initialize search service
-    narrativeSearchService.initialize();
+    // Initialize enhanced search service when searchV2 is enabled
+    const searchService = isFeatureEnabled('searchV2') ? enhancedSearchService : narrativeSearchService;
+    searchService.initialize();
     
     // Update index stats periodically
     const updateStats = () => {
-      setIndexStats(narrativeSearchService.getIndexStats());
+      setIndexStats(searchService.getIndexStats());
     };
     
     updateStats();
@@ -131,8 +136,14 @@ export default function SearchPage() {
             </div>
           </div>
           
-          {/* Index stats */}
+          {/* Enhanced index stats for searchV2 */}
           <div className="text-right">
+            {isFeatureEnabled('searchV2') && (
+              <Badge variant="secondary" className="mb-2">
+                <Zap className="h-3 w-3 mr-1" />
+                Enhanced Search v2
+              </Badge>
+            )}
             <div className="text-sm text-muted-foreground">
               {indexStats.bubblesIndexed} bubbles indexed
             </div>
@@ -140,6 +151,11 @@ export default function SearchPage() {
               {indexStats.isBuilding ? 'Building...' : 
                 `Last built: ${format(indexStats.lastBuilt, 'HH:mm:ss')}`}
             </div>
+            {isFeatureEnabled('searchV2') && indexStats.avgSearchTime > 0 && (
+              <div className="text-xs text-muted-foreground">
+                Avg: {indexStats.avgSearchTime.toFixed(1)}ms
+              </div>
+            )}
           </div>
         </div>
 
