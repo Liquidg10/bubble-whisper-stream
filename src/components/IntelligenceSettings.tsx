@@ -20,8 +20,6 @@ export const IntelligenceSettings: React.FC = () => {
   const { 
     settings, 
     updateSettings, 
-    intelligenceEnabled, 
-    toggleIntelligence,
     cbtEntries,
     glimmers,
     patternHints
@@ -59,12 +57,12 @@ export const IntelligenceSettings: React.FC = () => {
             </div>
             <Switch
               id="intelligence-enabled"
-              checked={intelligenceEnabled}
-              onCheckedChange={toggleIntelligence}
+              checked={settings.intelligenceEnabled || false}
+              onCheckedChange={(checked) => updateSettings({ intelligenceEnabled: checked })}
             />
           </div>
 
-          {intelligenceEnabled && (
+          {settings.intelligenceEnabled && (
             <>
               <Separator />
               <div className="space-y-3">
@@ -93,7 +91,7 @@ export const IntelligenceSettings: React.FC = () => {
         </CardContent>
       </Card>
 
-      {intelligenceEnabled && (
+      {settings.intelligenceEnabled && (
         <>
           {/* CBT Thought Check */}
           <Card>
