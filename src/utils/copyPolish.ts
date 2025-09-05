@@ -3,6 +3,8 @@
  * Ensures all user-facing text follows anti-shame guidelines
  */
 
+import { ambientModeService } from '@/services/ambientModeService';
+
 // Anti-shame replacements for common negative language
 const SHAME_REPLACEMENTS = {
   // Failure language
@@ -67,11 +69,14 @@ const ENCOURAGEMENT_PHRASES = [
 
 /**
  * Polishes text to remove shame-inducing language
+ * Now respects ambient mode settings
  */
-export function polishCopy(text: string): string {
-  let polished = text.toLowerCase();
+export function polishCopy(text: string, context: 'reminder' | 'cbt' | 'notification' | 'general' = 'general'): string {
+  // First apply ambient mode adjustments
+  let polished = ambientModeService.getModeCopy(text, context);
   
-  // Apply shame replacements
+  // Then apply shame replacement polish
+  polished = polished.toLowerCase();
   for (const [shameWord, compassionateWord] of Object.entries(SHAME_REPLACEMENTS)) {
     const regex = new RegExp(`\\b${shameWord}\\b`, 'gi');
     polished = polished.replace(regex, compassionateWord);
