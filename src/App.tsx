@@ -76,25 +76,25 @@ const App = () => {
                       <Route path="cbt-worksheet" element={<CBTWorksheet />} />
                       <Route path="focus" element={<Focus />} />
                       <Route path="settings" element={<Settings />} />
+                      {/* Dev routes - now inside AppShell for provider access */}
+                      <Route path="dev/photo" element={<DevPhotoTest />} />
+                      <Route path="dev/atomic-basic" element={<DevAtomicBasic />} />
+                      <Route path="dev/atomic-stress" element={<DevAtomicStress />} />
+                      <Route path="dev/ai" element={<DevAI />} />
+                      <Route path="dev/receipts" element={<DevReceipts />} />
+                      <Route path="dev/atomic-unified" element={<DevAtomicUnified />} />
+                      <Route path="dev/bubbles-basic" element={<DevBubblesBasic />} />
+                      <Route path="dev/bubbles-stress" element={<DevBubblesStress />} />
+                      <Route path="dev/voice" element={<DevRealtimeVoice />} />
+                      <Route path="dev/vision" element={<DevVision />} />
+                      <Route path="dev/focus" element={<DevFocus />} />
+                      <Route path="dev/prioritizer" element={<DevPrioritizer />} />
+                      <Route path="dev/modes" element={<DevModes />} />
+                      <Route path="dev/budget" element={<DevBudget />} />
+                      <Route path="dev/sync-basic" element={<DevSyncBasic />} />
+                      <Route path="dev/sync-diff" element={<DevSyncDiff />} />
+                      <Route path="dev/settings" element={<DevSettings />} />
                     </Route>
-                    {/* Dev routes - now wrapped with theme context */}
-                    <Route path="/dev/photo" element={<DevPhotoTest />} />
-                    <Route path="/dev/atomic-basic" element={<DevAtomicBasic />} />
-                    <Route path="/dev/atomic-stress" element={<DevAtomicStress />} />
-                    <Route path="/dev/ai" element={<DevAI />} />
-                    <Route path="/dev/receipts" element={<DevReceipts />} />
-                    <Route path="/dev/atomic-unified" element={<DevAtomicUnified />} />
-                    <Route path="/dev/bubbles-basic" element={<DevBubblesBasic />} />
-                    <Route path="/dev/bubbles-stress" element={<DevBubblesStress />} />
-                    <Route path="/dev/voice" element={<DevRealtimeVoice />} />
-                    <Route path="/dev/vision" element={<DevVision />} />
-            <Route path="/dev/focus" element={<DevFocus />} />
-            <Route path="/dev/prioritizer" element={<DevPrioritizer />} />
-        <Route path="/dev/modes" element={<DevModes />} />
-        <Route path="/dev/budget" element={<DevBudget />} />
-            <Route path="/dev/sync-basic" element={<DevSyncBasic />} />
-            <Route path="/dev/sync-diff" element={<DevSyncDiff />} />
-                    <Route path="/dev/settings" element={<DevSettings />} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>
                 </BrowserRouter>
