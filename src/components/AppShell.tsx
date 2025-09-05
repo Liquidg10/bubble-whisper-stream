@@ -16,7 +16,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 
 export const AppShell: React.FC = () => {
   const location = useLocation();
-  const { intelligenceEnabled } = useBubbleStore();
+  const { settings } = useBubbleStore();
   
   const [showSearch, setShowSearch] = useState(false);
 
@@ -28,7 +28,7 @@ export const AppShell: React.FC = () => {
     { path: '/inbox', icon: Inbox, label: 'Inbox' },
     { path: '/reflection', icon: Flower, label: 'Reflect' },
     { path: '/settings', icon: Settings, label: 'Settings' },
-    ...(intelligenceEnabled ? [
+    ...(settings.intelligenceEnabled ? [
       { path: '/cbt-worksheet', icon: Brain, label: 'CBT' },
     ] : []),
   ];
@@ -86,7 +86,7 @@ export const AppShell: React.FC = () => {
 
       {/* Bottom Navigation */}
       <nav className="border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className={`grid items-center py-2 px-2 ${intelligenceEnabled ? 'grid-cols-8' : 'grid-cols-7'}`}>
+        <div className={`grid items-center py-2 px-2 ${settings.intelligenceEnabled ? 'grid-cols-8' : 'grid-cols-7'}`}>
           {navItems.map(({ path, icon: Icon, label }) => {
             const isActive = location.pathname === path;
             return (

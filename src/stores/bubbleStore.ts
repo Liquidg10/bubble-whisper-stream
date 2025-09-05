@@ -52,7 +52,6 @@ interface BubbleStore {
   cbtEntries: CBTEntry[];
   glimmers: Glimmer[];
   patternHints: PatternHint[];
-  intelligenceEnabled: boolean;
   
   // Merge state
   mergeCandidate: { bubble1: Bubble; bubble2: Bubble } | null;
@@ -179,7 +178,6 @@ export const useBubbleStore = create<BubbleStore>()(
       cbtEntries: [],
       glimmers: [],
       patternHints: [],
-      intelligenceEnabled: false,
 
       // Initialize store from IndexedDB
       initializeStore: async () => {
@@ -583,7 +581,10 @@ export const useBubbleStore = create<BubbleStore>()(
       },
 
       toggleIntelligence: (enabled: boolean) => {
-        set({ intelligenceEnabled: enabled });
+        // Update settings directly and persist
+        set(state => ({
+          settings: { ...state.settings, intelligenceEnabled: enabled }
+        }));
         // Async persistence without blocking UI
         get().updateSettings({ intelligenceEnabled: enabled }).catch(() => {
           console.warn('Failed to persist intelligence setting');

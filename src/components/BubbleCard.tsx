@@ -48,7 +48,7 @@ export function BubbleCard({
   const { currentTheme } = useTheme();
   const isMobile = useIsMobile();
   const navigate = useNavigate();
-  const { intelligenceEnabled } = useBubbleStore();
+  const { settings } = useBubbleStore();
 
   // Touch gesture handling for mobile
   const { gestureState, handlers, isSelected: isTouchSelected } = useTouchGestures({
@@ -337,7 +337,7 @@ export function BubbleCard({
   );
 
   // Wrap with context menu on desktop
-  if (!isMobile && intelligenceEnabled) {
+  if (!isMobile && settings.intelligenceEnabled) {
     return (
       <ContextMenu>
         <ContextMenuTrigger asChild>
