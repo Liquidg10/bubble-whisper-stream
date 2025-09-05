@@ -734,7 +734,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       )}
 
       {/* Time Horizons Legend */}
-      <Card className="absolute bottom-4 right-4 p-3">
+      <Card className="absolute bottom-24 right-4 p-3">
         <h3 className="text-sm font-medium mb-2">Time Horizons</h3>
         <div className="space-y-1">
           {SHELL_CONFIG.map((shell, index) => (
