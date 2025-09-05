@@ -314,7 +314,7 @@ export const DevPrioritizer: React.FC = () => {
                   <div className="text-sm font-medium text-muted-foreground">Because:</div>
                   <div className="flex flex-wrap gap-1">
                     {score.why.map((reason, idx) => (
-                      <BecausePill key={idx} explanation={reason} />
+                      <BecausePill key={idx} explanation={reason} variant="inline" />
                     ))}
                   </div>
                 </div>
