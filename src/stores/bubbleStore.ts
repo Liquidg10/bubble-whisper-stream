@@ -128,9 +128,9 @@ const defaultSettings = {
   bubbleDensity: 'medium' as const,
   biometricLock: false,
   quietHours: { start: '22:00', end: '08:00' },
-  intelligenceEnabled: false, // Opt-in for Phase 2 features
-  glimmersEnabled: false,
-  adaptiveRemindersEnabled: false,
+  intelligenceEnabled: true, // Enabled by default for Phase 2 features
+  glimmersEnabled: true,
+  adaptiveRemindersEnabled: true,
   viewMode: 'bubble' as const,
   selfModelLayers: {
     surface: true,
