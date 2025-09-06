@@ -33,7 +33,7 @@ export default function Tools() {
       </div>
 
       <Tabs defaultValue="pomodoro" className="w-full">
-        <TabsList className="grid w-full grid-cols-6">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="pomodoro" className="gap-2">
             <Timer className="h-4 w-4" />
             Pomodoro
@@ -57,10 +57,6 @@ export default function Tools() {
           <TabsTrigger value="review" className="gap-2">
             <Calendar className="h-4 w-4" />
             Review
-          </TabsTrigger>
-          <TabsTrigger value="more" className="gap-2">
-            <MoreHorizontal className="h-4 w-4" />
-            More
           </TabsTrigger>
         </TabsList>
 
@@ -128,20 +124,6 @@ export default function Tools() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="more" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Additional Tools Coming Soon</CardTitle>
-                <CardDescription>
-                  We're working on more helpful life management tools based on your feedback
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="py-8 text-center text-muted-foreground">
-                <Wrench className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>More tools and integrations are being developed to support your daily life</p>
-              </CardContent>
-            </Card>
-          </TabsContent>
         </div>
       </Tabs>
     </div>
