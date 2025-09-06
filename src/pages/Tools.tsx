@@ -33,7 +33,7 @@ export default function Tools() {
       </div>
 
       <Tabs defaultValue="pomodoro" className="w-full">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="pomodoro" className="gap-2">
             <Timer className="h-4 w-4" />
             Pomodoro
