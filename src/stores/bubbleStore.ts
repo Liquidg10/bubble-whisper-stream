@@ -43,6 +43,8 @@ interface BubbleStore {
     emailIntegrationEnabled?: boolean;
     bankingIntegrationEnabled?: boolean;
     viewMode?: 'bubble' | 'atomic';
+    aiSystemPrompt?: string;
+    aiPersonalInfo?: string;
   };
   selfModel: SelfModel;
   isLoading: boolean;
@@ -98,6 +100,8 @@ interface BubbleStore {
     emailIntegrationEnabled?: boolean;
     bankingIntegrationEnabled?: boolean;
     viewMode?: 'bubble' | 'atomic';
+    aiSystemPrompt?: string;
+    aiPersonalInfo?: string;
   }>) => Promise<void>;
   
   // Self model actions

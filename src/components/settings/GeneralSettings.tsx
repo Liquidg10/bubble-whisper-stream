@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import { hapticsService } from '@/services/haptics';
 import { ttsService } from '@/services/tts';
-import { VoiceSettings } from '@/components/VoiceSettings';
+
 
 export const GeneralSettings: React.FC = () => {
   const { settings, updateSettings } = useBubbleStore();
@@ -106,9 +106,6 @@ export const GeneralSettings: React.FC = () => {
           </div>
         </CardContent>
       </Card>
-
-      {/* Voice Settings */}
-      <VoiceSettings />
 
       {/* Audio & Haptics */}
       <Card>

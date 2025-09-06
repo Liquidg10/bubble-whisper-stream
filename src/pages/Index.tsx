@@ -16,7 +16,7 @@ import { ConflictResolutionDialog } from '@/components/ConflictResolutionDialog'
 import { CollaborationHub } from '@/components/CollaborationHub';
 import { EnhancedVoiceCapture } from '@/components/EnhancedVoiceCapture';
 import { EnhancedPhotoCapture } from '@/components/EnhancedPhotoCapture';
-import { VoiceAIInterface } from '@/components/VoiceAIInterface';
+
 import { ViewModeToggle } from '@/components/ViewModeToggle';
 import { VoiceIntentCapture } from '@/components/VoiceIntentCapture';
 import { isFeatureEnabled } from '@/config/flags';
@@ -106,10 +106,6 @@ export default function Index() {
         <CollaborationHub isOpen={false} onClose={() => {}} />
       </div>
       
-      {/* Voice AI Interface */}
-      <div className="fixed bottom-20 right-4 z-10">
-        <VoiceAIInterface />
-      </div>
 
       {/* Voice Intent Capture - Floating Bottom Center */}
       {isFeatureEnabled('voiceCapture') && (

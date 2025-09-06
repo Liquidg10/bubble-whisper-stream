@@ -85,11 +85,18 @@ export const AppShell: React.FC = () => {
 
       {/* AI Assistant Modal */}
       <Dialog open={showAIAssistant} onOpenChange={setShowAIAssistant}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>AI Assistant</DialogTitle>
-          </DialogHeader>
-          <EnhancedAIChat />
+        <DialogContent className="max-w-[98vw] w-[98vw] h-[95vh] flex flex-col p-0">
+          <div className="flex flex-col h-full">
+            <div className="p-4 border-b border-border">
+              <DialogTitle>AI Assistant</DialogTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                Your empathetic AI companion, always ready to help
+              </p>
+            </div>
+            <div className="flex-1 overflow-hidden p-3">
+              <EnhancedAIChat />
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
