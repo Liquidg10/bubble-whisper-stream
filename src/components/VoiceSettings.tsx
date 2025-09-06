@@ -110,7 +110,7 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({ className = '' }) 
       voicePreferences: DEFAULT_VOICE_MAPPING,
       globalVoice: 'nova',
       voiceVolume: 0.8,
-      voiceSpeed: 1.0
+      voiceSpeed: 1.3
     });
     toast({
       title: "Voice settings reset",
@@ -182,11 +182,16 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({ className = '' }) 
             <Slider
               value={[voiceSpeed]}
               onValueChange={handleSpeedChange}
-              max={1.5}
+              max={2.0}
               min={0.5}
               step={0.1}
               className="w-full"
             />
+            <div className="flex gap-1 text-xs text-muted-foreground justify-between">
+              <span>Relaxed (0.8x)</span>
+              <span>Energetic (1.3x)</span>
+              <span>Fast (2.0x)</span>
+            </div>
           </div>
         </div>
 
