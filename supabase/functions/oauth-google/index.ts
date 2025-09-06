@@ -85,21 +85,20 @@ const handler = async (req: Request): Promise<Response> => {
     const userInfo: GoogleUserInfo = await userResponse.json();
     console.log('User info received:', { email: userInfo.email, name: userInfo.name });
 
-    // Check if user exists or create new user
-    const { data: existingUser, error: userError } = await supabase
+    // Check if OAuth account exists
+    const { data: existingOAuth, error: oauthError } = await supabase
       .from('oauth_accounts')
-      .select('user_id, users(*)')
+      .select('user_id')
       .eq('provider', 'google')
       .eq('provider_user_id', userInfo.id)
-      .single();
+      .maybeSingle();
 
-    let userId: string;
+    let authUser;
 
-    if (existingUser) {
-      console.log('Existing user found');
-      userId = existingUser.user_id;
+    if (existingOAuth) {
+      console.log('Existing OAuth account found');
       
-      // Update last login
+      // Update OAuth account tokens
       await supabase
         .from('oauth_accounts')
         .update({ 
@@ -110,33 +109,36 @@ const handler = async (req: Request): Promise<Response> => {
         })
         .eq('provider', 'google')
         .eq('provider_user_id', userInfo.id);
-    } else {
-      console.log('Creating new user');
-      
-      // Create new user
-      const { data: newUser, error: createUserError } = await supabase
-        .from('users')
-        .insert({
-          email: userInfo.email,
-          display_name: userInfo.name,
-          avatar_url: userInfo.picture,
-          email_verified: userInfo.verified_email
-        })
-        .select()
-        .single();
 
-      if (createUserError) {
-        console.error('User creation failed:', createUserError);
-        throw new Error(`User creation failed: ${createUserError.message}`);
+      // Get user info
+      const { data: userData } = await supabase.auth.admin.getUserById(existingOAuth.user_id);
+      authUser = userData.user;
+    } else {
+      console.log('Creating new user via Supabase Auth');
+      
+      // Create user via Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+        email: userInfo.email,
+        email_confirm: true,
+        user_metadata: {
+          name: userInfo.name,
+          avatar_url: userInfo.picture,
+          provider: 'google'
+        }
+      });
+
+      if (authError) {
+        console.error('User creation failed:', authError);
+        throw new Error(`User creation failed: ${authError.message}`);
       }
 
-      userId = newUser.id;
+      authUser = authData.user;
 
       // Create OAuth account record
-      const { error: oauthError } = await supabase
+      const { error: oauthCreateError } = await supabase
         .from('oauth_accounts')
         .insert({
-          user_id: userId,
+          user_id: authUser.id,
           provider: 'google',
           provider_user_id: userInfo.id,
           access_token: tokens.access_token,
@@ -145,39 +147,34 @@ const handler = async (req: Request): Promise<Response> => {
           last_used_at: new Date().toISOString()
         });
 
-      if (oauthError) {
-        console.error('OAuth account creation failed:', oauthError);
-        throw new Error(`OAuth account creation failed: ${oauthError.message}`);
+      if (oauthCreateError) {
+        console.error('OAuth account creation failed:', oauthCreateError);
+        throw new Error(`OAuth account creation failed: ${oauthCreateError.message}`);
       }
     }
 
-    // Generate session token (simplified - in production use proper JWT)
-    const sessionToken = crypto.randomUUID();
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
-
-    // Store session
-    const { error: sessionError } = await supabase
-      .from('user_sessions')
-      .insert({
-        id: sessionToken,
-        user_id: userId,
-        expires_at: expiresAt.toISOString(),
-        provider: 'google'
-      });
+    // Generate Supabase Auth session
+    const { data: sessionData, error: sessionError } = await supabase.auth.admin.generateLink({
+      type: 'magiclink',
+      email: authUser.email,
+      options: {
+        redirectTo: `${req.headers.get('origin') || 'http://localhost:3000'}/auth/callback`
+      }
+    });
 
     if (sessionError) {
-      console.error('Session creation failed:', sessionError);
-      throw new Error(`Session creation failed: ${sessionError.message}`);
+      console.error('Session generation failed:', sessionError);
+      throw new Error(`Session generation failed: ${sessionError.message}`);
     }
 
     console.log('OAuth flow completed successfully');
 
     return new Response(JSON.stringify({
       success: true,
-      session_token: sessionToken,
+      session_url: sessionData.properties?.action_link,
       user: {
-        id: userId,
-        email: userInfo.email,
+        id: authUser.id,
+        email: authUser.email,
         name: userInfo.name,
         picture: userInfo.picture
       }

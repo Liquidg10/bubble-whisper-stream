@@ -40,6 +40,7 @@ import Inbox from "./pages/Inbox";
 import Search from "./pages/Search";
 import { DevMenu } from "./components/DevMenu";
 import { useDevMenu } from "./hooks/useDevMenu";
+import { AuthCallback } from "./pages/AuthCallback";
 
 const queryClient = new QueryClient();
 
@@ -95,6 +96,7 @@ const App = () => {
                       <Route path="dev/sync-diff" element={<DevSyncDiff />} />
                       <Route path="dev/settings" element={<DevSettings />} />
                     </Route>
+                    <Route path="auth/callback" element={<AuthCallback />} />
                     <Route path="*" element={<NotFound />} />
                   </Routes>
                 </BrowserRouter>

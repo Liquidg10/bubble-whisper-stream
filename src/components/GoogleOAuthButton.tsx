@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
 import { supabase } from '@/integrations/supabase/client';
-import { useToast } from '@/hooks/use-toast';
 
 interface GoogleOAuthButtonProps {
   onSuccess?: (user: any) => void;
@@ -14,122 +14,36 @@ export const GoogleOAuthButton: React.FC<GoogleOAuthButtonProps> = ({
   onSuccess,
   onError,
   className,
-  children = "Continue with Google"
+  children = 'Sign in with Google'
 }) => {
-  const { toast } = useToast();
-  const [isLoading, setIsLoading] = React.useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleGoogleLogin = async () => {
     setIsLoading(true);
     
     try {
-      // Google OAuth configuration
-      const clientId = "your-google-client-id"; // This should be set in your environment
-      const redirectUri = window.location.origin;
-      const scope = "openid email profile";
-      
-      // Build OAuth URL
-      const params = new URLSearchParams({
-        client_id: clientId,
-        redirect_uri: redirectUri,
-        response_type: 'code',
-        scope: scope,
-        access_type: 'offline',
-        prompt: 'consent'
+      // Use Supabase Auth with Google provider
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          },
+        }
       });
-      
-      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
-      
-      // Open popup window
-      const popup = window.open(
-        authUrl,
-        'google-oauth',
-        'width=500,height=600,scrollbars=yes,resizable=yes'
-      );
-      
-      if (!popup) {
-        throw new Error('Popup blocked. Please allow popups for this site.');
+
+      if (error) {
+        throw new Error(error.message);
       }
-      
-      // Listen for the authorization code
-      const checkClosed = setInterval(() => {
-        if (popup.closed) {
-          clearInterval(checkClosed);
-          setIsLoading(false);
-        }
-      }, 1000);
-      
-      // Listen for messages from popup
-      const messageListener = async (event: MessageEvent) => {
-        if (event.origin !== window.location.origin) return;
-        
-        if (event.data.type === 'GOOGLE_OAUTH_SUCCESS') {
-          clearInterval(checkClosed);
-          popup.close();
-          window.removeEventListener('message', messageListener);
-          
-          try {
-            // Exchange code for tokens via our edge function
-            const { data, error } = await supabase.functions.invoke('oauth-google', {
-              body: {
-                code: event.data.code,
-                redirect_uri: redirectUri
-              }
-            });
-            
-            if (error) throw error;
-            
-            if (data.success) {
-              // Store session token
-              localStorage.setItem('session_token', data.session_token);
-              
-              toast({
-                title: "Welcome!",
-                description: `Successfully signed in as ${data.user.name}`,
-              });
-              
-              onSuccess?.(data.user);
-            } else {
-              throw new Error(data.error || 'OAuth failed');
-            }
-          } catch (error: any) {
-            console.error('OAuth error:', error);
-            toast({
-              title: "Sign in failed",
-              description: error.message,
-              variant: "destructive",
-            });
-            onError?.(error.message);
-          }
-          
-          setIsLoading(false);
-        }
-        
-        if (event.data.type === 'GOOGLE_OAUTH_ERROR') {
-          clearInterval(checkClosed);
-          popup.close();
-          window.removeEventListener('message', messageListener);
-          
-          const errorMessage = event.data.error || 'OAuth failed';
-          toast({
-            title: "Sign in failed",
-            description: errorMessage,
-            variant: "destructive",
-          });
-          onError?.(errorMessage);
-          setIsLoading(false);
-        }
-      };
-      
-      window.addEventListener('message', messageListener);
+
+      // The redirect will happen automatically
+      toast.success('Redirecting to Google...');
       
     } catch (error: any) {
       console.error('Google OAuth error:', error);
-      toast({
-        title: "Sign in failed",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast.error(`OAuth failed: ${error.message}`);
       onError?.(error.message);
       setIsLoading(false);
     }
