@@ -690,7 +690,7 @@ export const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({
         <CardHeader className="flex-row items-center justify-between p-3">
           <div className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-primary" />
-            <CardTitle className="text-lg">AI Companion</CardTitle>
+            <CardTitle className="text-lg">AI Assistant</CardTitle>
             {currentSession && (
               <Badge variant="secondary" className="bg-accent-growth/20 text-accent-growth">
                 Active Session

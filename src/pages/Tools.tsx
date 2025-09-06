@@ -20,7 +20,7 @@ import { MonthlyReviewCard } from '@/components/MonthlyReviewCard';
 import { CleanHouseCues } from '@/components/tools/CleanHouseCues';
 import { PomodoroTimer } from '@/components/PomodoroTimer';
 import { FinanceBudgetTools } from '@/components/tools/FinanceBudgetTools';
-import { TaskInputInterface } from '@/components/TaskInputInterface';
+
 
 export default function Tools() {
   return (
@@ -32,12 +32,8 @@ export default function Tools() {
         </p>
       </div>
 
-      <Tabs defaultValue="ai-assistant" className="w-full">
-        <TabsList className="grid w-full grid-cols-7">
-          <TabsTrigger value="ai-assistant" className="gap-2">
-            <Wrench className="h-4 w-4" />
-            AI Assistant
-          </TabsTrigger>
+      <Tabs defaultValue="pomodoro" className="w-full">
+        <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="pomodoro" className="gap-2">
             <Timer className="h-4 w-4" />
             Pomodoro
@@ -69,10 +65,6 @@ export default function Tools() {
         </TabsList>
 
         <div className="mt-6">
-          <TabsContent value="ai-assistant">
-            <TaskInputInterface />
-          </TabsContent>
-
           <TabsContent value="pomodoro">
             <PomodoroTimer />
           </TabsContent>
