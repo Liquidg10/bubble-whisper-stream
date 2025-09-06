@@ -19,7 +19,7 @@ import {
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { hapticsService } from '@/services/haptics';
 import { useToast } from '@/hooks/use-toast';
-import { CleanHouseCelebration } from './CleanHouseCelebration';
+import { SessionCelebration } from './SessionCelebration';
 
 export function PomodoroTimer() {
   const { settings, updateSettings } = useBubbleStore();
@@ -238,7 +238,9 @@ export function PomodoroTimer() {
 
   if (showCelebration) {
     return (
-      <CleanHouseCelebration
+      <SessionCelebration
+        sessionType="pomodoro"
+        phase={currentPhase}
         onComplete={() => setShowCelebration(false)}
         onRestart={() => {
           setShowCelebration(false);

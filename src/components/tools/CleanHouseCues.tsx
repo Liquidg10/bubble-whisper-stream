@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { useToast } from '@/hooks/use-toast';
-import { CleanHouseCelebration } from '@/components/CleanHouseCelebration';
+import { SessionCelebration } from '@/components/SessionCelebration';
 import { hapticsService } from '@/services/haptics';
 
 export function CleanHouseCues() {
@@ -226,7 +226,8 @@ export function CleanHouseCues() {
   if (showCelebration) {
     return (
       <div className="space-y-6">
-        <CleanHouseCelebration 
+        <SessionCelebration 
+          sessionType="cleanhouse"
           onComplete={handleCelebrationComplete}
           onRestart={handleCelebrationRestart}
         />
