@@ -118,6 +118,242 @@ export type Database = {
           },
         ]
       }
+      calendar_accounts: {
+        Row: {
+          account_email: string
+          account_name: string
+          calendar_id: string | null
+          calendar_name: string | null
+          created_at: string
+          id: string
+          is_primary: boolean | null
+          last_sync_at: string | null
+          oauth_token_id: string
+          provider: string
+          sync_enabled: boolean | null
+          sync_token: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_email: string
+          account_name: string
+          calendar_id?: string | null
+          calendar_name?: string | null
+          created_at?: string
+          id?: string
+          is_primary?: boolean | null
+          last_sync_at?: string | null
+          oauth_token_id: string
+          provider: string
+          sync_enabled?: boolean | null
+          sync_token?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_email?: string
+          account_name?: string
+          calendar_id?: string | null
+          calendar_name?: string | null
+          created_at?: string
+          id?: string
+          is_primary?: boolean | null
+          last_sync_at?: string | null
+          oauth_token_id?: string
+          provider?: string
+          sync_enabled?: boolean | null
+          sync_token?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calendar_accounts_oauth_token_id_fkey"
+            columns: ["oauth_token_id"]
+            isOneToOne: false
+            referencedRelation: "oauth_tokens"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      calendar_events: {
+        Row: {
+          attendees: Json | null
+          bubble_created: boolean | null
+          calendar_account_id: string
+          created_at: string
+          description: string | null
+          end_time: string
+          external_event_id: string
+          id: string
+          location: string | null
+          reminder_created: boolean | null
+          start_time: string
+          status: string | null
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          attendees?: Json | null
+          bubble_created?: boolean | null
+          calendar_account_id: string
+          created_at?: string
+          description?: string | null
+          end_time: string
+          external_event_id: string
+          id?: string
+          location?: string | null
+          reminder_created?: boolean | null
+          start_time: string
+          status?: string | null
+          title: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          attendees?: Json | null
+          bubble_created?: boolean | null
+          calendar_account_id?: string
+          created_at?: string
+          description?: string | null
+          end_time?: string
+          external_event_id?: string
+          id?: string
+          location?: string | null
+          reminder_created?: boolean | null
+          start_time?: string
+          status?: string | null
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calendar_events_calendar_account_id_fkey"
+            columns: ["calendar_account_id"]
+            isOneToOne: false
+            referencedRelation: "calendar_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      email_accounts: {
+        Row: {
+          account_email: string
+          account_name: string | null
+          created_at: string
+          filters: Json | null
+          id: string
+          last_sync_at: string | null
+          oauth_token_id: string
+          provider: string
+          sync_enabled: boolean | null
+          sync_token: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_email: string
+          account_name?: string | null
+          created_at?: string
+          filters?: Json | null
+          id?: string
+          last_sync_at?: string | null
+          oauth_token_id: string
+          provider: string
+          sync_enabled?: boolean | null
+          sync_token?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_email?: string
+          account_name?: string | null
+          created_at?: string
+          filters?: Json | null
+          id?: string
+          last_sync_at?: string | null
+          oauth_token_id?: string
+          provider?: string
+          sync_enabled?: boolean | null
+          sync_token?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_accounts_oauth_token_id_fkey"
+            columns: ["oauth_token_id"]
+            isOneToOne: false
+            referencedRelation: "oauth_tokens"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      email_messages: {
+        Row: {
+          body_preview: string | null
+          bubble_created: boolean | null
+          created_at: string
+          email_account_id: string
+          external_message_id: string
+          id: string
+          importance_score: number | null
+          labels: Json | null
+          received_at: string
+          sender_email: string
+          sender_name: string | null
+          subject: string
+          thread_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          body_preview?: string | null
+          bubble_created?: boolean | null
+          created_at?: string
+          email_account_id: string
+          external_message_id: string
+          id?: string
+          importance_score?: number | null
+          labels?: Json | null
+          received_at: string
+          sender_email: string
+          sender_name?: string | null
+          subject: string
+          thread_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          body_preview?: string | null
+          bubble_created?: boolean | null
+          created_at?: string
+          email_account_id?: string
+          external_message_id?: string
+          id?: string
+          importance_score?: number | null
+          labels?: Json | null
+          received_at?: string
+          sender_email?: string
+          sender_name?: string | null
+          subject?: string
+          thread_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_messages_email_account_id_fkey"
+            columns: ["email_account_id"]
+            isOneToOne: false
+            referencedRelation: "email_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       financial_audit_log: {
         Row: {
           amount: number
@@ -322,6 +558,48 @@ export type Database = {
           },
         ]
       }
+      oauth_tokens: {
+        Row: {
+          access_token: string
+          account_email: string
+          created_at: string
+          id: string
+          provider: string
+          refresh_token: string | null
+          scope: string
+          service_type: string
+          token_expires_at: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_token: string
+          account_email: string
+          created_at?: string
+          id?: string
+          provider: string
+          refresh_token?: string | null
+          scope: string
+          service_type: string
+          token_expires_at?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_token?: string
+          account_email?: string
+          created_at?: string
+          id?: string
+          provider?: string
+          refresh_token?: string | null
+          scope?: string
+          service_type?: string
+          token_expires_at?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       orders: {
         Row: {
           amount: number
@@ -520,6 +798,57 @@ export type Database = {
         }
         Relationships: []
       }
+      sync_logs: {
+        Row: {
+          account_id: string | null
+          completed_at: string | null
+          created_at: string
+          error_message: string | null
+          id: string
+          items_created: number | null
+          items_processed: number | null
+          items_updated: number | null
+          operation: string
+          provider: string
+          service_type: string
+          started_at: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          account_id?: string | null
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          items_created?: number | null
+          items_processed?: number | null
+          items_updated?: number | null
+          operation: string
+          provider: string
+          service_type: string
+          started_at?: string
+          status: string
+          user_id: string
+        }
+        Update: {
+          account_id?: string | null
+          completed_at?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          items_created?: number | null
+          items_processed?: number | null
+          items_updated?: number | null
+          operation?: string
+          provider?: string
+          service_type?: string
+          started_at?: string
+          status?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       tenants: {
         Row: {
           created_at: string
@@ -600,6 +929,48 @@ export type Database = {
           id?: string
           sample_index?: number
           user_id?: string
+        }
+        Relationships: []
+      }
+      webhook_subscriptions: {
+        Row: {
+          account_id: string | null
+          created_at: string
+          expires_at: string | null
+          external_subscription_id: string
+          id: string
+          is_active: boolean | null
+          provider: string
+          service_type: string
+          updated_at: string
+          user_id: string
+          webhook_url: string
+        }
+        Insert: {
+          account_id?: string | null
+          created_at?: string
+          expires_at?: string | null
+          external_subscription_id: string
+          id?: string
+          is_active?: boolean | null
+          provider: string
+          service_type: string
+          updated_at?: string
+          user_id: string
+          webhook_url: string
+        }
+        Update: {
+          account_id?: string | null
+          created_at?: string
+          expires_at?: string | null
+          external_subscription_id?: string
+          id?: string
+          is_active?: boolean | null
+          provider?: string
+          service_type?: string
+          updated_at?: string
+          user_id?: string
+          webhook_url?: string
         }
         Relationships: []
       }
