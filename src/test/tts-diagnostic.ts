@@ -14,10 +14,12 @@ export interface TTSDiagnosticResult {
 
 export class TTSDiagnostic {
   /**
-   * Test 1: Direct Base64 Validation
-   * Compare current encoding method vs. proper binary encoding
+   * Test 1: Current Edge Function Encoding Validation
+   * Test the actual encoding method used in the current edge function
    */
   static async testBase64Encoding(): Promise<TTSDiagnosticResult> {
+    console.log('🧪 Testing current edge function base64 encoding method...');
+    
     // Create test binary data (simulated MP3 header)
     const testBinary = new Uint8Array([
       0xFF, 0xFB, 0x90, 0x00, // MP3 frame header
@@ -25,43 +27,38 @@ export class TTSDiagnostic {
       0x49, 0x6E, 0x66, 0x6F  // "Info" tag
     ]);
 
-    // Current problematic method (from edge function)
-    const problematicMethod = () => {
-      const chunkSize = 0x8000;
-      let base64Audio = '';
-      
-      for (let i = 0; i < testBinary.length; i += chunkSize) {
-        const chunk = testBinary.slice(i, i + chunkSize);
-        base64Audio += btoa(String.fromCharCode.apply(null, Array.from(chunk)));
+    try {
+      // Current edge function method (from line 106-111 in ai-tts-generate)
+      let binary = '';
+      const len = testBinary.byteLength;
+      for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(testBinary[i]);
       }
-      return base64Audio;
-    };
+      const currentMethodResult = btoa(binary);
 
-    // Proper method
-    const properMethod = () => {
-      return btoa(String.fromCharCode(...testBinary));
-    };
+      // Test if it decodes correctly
+      const decoded = atob(currentMethodResult);
+      const decodedBytes = new Uint8Array(decoded.length);
+      for (let i = 0; i < decoded.length; i++) {
+        decodedBytes[i] = decoded.charCodeAt(i);
+      }
 
-    const problematicResult = problematicMethod();
-    const properResult = properMethod();
-
-    // Test if they decode to the same binary
-    const decodedProblematic = new Uint8Array(
-      atob(problematicResult).split('').map(c => c.charCodeAt(0))
-    );
-    const decodedProper = new Uint8Array(
-      atob(properResult).split('').map(c => c.charCodeAt(0))
-    );
-
-    const matches = decodedProblematic.every((byte, i) => byte === testBinary[i]);
-    const properMatches = decodedProper.every((byte, i) => byte === testBinary[i]);
-
-    return {
-      testName: 'Base64 Encoding Integrity',
-      passed: !matches && properMatches,
-      details: `Problematic method integrity: ${matches}, Proper method integrity: ${properMatches}`,
-      confidence: matches ? 20 : 95
-    };
+      const integritePassed = decodedBytes.every((byte, i) => byte === testBinary[i]);
+      
+      return {
+        testName: 'Current Base64 Encoding',
+        passed: integritePassed,
+        details: `Edge function encoding method integrity: ${integritePassed ? 'PASSED' : 'FAILED'} - ${integritePassed ? 'Encoding/decoding preserves binary data' : 'Data corruption detected'}`,
+        confidence: integritePassed ? 95 : 85
+      };
+    } catch (error) {
+      return {
+        testName: 'Current Base64 Encoding',
+        passed: false,
+        details: `Encoding test failed: ${error.message}`,
+        confidence: 80
+      };
+    }
   }
 
   /**
@@ -237,21 +234,33 @@ export class TTSDiagnostic {
       }
     }
 
-    // Calculate overall confidence
+    // Calculate overall confidence with weighted scoring
+    const passedTests = results.filter(r => r.passed);
     const failedTests = results.filter(r => !r.passed);
-    const avgConfidence = failedTests.length > 0 
-      ? failedTests.reduce((sum, r) => sum + r.confidence, 0) / failedTests.length
-      : 50; // Lower confidence if all tests pass (unexpected)
+    
+    let overallConfidence: number;
+    if (passedTests.length === results.length) {
+      // All tests passed - high confidence system is working
+      overallConfidence = Math.min(95, passedTests.reduce((sum, r) => sum + r.confidence, 0) / passedTests.length);
+    } else if (failedTests.length === 1 && results.length > 2) {
+      // Only one test failed - moderate confidence  
+      overallConfidence = 70;
+    } else {
+      // Multiple failures - use average of failed test confidences
+      overallConfidence = Math.min(50, failedTests.reduce((sum, r) => sum + r.confidence, 0) / failedTests.length);
+    }
 
-    const recommendation = failedTests.length >= 3 
-      ? 'High confidence: Fix base64 encoding in ai-tts-generate edge function'
+    const recommendation = passedTests.length === results.length
+      ? 'High confidence: TTS system is functioning correctly'
+      : failedTests.length >= 3 
+      ? 'High confidence: Multiple system issues detected - investigate base64 encoding and audio format'
       : failedTests.length >= 1
-      ? 'Medium confidence: Investigate base64 encoding and audio format'
-      : 'Low confidence: Issue may be elsewhere';
+      ? 'Medium confidence: Some issues detected - check specific failed tests'
+      : 'System appears healthy';
 
     return {
       results,
-      overallConfidence: avgConfidence,
+      overallConfidence,
       recommendation
     };
   }
