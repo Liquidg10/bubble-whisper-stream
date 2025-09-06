@@ -7,7 +7,10 @@ import {
   FileText, 
   BarChart3, 
   Home,
-  Wrench
+  Wrench,
+  Timer,
+  Calendar,
+  MoreHorizontal
 } from 'lucide-react';
 
 // Import tool components
@@ -15,6 +18,7 @@ import { MergedGroceryHelper } from '@/components/tools/MergedGroceryHelper';
 import { DocumentScanner } from '@/components/DocumentScanner';
 import { MonthlyReviewCard } from '@/components/MonthlyReviewCard';
 import { CleanHouseCues } from '@/components/tools/CleanHouseCues';
+import { PomodoroTimer } from '@/components/PomodoroTimer';
 import { FinanceBudgetTools } from '@/components/tools/FinanceBudgetTools';
 
 export default function Tools() {
@@ -27,35 +31,47 @@ export default function Tools() {
         </p>
       </div>
 
-      <Tabs defaultValue="grocery" className="w-full">
-        <TabsList className="grid w-full grid-cols-6">
-          <TabsTrigger value="grocery" className="flex items-center gap-2">
-            <ShoppingCart className="h-4 w-4" />
-            Grocery
+      <Tabs defaultValue="pomodoro" className="w-full">
+        <TabsList className="grid w-full grid-cols-7">
+          <TabsTrigger value="pomodoro" className="gap-2">
+            <Timer className="h-4 w-4" />
+            Pomodoro
           </TabsTrigger>
-          <TabsTrigger value="finance" className="flex items-center gap-2">
-            <DollarSign className="h-4 w-4" />
-            Finance
-          </TabsTrigger>
-          <TabsTrigger value="documents" className="flex items-center gap-2">
-            <FileText className="h-4 w-4" />
-            Documents
-          </TabsTrigger>
-          <TabsTrigger value="review" className="flex items-center gap-2">
-            <BarChart3 className="h-4 w-4" />
-            Review
-          </TabsTrigger>
-          <TabsTrigger value="cleaning" className="flex items-center gap-2">
+          <TabsTrigger value="clean" className="gap-2">
             <Home className="h-4 w-4" />
             Clean House
           </TabsTrigger>
-          <TabsTrigger value="more" className="flex items-center gap-2">
-            <Wrench className="h-4 w-4" />
+          <TabsTrigger value="grocery" className="gap-2">
+            <ShoppingCart className="h-4 w-4" />
+            Grocery
+          </TabsTrigger>
+          <TabsTrigger value="finance" className="gap-2">
+            <DollarSign className="h-4 w-4" />
+            Finance
+          </TabsTrigger>
+          <TabsTrigger value="documents" className="gap-2">
+            <FileText className="h-4 w-4" />
+            Documents
+          </TabsTrigger>
+          <TabsTrigger value="review" className="gap-2">
+            <Calendar className="h-4 w-4" />
+            Review
+          </TabsTrigger>
+          <TabsTrigger value="more" className="gap-2">
+            <MoreHorizontal className="h-4 w-4" />
             More
           </TabsTrigger>
         </TabsList>
 
         <div className="mt-6">
+          <TabsContent value="pomodoro">
+            <PomodoroTimer />
+          </TabsContent>
+
+          <TabsContent value="clean">
+            <CleanHouseCues />
+          </TabsContent>
+
           <TabsContent value="grocery" className="space-y-4">
             <Card>
               <CardHeader>
@@ -109,10 +125,6 @@ export default function Tools() {
                 <MonthlyReviewCard />
               </CardContent>
             </Card>
-          </TabsContent>
-
-          <TabsContent value="cleaning" className="space-y-4">
-            <CleanHouseCues />
           </TabsContent>
 
           <TabsContent value="more" className="space-y-4">

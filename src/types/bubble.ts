@@ -118,6 +118,24 @@ export interface Settings {
     hapticEnabled: boolean;
     autoRestart: boolean;
   };
+  pomodoroTimer?: {
+    isActive: boolean;
+    timeRemaining: number;
+    duration: number;
+    startTime: number | null;
+    currentPhase: 'work' | 'break' | 'longBreak';
+    cycleCount: number;
+  };
+  pomodoroCustomization?: {
+    workDuration: number;
+    shortBreakDuration: number;
+    longBreakDuration: number;
+    cyclesBeforeLongBreak: number;
+    celebrationMessage: string;
+    hapticEnabled: boolean;
+    autoStartBreaks: boolean;
+    autoStartWork: boolean;
+  };
 }
 
 // Canvas viewport state
