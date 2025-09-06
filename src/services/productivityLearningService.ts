@@ -32,6 +32,7 @@ interface ProductivityContext {
   environment?: 'home' | 'office' | 'cafe' | 'travel' | 'other';
   deviceType?: 'desktop' | 'mobile' | 'tablet';
   noiseLevel?: 'quiet' | 'moderate' | 'loud';
+  energy?: number;
 }
 
 interface ProductivityPattern {
