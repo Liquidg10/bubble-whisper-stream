@@ -90,7 +90,7 @@ export const VoiceAIInterface: React.FC<VoiceAIInterfaceProps> = ({ className = 
           </motion.div>
         </DialogTrigger>
         
-        <DialogContent className="max-w-6xl w-[95vw] h-[90vh] flex flex-col p-0">
+        <DialogContent className="max-w-[98vw] w-[98vw] h-[95vh] flex flex-col p-0">
           <div className="flex flex-col h-full">
             {/* Quick Actions Header */}
             <div className="p-3 border-b border-border">

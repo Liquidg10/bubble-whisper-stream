@@ -719,7 +719,7 @@ export const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({
                 className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                  <div
-                   className={`max-w-[80%] p-3 rounded-xl ${
+                   className={`w-full p-4 rounded-xl ${
                      message.type === 'user'
                        ? 'bg-primary text-primary-foreground'
                        : message.type === 'system'
