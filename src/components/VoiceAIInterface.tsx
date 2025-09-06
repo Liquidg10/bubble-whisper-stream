@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
-import { AIConversationChat } from './AIConversationChat';
+import { EnhancedAIChat } from './EnhancedAIChat';
 import { useBubbleStore } from '@/stores/bubbleStore';
 
 interface VoiceAIInterfaceProps {
@@ -90,25 +90,24 @@ export const VoiceAIInterface: React.FC<VoiceAIInterfaceProps> = ({ className = 
           </motion.div>
         </DialogTrigger>
         
-        <DialogContent className="max-w-4xl h-[80vh] flex flex-col p-0">
+        <DialogContent className="max-w-4xl h-[85vh] flex flex-col p-0">
           <div className="flex flex-col h-full">
             {/* Quick Actions Header */}
-            <div className="p-4 border-b border-border">
-              <h2 className="text-lg font-semibold mb-3 text-foreground">
-                AI Companion - Quick Actions
+            <div className="p-2 border-b border-border">
+              <h2 className="text-base font-semibold mb-2 text-foreground">
+                AI Companion
               </h2>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-1">
                 {quickActions.map((action) => (
                   <Button
                     key={action.mode}
                     variant={quickMode === action.mode ? "default" : "outline"}
                     size="sm"
                     onClick={() => setQuickMode(action.mode)}
-                    className="flex flex-col items-center p-3 h-auto"
+                    className="flex flex-col items-center p-2 h-auto text-xs"
                   >
-                    <action.icon className={`w-4 h-4 mb-1 ${action.color}`} />
-                    <span className="text-xs font-medium">{action.label}</span>
-                    <span className="text-xs opacity-70">{action.description}</span>
+                    <action.icon className={`w-3 h-3 mb-1 ${action.color}`} />
+                    <span className="font-medium">{action.label}</span>
                   </Button>
                 ))}
               </div>
@@ -116,7 +115,7 @@ export const VoiceAIInterface: React.FC<VoiceAIInterfaceProps> = ({ className = 
 
             {/* Chat Interface */}
             <div className="flex-1 min-h-0">
-              <AIConversationChat
+              <EnhancedAIChat
                 className="h-full"
                 initialMode={quickMode}
                 context={getUserContext()}
@@ -127,27 +126,27 @@ export const VoiceAIInterface: React.FC<VoiceAIInterfaceProps> = ({ className = 
       </Dialog>
 
       {/* Floating Quick Access */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-1 mt-2">
         {quickActions.map((action) => (
           <motion.div
             key={action.mode}
-            whileHover={{ y: -2 }}
+            whileHover={{ y: -1 }}
             whileTap={{ scale: 0.98 }}
           >
             <Card 
-              className="p-3 cursor-pointer hover:bg-muted/50 transition-colors"
+              className="p-2 cursor-pointer hover:bg-muted/50 transition-colors"
               onClick={() => {
                 setQuickMode(action.mode);
                 setIsOpen(true);
               }}
             >
               <div className="flex items-center gap-2">
-                <action.icon className={`w-4 h-4 ${action.color}`} />
+                <action.icon className={`w-3 h-3 ${action.color}`} />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-foreground truncate">
+                  <p className="text-xs font-medium text-foreground truncate">
                     {action.label}
                   </p>
-                  <p className="text-xs text-muted-foreground truncate">
+                  <p className="text-xs text-muted-foreground truncate opacity-60">
                     {action.description}
                   </p>
                 </div>
