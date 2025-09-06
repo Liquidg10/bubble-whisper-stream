@@ -152,6 +152,8 @@ export const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({
   const [messages, setMessages] = useState<AIMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [quickInput, setQuickInput] = useState('');
+  const [currentThreadId, setCurrentThreadId] = useState<string | null>(null);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   
   // AI & Voice state
   const [isRecording, setIsRecording] = useState(false);
@@ -173,25 +175,71 @@ export const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  // Initialize with AI greeting and productivity insights
+  // Initialize with conversation history and AI greeting
   useEffect(() => {
     const initializeChat = async () => {
-      const insights = await productivityLearningService.getProductivityInsights();
-      setProductivity({
-        todayScore: Math.round(Math.random() * 100),
-        weekScore: Math.round(Math.random() * 100),
-        streak: Math.floor(Math.random() * 10),
-        insights: insights.recommendations
-      });
+      setIsLoadingHistory(true);
+      try {
+        // Import conversation service dynamically to avoid circular imports
+        const { conversationService } = await import('@/services/conversationService');
+        
+        // Get or create active thread
+        const thread = await conversationService.getOrCreateActiveThread();
+        setCurrentThreadId(thread.id);
 
-      // Add welcome message with Sparkles-style personality
-      const welcomeMessage: AIMessage = {
-        id: crypto.randomUUID(),
-        type: 'ai',
-        content: `Hey! 🔥 Sparkles here, your productivity companion. I see you typically do ${insights.averageSessionLength}-minute sessions - I'm here to help you stay focused, celebrate wins, and navigate the beautiful chaos of getting things done. What's on your mind today?`,
-        timestamp: new Date()
-      };
-      setMessages([welcomeMessage]);
+        // Load existing conversation history
+        const history = await conversationService.getConversationHistory(thread.id, 20);
+        
+        if (history.length > 0) {
+          // Convert database history to AIMessage format
+          const chatMessages: AIMessage[] = history.flatMap(conv => [
+            {
+              id: `user-${conv.id}`,
+              type: 'user' as const,
+              content: conv.user_message,
+              timestamp: new Date(conv.created_at)
+            },
+            {
+              id: `ai-${conv.id}`,
+              type: 'ai' as const,
+              content: conv.ai_response,
+              timestamp: new Date(conv.created_at),
+              context: conv.context
+            }
+          ]);
+          
+          setMessages(chatMessages);
+        } else {
+          // First time user - show welcome message
+          const insights = await productivityLearningService.getProductivityInsights();
+          setProductivity({
+            todayScore: Math.round(Math.random() * 100),
+            weekScore: Math.round(Math.random() * 100),
+            streak: Math.floor(Math.random() * 10),
+            insights: insights.recommendations
+          });
+
+          const welcomeMessage: AIMessage = {
+            id: crypto.randomUUID(),
+            type: 'ai',
+            content: `Hey! 🔥 Sparkles here, your productivity companion. I'm here to help you stay focused, celebrate wins, and navigate the beautiful chaos of getting things done. What's on your mind today?`,
+            timestamp: new Date()
+          };
+          setMessages([welcomeMessage]);
+        }
+      } catch (error) {
+        console.error('Failed to initialize chat:', error);
+        // Fallback to basic welcome message
+        const welcomeMessage: AIMessage = {
+          id: crypto.randomUUID(),
+          type: 'ai',
+          content: `Hey! 🔥 Sparkles here, your productivity companion. What's on your mind today?`,
+          timestamp: new Date()
+        };
+        setMessages([welcomeMessage]);
+      } finally {
+        setIsLoadingHistory(false);
+      }
     };
 
     initializeChat();
@@ -313,9 +361,11 @@ export const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({
         body: {
           message: messageText,
           conversationHistory,
-          userContext: { ...context, ...conversationContext },
+          userContext: { ...context, ...conversationContext, sessionStart: intent.type === 'start_session' },
           mode: 'sparkles-productivity-companion',
-          personality: 'supportive-intelligent'
+          personality: 'supportive-intelligent',
+          threadId: currentThreadId,
+          loadHistory: false // We already loaded history at init
         }
       });
 

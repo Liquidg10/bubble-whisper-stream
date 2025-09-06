@@ -18,9 +18,12 @@ export type Database = {
         Row: {
           ai_response: string
           context: Json | null
+          conversation_thread_id: string | null
           created_at: string
           id: string
           mode: string | null
+          session_start: boolean | null
+          summary: string | null
           updated_at: string
           user_id: string
           user_message: string
@@ -28,9 +31,12 @@ export type Database = {
         Insert: {
           ai_response: string
           context?: Json | null
+          conversation_thread_id?: string | null
           created_at?: string
           id?: string
           mode?: string | null
+          session_start?: boolean | null
+          summary?: string | null
           updated_at?: string
           user_id: string
           user_message: string
@@ -38,9 +44,12 @@ export type Database = {
         Update: {
           ai_response?: string
           context?: Json | null
+          conversation_thread_id?: string | null
           created_at?: string
           id?: string
           mode?: string | null
+          session_start?: boolean | null
+          summary?: string | null
           updated_at?: string
           user_id?: string
           user_message?: string
@@ -238,6 +247,72 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      conversation_summaries: {
+        Row: {
+          created_at: string | null
+          id: string
+          key_topics: string[] | null
+          message_count: number
+          summary_text: string
+          thread_id: string
+          time_period_end: string
+          time_period_start: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          key_topics?: string[] | null
+          message_count: number
+          summary_text: string
+          thread_id: string
+          time_period_end: string
+          time_period_start: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          key_topics?: string[] | null
+          message_count?: number
+          summary_text?: string
+          thread_id?: string
+          time_period_end?: string
+          time_period_start?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      conversation_threads: {
+        Row: {
+          created_at: string | null
+          id: string
+          is_active: boolean | null
+          last_message_at: string | null
+          message_count: number | null
+          title: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          last_message_at?: string | null
+          message_count?: number | null
+          title?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          last_message_at?: string | null
+          message_count?: number | null
+          title?: string | null
+          user_id?: string
+        }
+        Relationships: []
       }
       email_accounts: {
         Row: {
@@ -942,6 +1017,48 @@ export type Database = {
           settings?: Json | null
           slug?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      user_memory: {
+        Row: {
+          confidence: number | null
+          created_at: string | null
+          expires_at: string | null
+          id: string
+          is_active: boolean | null
+          key: string
+          memory_type: string
+          source_conversation_id: string | null
+          updated_at: string | null
+          user_id: string
+          value: string
+        }
+        Insert: {
+          confidence?: number | null
+          created_at?: string | null
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          key: string
+          memory_type: string
+          source_conversation_id?: string | null
+          updated_at?: string | null
+          user_id: string
+          value: string
+        }
+        Update: {
+          confidence?: number | null
+          created_at?: string | null
+          expires_at?: string | null
+          id?: string
+          is_active?: boolean | null
+          key?: string
+          memory_type?: string
+          source_conversation_id?: string | null
+          updated_at?: string | null
+          user_id?: string
+          value?: string
         }
         Relationships: []
       }
