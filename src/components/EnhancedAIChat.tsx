@@ -36,6 +36,61 @@ import { modalityService } from '@/services/modalityService';
 import { productivityLearningService } from '@/services/productivityLearningService';
 import { contextPatternService } from '@/services/contextPatternService';
 
+// Helper functions for rich text formatting
+const escapeHtml = (unsafe: string) => {
+  return unsafe
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+};
+
+const formatAIResponse = (content: string) => {
+  // Convert markdown-style formatting to HTML
+  let formatted = content
+    // Headers (## Header -> <h3>Header</h3>)
+    .replace(/^### (.*$)/gm, '<h4 class="font-semibold text-base mb-2 mt-3 text-accent-growth">$1</h4>')
+    .replace(/^## (.*$)/gm, '<h3 class="font-semibold text-lg mb-2 mt-3 text-primary">$1</h3>')
+    .replace(/^# (.*$)/gm, '<h2 class="font-bold text-xl mb-3 mt-4 text-primary">$1</h2>')
+    
+    // Bold text (**text** -> <strong>text</strong>)
+    .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-foreground">$1</strong>')
+    
+    // Italic text (*text* -> <em>text</em>)
+    .replace(/\*(.*?)\*/g, '<em class="italic text-muted-foreground">$1</em>')
+    
+    // Bullet points (- item -> <li>item</li>)
+    .replace(/^- (.*$)/gm, '<li class="ml-4 list-disc list-inside mb-1">$1</li>')
+    
+    // Numbered lists (1. item -> <li>item</li>)
+    .replace(/^\d+\. (.*$)/gm, '<li class="ml-4 list-decimal list-inside mb-1">$1</li>')
+    
+    // Code blocks (`code` -> <code>code</code>)
+    .replace(/`([^`]*)`/g, '<code class="bg-muted px-2 py-1 rounded text-sm font-mono">$1</code>')
+    
+    // Line breaks (double newline -> <br><br>)
+    .replace(/\n\n/g, '<br><br>')
+    .replace(/\n/g, '<br>')
+    
+    // Highlights (::text:: -> highlighted span)
+    .replace(/::(.*?)::/g, '<span class="bg-accent-growth/20 text-accent-growth px-1 rounded">$1</span>')
+    
+    // Emojis with better spacing
+    .replace(/([\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}])/gu, '<span class="emoji">$1</span>');
+
+  // Wrap consecutive list items in ul/ol tags
+  formatted = formatted
+    .replace(/(<li class="ml-4 list-disc[^>]*>.*?<\/li>)(?:\s*<li class="ml-4 list-disc[^>]*>.*?<\/li>)*/gs, (match) => {
+      return `<ul class="space-y-1 my-2">${match}</ul>`;
+    })
+    .replace(/(<li class="ml-4 list-decimal[^>]*>.*?<\/li>)(?:\s*<li class="ml-4 list-decimal[^>]*>.*?<\/li>)*/gs, (match) => {
+      return `<ol class="space-y-1 my-2">${match}</ol>`;
+    });
+
+  return formatted;
+};
+
 interface ProductivitySession {
   anchorTask: string;
   startTime: number;
@@ -612,20 +667,25 @@ export const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({
                 exit={{ opacity: 0, y: -20 }}
                 className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
               >
-                <div
-                  className={`max-w-[80%] p-3 rounded-2xl ${
-                    message.type === 'user'
-                      ? 'bg-primary text-primary-foreground'
-                      : message.type === 'system'
-                      ? 'bg-muted/50 text-muted-foreground border border-border'
-                      : 'bg-muted text-foreground'
-                  }`}
-                >
-                  <p className="text-sm leading-relaxed">{message.content}</p>
-                  <span className="text-xs opacity-70 mt-1 block">
-                    {message.timestamp.toLocaleTimeString()}
-                  </span>
-                </div>
+                 <div
+                   className={`max-w-[80%] p-3 rounded-2xl ${
+                     message.type === 'user'
+                       ? 'bg-primary text-primary-foreground'
+                       : message.type === 'system'
+                       ? 'bg-muted/50 text-muted-foreground border border-border'
+                       : 'bg-muted text-foreground'
+                   }`}
+                 >
+                   <div 
+                     className="text-sm leading-relaxed formatted-ai-response"
+                     dangerouslySetInnerHTML={{ 
+                       __html: message.type === 'ai' ? formatAIResponse(message.content) : escapeHtml(message.content)
+                     }}
+                   />
+                   <span className="text-xs opacity-70 mt-1 block">
+                     {message.timestamp.toLocaleTimeString()}
+                   </span>
+                 </div>
               </motion.div>
             ))}
           </AnimatePresence>

@@ -133,4 +133,63 @@
     /* Transform will be applied via JavaScript when float is enabled */
     transition: transform 0.1s ease-out;
   }
+
+  /* Enhanced AI Response Formatting for Neurodivergent Readability */
+  .formatted-ai-response {
+    line-height: 1.7;
+  }
+
+  .formatted-ai-response h2,
+  .formatted-ai-response h3,
+  .formatted-ai-response h4 {
+    margin-top: 1.2rem;
+    margin-bottom: 0.6rem;
+    line-height: 1.3;
+    font-weight: 600;
+  }
+
+  .formatted-ai-response h2:first-child,
+  .formatted-ai-response h3:first-child,
+  .formatted-ai-response h4:first-child {
+    margin-top: 0;
+  }
+
+  .formatted-ai-response ul,
+  .formatted-ai-response ol {
+    margin: 1rem 0;
+    padding-left: 1.5rem;
+  }
+
+  .formatted-ai-response li {
+    margin-bottom: 0.4rem;
+  }
+
+  .formatted-ai-response strong {
+    font-weight: 600;
+    color: hsl(var(--accent-growth));
+  }
+
+  .formatted-ai-response em {
+    font-style: italic;
+    color: hsl(var(--accent-flow));
+    opacity: 0.95;
+  }
+
+  .formatted-ai-response code {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
+    font-size: 0.875em;
+    background-color: hsl(var(--muted));
+    padding: 0.2rem 0.4rem;
+    border-radius: 0.25rem;
+  }
+
+  .formatted-ai-response .emoji {
+    font-size: 1.2em;
+    margin: 0 0.2em;
+    display: inline-block;
+  }
+
+  .formatted-ai-response br {
+    line-height: 1.5;
+  }
 }
