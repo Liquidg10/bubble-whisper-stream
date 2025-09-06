@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Settings, Calendar, Bell, Home, Flower, Brain, Search, Heart, Inbox, Wrench } from 'lucide-react';
+import { Settings, Calendar, Bell, Home, Flower, Brain, Search, Heart, Inbox, Wrench, Bot } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { CompactThemeToggle } from '@/components/ThemeToggle';
 import { useBubbleStore } from '@/stores/bubbleStore';
@@ -12,15 +12,17 @@ import { AudioQueueIndicator } from '@/components/AudioQueueIndicator';
 import { PhotoDebugPanel } from '@/components/PhotoDebugPanel';
 import { CleanHouseHeaderTimer } from '@/components/CleanHouseHeaderTimer';
 import { PomodoroHeaderTimer } from '@/components/PomodoroHeaderTimer';
+import { TaskInputInterface } from '@/components/TaskInputInterface';
 
 import NarrativeSearch from '@/components/NarrativeSearch';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 export const AppShell: React.FC = () => {
   const location = useLocation();
   const { settings } = useBubbleStore();
   
   const [showSearch, setShowSearch] = useState(false);
+  const [showAIAssistant, setShowAIAssistant] = useState(false);
 
   const navItems = [
     { path: '/', icon: Home, label: 'Canvas' },
@@ -44,6 +46,15 @@ export const AppShell: React.FC = () => {
         <div className="flex items-center gap-2">
             <CleanHouseHeaderTimer />
             <PomodoroHeaderTimer />
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowAIAssistant(true)}
+            className="h-8 w-8 p-0"
+            title="AI Assistant"
+          >
+            <Bot className="h-4 w-4" />
+          </Button>
           <Button
             variant="ghost"
             size="sm"
@@ -71,6 +82,16 @@ export const AppShell: React.FC = () => {
         <AudioQueueIndicator />
         
       </main>
+
+      {/* AI Assistant Modal */}
+      <Dialog open={showAIAssistant} onOpenChange={setShowAIAssistant}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>AI Assistant</DialogTitle>
+          </DialogHeader>
+          <TaskInputInterface />
+        </DialogContent>
+      </Dialog>
 
       {/* Narrative Search Modal - kept for compatibility */}
       <Dialog open={showSearch} onOpenChange={setShowSearch}>
