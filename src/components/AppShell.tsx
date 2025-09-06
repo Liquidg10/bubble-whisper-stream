@@ -12,7 +12,7 @@ import { AudioQueueIndicator } from '@/components/AudioQueueIndicator';
 import { PhotoDebugPanel } from '@/components/PhotoDebugPanel';
 import { CleanHouseHeaderTimer } from '@/components/CleanHouseHeaderTimer';
 import { PomodoroHeaderTimer } from '@/components/PomodoroHeaderTimer';
-import { ProductivityCoach } from '@/components/ProductivityCoach';
+import { EnhancedAIChat } from '@/components/EnhancedAIChat';
 
 import NarrativeSearch from '@/components/NarrativeSearch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -89,7 +89,7 @@ export const AppShell: React.FC = () => {
           <DialogHeader>
             <DialogTitle>AI Assistant</DialogTitle>
           </DialogHeader>
-          <ProductivityCoach />
+          <EnhancedAIChat />
         </DialogContent>
       </Dialog>
 
