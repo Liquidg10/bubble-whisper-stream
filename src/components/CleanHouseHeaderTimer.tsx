@@ -9,6 +9,11 @@ export function CleanHouseHeaderTimer() {
   const { settings } = useBubbleStore();
   const [showModal, setShowModal] = useState(false);
 
+  console.log('🏠 Header timer check:', { 
+    isActive: settings.cleanHouseTimer?.isActive, 
+    timeRemaining: settings.cleanHouseTimer?.timeRemaining 
+  });
+  
   if (!settings.cleanHouseTimer?.isActive) {
     return null;
   }

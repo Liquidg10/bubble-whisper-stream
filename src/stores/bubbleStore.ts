@@ -397,14 +397,15 @@ export const useBubbleStore = create<BubbleStore>()(
         const state = get();
         const updated = { ...state.settings, ...newSettings };
         
+        // Update state immediately for responsive UI
+        set({ settings: updated });
+        
         try {
-          // Only persist to storage, don't update state here
-          // State should already be updated by the calling function
+          // Persist to storage in background
           await storageService.updateSettings(updated);
         } catch (error) {
           console.error('Failed to persist settings:', error);
-          // On failure, we keep the optimistic update in state
-          // but notify user that persistence failed
+          // Keep the optimistic update in state even if persistence fails
         }
       },
 

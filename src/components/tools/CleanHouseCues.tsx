@@ -150,6 +150,7 @@ export function CleanHouseCues() {
 
   const startSession = () => {
     const startTime = Date.now();
+    console.log('🏠 Starting clean house session with duration:', customization.duration);
     updateSettings({
       cleanHouseTimer: {
         isActive: true,
@@ -158,6 +159,7 @@ export function CleanHouseCues() {
         startTime
       }
     });
+    console.log('🏠 Timer state updated:', { isActive: true, timeRemaining: customization.duration, startTime });
     toast({
       title: "Clean House Session Started",
       description: "Remember: progress, not perfection. You've got this!",
