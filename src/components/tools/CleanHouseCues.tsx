@@ -126,7 +126,7 @@ export function CleanHouseCues() {
           {isEnabled && (
             <>
               {/* Timer Section */}
-              <div className="p-6 bg-gradient-to-r from-blue-50 to-green-50 dark:from-blue-950/50 dark:to-green-950/50 rounded-lg border">
+              <div className="p-6 bg-gradient-canvas rounded-lg border border-border/50">
                 <div className="text-center space-y-4">
                   <div className="text-3xl font-mono font-bold text-foreground">
                     {formatTime(timeRemaining)}
