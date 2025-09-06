@@ -16,6 +16,7 @@ import { Reminders } from './pages/Reminders';
 import { Reflection } from './pages/Reflection';
 import { CBTWorksheet } from './pages/CBTWorksheet';
 import { Joy } from './pages/Joy';
+import Tools from './pages/Tools';
 import NotFound from "./pages/NotFound";
 import DevPhotoTest from "./pages/DevPhotoTest";
 import DevPhotoIridescent from "./pages/DevPhotoIridescent";
@@ -72,6 +73,7 @@ const App = () => {
                       <Route path="reminders" element={<Reminders />} />
                       <Route path="reflection" element={<Reflection />} />
                       <Route path="joy" element={<Joy />} />
+                      <Route path="tools" element={<Tools />} />
                       <Route path="inbox" element={<Inbox />} />
                       <Route path="search" element={<Search />} />
                       <Route path="cbt-worksheet" element={<CBTWorksheet />} />

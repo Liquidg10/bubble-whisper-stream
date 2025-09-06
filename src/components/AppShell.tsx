@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Settings, Calendar, Bell, Home, Flower, Brain, Search, Heart, Inbox } from 'lucide-react';
+import { Settings, Calendar, Bell, Home, Flower, Brain, Search, Heart, Inbox, Wrench } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { CompactThemeToggle } from '@/components/ThemeToggle';
 import { useBubbleStore } from '@/stores/bubbleStore';
@@ -25,6 +25,7 @@ export const AppShell: React.FC = () => {
     { path: '/timeline', icon: Calendar, label: 'Timeline' },
     { path: '/reminders', icon: Bell, label: 'Reminders' },
     { path: '/joy', icon: Heart, label: 'Joy' },
+    { path: '/tools', icon: Wrench, label: 'Tools' },
     { path: '/inbox', icon: Inbox, label: 'Inbox' },
     { path: '/reflection', icon: Flower, label: 'Reflect' },
     { path: '/settings', icon: Settings, label: 'Settings' },
@@ -86,7 +87,7 @@ export const AppShell: React.FC = () => {
 
       {/* Bottom Navigation */}
       <nav className="border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className={`grid items-center py-2 px-2 ${settings.intelligenceEnabled ? 'grid-cols-8' : 'grid-cols-7'}`}>
+        <div className={`grid items-center py-2 px-2 ${settings.intelligenceEnabled ? 'grid-cols-9' : 'grid-cols-8'}`}>
           {navItems.map(({ path, icon: Icon, label }) => {
             const isActive = location.pathname === path;
             return (

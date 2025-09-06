@@ -1,26 +1,15 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { 
   Calendar,
   Mail,
-  DollarSign,
-  Puzzle,
-  Brain
+  ExternalLink
 } from 'lucide-react';
-import { OptionalModules } from '@/components/OptionalModules';
 import { CalendarIntegrationPlugin } from '@/plugins/CalendarIntegrationPlugin';
 import { EmailIntegrationPlugin } from '@/plugins/EmailIntegrationPlugin';
-import { BankingIntegrationPlugin } from '@/plugins/BankingIntegrationPlugin';
-import { BudgetEnvelopeManager } from '@/components/BudgetEnvelopeManager';
-import { BudgetPaceAlerts } from '@/components/BudgetPaceAlerts';
-import { MonthlyReviewCard } from '@/components/MonthlyReviewCard';
-import { isFeatureEnabled } from '@/config/flags';
 
-export const IntegrationsSettings: React.FC = () => {
-  const [showMonthlyReview, setShowMonthlyReview] = useState(false);
-
+export function IntegrationsSettings() {
   return (
     <div className="space-y-6">
       {/* Calendar Integration */}
@@ -31,7 +20,7 @@ export const IntegrationsSettings: React.FC = () => {
             Calendar Integration
           </CardTitle>
           <CardDescription>
-            Connect your calendars for automatic event bubbles
+            Connect your calendar to sync events and reminders
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -47,7 +36,7 @@ export const IntegrationsSettings: React.FC = () => {
             Email Integration
           </CardTitle>
           <CardDescription>
-            Smart email filtering and task creation
+            Connect your email to capture important messages and tasks
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -55,72 +44,13 @@ export const IntegrationsSettings: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* Budget Management */}
-      {isFeatureEnabled('budget') && (
-        <>
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <DollarSign className="h-5 w-5" />
-                Budget & Finance
-              </CardTitle>
-              <CardDescription>
-                Track spending and manage financial goals
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <BankingIntegrationPlugin />
-            </CardContent>
-          </Card>
-
-          <BudgetPaceAlerts />
-          <BudgetEnvelopeManager />
-        </>
-      )}
-
-      {/* Monthly Review */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Brain className="h-5 w-5" />
-            Monthly Review
-          </CardTitle>
-          <CardDescription>
-            Review your patterns and growth over time
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button
-            variant="outline"
-            onClick={() => setShowMonthlyReview(true)}
-            className="w-full"
-          >
-            <Brain className="h-4 w-4 mr-2" />
-            Review This Month
-          </Button>
-        </CardContent>
-      </Card>
-
-      {/* Optional Modules */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Puzzle className="h-5 w-5" />
-            Optional Modules
-          </CardTitle>
-          <CardDescription>
-            Enable additional features and capabilities
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <OptionalModules />
-        </CardContent>
-      </Card>
-
-      {/* Monthly Review Modal */}
-      {showMonthlyReview && (
-        <MonthlyReviewCard onClose={() => setShowMonthlyReview(false)} />
-      )}
+      {/* Life Tools Notice */}
+      <Alert>
+        <ExternalLink className="h-4 w-4" />
+        <AlertDescription>
+          <strong>Looking for life management tools?</strong> Banking, Grocery Helper, Document Scanner, and Monthly Review have moved to the <strong>Tools</strong> section in the bottom navigation for easier access.
+        </AlertDescription>
+      </Alert>
     </div>
   );
-};
+}
