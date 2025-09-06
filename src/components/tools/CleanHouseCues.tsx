@@ -72,23 +72,24 @@ export function CleanHouseCues() {
   useEffect(() => {
     let interval: NodeJS.Timeout;
     
-    if (timerState.isActive && timerState.timeRemaining > 0) {
+    if (timerState.isActive && timerState.startTime) {
       interval = setInterval(() => {
-        const newTimeRemaining = timerState.timeRemaining - 1;
+        const elapsed = Math.floor((Date.now() - timerState.startTime!) / 1000);
+        const newTimeRemaining = Math.max(0, timerState.duration - elapsed);
         
         if (newTimeRemaining <= 0) {
           // Session complete
           updateSettings({
             cleanHouseTimer: {
-              ...timerState,
               isActive: false,
               timeRemaining: customization.duration,
+              duration: customization.duration,
               startTime: null
             }
           });
           setShowCelebration(true);
-        } else {
-          // Update timer
+        } else if (newTimeRemaining !== timerState.timeRemaining) {
+          // Update timer only if time has changed
           updateSettings({
             cleanHouseTimer: {
               ...timerState,
@@ -100,7 +101,7 @@ export function CleanHouseCues() {
     }
 
     return () => clearInterval(interval);
-  }, [timerState.isActive, timerState.timeRemaining, customization.duration, updateSettings]);
+  }, [timerState.isActive, timerState.startTime, timerState.duration, customization.duration, updateSettings]);
 
   // Restore timer from localStorage on mount (backup persistence)
   useEffect(() => {

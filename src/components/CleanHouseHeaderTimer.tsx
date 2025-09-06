@@ -19,7 +19,7 @@ export function CleanHouseHeaderTimer() {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const progress = ((settings.cleanHouseCustomization.duration - settings.cleanHouseTimer.timeRemaining) / settings.cleanHouseCustomization.duration) * 100;
+  const progress = ((settings.cleanHouseCustomization?.duration - settings.cleanHouseTimer.timeRemaining) / (settings.cleanHouseCustomization?.duration || 600)) * 100;
 
   return (
     <>
