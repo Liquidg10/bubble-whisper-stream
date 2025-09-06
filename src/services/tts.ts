@@ -87,7 +87,7 @@ class TTSService {
       const utterance = new SpeechSynthesisUtterance(text);
       const storeState = useBubbleStore.getState();
       
-      utterance.rate = storeState.settings.voiceSpeed || 1.0;
+      utterance.rate = 1.0;
       utterance.volume = options.volume ?? storeState.settings.voiceVolume ?? this.settings.volume;
       
       // Try to match tone with browser voices

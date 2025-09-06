@@ -54,7 +54,7 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({ className = '' }) 
   const voicePreferences = settings.voicePreferences || DEFAULT_VOICE_MAPPING;
   const globalVoice = settings.globalVoice || 'nova';
   const voiceVolume = settings.voiceVolume || 0.8;
-  const voiceSpeed = settings.voiceSpeed || 1.0;
+  
 
   const handleVoiceChange = (context: VoiceContext, voice: VoiceName) => {
     const updatedPreferences = { ...voicePreferences, [context]: voice };
@@ -69,9 +69,6 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({ className = '' }) 
     updateSettings({ voiceVolume: volume[0] });
   };
 
-  const handleSpeedChange = (speed: number[]) => {
-    updateSettings({ voiceSpeed: speed[0] });
-  };
 
   const testVoice = async (voice: VoiceName, context?: VoiceContext) => {
     setTestingVoice(context || 'global');
@@ -109,8 +106,7 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({ className = '' }) 
     updateSettings({ 
       voicePreferences: DEFAULT_VOICE_MAPPING,
       globalVoice: 'nova',
-      voiceVolume: 0.8,
-      voiceSpeed: 1.3
+      voiceVolume: 0.8
     });
     toast({
       title: "Voice settings reset",
@@ -176,22 +172,12 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({ className = '' }) 
             />
           </div>
 
-          {/* Speed Control */}
+          {/* Speed Control - Fixed */}
           <div className="space-y-2">
-            <Label>Speed: {voiceSpeed}x</Label>
-            <Slider
-              value={[voiceSpeed]}
-              onValueChange={handleSpeedChange}
-              max={2.0}
-              min={0.5}
-              step={0.1}
-              className="w-full"
-            />
-            <div className="flex gap-1 text-xs text-muted-foreground justify-between">
-              <span>Relaxed (0.8x)</span>
-              <span>Energetic (1.3x)</span>
-              <span>Fast (2.0x)</span>
-            </div>
+            <Label>Speed: Fixed at 1.0x</Label>
+            <p className="text-sm text-muted-foreground">
+              Voice speed is set to natural 1.0x for optimal listening experience without pitch changes.
+            </p>
           </div>
         </div>
 

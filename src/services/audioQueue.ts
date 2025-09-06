@@ -151,7 +151,7 @@ class AudioQueueService {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         const storeState = useBubbleStore.getState();
-        const { voicePreferences, globalVoice, voiceSpeed } = storeState.settings;
+        const { voicePreferences, globalVoice } = storeState.settings;
         
         // Determine voice based on context or use provided voice
         let selectedVoice = item.voice || globalVoice;
@@ -165,7 +165,7 @@ class AudioQueueService {
             voice: selectedVoice,
             tone: item.tone || 'neutral',
             context: item.context,
-            speed: voiceSpeed || 1.0  // Pass speed from settings
+            
           }
         });
 
@@ -206,7 +206,7 @@ class AudioQueueService {
       }
 
       const utterance = new SpeechSynthesisUtterance(item.text);
-      utterance.rate = useBubbleStore.getState().settings.voiceSpeed || 1.0;
+      utterance.rate = 1.0;
       utterance.volume = this.getCurrentVolume();
       
       utterance.onend = () => {
@@ -276,7 +276,7 @@ class AudioQueueService {
 
   // Cache management
   private getCacheKey(item: AudioQueueItem): string {
-    return `${item.text}-${item.voice || 'default'}-${item.tone || 'neutral'}-${useBubbleStore.getState().settings.voiceSpeed || 1.0}`;
+    return `${item.text}-${item.voice || 'default'}-${item.tone || 'neutral'}-1.0`;
   }
 
   private shouldCache(item: AudioQueueItem): boolean {

@@ -35,7 +35,7 @@ import { ttsService } from '@/services/tts';
 import { modalityService } from '@/services/modalityService';
 import { productivityLearningService } from '@/services/productivityLearningService';
 import { contextPatternService } from '@/services/contextPatternService';
-import { QuickSpeedControls } from '@/components/QuickSpeedControls';
+
 
 // Helper functions for rich text formatting
 const escapeHtml = (unsafe: string) => {
@@ -648,20 +648,16 @@ export const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({
             )}
           </div>
           <div className="flex items-center gap-2">
-            <QuickSpeedControls className="hidden sm:flex" />
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={toggleVoice}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              {voiceEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+            </Button>
           </div>
         </CardHeader>
-        <div className="px-6 pb-3 flex items-center justify-between">
-          <QuickSpeedControls className="flex sm:hidden" />
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={toggleVoice}
-            className="text-muted-foreground hover:text-foreground sm:hidden"
-          >
-            {voiceEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
-          </Button>
-        </div>
 
         {/* Messages */}
         <CardContent className="flex-1 overflow-y-auto space-y-4">

@@ -171,7 +171,6 @@ const defaultSettings = {
   // AI Voice Settings
   globalVoice: 'nova' as const,
   voiceVolume: 0.8,
-  voiceSpeed: 1.0, // Default to faster, more energetic pace
   voicePreferences: {
     banking: 'onyx' as const,
     companion: 'nova' as const,

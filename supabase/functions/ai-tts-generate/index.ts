@@ -14,8 +14,8 @@ serve(async (req) => {
   console.log('🎤 AI TTS function called');
 
   try {
-    const { text, voice: userVoice, tone = 'neutral', context, speed = 1.0 } = await req.json();
-    console.log('📝 Request params:', { textLength: text?.length, userVoice: userVoice || 'none', tone, context, speed });
+    const { text, voice: userVoice, tone = 'neutral', context } = await req.json();
+    console.log('📝 Request params:', { textLength: text?.length, userVoice: userVoice || 'none', tone, context });
 
     if (!text) {
       console.error('❌ No text provided');
@@ -84,7 +84,7 @@ serve(async (req) => {
         input: text,
         voice: selectedVoice,
         response_format: 'mp3',
-        speed: speed,
+        speed: 1.0,
       }),
     });
 
