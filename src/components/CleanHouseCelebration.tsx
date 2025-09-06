@@ -18,7 +18,7 @@ export function CleanHouseCelebration({ onComplete, onRestart }: CleanHouseCeleb
 
   useEffect(() => {
     // Trigger haptic feedback if enabled
-    if (settings.cleanHouseCustomization.hapticEnabled) {
+    if (settings.cleanHouseCustomization?.hapticEnabled) {
       hapticsService.success();
       // Additional celebration haptics
       setTimeout(() => hapticsService.gentle(), 200);
@@ -26,7 +26,7 @@ export function CleanHouseCelebration({ onComplete, onRestart }: CleanHouseCeleb
     }
 
     // Play celebration sound/speak message
-    if (settings.ttsEnabled && settings.cleanHouseCustomization.celebrationMessage) {
+    if (settings.ttsEnabled && settings.cleanHouseCustomization?.celebrationMessage) {
       const utterance = new SpeechSynthesisUtterance(settings.cleanHouseCustomization.celebrationMessage);
       utterance.rate = 0.9;
       utterance.pitch = 1.1;
@@ -55,7 +55,7 @@ export function CleanHouseCelebration({ onComplete, onRestart }: CleanHouseCeleb
             Session Complete! 🎉
           </h3>
           <p className="text-muted-foreground">
-            {settings.cleanHouseCustomization.celebrationMessage}
+            {settings.cleanHouseCustomization?.celebrationMessage || "Great job on your cleaning session!"}
           </p>
         </div>
 

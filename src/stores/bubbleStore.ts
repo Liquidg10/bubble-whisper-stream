@@ -142,6 +142,24 @@ const defaultSettings = {
     hapticEnabled: true,
     autoRestart: false
   },
+  pomodoroTimer: {
+    isActive: false,
+    timeRemaining: 25 * 60, // 25 minutes default
+    duration: 25 * 60,
+    startTime: null as number | null,
+    currentPhase: 'work' as const,
+    cycleCount: 0
+  },
+  pomodoroCustomization: {
+    workDuration: 25 * 60, // 25 minutes
+    shortBreakDuration: 5 * 60, // 5 minutes
+    longBreakDuration: 15 * 60, // 15 minutes
+    cyclesBeforeLongBreak: 4,
+    celebrationMessage: "Great focus session! 🍅",
+    hapticEnabled: true,
+    autoStartBreaks: false,
+    autoStartWork: false
+  },
   glimmersEnabled: true,
   adaptiveRemindersEnabled: true,
   viewMode: 'bubble' as const,
