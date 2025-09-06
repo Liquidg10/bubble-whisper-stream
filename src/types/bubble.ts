@@ -105,6 +105,19 @@ export interface Settings {
     reminders?: 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer';
     glimmers?: 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer';
   };
+  cleanHouseTimer?: {
+    isActive: boolean;
+    timeRemaining: number;
+    duration: number;
+    startTime: number | null;
+  };
+  cleanHouseCustomization?: {
+    duration: number;
+    celebrationSound: string;
+    celebrationMessage: string;
+    hapticEnabled: boolean;
+    autoRestart: boolean;
+  };
 }
 
 // Canvas viewport state

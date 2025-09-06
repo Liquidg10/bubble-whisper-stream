@@ -128,6 +128,20 @@ const defaultSettings = {
   biometricLock: false,
   quietHours: { start: '22:00', end: '08:00' },
   intelligenceEnabled: true, // Enabled by default for Phase 2 features
+  cleaningCuesEnabled: false,
+  cleanHouseTimer: {
+    isActive: false,
+    timeRemaining: 10 * 60, // 10 minutes in seconds
+    duration: 10 * 60,
+    startTime: null as number | null
+  },
+  cleanHouseCustomization: {
+    duration: 10 * 60, // 10 minutes default
+    celebrationSound: 'chime',
+    celebrationMessage: 'Great job on your 10-minute reset! Every small step matters. 🎉',
+    hapticEnabled: true,
+    autoRestart: false
+  },
   glimmersEnabled: true,
   adaptiveRemindersEnabled: true,
   viewMode: 'bubble' as const,

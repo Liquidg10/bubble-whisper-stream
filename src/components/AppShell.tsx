@@ -10,6 +10,7 @@ import { OfflineDetector } from '@/components/OfflineDetector';
 import { OfflineStatusBanner } from '@/components/OfflineStatusBanner';
 import { AudioQueueIndicator } from '@/components/AudioQueueIndicator';
 import { PhotoDebugPanel } from '@/components/PhotoDebugPanel';
+import { CleanHouseHeaderTimer } from '@/components/CleanHouseHeaderTimer';
 
 import NarrativeSearch from '@/components/NarrativeSearch';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
@@ -40,6 +41,7 @@ export const AppShell: React.FC = () => {
       <header className="flex items-center justify-between p-4 border-b border-border/50 bg-card/50 backdrop-blur">
         <h1 className="text-lg font-semibold text-foreground">Bubble Universe</h1>
         <div className="flex items-center gap-2">
+          <CleanHouseHeaderTimer />
           <Button
             variant="ghost"
             size="sm"
