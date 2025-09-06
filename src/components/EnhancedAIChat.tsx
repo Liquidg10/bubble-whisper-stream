@@ -687,13 +687,13 @@ export const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({
       {/* Chat Interface */}
       <Card className="flex-1 flex flex-col">
         {/* Header */}
-        <CardHeader className="flex-row items-center justify-between p-2">
+        <CardHeader className="flex-row items-center justify-between p-3">
           <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-primary" />
-            <CardTitle className="text-sm">AI Companion</CardTitle>
+            <Sparkles className="h-5 w-5 text-primary" />
+            <CardTitle className="text-lg">AI Companion</CardTitle>
             {currentSession && (
-              <Badge variant="secondary" className="bg-accent-growth/20 text-accent-growth text-xs px-1">
-                Active
+              <Badge variant="secondary" className="bg-accent-growth/20 text-accent-growth">
+                Active Session
               </Badge>
             )}
           </div>
@@ -701,25 +701,25 @@ export const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({
             variant="ghost"
             size="sm"
             onClick={toggleVoice}
-            className="text-muted-foreground hover:text-foreground h-6 w-6 p-0"
+            className="text-muted-foreground hover:text-foreground"
           >
-            {voiceEnabled ? <Volume2 className="h-3 w-3" /> : <VolumeX className="h-3 w-3" />}
+            {voiceEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
           </Button>
         </CardHeader>
 
         {/* Messages */}
-        <CardContent className="flex-1 overflow-y-auto space-y-2 p-2">
+        <CardContent className="flex-1 overflow-y-auto space-y-3 p-3">
           <AnimatePresence>
             {messages.map((message) => (
               <motion.div
                 key={message.id}
-                initial={{ opacity: 0, y: 10 }}
+                initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
+                exit={{ opacity: 0, y: -15 }}
                 className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
               >
                  <div
-                   className={`max-w-[85%] p-2 rounded-lg ${
+                   className={`max-w-[80%] p-3 rounded-xl ${
                      message.type === 'user'
                        ? 'bg-primary text-primary-foreground'
                        : message.type === 'system'
@@ -728,12 +728,12 @@ export const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({
                    }`}
                  >
                    <div 
-                     className="text-xs leading-relaxed formatted-ai-response"
+                     className="text-sm leading-relaxed formatted-ai-response"
                      dangerouslySetInnerHTML={{ 
                        __html: message.type === 'ai' ? formatAIResponse(message.content) : escapeHtml(message.content)
                      }}
                    />
-                   <span className="text-xs opacity-60 mt-1 block">
+                   <span className="text-xs opacity-60 mt-2 block">
                      {message.timestamp.toLocaleTimeString()}
                    </span>
                  </div>
@@ -747,11 +747,12 @@ export const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({
               animate={{ opacity: 1 }}
               className="flex justify-start"
             >
-              <div className="bg-muted p-2 rounded-lg">
-                <div className="flex items-center gap-1">
-                  <div className="w-1 h-1 bg-primary rounded-full animate-bounce" />
-                  <div className="w-1 h-1 bg-primary rounded-full animate-bounce delay-100" />
-                  <div className="w-1 h-1 bg-primary rounded-full animate-bounce delay-200" />
+              <div className="bg-muted p-3 rounded-xl">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-primary rounded-full animate-bounce" />
+                  <div className="w-2 h-2 bg-primary rounded-full animate-bounce delay-100" />
+                  <div className="w-2 h-2 bg-primary rounded-full animate-bounce delay-200" />
+                  <span className="text-xs text-muted-foreground ml-2">Thinking...</span>
                 </div>
               </div>
             </motion.div>
@@ -793,14 +794,14 @@ export const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({
         </CardContent>
 
         {/* Input */}
-        <div className="p-2 border-t border-border">
-          <div className="flex items-end gap-1">
+        <div className="p-3 border-t border-border">
+          <div className="flex items-end gap-2">
             <Textarea
               ref={inputRef}
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
-              placeholder="Tell me what you want to work on..."
-              className="flex-1 min-h-[32px] max-h-[80px] resize-none text-xs"
+              placeholder="Tell me what you want to work on, ask for help, or share what's on your mind..."
+              className="flex-1 min-h-[50px] max-h-[120px] resize-none"
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
@@ -815,18 +816,18 @@ export const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({
               variant={isRecording ? "destructive" : "secondary"}
               size="sm"
               disabled={isProcessing}
-              className="shrink-0 h-8 w-8 p-0"
+              className="shrink-0"
             >
-              {isRecording ? <MicOff className="h-3 w-3" /> : <Mic className="h-3 w-3" />}
+              {isRecording ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
             </Button>
             
             <Button
               onClick={() => handleAIChat(inputText)}
               disabled={!inputText.trim() || isProcessing || isRecording}
               size="sm"
-              className="shrink-0 h-8 w-8 p-0"
+              className="shrink-0"
             >
-              <Send className="h-3 w-3" />
+              <Send className="h-4 w-4" />
             </Button>
           </div>
           
@@ -834,9 +835,9 @@ export const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({
             <motion.p
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="text-xs text-muted-foreground mt-1 text-center"
+              className="text-sm text-muted-foreground mt-2 text-center"
             >
-              🎤 Recording...
+              🎤 Recording... Tap microphone to stop
             </motion.p>
           )}
 

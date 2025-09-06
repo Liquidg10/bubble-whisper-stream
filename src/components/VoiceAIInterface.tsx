@@ -90,24 +90,25 @@ export const VoiceAIInterface: React.FC<VoiceAIInterfaceProps> = ({ className = 
           </motion.div>
         </DialogTrigger>
         
-        <DialogContent className="max-w-4xl h-[85vh] flex flex-col p-0">
+        <DialogContent className="max-w-6xl w-[95vw] h-[90vh] flex flex-col p-0">
           <div className="flex flex-col h-full">
             {/* Quick Actions Header */}
-            <div className="p-2 border-b border-border">
-              <h2 className="text-base font-semibold mb-2 text-foreground">
+            <div className="p-3 border-b border-border">
+              <h2 className="text-lg font-semibold mb-3 text-foreground">
                 AI Companion
               </h2>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-1">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                 {quickActions.map((action) => (
                   <Button
                     key={action.mode}
                     variant={quickMode === action.mode ? "default" : "outline"}
                     size="sm"
                     onClick={() => setQuickMode(action.mode)}
-                    className="flex flex-col items-center p-2 h-auto text-xs"
+                    className="flex flex-col items-center p-3 h-auto"
                   >
-                    <action.icon className={`w-3 h-3 mb-1 ${action.color}`} />
-                    <span className="font-medium">{action.label}</span>
+                    <action.icon className={`w-4 h-4 mb-1 ${action.color}`} />
+                    <span className="text-sm font-medium">{action.label}</span>
+                    <span className="text-xs opacity-70">{action.description}</span>
                   </Button>
                 ))}
               </div>
