@@ -19,6 +19,11 @@ export const flags = {
   searchV2: true,
   ambientModes: true,
   budget: true,
+  // CBT Assistant Feature Flags
+  cbtAssist: false, // Main CBT assistant feature (default OFF)
+  cbtSilentObserve: true, // Silent observation for testing (default ON)
+  cbtCrisisEnabled: true, // Crisis intervention features (default ON)
+  cbtDevRoutes: process.env.NODE_ENV === 'development', // Dev routes (default ON in dev)
 } as const;
 
 export type FeatureFlag = keyof typeof flags;

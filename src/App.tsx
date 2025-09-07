@@ -39,6 +39,7 @@ import { DevSyncBasic } from "./pages/DevSyncBasic";
 import { DevSyncDiff } from "./pages/DevSyncDiff";
 import Inbox from "./pages/Inbox";
 import Search from "./pages/Search";
+import { DevFlags } from "./pages/DevFlags";
 import { DevMenu } from "./components/DevMenu";
 import { useDevMenu } from "./hooks/useDevMenu";
 import { AuthCallback } from "./pages/AuthCallback";
@@ -97,6 +98,7 @@ const App = () => {
                       <Route path="dev/sync-basic" element={<DevSyncBasic />} />
                       <Route path="dev/sync-diff" element={<DevSyncDiff />} />
                       <Route path="dev/settings" element={<DevSettings />} />
+                      <Route path="dev/flags" element={<DevFlags />} />
                     </Route>
                     <Route path="auth/callback" element={<AuthCallback />} />
                     <Route path="*" element={<NotFound />} />

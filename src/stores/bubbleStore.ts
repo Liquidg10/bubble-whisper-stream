@@ -45,6 +45,19 @@ interface BubbleStore {
     viewMode?: 'bubble' | 'atomic';
     aiSystemPrompt?: string;
     aiPersonalInfo?: string;
+    cbtSettings?: {
+      cbtAssistEnabled: boolean;
+      assistLevel: 'off' | 'subtle' | 'standard';
+      privacyLayer: 'surface' | 'context' | 'deep';
+      autoLogMode: 'ask' | 'off' | 'on';
+      quietHours: {
+        enabled: boolean;
+        start: string;
+        end: string;
+      };
+      topicExclusions: string[];
+      neverInterveneOn: string[];
+    };
   };
   selfModel: SelfModel;
   isLoading: boolean;
@@ -102,6 +115,19 @@ interface BubbleStore {
     viewMode?: 'bubble' | 'atomic';
     aiSystemPrompt?: string;
     aiPersonalInfo?: string;
+    cbtSettings?: {
+      cbtAssistEnabled: boolean;
+      assistLevel: 'off' | 'subtle' | 'standard';
+      privacyLayer: 'surface' | 'context' | 'deep';
+      autoLogMode: 'ask' | 'off' | 'on';
+      quietHours: {
+        enabled: boolean;
+        start: string;
+        end: string;
+      };
+      topicExclusions: string[];
+      neverInterveneOn: string[];
+    };
   }>) => Promise<void>;
   
   // Self model actions

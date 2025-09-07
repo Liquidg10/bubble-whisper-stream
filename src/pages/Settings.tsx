@@ -14,11 +14,16 @@ import { IntegrationsSettings } from '@/components/settings/IntegrationsSettings
 import { PrivacySecuritySettings } from '@/components/settings/PrivacySecuritySettings';
 import { AdvancedSettings } from '@/components/settings/AdvancedSettings';
 import { AISettings } from '@/components/settings/AISettings';
+import { ThoughtSupportSettings } from '@/components/settings/ThoughtSupportSettings';
 import { useFeatureFlags } from '@/components/FeatureFlags';
+import { isFeatureEnabled } from '@/config/flags';
 
 export const Settings: React.FC = () => {
-  const { isFeatureEnabled } = useFeatureFlags();
+  const { isFeatureEnabled: isLegacyFeatureEnabled } = useFeatureFlags();
   const [activeTab, setActiveTab] = useState('general');
+  
+  // Check if CBT features are available
+  const showCBTTab = isFeatureEnabled('cbtAssist') || isFeatureEnabled('cbtSilentObserve');
 
   return (
     <div className="flex flex-col h-full bg-background">
@@ -31,7 +36,7 @@ export const Settings: React.FC = () => {
 
       <div className="flex-1 overflow-hidden">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
-          <TabsList className="grid w-full grid-cols-6 mx-4 mt-4">
+          <TabsList className={`grid w-full ${showCBTTab ? 'grid-cols-7' : 'grid-cols-6'} mx-4 mt-4`}>
             <TabsTrigger value="general" className="flex items-center gap-2">
               <SettingsIcon className="h-4 w-4" />
               <span className="hidden sm:inline">General</span>
@@ -40,6 +45,12 @@ export const Settings: React.FC = () => {
               <Bot className="h-4 w-4" />
               <span className="hidden sm:inline">AI</span>
             </TabsTrigger>
+            {showCBTTab && (
+              <TabsTrigger value="thought-support" className="flex items-center gap-2">
+                <Brain className="h-4 w-4" />
+                <span className="hidden sm:inline">Thought</span>
+              </TabsTrigger>
+            )}
             <TabsTrigger value="intelligence" className="flex items-center gap-2">
               <Brain className="h-4 w-4" />
               <span className="hidden sm:inline">Intelligence</span>
@@ -52,7 +63,7 @@ export const Settings: React.FC = () => {
               <Shield className="h-4 w-4" />
               <span className="hidden sm:inline">Privacy</span>
             </TabsTrigger>
-            {isFeatureEnabled('debugMode') && (
+            {isLegacyFeatureEnabled('debugMode') && (
               <TabsTrigger value="advanced" className="flex items-center gap-2">
                 <Code className="h-4 w-4" />
                 <span className="hidden sm:inline">Advanced</span>
@@ -69,6 +80,12 @@ export const Settings: React.FC = () => {
               <AISettings />
             </TabsContent>
 
+            {showCBTTab && (
+              <TabsContent value="thought-support" className="space-y-6 mt-0">
+                <ThoughtSupportSettings />
+              </TabsContent>
+            )}
+
             <TabsContent value="intelligence" className="space-y-6 mt-0">
               <IntelligenceSettings />
             </TabsContent>
@@ -81,7 +98,7 @@ export const Settings: React.FC = () => {
               <PrivacySecuritySettings />
             </TabsContent>
 
-            {isFeatureEnabled('debugMode') && (
+            {isLegacyFeatureEnabled('debugMode') && (
               <TabsContent value="advanced" className="space-y-6 mt-0">
                 <AdvancedSettings />
               </TabsContent>
