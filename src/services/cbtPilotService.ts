@@ -10,6 +10,12 @@ export interface PilotConfig {
   userList: string[];
   overrideFlags?: Partial<Record<FeatureFlag, boolean>>;
   description?: string;
+  silentStabilization?: {
+    enabled: boolean;
+    durationDays: number;
+    cohortStartDates: Record<string, number>; // userId -> timestamp
+    precisionThreshold: number;
+  };
 }
 
 export interface PilotStatus {
@@ -33,7 +39,13 @@ class CBTPilotService {
       cbtSilentObserve: true,
       cbtCrisisEnabled: true // Keep crisis enabled for pilot
     },
-    description: 'CBT Assistance Pilot Program'
+    description: 'CBT Assistance Pilot Program',
+    silentStabilization: {
+      enabled: true,
+      durationDays: 7,
+      cohortStartDates: {},
+      precisionThreshold: 0.80
+    }
   };
 
   /**
@@ -65,10 +77,17 @@ class CBTPilotService {
   }
 
   /**
-   * Get feature flag value considering pilot status
+   * Get feature flag value considering pilot status and silent stabilization
    */
   getFeatureFlag(flag: FeatureFlag, userId?: string, defaultValue: boolean = false): boolean {
     const pilotStatus = this.getPilotStatus(userId);
+    
+    // Special handling for cbtSilentObserve during stabilization period
+    if (flag === 'cbtSilentObserve' && pilotStatus.isInPilot && userId) {
+      if (this.isInSilentStabilization(userId)) {
+        return true; // Force silent observe during stabilization
+      }
+    }
     
     // If user is in pilot and flag has override, use that
     if (pilotStatus.isInPilot && pilotStatus.flagOverrides[flag] !== undefined) {
@@ -101,6 +120,15 @@ class CBTPilotService {
     const config = this.getPilotConfig();
     if (!config.userList.includes(userId)) {
       config.userList.push(userId);
+      
+      // Record start date for silent stabilization
+      if (config.silentStabilization?.enabled) {
+        if (!config.silentStabilization.cohortStartDates) {
+          config.silentStabilization.cohortStartDates = {};
+        }
+        config.silentStabilization.cohortStartDates[userId] = Date.now();
+      }
+      
       this.updatePilotConfig(config);
       console.log(`[CBT Pilot] Added user ${userId} to pilot`);
     }
@@ -136,14 +164,26 @@ class CBTPilotService {
     userList: string[];
     flagOverrides: string[];
     lastUpdated?: number;
+    silentStabilization?: {
+      enabled: boolean;
+      usersInStabilization: string[];
+      usersReady: string[];
+    };
   } {
     const config = this.getPilotConfig();
+    const silentStabilization = config.silentStabilization?.enabled ? {
+      enabled: true,
+      usersInStabilization: config.userList.filter(userId => this.isInSilentStabilization(userId)),
+      usersReady: config.userList.filter(userId => !this.isInSilentStabilization(userId))
+    } : undefined;
+    
     return {
       enabled: config.enabled,
       totalUsers: config.userList.length,
       userList: config.userList,
       flagOverrides: Object.keys(config.overrideFlags || {}),
-      lastUpdated: this.getLastUpdated()
+      lastUpdated: this.getLastUpdated(),
+      silentStabilization
     };
   }
 
@@ -177,6 +217,34 @@ class CBTPilotService {
       console.log('[CBT Pilot] Configuration reset to defaults');
     } catch (error) {
       console.warn('[CBT Pilot] Failed to reset config:', error);
+    }
+  }
+
+  /**
+   * Check if user is in silent stabilization period
+   */
+  isInSilentStabilization(userId: string): boolean {
+    const config = this.getPilotConfig();
+    if (!config.silentStabilization?.enabled || !config.silentStabilization.cohortStartDates) {
+      return false;
+    }
+    
+    const startDate = config.silentStabilization.cohortStartDates[userId];
+    if (!startDate) return false;
+    
+    const daysSinceStart = (Date.now() - startDate) / (1000 * 60 * 60 * 24);
+    return daysSinceStart < config.silentStabilization.durationDays;
+  }
+
+  /**
+   * Manually graduate user from silent stabilization (dev override)
+   */
+  graduateUserFromStabilization(userId: string): void {
+    const config = this.getPilotConfig();
+    if (config.silentStabilization?.cohortStartDates?.[userId]) {
+      delete config.silentStabilization.cohortStartDates[userId];
+      this.updatePilotConfig(config);
+      console.log(`[CBT Pilot] Graduated user ${userId} from silent stabilization`);
     }
   }
 

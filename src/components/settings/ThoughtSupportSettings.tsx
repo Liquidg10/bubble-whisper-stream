@@ -24,6 +24,8 @@ export interface CBTSettings {
   };
   topicExclusions: string[];
   neverInterveneOn: string[];
+  isUnder18: boolean;
+  showExplainability: boolean;
 }
 
 const DEFAULT_CBT_SETTINGS: CBTSettings = {
@@ -36,16 +38,22 @@ const DEFAULT_CBT_SETTINGS: CBTSettings = {
     start: '22:00',
     end: '08:00',
   },
-  topicExclusions: [],
+  topicExclusions: ['finance', 'health'], // Pre-populate with sensitive topics
   neverInterveneOn: [],
+  isUnder18: false,
+  showExplainability: true,
 };
 
 export function ThoughtSupportSettings() {
   const { settings, updateSettings } = useBubbleStore();
   const { toast } = useToast();
-  const [cbtSettings, setCbtSettings] = useState<CBTSettings>(
-    settings.cbtSettings || DEFAULT_CBT_SETTINGS
-  );
+  const [cbtSettings, setCbtSettings] = useState<CBTSettings>(() => {
+    const baseSettings = settings.cbtSettings || {};
+    return {
+      ...DEFAULT_CBT_SETTINGS,
+      ...baseSettings
+    };
+  });
   const [newExclusion, setNewExclusion] = useState('');
   const [newNeverIntervene, setNewNeverIntervene] = useState('');
 
@@ -55,12 +63,27 @@ export function ThoughtSupportSettings() {
 
   useEffect(() => {
     if (settings.cbtSettings) {
-      setCbtSettings(settings.cbtSettings);
+      // Ensure all properties are present with defaults
+      const completeSettings = {
+        ...DEFAULT_CBT_SETTINGS,
+        ...settings.cbtSettings
+      };
+      setCbtSettings(completeSettings);
     }
   }, [settings.cbtSettings]);
 
   const handleSettingChange = (key: keyof CBTSettings, value: any) => {
-    const newSettings = { ...cbtSettings, [key]: value };
+    let newSettings = { ...cbtSettings, [key]: value };
+    
+    // Age gate logic: if under 18, force stricter defaults
+    if (key === 'isUnder18' && value === true) {
+      newSettings = {
+        ...newSettings,
+        autoLogMode: 'off',
+        privacyLayer: 'deep'
+      };
+    }
+    
     setCbtSettings(newSettings);
     updateSettings({ cbtSettings: newSettings });
   };
@@ -264,6 +287,7 @@ export function ThoughtSupportSettings() {
                 onValueChange={(value: 'surface' | 'context' | 'deep') => 
                   handleSettingChange('privacyLayer', value)
                 }
+                disabled={cbtSettings.isUnder18}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -274,6 +298,47 @@ export function ThoughtSupportSettings() {
                   <SelectItem value="deep">Deep - Full personalization (more data)</SelectItem>
                 </SelectContent>
               </Select>
+              {cbtSettings.isUnder18 && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  Privacy layer is locked to "Deep" for users under 18
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Age Gate */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Age Verification</CardTitle>
+              <CardDescription>
+                Age-appropriate privacy and safety settings
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label htmlFor="under-18-toggle" className="text-sm font-medium">
+                    I am under 18 years old
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Automatically applies stricter privacy and logging settings
+                  </p>
+                </div>
+                <Switch
+                  id="under-18-toggle"
+                  checked={cbtSettings.isUnder18}
+                  onCheckedChange={(checked) => handleSettingChange('isUnder18', checked)}
+                />
+              </div>
+              {cbtSettings.isUnder18 && (
+                <Alert>
+                  <Shield className="h-4 w-4" />
+                  <AlertDescription className="text-xs">
+                    <strong>Enhanced Privacy Mode:</strong> Auto-logging disabled, deep privacy layer active. 
+                    Remember: This is not medical advice. Talk to a trusted adult, counselor, or healthcare provider for support.
+                  </AlertDescription>
+                </Alert>
+              )}
             </CardContent>
           </Card>
 
@@ -291,6 +356,7 @@ export function ThoughtSupportSettings() {
                 onValueChange={(value: 'ask' | 'off' | 'on') => 
                   handleSettingChange('autoLogMode', value)
                 }
+                disabled={cbtSettings.isUnder18}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -301,6 +367,11 @@ export function ThoughtSupportSettings() {
                   <SelectItem value="on">On - Auto-save all reflections</SelectItem>
                 </SelectContent>
               </Select>
+              {cbtSettings.isUnder18 && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  Auto-logging is disabled for users under 18 for enhanced privacy
+                </p>
+              )}
             </CardContent>
           </Card>
 
@@ -346,15 +417,49 @@ export function ThoughtSupportSettings() {
             </CardContent>
           </Card>
 
+          {/* Explainability Settings */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Explainability</CardTitle>
+              <CardDescription>
+                Control how much detail is shown about why support is offered
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label htmlFor="explainability-toggle" className="text-sm font-medium">
+                    Show "Why?" badge
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Display explanations for why thought support was triggered
+                  </p>
+                </div>
+                <Switch
+                  id="explainability-toggle"
+                  checked={cbtSettings.showExplainability}
+                  onCheckedChange={(checked) => handleSettingChange('showExplainability', checked)}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
           {/* Topic Exclusions */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Topic Exclusions</CardTitle>
               <CardDescription>
-                Topics where thought support should not activate
+                Topics where thought support should not activate (Finance & Health pre-selected for safety)
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <Alert>
+                <Shield className="h-4 w-4" />
+                <AlertDescription className="text-xs">
+                  Finance and Health topics are excluded by default to avoid sensitive false-positives. 
+                  You can remove these if you'd like support on these topics.
+                </AlertDescription>
+              </Alert>
               <div className="flex gap-2">
                 <Input
                   placeholder="Add topic to exclude..."

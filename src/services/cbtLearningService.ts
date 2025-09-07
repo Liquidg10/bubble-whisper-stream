@@ -11,6 +11,7 @@ export interface UserLearningPreferences {
   lastAdjustments: Partial<Record<DistortionType, number>>; // timestamps
   maxAdjustmentsPerType: number; // default: 3
   helpfulCounts: Partial<Record<DistortionType, number>>; // for dev metrics
+  dailyAdjustments: Partial<Record<DistortionType, Array<{ date: string; amount: number }>>>; // daily adjustment tracking
 }
 
 class CBTLearningService {
@@ -22,6 +23,8 @@ class CBTLearningService {
   private readonly COOLING_PERIOD_DAYS = 7;
   private readonly MAX_ADJUSTMENTS_PER_TYPE = 3;
   private readonly DECLINES_FOR_ADJUSTMENT = 3;
+  private readonly MAX_DAILY_ADJUSTMENT = 0.05; // Daily cap for threshold increases
+  private readonly MAX_TOTAL_ADJUSTMENT = 0.15; // Absolute max adjustment
 
   /**
    * Get current learning preferences for user
@@ -71,6 +74,15 @@ class CBTLearningService {
     distortionTypes.forEach(distortionType => {
       preferences.helpfulCounts[distortionType] = 
         (preferences.helpfulCounts[distortionType] || 0) + 1;
+      
+      // Reset threshold when user finds it helpful
+      if (preferences.distortionThresholds[distortionType]) {
+        delete preferences.distortionThresholds[distortionType];
+        preferences.declineCounts[distortionType] = 0;
+        delete preferences.lastAdjustments[distortionType];
+        preferences.dailyAdjustments[distortionType] = [];
+        console.log(`[CBT Learning] Reset threshold for ${distortionType} due to helpful feedback`);
+      }
     });
 
     this.saveUserPreferences(preferences);
@@ -95,10 +107,16 @@ class CBTLearningService {
       // Check if we should adjust threshold
       if (this.shouldAdjustThreshold(distortionType, currentDeclines, preferences)) {
         const newThreshold = this.calculateNewThreshold(distortionType, preferences);
-        if (newThreshold !== null) {
+        if (newThreshold !== null && this.canAdjustToday(distortionType, preferences)) {
+          const currentThreshold = preferences.distortionThresholds[distortionType] || this.DEFAULT_THRESHOLD;
+          const adjustmentAmount = newThreshold - currentThreshold;
+          
           preferences.distortionThresholds[distortionType] = newThreshold;
           preferences.lastAdjustments[distortionType] = Date.now();
           preferences.declineCounts[distortionType] = 0; // Reset decline counter
+          
+          // Track daily adjustment
+          this.recordDailyAdjustment(distortionType, adjustmentAmount, preferences);
           
           adjustedThresholds.push(distortionType);
           newThresholds[distortionType] = newThreshold;
@@ -140,21 +158,34 @@ class CBTLearningService {
 
     // Don't adjust if already at maximum
     if (currentThreshold && currentThreshold >= this.MAX_THRESHOLD) return false;
+    
+    // Check total adjustment cap
+    if (currentThreshold && (currentThreshold - this.DEFAULT_THRESHOLD) >= this.MAX_TOTAL_ADJUSTMENT) return false;
 
     return true;
   }
 
   /**
-   * Calculate new threshold after adjustment
+   * Calculate new threshold after adjustment (with daily cap)
    */
   private calculateNewThreshold(
     distortionType: DistortionType,
     preferences: UserLearningPreferences
   ): number | null {
     const currentThreshold = preferences.distortionThresholds[distortionType] || this.DEFAULT_THRESHOLD;
+    const maxDailyAdjustment = this.getRemainingDailyAdjustment(distortionType, preferences);
+    
+    // Use smaller of threshold adjustment or remaining daily allowance
+    const adjustmentAmount = Math.min(this.THRESHOLD_ADJUSTMENT, maxDailyAdjustment);
+    
+    if (adjustmentAmount <= 0) return null;
+    
     const newThreshold = Math.min(
       this.MAX_THRESHOLD,
-      currentThreshold + this.THRESHOLD_ADJUSTMENT
+      Math.min(
+        this.DEFAULT_THRESHOLD + this.MAX_TOTAL_ADJUSTMENT,
+        currentThreshold + adjustmentAmount
+      )
     );
 
     // Don't adjust if no meaningful change
@@ -182,8 +213,54 @@ class CBTLearningService {
       declineCounts: {},
       lastAdjustments: {},
       maxAdjustmentsPerType: this.MAX_ADJUSTMENTS_PER_TYPE,
-      helpfulCounts: {}
+      helpfulCounts: {},
+      dailyAdjustments: {}
     };
+  }
+
+  /**
+   * Check if user can make adjustments today (within daily cap)
+   */
+  private canAdjustToday(distortionType: DistortionType, preferences: UserLearningPreferences): boolean {
+    return this.getRemainingDailyAdjustment(distortionType, preferences) > 0;
+  }
+
+  /**
+   * Get remaining daily adjustment allowance
+   */
+  private getRemainingDailyAdjustment(distortionType: DistortionType, preferences: UserLearningPreferences): number {
+    const today = new Date().toISOString().split('T')[0];
+    const dailyAdjustments = preferences.dailyAdjustments[distortionType] || [];
+    const todayAdjustments = dailyAdjustments.filter(adj => adj.date === today);
+    const totalToday = todayAdjustments.reduce((sum, adj) => sum + adj.amount, 0);
+    
+    return Math.max(0, this.MAX_DAILY_ADJUSTMENT - totalToday);
+  }
+
+  /**
+   * Record daily adjustment amount
+   */
+  private recordDailyAdjustment(
+    distortionType: DistortionType, 
+    amount: number, 
+    preferences: UserLearningPreferences
+  ): void {
+    const today = new Date().toISOString().split('T')[0];
+    
+    if (!preferences.dailyAdjustments[distortionType]) {
+      preferences.dailyAdjustments[distortionType] = [];
+    }
+    
+    preferences.dailyAdjustments[distortionType]!.push({ date: today, amount });
+    
+    // Clean up old entries (keep last 30 days)
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - 30);
+    const cutoffString = cutoffDate.toISOString().split('T')[0];
+    
+    preferences.dailyAdjustments[distortionType] = preferences.dailyAdjustments[distortionType]!.filter(
+      adj => adj.date >= cutoffString
+    );
   }
 
   /**

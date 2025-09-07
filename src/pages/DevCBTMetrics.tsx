@@ -5,10 +5,12 @@
 
 import React from 'react';
 import { CBTMetricsDashboard } from '@/components/CBTMetricsDashboard';
+import { CBTPilotMonitor } from '@/components/CBTPilotMonitor';
 
 export default function DevCBTMetrics() {
   return (
     <div className="container mx-auto p-6">
+      <CBTPilotMonitor />
       <CBTMetricsDashboard />
     </div>
   );
