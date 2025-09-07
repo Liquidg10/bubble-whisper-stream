@@ -78,6 +78,21 @@ const devRoutes: DevRoute[] = [
     path: '/dev/sync-diff',
     name: 'Sync Diff',
     description: 'Safe-Mode conflict resolution flows'
+  },
+  {
+    path: '/dev/cbt-observer',
+    name: 'CBT Observer',
+    description: 'Test CBT annotation detection with golden samples'
+  },
+  {
+    path: '/dev/cbt-policy',
+    name: 'CBT Policy',
+    description: 'Simulate fatigue states and policy decisions'
+  },
+  {
+    path: '/dev/cbt-e2e',
+    name: 'CBT E2E',
+    description: 'Full pipeline testing with conversation simulation'
   }
 ];
 

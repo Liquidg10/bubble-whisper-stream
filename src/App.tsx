@@ -40,6 +40,9 @@ import { DevSyncDiff } from "./pages/DevSyncDiff";
 import Inbox from "./pages/Inbox";
 import Search from "./pages/Search";
 import { DevFlags } from "./pages/DevFlags";
+import DevCBTObserver from "./pages/DevCBTObserver";
+import DevCBTPolicy from "./pages/DevCBTPolicy";
+import DevCBTE2E from "./pages/DevCBTE2E";
 import { DevMenu } from "./components/DevMenu";
 import { useDevMenu } from "./hooks/useDevMenu";
 import { AuthCallback } from "./pages/AuthCallback";
@@ -99,6 +102,9 @@ const App = () => {
                       <Route path="dev/sync-diff" element={<DevSyncDiff />} />
                       <Route path="dev/settings" element={<DevSettings />} />
                       <Route path="dev/flags" element={<DevFlags />} />
+                      <Route path="dev/cbt-observer" element={<DevCBTObserver />} />
+                      <Route path="dev/cbt-policy" element={<DevCBTPolicy />} />
+                      <Route path="dev/cbt-e2e" element={<DevCBTE2E />} />
                     </Route>
                     <Route path="auth/callback" element={<AuthCallback />} />
                     <Route path="*" element={<NotFound />} />
