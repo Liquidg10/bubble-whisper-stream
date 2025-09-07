@@ -12,19 +12,23 @@ import { X, HelpCircle } from 'lucide-react';
 import { useAccessibility } from '@/components/AccessibilityProvider';
 import { useToast } from '@/hooks/use-toast';
 import type { CBTAction } from '@/ai/cbt/types';
+import { cbtMetricsService } from '@/services/cbtMetricsService';
+import { cbtABTestingService } from '@/services/cbtABTestingService';
 
 interface CBTChipProps {
   action: CBTAction;
   onEngagement?: (engaged: boolean) => void;
   onDismiss?: () => void;
   className?: string;
+  userId?: string; // For A/B testing and metrics
 }
 
 export function CBTChip({ 
   action, 
   onEngagement, 
   onDismiss,
-  className = '' 
+  className = '',
+  userId
 }: CBTChipProps) {
   const [isVisible, setIsVisible] = useState(true);
   const [showExplainability, setShowExplainability] = useState(false);

@@ -93,6 +93,11 @@ const devRoutes: DevRoute[] = [
     path: '/dev/cbt-e2e',
     name: 'CBT E2E',
     description: 'Full pipeline testing with conversation simulation'
+  },
+  {
+    path: '/dev/cbt-metrics',
+    name: 'CBT Metrics',
+    description: 'Metrics dashboard with A/B testing and performance'
   }
 ];
 
