@@ -31,7 +31,19 @@ const SHAME_REPLACEMENTS = {
   'lazy': 'taking rest',
   'procrastinating': 'preparing',
   'avoiding': 'taking time',
-  'forgetting': 'lots on your mind'
+  'forgetting': 'lots on your mind',
+  
+  // CBT-specific clinical terms (PROMPT 11)
+  'cognitive distortion': 'thinking pattern',
+  'cbt': 'check-in',
+  'intervention': 'support',
+  'analysis': 'look together',
+  'incorrect thinking': 'different way to see this',
+  'negative thought': 'tough moment',
+  'irrational': 'understandable feeling',
+  'unhealthy pattern': 'pattern to explore',
+  'therapy': 'support',
+  'treatment': 'gentle help'
 };
 
 // Compassionate alternatives for status updates

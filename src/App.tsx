@@ -47,6 +47,7 @@ import DevCBTMetrics from "./pages/DevCBTMetrics";
 import { DevMenu } from "./components/DevMenu";
 import { useDevMenu } from "./hooks/useDevMenu";
 import { AuthCallback } from "./pages/AuthCallback";
+import Privacy from "./pages/Privacy";
 
 const queryClient = new QueryClient();
 
@@ -107,6 +108,7 @@ const App = () => {
                       <Route path="dev/cbt-policy" element={<DevCBTPolicy />} />
                       <Route path="dev/cbt-e2e" element={<DevCBTE2E />} />
                       <Route path="dev/cbt-metrics" element={<DevCBTMetrics />} />
+                      <Route path="privacy" element={<Privacy />} />
                     </Route>
                     <Route path="auth/callback" element={<AuthCallback />} />
                     <Route path="*" element={<NotFound />} />

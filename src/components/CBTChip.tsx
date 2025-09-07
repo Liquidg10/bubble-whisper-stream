@@ -14,6 +14,8 @@ import { useToast } from '@/hooks/use-toast';
 import type { CBTAction } from '@/ai/cbt/types';
 import { cbtMetricsService } from '@/services/cbtMetricsService';
 import { cbtABTestingService } from '@/services/cbtABTestingService';
+import { getChipCopy, getContextualEncouragement } from '@/services/cbtCopyService';
+import { polishCopy } from '@/utils/copyPolish';
 
 interface CBTChipProps {
   action: CBTAction;
@@ -35,6 +37,14 @@ export function CBTChip({
   const chipRef = useRef<HTMLDivElement>(null);
   const { settings } = useAccessibility();
   const { toast } = useToast();
+  
+  // Get copy variant for this user and action
+  const chipCopy = userId ? getChipCopy(userId, action.type) : {
+    promptText: polishCopy(action.text, 'cbt'),
+    primaryAction: "That helps",
+    dismissAction: "Not now", 
+    explainability: action.data?.explainability || "I noticed something worth exploring"
+  };
   
   // Reduced motion support
   const shouldAnimate = !settings.reducedMotion;
@@ -68,8 +78,14 @@ export function CBTChip({
 
   const handleEngagement = () => {
     onEngagement?.(true);
+    
+    // Track engagement metrics
+    if (userId) {
+      cbtMetricsService.recordAcceptance([]);
+    }
+    
     toast({
-      title: "Thank you for the feedback",
+      title: getContextualEncouragement('helpful'),
       description: "I'll keep this style of support in mind.",
     });
   };
@@ -79,9 +95,14 @@ export function CBTChip({
     onEngagement?.(false); // Record as "Not now" for fatigue system
     onDismiss?.();
     
+    // Track dismissal metrics  
+    if (userId) {
+      cbtMetricsService.recordDecline([]);
+    }
+    
     // Announce dismissal to screen readers
     toast({
-      title: "Not now",
+      title: getContextualEncouragement('dismissed'),
       description: "I'll adjust how often I offer this type of support.",
     });
   };
@@ -108,7 +129,7 @@ export function CBTChip({
       {/* Main chip content */}
       <div className="flex items-center gap-2">
         <span className="text-sm text-foreground font-medium">
-          {action.text}
+          {chipCopy.promptText}
         </span>
         
         {/* Explainability "Because..." pill */}
@@ -131,7 +152,7 @@ export function CBTChip({
               align="center"
             >
               <div className="text-muted-foreground">
-                Because I {action.data.explainability}
+                {chipCopy.explainability}
               </div>
             </PopoverContent>
           </Popover>
@@ -146,9 +167,9 @@ export function CBTChip({
           className="h-6 px-2 text-xs hover:bg-primary/10 hover:text-primary"
           onClick={handleEngagement}
           onKeyDown={handleKeyDown}
-          aria-label="This is helpful"
+          aria-label={`${chipCopy.primaryAction} - this is helpful`}
         >
-          Helpful
+          {chipCopy.primaryAction}
         </Button>
         
         <Button

@@ -15,6 +15,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { usePanZoom } from '@/hooks/usePanZoom';
 import { useLODSystem } from '@/hooks/useLODSystem';
 import { crossViewUndoService } from '@/services/crossViewUndoService';
+import { CBTOnboardingBanner } from './CBTOnboardingBanner';
 
 import { AtomicView } from './AtomicView';
 
@@ -452,6 +453,11 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
 
   return (
     <div className={`relative w-full h-full overflow-hidden bg-gradient-canvas ${className}`}>
+      {/* CBT Onboarding Banner */}
+      <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-4xl px-4">
+        <CBTOnboardingBanner />
+      </div>
+      
       {/* Main Canvas */}
       <div
         ref={canvasRef}

@@ -58,6 +58,12 @@ interface BubbleStore {
       topicExclusions: string[];
       neverInterveneOn: string[];
     };
+    cbtOnboardingState?: {
+      hasShownBanner: boolean;
+      bannerDismissedAt?: number;
+      initialChoice?: 'off' | 'ask' | 'on';
+      onboardingCompleted: boolean;
+    };
   };
   selfModel: SelfModel;
   isLoading: boolean;
