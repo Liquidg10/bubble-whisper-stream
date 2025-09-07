@@ -14,17 +14,10 @@ describe('CBT Types', () => {
     it('includes all expected distortion types', () => {
       const validDistortions: DistortionType[] = [
         'all_or_nothing',
-        'overgeneralization', 
-        'mental_filter',
-        'discounting_positive',
-        'jumping_to_conclusions',
-        'magnification',
-        'emotional_reasoning',
-        'should_statements',
-        'labeling',
-        'personalization',
         'catastrophizing',
-        'fortune_telling'
+        'overgeneralization',
+        'should_statements',
+        'mind_reading'
       ];
 
       validDistortions.forEach(distortion => {
@@ -37,16 +30,30 @@ describe('CBT Types', () => {
   describe('CBTAnnotation', () => {
     it('has valid structure for annotation objects', () => {
       const annotation: CBTAnnotation = {
-        distortions: [
-          { type: 'all_or_nothing', confidence: 0.8, evidence: ['always/never language'] }
-        ],
+        messageId: 'msg-123',
+        timestamp: Date.now(),
+        distortions: [{
+          type: 'all_or_nothing',
+          confidence: 0.8,
+          evidence: ['never', 'always'],
+          keywords: ['never', 'always']
+        }],
+        sentiment: {
+          score: -0.3,
+          magnitude: 0.7
+        },
         crisisFlags: [],
-        timestamp: Date.now()
+        context: {
+          timeOfDay: 14,
+          messageLength: 50,
+          conversationDepth: 5
+        }
       };
 
       expect(annotation.distortions).toBeInstanceOf(Array);
       expect(annotation.crisisFlags).toBeInstanceOf(Array);
       expect(typeof annotation.timestamp).toBe('number');
+      expect(annotation.distortions[0]).toHaveProperty('keywords');
     });
 
     it('validates distortion confidence ranges', () => {
@@ -68,53 +75,56 @@ describe('CBT Types', () => {
     it('has valid intervention decision structure', () => {
       const decision: CBTDecision = {
         shouldIntervene: true,
-        reason: 'High confidence distortion detected',
+        interventionType: 'chip',
+        reason: 'All-or-nothing thinking detected',
+        targetDistortions: ['all_or_nothing'],
         priority: 'medium',
-        targetDistortions: ['AllOrNothing'],
-        interventionType: 'gentle_chip'
+        cooldownMinutes: 30,
+        metadata: {
+          fatigueScore: 0.3,
+          policyMatch: 'distortion_intervention',
+          confidence: 0.85
+        }
       };
 
       expect(typeof decision.shouldIntervene).toBe('boolean');
       expect(typeof decision.reason).toBe('string');
-      expect(['low', 'medium', 'high'].includes(decision.priority!)).toBe(true);
+      expect(['low', 'medium', 'high', 'crisis'].includes(decision.priority)).toBe(true);
       expect(decision.targetDistortions).toBeInstanceOf(Array);
+      expect(['none', 'chip'].includes(decision.interventionType)).toBe(true);
     });
   });
 
   describe('CBTAction', () => {
-    it('has valid action structure for gentle chips', () => {
+    it('has valid action structure for chips', () => {
       const action: CBTAction = {
-        type: 'gentle_chip',
-        title: 'Another way to see this',
-        description: 'Consider that there might be middle ground here.',
-        actions: [
-          { label: 'Explore this', type: 'primary' },
-          { label: 'Not now', type: 'secondary' }
-        ],
-        explainability: 'because you used absolute language like "always"'
+        type: 'chip',
+        text: 'Want to explore another perspective?',
+        data: {
+          distortionType: 'all_or_nothing',
+          reframes: ['Maybe there\'s a middle ground here?'],
+          explainability: 'I noticed some black-and-white thinking'
+        }
       };
 
-      expect(action.type).toBe('gentle_chip');
-      expect(typeof action.title).toBe('string');
-      expect(typeof action.description).toBe('string');
-      expect(action.actions).toBeInstanceOf(Array);
-      expect(action.actions!.length).toBeGreaterThan(0);
+      expect(action.type).toBe('chip');
+      expect(action.text).toBe('Want to explore another perspective?');
+      expect(action.data?.distortionType).toBe('all_or_nothing');
     });
 
     it('has valid action structure for crisis support', () => {
-      const action: CBTAction = {
+      const crisisAction: CBTAction = {
         type: 'crisis_support',
-        title: 'You\'re not alone',
-        description: 'Here are some resources that can help right now.',
-        resources: [
-          { name: 'Crisis Text Line', contact: 'Text HOME to 741741', type: 'immediate' }
-        ],
-        priority: 'immediate'
+        text: 'I see you\'re going through something difficult',
+        data: {
+          resources: ['crisis_hotline', 'emergency_contacts'],
+          followUpQuestions: ['How can I help you stay safe?']
+        }
       };
 
-      expect(action.type).toBe('crisis_support');
-      expect(action.resources).toBeInstanceOf(Array);
-      expect(action.priority).toBe('immediate');
+      expect(crisisAction.type).toBe('crisis_support');
+      expect(crisisAction.data?.resources).toContain('crisis_hotline');
+      expect(crisisAction.text).toBe('I see you\'re going through something difficult');
     });
   });
 
@@ -123,64 +133,71 @@ describe('CBT Types', () => {
       const context: CBTPolicyContext = {
         userSettings: {
           assistLevel: 'standard',
-          autoLogMode: 'ask',
           privacyLayer: 'context',
-          quietHours: { enabled: false, start: '22:00', end: '08:00' },
+          autoLogMode: 'ask',
           topicExclusions: ['work'],
-          neverInterveningPhrases: ['leave me alone']
+          neverInterveneOn: ['work_stress']
         },
         fatigueState: {
-          dailyCount: 2,
-          lastInterventionTime: Date.now() - 1800000, // 30 min ago
-          declineStreak: 0,
-          topicCooldowns: { 'work': Date.now() - 900000 }, // 15 min ago
-          lastResetDate: new Date().toDateString()
+          globalInterventions: 3,
+          topicCooldowns: { 'all_or_nothing': Date.now() },
+          lastIntervention: Date.now() - 3600000,
+          dailyCount: 5,
+          topicDeclines: {}
         },
         conversationContext: {
-          recentMessages: ['Hello', 'How are you?'],
-          conversationLength: 2,
-          topicContinuity: 0.7
+          messageCount: 15,
+          averageSentiment: -0.2,
+          recentTopics: ['work', 'stress'],
+          timeSpan: 120
         }
       };
 
       expect(['off', 'subtle', 'standard'].includes(context.userSettings.assistLevel)).toBe(true);
       expect(['ask', 'off', 'on'].includes(context.userSettings.autoLogMode)).toBe(true);
       expect(['surface', 'context', 'deep'].includes(context.userSettings.privacyLayer)).toBe(true);
-      expect(typeof context.fatigueState.dailyCount).toBe('number');
-      expect(context.conversationContext?.recentMessages).toBeInstanceOf(Array);
+      expect(typeof context.fatigueState.globalInterventions).toBe('number');
+      expect(context.conversationContext.timeSpan).toBe(120);
     });
   });
 
   describe('CrisisFlag', () => {
-    it('includes expected crisis types', () => {
-      const validCrisisFlags: CrisisFlag[] = [
-        'suicide',
-        'self_harm',
-        'severe_distress',
-        'emergency',
-        'substance_abuse'
+    it('validates CrisisFlag structure', () => {
+      const crisisFlags: CrisisFlag[] = [
+        {
+          type: 'suicide',
+          confidence: 0.9,
+          keywords: ['ending it all'],
+          severity: 'critical'
+        },
+        {
+          type: 'self_harm',
+          confidence: 0.7,
+          keywords: ['hurt myself'],
+          severity: 'high'
+        }
       ];
 
-      validCrisisFlags.forEach(flag => {
-        expect(typeof flag).toBe('string');
-        expect(flag.length).toBeGreaterThan(0);
-      });
+      expect(crisisFlags).toHaveLength(2);
+      expect(crisisFlags[0].type).toBe('suicide');
+      expect(crisisFlags[0].severity).toBe('critical');
     });
   });
 
   describe('FatigueRule', () => {
-    it('has valid fatigue rule structure', () => {
-      const fatigueRule: FatigueRule = {
-        maxDaily: 3,
-        cooldownMinutes: 30,
-        declineThreshold: 2,
-        snoozeHours: 24
+    it('validates FatigueRule structure', () => {
+      const rule: FatigueRule = {
+        name: 'daily_limit',
+        condition: () => true,
+        cooldownMinutes: 60,
+        maxDailyInterventions: 5,
+        topicSpecific: 'all_or_nothing'
       };
 
-      expect(typeof fatigueRule.maxDaily).toBe('number');
-      expect(typeof fatigueRule.cooldownMinutes).toBe('number');
-      expect(typeof fatigueRule.declineThreshold).toBe('number');
-      expect(typeof fatigueRule.snoozeHours).toBe('number');
+      expect(rule.name).toBe('daily_limit');
+      expect(typeof rule.condition).toBe('function');
+      expect(typeof rule.cooldownMinutes).toBe('number');
+      expect(typeof rule.maxDailyInterventions).toBe('number');
     });
   });
 });

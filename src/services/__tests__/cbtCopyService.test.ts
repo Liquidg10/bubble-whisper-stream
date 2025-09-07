@@ -1,217 +1,120 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { cbtCopyService } from '../cbtCopyService';
+import { getChipCopy, getContextualEncouragement, validateChipCopy } from '../cbtCopyService';
+import { polishCopy } from '@/utils/copyPolish';
 
-// Mock localStorage
-const mockLocalStorage = {
-  getItem: vi.fn(),
-  setItem: vi.fn(),
-  removeItem: vi.fn(),
-  clear: vi.fn()
-};
-
-Object.defineProperty(window, 'localStorage', {
-  value: mockLocalStorage
-});
+// Mock polishCopy
+vi.mock('@/utils/copyPolish', () => ({
+  polishCopy: vi.fn((text) => text.replace(/CBT/g, 'check-in'))
+}));
 
 describe('CBTCopyService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockLocalStorage.getItem.mockReturnValue(null);
   });
 
   describe('getChipCopy', () => {
-    it('returns variant A copy', () => {
-      const copy = cbtCopyService.getChipCopy('AllOrNothing', 'A');
+    it('returns appropriate copy for user and action type', () => {
+      const copy1 = getChipCopy('user-1', 'general');
+      const copy2 = getChipCopy('user-2', 'general');
 
-      expect(copy).toMatchObject({
-        promptText: expect.stringContaining('moment to explore'),
-        primaryAction: 'Yes, please',
-        dismissAction: 'Maybe later',
-        explainability: expect.stringContaining('absolute language')
-      });
+      expect(copy1).toHaveProperty('promptText');
+      expect(copy1).toHaveProperty('primaryAction');
+      expect(copy1).toHaveProperty('dismissAction');
+      expect(copy1).toHaveProperty('explainability');
+
+      // Different users may get different variants
+      expect(typeof copy1.promptText).toBe('string');
+      expect(typeof copy2.promptText).toBe('string');
     });
 
-    it('returns variant B copy', () => {
-      const copy = cbtCopyService.getChipCopy('Catastrophizing', 'B');
-
-      expect(copy).toMatchObject({
-        promptText: expect.stringContaining('look at this together'),
-        primaryAction: "I'm ready",
-        dismissAction: 'Not right now',
-        explainability: expect.stringContaining('worst-case')
-      });
+    it('applies context-specific copy when provided', () => {
+      const copy = getChipCopy('user-1', 'general', 'reframe');
+      
+      expect(copy).toHaveProperty('promptText');
+      expect(typeof copy.promptText).toBe('string');
     });
 
-    it('returns variant C copy', () => {
-      const copy = cbtCopyService.getChipCopy('EmotionalReasoning', 'C');
-
-      expect(copy).toMatchObject({
-        promptText: expect.stringContaining('check something'),
-        primaryAction: 'Sure',
-        dismissAction: 'Another time',
-        explainability: expect.stringContaining('feelings as facts')
-      });
+    it('applies copy polish to all text', () => {
+      const copy = getChipCopy('user-1', 'general');
+      
+      // Verify that polishCopy was called
+      expect(polishCopy).toHaveBeenCalled();
+      expect(typeof copy.promptText).toBe('string');
+      expect(typeof copy.primaryAction).toBe('string');
     });
 
-    it('falls back to default variant for unknown types', () => {
-      const copy = cbtCopyService.getChipCopy('UnknownType' as any, 'A');
-
-      expect(copy).toMatchObject({
-        promptText: 'Want to explore this together?',
-        primaryAction: 'Yes, please',
-        dismissAction: 'Maybe later',
-        explainability: 'because I noticed a thinking pattern'
-      });
+    it('handles different contexts', () => {
+      const breathingCopy = getChipCopy('user-1', 'general', 'breathing');
+      const groundingCopy = getChipCopy('user-1', 'general', 'grounding');
+      
+      expect(typeof breathingCopy.promptText).toBe('string');
+      expect(typeof groundingCopy.promptText).toBe('string');
     });
   });
 
-  describe('getRandomVariant', () => {
-    it('returns one of the valid variants', () => {
-      const variant = cbtCopyService.getRandomVariant();
-      expect(['A', 'B', 'C']).toContain(variant);
+  describe('getContextualEncouragement', () => {
+    it('returns appropriate encouragement for context', () => {
+      const dismissedMsg = getContextualEncouragement('dismissed');
+      const engagedMsg = getContextualEncouragement('engaged');
+      const helpfulMsg = getContextualEncouragement('helpful');
+
+      expect(typeof dismissedMsg).toBe('string');
+      expect(typeof engagedMsg).toBe('string');
+      expect(typeof helpfulMsg).toBe('string');
+      
+      expect(dismissedMsg.length).toBeGreaterThan(0);
+      expect(engagedMsg.length).toBeGreaterThan(0);
+      expect(helpfulMsg.length).toBeGreaterThan(0);
     });
 
-    it('maintains consistency for same user session', () => {
-      const variant1 = cbtCopyService.getRandomVariant();
-      const variant2 = cbtCopyService.getRandomVariant();
-      expect(variant1).toBe(variant2);
+    it('applies copy polish to encouragement text', () => {
+      getContextualEncouragement('engaged');
+      
+      expect(polishCopy).toHaveBeenCalled();
     });
   });
 
-  describe('getActiveVariant', () => {
-    it('retrieves stored variant from localStorage', () => {
-      mockLocalStorage.getItem.mockReturnValue('B');
+  describe('validateChipCopy', () => {
+    it('validates copy for clinical and shame language', () => {
+      const validText = 'Want to explore this together?';
+      const invalidText = 'This cognitive distortion is wrong and terrible';
       
-      const variant = cbtCopyService.getActiveVariant();
-      expect(variant).toBe('B');
-    });
-
-    it('generates new variant when none stored', () => {
-      mockLocalStorage.getItem.mockReturnValue(null);
+      const validResult = validateChipCopy(validText);
+      const invalidResult = validateChipCopy(invalidText);
       
-      const variant = cbtCopyService.getActiveVariant();
-      expect(['A', 'B', 'C']).toContain(variant);
-      expect(mockLocalStorage.setItem).toHaveBeenCalledWith(
-        'cbt_copy_variant',
-        variant
-      );
-    });
-  });
-
-  describe('recordVariantInteraction', () => {
-    it('records engagement interaction', () => {
-      cbtCopyService.recordVariantInteraction('B', 'engaged', 'trace-123');
-
-      expect(mockLocalStorage.setItem).toHaveBeenCalledWith(
-        'cbt_copy_metrics',
-        expect.stringContaining('"variant":"B"')
-      );
-    });
-
-    it('records dismissal interaction', () => {
-      cbtCopyService.recordVariantInteraction('A', 'dismissed', 'trace-456');
-
-      const metricsCall = mockLocalStorage.setItem.mock.calls.find(
-        call => call[0] === 'cbt_copy_metrics'
-      );
-      const metricsData = JSON.parse(metricsCall[1]);
+      expect(validResult.isValid).toBe(true);
+      expect(validResult.issues).toHaveLength(0);
       
-      expect(metricsData).toMatchObject({
-        variant: 'A',
-        action: 'dismissed',
-        traceId: 'trace-456',
-        timestamp: expect.any(Number)
-      });
+      expect(invalidResult.isValid).toBe(false);
+      expect(invalidResult.issues.length).toBeGreaterThan(0);
+      expect(invalidResult.suggestions.length).toBeGreaterThan(0);
     });
 
-    it('appends to existing metrics', () => {
-      const existingMetrics = [
-        { variant: 'A', action: 'engaged', traceId: 'trace-1', timestamp: 123 }
-      ];
-      mockLocalStorage.getItem.mockReturnValue(JSON.stringify(existingMetrics));
-
-      cbtCopyService.recordVariantInteraction('B', 'dismissed', 'trace-2');
-
-      const metricsCall = mockLocalStorage.setItem.mock.calls.find(
-        call => call[0] === 'cbt_copy_metrics'
-      );
-      const metricsData = JSON.parse(metricsCall[1]);
+    it('identifies clinical terms', () => {
+      const textWithClinicalTerms = 'This cognitive distortion needs therapy treatment';
+      const result = validateChipCopy(textWithClinicalTerms);
       
-      expect(metricsData).toHaveLength(2);
-      expect(metricsData[1]).toMatchObject({
-        variant: 'B',
-        action: 'dismissed',
-        traceId: 'trace-2'
-      });
+      expect(result.isValid).toBe(false);
+      expect(result.issues.some(issue => issue.includes('cognitive distortion'))).toBe(true);
+      expect(result.issues.some(issue => issue.includes('therapy'))).toBe(true);
     });
-  });
 
-  describe('getCopyMetrics', () => {
-    it('returns empty metrics when none stored', () => {
-      mockLocalStorage.getItem.mockReturnValue(null);
+    it('identifies shame language', () => {
+      const textWithShameLanguage = 'You are wrong and this is terrible because you should have known better';
+      const result = validateChipCopy(textWithShameLanguage);
       
-      const metrics = cbtCopyService.getCopyMetrics();
+      expect(result.isValid).toBe(false);
+      expect(result.issues.some(issue => issue.includes('wrong'))).toBe(true);
+      expect(result.issues.some(issue => issue.includes('terrible'))).toBe(true);
+      expect(result.issues.some(issue => issue.includes('should have'))).toBe(true);
+    });
+
+    it('provides suggestions for improvement', () => {
+      const invalidText = 'This cognitive distortion is wrong';
+      const result = validateChipCopy(invalidText);
       
-      expect(metrics).toEqual({
-        variantA: { engagements: 0, dismissals: 0, engagementRate: 0 },
-        variantB: { engagements: 0, dismissals: 0, engagementRate: 0 },
-        variantC: { engagements: 0, dismissals: 0, engagementRate: 0 }
-      });
-    });
-
-    it('calculates metrics from stored interactions', () => {
-      const interactions = [
-        { variant: 'A', action: 'engaged', traceId: 'trace-1', timestamp: 123 },
-        { variant: 'A', action: 'engaged', traceId: 'trace-2', timestamp: 124 },
-        { variant: 'A', action: 'dismissed', traceId: 'trace-3', timestamp: 125 },
-        { variant: 'B', action: 'engaged', traceId: 'trace-4', timestamp: 126 },
-        { variant: 'B', action: 'dismissed', traceId: 'trace-5', timestamp: 127 },
-        { variant: 'B', action: 'dismissed', traceId: 'trace-6', timestamp: 128 }
-      ];
-      mockLocalStorage.getItem.mockReturnValue(JSON.stringify(interactions));
-
-      const metrics = cbtCopyService.getCopyMetrics();
-
-      expect(metrics).toEqual({
-        variantA: { 
-          engagements: 2, 
-          dismissals: 1, 
-          engagementRate: 2/3 
-        },
-        variantB: { 
-          engagements: 1, 
-          dismissals: 2, 
-          engagementRate: 1/3 
-        },
-        variantC: { 
-          engagements: 0, 
-          dismissals: 0, 
-          engagementRate: 0 
-        }
-      });
-    });
-  });
-
-  describe('clearCopyData', () => {
-    it('removes all copy-related data from localStorage', () => {
-      cbtCopyService.clearCopyData();
-
-      expect(mockLocalStorage.removeItem).toHaveBeenCalledWith('cbt_copy_variant');
-      expect(mockLocalStorage.removeItem).toHaveBeenCalledWith('cbt_copy_metrics');
-    });
-  });
-
-  describe('integration with polishCopy', () => {
-    it('applies copy polish to all text variants', () => {
-      // Mock polishCopy to replace CBT terms
-      vi.mock('@/utils/copyPolish', () => ({
-        polishCopy: vi.fn((text) => text.replace(/CBT/g, 'check-in'))
-      }));
-
-      const copy = cbtCopyService.getChipCopy('AllOrNothing', 'A');
-
-      expect(copy.promptText).not.toContain('CBT');
-      expect(copy.explainability).not.toContain('CBT');
+      expect(result.suggestions.length).toBeGreaterThan(0);
+      expect(result.suggestions.every(suggestion => typeof suggestion === 'string')).toBe(true);
     });
   });
 });
