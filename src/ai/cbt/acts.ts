@@ -143,7 +143,7 @@ export function render(decision: CBTDecision): CBTAction | null {
 
 function generateGenericResponse(interventionType: CBTDecision['interventionType']): CBTAction {
   switch (interventionType) {
-    case 'silent':
+    case 'chip':
       return {
         type: 'chip',
         text: 'Take a moment to reflect',
@@ -155,7 +155,7 @@ function generateGenericResponse(interventionType: CBTDecision['interventionType
         }
       };
       
-    case 'gentle':
+    case 'none':
       return {
         type: 'ack',
         text: 'I hear that this is difficult right now. 🤗',
@@ -167,7 +167,7 @@ function generateGenericResponse(interventionType: CBTDecision['interventionType
         }
       };
       
-    case 'direct':
+    default:
       return {
         type: 'question',
         text: 'What would help you see this differently?',
@@ -194,45 +194,27 @@ function generateDistortionResponse(
   responses: typeof DISTORTION_RESPONSES[DistortionType]
 ): CBTAction {
   
-  switch (interventionType) {
-    case 'silent':
-      return {
-        type: 'chip',
-        text: getRandomItem(responses.chips),
-        data: {
-          distortionType,
-          followUpQuestions: responses.questions.slice(0, 1)
-        }
-      };
-      
-    case 'gentle':
-      return {
-        type: 'ack',
-        text: getRandomItem(responses.acknowledgments),
-        data: {
-          distortionType,
-          reframes: responses.reframes.slice(0, 2),
-          followUpQuestions: responses.questions.slice(0, 2)
-        }
-      };
-      
-    case 'direct':
-      return {
-        type: 'question',
-        text: getRandomItem(responses.questions),
-        data: {
-          distortionType,
-          reframes: responses.reframes,
-          followUpQuestions: responses.questions
-        }
-      };
-      
-    default:
-      return {
-        type: 'ack',
-        text: getRandomItem(responses.acknowledgments)
-      };
+  // PROMPT 3: Simplified to chip|none only
+  if (interventionType === 'chip') {
+    return {
+      type: 'chip',
+      text: getRandomItem(responses.chips),
+      data: {
+        distortionType,
+        followUpQuestions: responses.questions.slice(0, 1)
+      }
+    };
   }
+  
+  // Default case for 'none' or fallback
+  return {
+    type: 'ack',
+    text: getRandomItem(responses.acknowledgments),
+    data: {
+      distortionType,
+      followUpQuestions: responses.questions.slice(0, 1)
+    }
+  };
 }
 
 function getRandomItem<T>(array: T[]): T {

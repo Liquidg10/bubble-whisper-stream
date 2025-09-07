@@ -33,7 +33,7 @@ describe('CBT Trace Service', () => {
     },
     decision: {
       shouldIntervene: true,
-      interventionType: 'gentle' as const,
+      interventionType: 'chip' as const,
       reason: 'Distortion detected',
       targetDistortions: ['all_or_nothing' as const],
       priority: 'medium' as const,

@@ -22,10 +22,10 @@ export function decide(
     return createDecision('none', 'No annotations to process', [], 'low');
   }
   
-  // Crisis intervention always takes priority
+  // PROMPT 3: Crisis detection but don't shouldIntervene, route externally
   const crisisDecision = evaluateCrisisIntervention(latestAnnotation);
-  if (crisisDecision.shouldIntervene) {
-    return crisisDecision;
+  if (crisisDecision.metadata.isCrisis) {
+    return crisisDecision; // Returns 'none' but with crisis flag for external routing
   }
   
   // Check fatigue constraints
@@ -55,7 +55,8 @@ function createDecision(
   targetDistortions: DistortionType[],
   priority: CBTDecision['priority'],
   cooldownMinutes: number = 0,
-  confidence: number = 1.0
+  confidence: number = 1.0,
+  isCrisis: boolean = false
 ): CBTDecision {
   return {
     shouldIntervene: interventionType !== 'none',
@@ -67,7 +68,8 @@ function createDecision(
     metadata: {
       fatigueScore: 0, // Will be calculated by fatigue module
       policyMatch: reason,
-      confidence
+      confidence,
+      isCrisis
     }
   };
 }
@@ -79,20 +81,20 @@ function evaluateCrisisIntervention(annotation: CBTAnnotation): CBTDecision {
     return createDecision('none', 'No crisis detected', [], 'low');
   }
   
-  // Determine highest severity crisis
+  // PROMPT 3: Crisis detected -> action=none, reason=crisis (route to external crisis flow)
   const criticalFlags = crisisFlags.filter(f => f.severity === 'critical');
   const highFlags = crisisFlags.filter(f => f.severity === 'high');
   
   if (criticalFlags.length > 0) {
-    return createDecision('direct', 'Critical crisis intervention needed', [], 'crisis', 0, 1.0);
+    return createDecision('none', 'crisis', [], 'crisis', 0, 1.0, true);
   }
   
   if (highFlags.length > 0) {
-    return createDecision('direct', 'High-severity crisis support needed', [], 'crisis', 0, 0.9);
+    return createDecision('none', 'crisis', [], 'crisis', 0, 0.9, true);
   }
   
-  // Medium severity - gentle intervention
-  return createDecision('gentle', 'Crisis support available', [], 'high', 0, 0.7);
+  // Medium severity - still route to crisis system
+  return createDecision('none', 'crisis', [], 'high', 0, 0.7, true);
 }
 
 function evaluateFatigue(
@@ -101,12 +103,9 @@ function evaluateFatigue(
 ): { canIntervene: boolean; reason: string; cooldownMinutes?: number } {
   
   const now = Date.now();
-  const oneHour = 60 * 60 * 1000;
-  const oneDay = 24 * oneHour;
   
-  // Daily limit check
-  const maxDailyInterventions = userSettings.assistLevel === 'subtle' ? 3 : 6;
-  if (fatigueState.dailyCount >= maxDailyInterventions) {
+  // PROMPT 3: Max 2 prompts/day total (regardless of assist level)
+  if (fatigueState.dailyCount >= 2) {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     tomorrow.setHours(0, 0, 0, 0);
@@ -114,18 +113,33 @@ function evaluateFatigue(
     
     return {
       canIntervene: false,
-      reason: 'Daily intervention limit reached',
+      reason: 'Daily intervention limit reached (2/day)',
       cooldownMinutes: minutesUntilTomorrow
     };
   }
   
-  // Recent intervention cooldown
-  const minCooldownMs = userSettings.assistLevel === 'subtle' ? 2 * oneHour : oneHour;
-  if (now - fatigueState.lastIntervention < minCooldownMs) {
-    const cooldownMinutes = Math.ceil((minCooldownMs - (now - fatigueState.lastIntervention)) / (1000 * 60));
+  // PROMPT 3: Check 24h topic decline snooze
+  const topicDeclines = fatigueState.topicDeclines || {};
+  const hasActiveDecline = Object.values(topicDeclines).some(snoozeTime => now < snoozeTime);
+  if (hasActiveDecline) {
+    const nextAvailable = Math.min(...Object.values(topicDeclines).filter(t => t > now));
+    const cooldownMinutes = Math.ceil((nextAvailable - now) / (1000 * 60));
     return {
       canIntervene: false,
-      reason: 'Recent intervention cooldown active',
+      reason: 'Topic decline auto-snooze active (24h)',
+      cooldownMinutes
+    };
+  }
+  
+  // PROMPT 3: Check 30min topic cooldown
+  const topicCooldowns = fatigueState.topicCooldowns || {};
+  const hasActiveCooldown = Object.values(topicCooldowns).some(cooldownTime => now < cooldownTime);
+  if (hasActiveCooldown) {
+    const nextAvailable = Math.min(...Object.values(topicCooldowns).filter(t => t > now));
+    const cooldownMinutes = Math.ceil((nextAvailable - now) / (1000 * 60));
+    return {
+      canIntervene: false,
+      reason: 'Topic cooldown active (30min)',
       cooldownMinutes
     };
   }
@@ -197,8 +211,8 @@ function evaluateDistortionIntervention(
     return createDecision('none', 'No distortions detected', [], 'low');
   }
   
-  // Calculate intervention threshold based on assist level
-  const confidenceThreshold = userSettings.assistLevel === 'subtle' ? 0.7 : 0.5;
+  // PROMPT 3: Confidence threshold ≥ 0.85 for intervention
+  const confidenceThreshold = 0.85;
   
   // Filter distortions by confidence
   const significantDistortions = annotation.distortions.filter(d => 
@@ -206,21 +220,12 @@ function evaluateDistortionIntervention(
   );
   
   if (significantDistortions.length === 0) {
-    return createDecision('none', 'Distortions below confidence threshold', [], 'low');
+    return createDecision('none', 'Distortions below confidence threshold (0.85)', [], 'low');
   }
   
-  // Determine intervention type based on severity and user settings
-  const highConfidenceDistortions = significantDistortions.filter(d => d.confidence >= 0.8);
+  // PROMPT 3: Simplified decision - if ≥0.85 confidence and passes fatigue/quiet/topic checks → chip
   const targetDistortions = significantDistortions.map(d => d.type);
   
-  if (highConfidenceDistortions.length > 0 && userSettings.assistLevel === 'standard') {
-    return createDecision('direct', 'High-confidence distortions detected', targetDistortions, 'medium', 30);
-  }
-  
-  if (significantDistortions.length >= 2) {
-    return createDecision('gentle', 'Multiple distortions detected', targetDistortions, 'medium', 60);
-  }
-  
-  // Single distortion - subtle intervention
-  return createDecision('silent', 'Single distortion detected', targetDistortions, 'low', 120);
+  // Return chip intervention (subtle nudge, no clinical label)
+  return createDecision('chip', 'High-confidence distortion detected', targetDistortions, 'medium', 30);
 }

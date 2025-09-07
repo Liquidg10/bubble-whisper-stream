@@ -4,31 +4,22 @@
 
 import type { CBTPolicyContext, FatigueRule, DistortionType } from './types';
 
-// Default fatigue rules
+// PROMPT 3 Fatigue Rules - Max 2/day, 30min topic cooldown, 24h decline snooze
 const DEFAULT_FATIGUE_RULES: FatigueRule[] = [
   {
-    name: 'global_hourly_limit',
-    condition: (context) => context.fatigueState.globalInterventions >= getHourlyLimit(context),
-    cooldownMinutes: 60
-  },
-  {
-    name: 'daily_limit',
-    condition: (context) => context.fatigueState.dailyCount >= getDailyLimit(context),
+    name: 'daily_limit_prompt3',
+    condition: (context) => context.fatigueState.dailyCount >= 2, // PROMPT 3: Max 2/day
     cooldownMinutes: 24 * 60 // Rest of day
   },
   {
-    name: 'recent_intervention',
-    condition: (context) => {
-      const minGapMs = getMinInterventionGap(context);
-      return (Date.now() - context.fatigueState.lastIntervention) < minGapMs;
-    },
-    cooldownMinutes: 30
+    name: 'topic_cooldown_prompt3',
+    condition: (context) => hasTopicCooldown(context),
+    cooldownMinutes: 30 // PROMPT 3: 30min cooldown per topic
   },
   {
-    name: 'topic_specific_cooldown',
-    condition: (context) => hasTopicCooldown(context),
-    cooldownMinutes: 120,
-    topicSpecific: undefined // Will be determined dynamically
+    name: 'topic_decline_snooze',
+    condition: (context) => hasTopicDeclineSnooze(context),
+    cooldownMinutes: 24 * 60 // PROMPT 3: 24h auto-snooze on decline
   }
 ];
 
@@ -78,10 +69,10 @@ class CBTFatigueService {
     // Reset daily count if it's a new day
     const dailyCount = today === lastInterventionDate ? fatigueState.dailyCount + 1 : 1;
     
-    // Update topic cooldowns
+    // PROMPT 3: 30min topic cooldown
     const topicCooldowns = { ...fatigueState.topicCooldowns };
     targetDistortions.forEach(distortion => {
-      topicCooldowns[distortion] = now + (2 * 60 * 60 * 1000); // 2 hour cooldown
+      topicCooldowns[distortion] = now + (30 * 60 * 1000); // 30min cooldown
     });
     
     return {
@@ -89,7 +80,29 @@ class CBTFatigueService {
       globalInterventions: fatigueState.globalInterventions + 1,
       lastIntervention: now,
       dailyCount,
-      topicCooldowns
+      topicCooldowns,
+      topicDeclines: fatigueState.topicDeclines || {}
+    };
+  }
+
+  /**
+   * Record user decline for topic-specific auto-snooze
+   */
+  recordTopicDecline(
+    fatigueState: CBTPolicyContext['fatigueState'],
+    targetDistortions: DistortionType[]
+  ): CBTPolicyContext['fatigueState'] {
+    const now = Date.now();
+    const topicDeclines = { ...fatigueState.topicDeclines };
+    
+    // PROMPT 3: 24h auto-snooze on decline
+    targetDistortions.forEach(distortion => {
+      topicDeclines[distortion] = now + (24 * 60 * 60 * 1000); // 24h snooze
+    });
+    
+    return {
+      ...fatigueState,
+      topicDeclines
     };
   }
   
@@ -136,7 +149,8 @@ class CBTFatigueService {
       globalInterventions: 0,
       topicCooldowns: {} as Partial<Record<DistortionType, number>>,
       lastIntervention: 0,
-      dailyCount: 0
+      dailyCount: 0,
+      topicDeclines: {} as Partial<Record<DistortionType, number>>
     };
   }
   
@@ -166,24 +180,18 @@ class CBTFatigueService {
 
 // Helper functions
 function getHourlyLimit(context: CBTPolicyContext): number {
-  switch (context.userSettings.assistLevel) {
-    case 'subtle': return 1;
-    case 'standard': return 3;
-    default: return 0;
-  }
+  // PROMPT 3: Simplified - no hourly limits, just daily
+  return 99; // Effectively unlimited hourly
 }
 
 function getDailyLimit(context: CBTPolicyContext): number {
-  switch (context.userSettings.assistLevel) {
-    case 'subtle': return 3;
-    case 'standard': return 8;
-    default: return 0;
-  }
+  // PROMPT 3: Max 2/day regardless of assist level
+  return context.userSettings.assistLevel === 'off' ? 0 : 2;
 }
 
 function getMinInterventionGap(context: CBTPolicyContext): number {
-  const baseGapMinutes = context.userSettings.assistLevel === 'subtle' ? 60 : 30;
-  return baseGapMinutes * 60 * 1000; // Convert to milliseconds
+  // PROMPT 3: No global intervention gap, just topic-specific
+  return 0;
 }
 
 function hasTopicCooldown(context: CBTPolicyContext): boolean {
@@ -193,10 +201,18 @@ function hasTopicCooldown(context: CBTPolicyContext): boolean {
   );
 }
 
+function hasTopicDeclineSnooze(context: CBTPolicyContext): boolean {
+  const now = Date.now();
+  const declines = context.fatigueState.topicDeclines || {};
+  return Object.values(declines).some(snoozeTime => 
+    now < snoozeTime
+  );
+}
+
 export const fatigueService = new CBTFatigueService();
 
 // Export class for testing
 export { CBTFatigueService };
 
 // Export helper functions for testing
-export { getHourlyLimit, getDailyLimit, getMinInterventionGap, hasTopicCooldown };
+export { getHourlyLimit, getDailyLimit, getMinInterventionGap, hasTopicCooldown, hasTopicDeclineSnooze };

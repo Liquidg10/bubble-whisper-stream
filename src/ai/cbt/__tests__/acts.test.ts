@@ -30,7 +30,7 @@ describe('CBT Actions', () => {
     it('should render crisis support action', () => {
       const crisisDecision: CBTDecision = {
         shouldIntervene: true,
-        interventionType: 'direct',
+        interventionType: 'chip',
         reason: 'Crisis intervention needed',
         targetDistortions: [],
         priority: 'crisis',
@@ -54,7 +54,7 @@ describe('CBT Actions', () => {
     it('should render chip action for silent intervention', () => {
       const silentDecision: CBTDecision = {
         shouldIntervene: true,
-        interventionType: 'silent',
+        interventionType: 'chip',
         reason: 'Distortion detected',
         targetDistortions: ['all_or_nothing'],
         priority: 'low',
@@ -76,7 +76,7 @@ describe('CBT Actions', () => {
     it('should render acknowledgment for gentle intervention', () => {
       const gentleDecision: CBTDecision = {
         shouldIntervene: true,
-        interventionType: 'gentle',
+        interventionType: 'chip',
         reason: 'Multiple distortions detected',
         targetDistortions: ['catastrophizing'],
         priority: 'medium',
@@ -99,7 +99,7 @@ describe('CBT Actions', () => {
     it('should render question for direct intervention', () => {
       const directDecision: CBTDecision = {
         shouldIntervene: true,
-        interventionType: 'direct',
+        interventionType: 'chip',
         reason: 'High confidence distortion',
         targetDistortions: ['should_statements'],
         priority: 'high',
@@ -123,7 +123,7 @@ describe('CBT Actions', () => {
     it('should provide appropriate responses for all-or-nothing thinking', () => {
       const decision: CBTDecision = {
         shouldIntervene: true,
-        interventionType: 'gentle',
+        interventionType: 'chip',
         reason: 'All-or-nothing detected',
         targetDistortions: ['all_or_nothing'],
         priority: 'medium',
@@ -140,7 +140,7 @@ describe('CBT Actions', () => {
     it('should provide appropriate responses for catastrophizing', () => {
       const decision: CBTDecision = {
         shouldIntervene: true,
-        interventionType: 'gentle',
+        interventionType: 'chip',
         reason: 'Catastrophizing detected',
         targetDistortions: ['catastrophizing'],
         priority: 'medium',
@@ -157,7 +157,7 @@ describe('CBT Actions', () => {
     it('should provide appropriate responses for overgeneralization', () => {
       const decision: CBTDecision = {
         shouldIntervene: true,
-        interventionType: 'direct',
+        interventionType: 'chip',
         reason: 'Overgeneralization detected',
         targetDistortions: ['overgeneralization'],
         priority: 'medium',
@@ -243,7 +243,7 @@ describe('CBT Actions', () => {
     it('should provide generic response for unknown distortion type', () => {
       const unknownDecision: CBTDecision = {
         shouldIntervene: true,
-        interventionType: 'gentle',
+        interventionType: 'chip',
         reason: 'Unknown distortion',
         targetDistortions: [],
         priority: 'medium',

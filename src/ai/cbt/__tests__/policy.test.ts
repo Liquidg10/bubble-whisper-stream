@@ -44,7 +44,8 @@ describe('CBT Policy Engine', () => {
     globalInterventions: 0,
     topicCooldowns: {} as Partial<Record<DistortionType, number>>,
     lastIntervention: 0,
-    dailyCount: 0
+    dailyCount: 0,
+    topicDeclines: {} as Partial<Record<DistortionType, number>>
   };
 
   describe('Basic Decision Making', () => {
@@ -53,7 +54,7 @@ describe('CBT Policy Engine', () => {
       
       expect(result.shouldIntervene).toBe(true);
       expect(result.targetDistortions).toContain('all_or_nothing');
-      expect(result.interventionType).toBe('silent');
+      expect(result.interventionType).toBe('chip');
     });
 
     it('should not intervene when assistance is disabled', () => {

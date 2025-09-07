@@ -33,7 +33,7 @@ export interface CBTAnnotation {
 
 export interface CBTDecision {
   shouldIntervene: boolean;
-  interventionType: 'none' | 'silent' | 'gentle' | 'direct';
+  interventionType: 'none' | 'chip';
   reason: string;
   targetDistortions: DistortionType[];
   priority: 'low' | 'medium' | 'high' | 'crisis';
@@ -42,6 +42,7 @@ export interface CBTDecision {
     fatigueScore: number;
     policyMatch: string;
     confidence: number;
+    isCrisis?: boolean;
   };
 }
 
@@ -78,6 +79,7 @@ export interface CBTPolicyContext {
     topicCooldowns: Partial<Record<DistortionType, number>>; // timestamp
     lastIntervention: number;
     dailyCount: number;
+    topicDeclines: Partial<Record<DistortionType, number>>; // 24h auto-snooze on decline
   };
   conversationContext: {
     messageCount: number;

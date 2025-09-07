@@ -22,7 +22,8 @@ describe('CBT Fatigue Service', () => {
     globalInterventions: 0,
     topicCooldowns: {} as Partial<Record<DistortionType, number>>,
     lastIntervention: 0,
-    dailyCount: 0
+    dailyCount: 0,
+    topicDeclines: {} as Partial<Record<DistortionType, number>>
   };
 
   const mockConversationContext: CBTPolicyContext['conversationContext'] = {
