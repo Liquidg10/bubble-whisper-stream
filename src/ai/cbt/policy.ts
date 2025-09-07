@@ -211,8 +211,8 @@ function evaluateDistortionIntervention(
     return createDecision('none', 'No distortions detected', [], 'low');
   }
   
-  // PROMPT 3: Confidence threshold ≥ 0.85 for intervention
-  const confidenceThreshold = 0.85;
+  // PROMPT 8: Use user-specific confidence thresholds from learning service
+  const confidenceThreshold = getUserConfidenceThreshold(annotation.distortions, userSettings);
   
   // Filter distortions by confidence
   const significantDistortions = annotation.distortions.filter(d => 
@@ -228,4 +228,33 @@ function evaluateDistortionIntervention(
   
   // Return chip intervention (subtle nudge, no clinical label)
   return createDecision('chip', 'High-confidence distortion detected', targetDistortions, 'medium', 30);
+}
+
+/**
+ * PROMPT 8: Get user-specific confidence threshold based on learning preferences
+ */
+function getUserConfidenceThreshold(
+  distortions: CBTAnnotation['distortions'],
+  userSettings: CBTPolicyContext['userSettings']
+): number {
+  // Use the highest user-specific threshold for any detected distortion
+  let maxThreshold = 0.85; // Default
+  
+  try {
+    // Import learning service dynamically to avoid circular deps
+    const learningPrefs = localStorage.getItem('cbt_learning_preferences');
+    if (learningPrefs) {
+      const prefs = JSON.parse(learningPrefs);
+      distortions.forEach(distortion => {
+        const userThreshold = prefs.distortionThresholds?.[distortion.type];
+        if (userThreshold && userThreshold > maxThreshold) {
+          maxThreshold = userThreshold;
+        }
+      });
+    }
+  } catch (error) {
+    console.warn('[CBT Policy] Failed to get user thresholds:', error);
+  }
+  
+  return maxThreshold;
 }

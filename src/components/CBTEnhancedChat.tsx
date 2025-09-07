@@ -31,11 +31,12 @@ import {
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
-import { cbtConversationPipeline } from '@/services/cbtConversationPipeline';
+import { cbtConversationIntegration } from '@/services/cbtConversationIntegration';
 import { ttsService } from '@/services/tts';
 import { modalityService } from '@/services/modalityService';
 import { productivityLearningService } from '@/services/productivityLearningService';
 import { contextPatternService } from '@/services/contextPatternService';
+import { CBTConversationWrapper } from '@/components/CBTConversationWrapper';
 
 
 // Helper functions for rich text formatting
@@ -125,6 +126,7 @@ interface AIMessage {
     shouldShow: boolean;
     action?: any;
     traceId?: string;
+    distortionTypes?: string[];
   };
 }
 
@@ -337,7 +339,7 @@ export const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({
       const userId = (await supabase.auth.getUser()).data.user?.id || 'anonymous';
       
       // PROMPT 7: Main message interception point - analyze through CBT pipeline
-      const cbtResult = await cbtConversationPipeline.analyzeMessage({
+      const cbtResult = await cbtConversationIntegration.analyzeMessage({
         messageText,
         messageId,
         userId,
@@ -408,7 +410,8 @@ export const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({
         cbtGuidance: cbtResult.shouldShowCBT ? {
           shouldShow: true,
           action: cbtResult.cbtAction,
-          traceId: cbtResult.traceId
+          traceId: cbtResult.traceId,
+          distortionTypes: cbtResult.cbtAction?.data?.distortionType ? [cbtResult.cbtAction.data.distortionType] : []
         } : undefined
       };
 
@@ -670,6 +673,30 @@ export const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({
     inputRef.current?.focus();
   };
 
+  // PROMPT 8: CBT engagement handler with feedback learning
+  const handleCBTEngagement = async (
+    traceId: string, 
+    engaged: boolean, 
+    response?: string, 
+    helpfulness?: number, 
+    distortionTypes?: string[]
+  ) => {
+    try {
+      await cbtConversationIntegration.recordCBTEngagement(traceId, engaged, response, helpfulness, distortionTypes);
+      
+      if (!engaged) {
+        // Clear CBT guidance on dismissal by updating the relevant message
+        setMessages(prev => prev.map(msg => 
+          msg.cbtGuidance?.traceId === traceId 
+            ? { ...msg, cbtGuidance: { ...msg.cbtGuidance, shouldShow: false } }
+            : msg
+        ));
+      }
+    } catch (error) {
+      console.error('[CBT Enhanced Chat] Failed to record engagement:', error);
+    }
+  };
+
   const SessionProgress = () => {
     if (!currentSession) return null;
 
@@ -751,25 +778,30 @@ export const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({
                 exit={{ opacity: 0, y: -15 }}
                 className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
               >
-                 <div
-                   className={`w-full p-4 rounded-xl ${
-                     message.type === 'user'
-                       ? 'bg-primary text-primary-foreground'
-                       : message.type === 'system'
-                       ? 'bg-muted/50 text-muted-foreground border border-border'
-                       : 'bg-muted text-foreground'
-                   }`}
-                 >
-                   <div 
-                     className="text-sm leading-relaxed formatted-ai-response"
-                     dangerouslySetInnerHTML={{ 
-                       __html: message.type === 'ai' ? formatAIResponse(message.content) : escapeHtml(message.content)
-                     }}
-                   />
-                   <span className="text-xs opacity-60 mt-2 block">
-                     {message.timestamp.toLocaleTimeString()}
-                   </span>
-                 </div>
+                <CBTConversationWrapper
+                  cbtGuidance={message.cbtGuidance}
+                  onCBTEngagement={handleCBTEngagement}
+                >
+                  <div
+                    className={`w-full p-4 rounded-xl ${
+                      message.type === 'user'
+                        ? 'bg-primary text-primary-foreground'
+                        : message.type === 'system'
+                        ? 'bg-muted/50 text-muted-foreground border border-border'
+                        : 'bg-muted text-foreground'
+                    }`}
+                  >
+                    <div 
+                      className="text-sm leading-relaxed formatted-ai-response"
+                      dangerouslySetInnerHTML={{ 
+                        __html: message.type === 'ai' ? formatAIResponse(message.content) : escapeHtml(message.content)
+                      }}
+                    />
+                    <span className="text-xs opacity-60 mt-2 block">
+                      {message.timestamp.toLocaleTimeString()}
+                    </span>
+                  </div>
+                </CBTConversationWrapper>
               </motion.div>
             ))}
           </AnimatePresence>

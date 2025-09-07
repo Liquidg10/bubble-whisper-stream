@@ -303,14 +303,28 @@ class CBTConversationIntegrationService {
     traceId: string,
     engaged: boolean,
     userResponse?: string,
-    helpfulness?: number
+    helpfulness?: number,
+    distortionTypes?: string[]
   ): Promise<void> {
     try {
       const { recordCBTEngagement } = await import('@/ai/cbt/index');
       await recordCBTEngagement(traceId, engaged, helpfulness, userResponse);
       
+      // PROMPT 8: Record feedback for learning and fatigue services
+      if (distortionTypes && distortionTypes.length > 0) {
+        const { fatigueService } = await import('@/ai/cbt/fatigue');
+        const { cbtFeedbackService } = await import('@/services/cbtFeedbackService');
+        
+        if (engaged) {
+          // Record helpful feedback
+          fatigueService.recordHelpfulFeedback(distortionTypes as any[]);
+          cbtFeedbackService.recordFeedback(traceId, distortionTypes as any[], 'helpful');
+        }
+        // Decline feedback is handled in fatigue service's recordTopicDecline
+      }
+      
       if (this.shouldLogDevMetrics()) {
-        console.log('[CBT] Engagement recorded:', { traceId, engaged, helpfulness });
+        console.log('[CBT] Engagement recorded:', { traceId, engaged, helpfulness, distortionTypes });
       }
     } catch (error) {
       console.error('[CBT] Failed to record engagement:', error);

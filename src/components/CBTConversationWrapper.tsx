@@ -16,8 +16,9 @@ interface CBTConversationWrapperProps {
     shouldShow: boolean;
     action?: CBTAction;
     traceId?: string;
+    distortionTypes?: string[]; // PROMPT 8: Pass distortions from trace
   };
-  onCBTEngagement?: (traceId: string, engaged: boolean, response?: string) => void;
+  onCBTEngagement?: (traceId: string, engaged: boolean, response?: string, helpfulness?: number, distortionTypes?: string[]) => void;
   onHelpfulnessRating?: (traceId: string, rating: number) => void;
 }
 
@@ -35,7 +36,10 @@ export function CBTConversationWrapper({
 
   const handleEngagement = (engaged: boolean, response?: string) => {
     if (cbtGuidance.traceId && onCBTEngagement) {
-      onCBTEngagement(cbtGuidance.traceId, engaged, response);
+      // PROMPT 8: Pass distortion types for feedback learning
+      const distortionTypes = cbtGuidance.distortionTypes || 
+        (cbtGuidance.action?.data?.distortionType ? [cbtGuidance.action.data.distortionType] : []);
+      onCBTEngagement(cbtGuidance.traceId, engaged, response, undefined, distortionTypes);
     }
   };
 

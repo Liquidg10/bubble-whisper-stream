@@ -86,7 +86,7 @@ class CBTFatigueService {
   }
 
   /**
-   * Record user decline for topic-specific auto-snooze
+   * Record user decline for topic-specific auto-snooze and learning
    */
   recordTopicDecline(
     fatigueState: CBTPolicyContext['fatigueState'],
@@ -100,10 +100,58 @@ class CBTFatigueService {
       topicDeclines[distortion] = now + (24 * 60 * 60 * 1000); // 24h snooze
     });
     
+    // PROMPT 8: Record decline for learning service
+    this.recordDeclineForLearning(targetDistortions);
+    
     return {
       ...fatigueState,
       topicDeclines
     };
+  }
+
+  /**
+   * PROMPT 8: Record helpful feedback for learning
+   */
+  recordHelpfulFeedback(targetDistortions: DistortionType[]): void {
+    try {
+      // Import learning service dynamically to avoid circular deps
+      import('@/services/cbtLearningService').then(({ cbtLearningService }) => {
+        cbtLearningService.recordHelpfulFeedback(targetDistortions);
+      });
+    } catch (error) {
+      console.warn('[CBT Fatigue] Failed to record helpful feedback:', error);
+    }
+  }
+
+  /**
+   * PROMPT 8: Record decline feedback for learning
+   */
+  private recordDeclineForLearning(targetDistortions: DistortionType[]): void {
+    try {
+      // Import learning service dynamically to avoid circular deps
+      import('@/services/cbtLearningService').then(({ cbtLearningService }) => {
+        const { adjustedThresholds, newThresholds } = cbtLearningService.recordDeclineFeedback(targetDistortions);
+        
+        // Record feedback event for dev panel
+        import('@/services/cbtFeedbackService').then(({ cbtFeedbackService }) => {
+          adjustedThresholds.forEach(distortionType => {
+            const oldThreshold = (newThresholds[distortionType] || 0.85) - 0.05;
+            cbtFeedbackService.recordFeedback(
+              'decline',
+              [distortionType],
+              'decline',
+              {
+                distortionType,
+                oldThreshold,
+                newThreshold: newThresholds[distortionType]!
+              }
+            );
+          });
+        });
+      });
+    } catch (error) {
+      console.warn('[CBT Fatigue] Failed to record decline for learning:', error);
+    }
   }
   
   /**

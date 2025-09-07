@@ -4,6 +4,7 @@ import { initializeSampleData, clearSampleData } from '@/db/seedData';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { CBTFeedbackPanel } from '@/components/CBTFeedbackPanel';
 
 export function DebugDataPanel() {
   const { bubbles, initializeStore } = useBubbleStore();
@@ -22,11 +23,16 @@ export function DebugDataPanel() {
   };
   
   return (
-    <Card className="w-full max-w-2xl mx-auto m-4">
-      <CardHeader>
-        <CardTitle>🔍 Debug Data Panel</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <div className="w-full max-w-4xl mx-auto m-4 space-y-4">
+      {/* CBT Feedback Panel */}
+      <CBTFeedbackPanel />
+      
+      {/* Original Debug Data Panel */}
+      <Card>
+        <CardHeader>
+          <CardTitle>🔍 Debug Data Panel</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
         {/* Data Overview */}
         <div className="grid grid-cols-3 gap-4">
           <div className="text-center">
@@ -81,7 +87,8 @@ export function DebugDataPanel() {
           <p>2. Check the photo bubble count above</p>
           <p>3. Look for photo bubbles in the canvas - they should show images now!</p>
         </div>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    </div>
   );
 }

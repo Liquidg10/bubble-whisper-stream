@@ -65,8 +65,8 @@ export function CBTChip({
   const handleEngagement = () => {
     onEngagement?.(true);
     toast({
-      title: "Let's explore this together",
-      description: "I'm here to support you through this.",
+      title: "Thank you for the feedback",
+      description: "I'll keep this style of support in mind.",
     });
   };
 
@@ -77,8 +77,8 @@ export function CBTChip({
     
     // Announce dismissal to screen readers
     toast({
-      title: "Check-in dismissed",
-      description: "I'll give you some space for now.",
+      title: "Not now",
+      description: "I'll adjust how often I offer this type of support.",
     });
   };
 
@@ -142,9 +142,9 @@ export function CBTChip({
           className="h-6 px-2 text-xs hover:bg-primary/10 hover:text-primary"
           onClick={handleEngagement}
           onKeyDown={handleKeyDown}
-          aria-label="Explore this together"
+          aria-label="This is helpful"
         >
-          Yes
+          Helpful
         </Button>
         
         <Button
