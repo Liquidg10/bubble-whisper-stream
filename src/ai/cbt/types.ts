@@ -104,6 +104,7 @@ export interface CBTAction {
     reframes?: string[];
     resources?: string[];
     followUpQuestions?: string[];
+    explainability?: string; // PROMPT 4: For "Because..." pills
   };
 }
 

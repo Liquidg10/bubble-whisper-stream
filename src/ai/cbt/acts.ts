@@ -4,91 +4,59 @@
 
 import type { CBTDecision, CBTAction, DistortionType } from './types';
 
-// Response templates for different distortion types
+// Response templates for different distortion types - PROMPT 4: Friend tone only
 const DISTORTION_RESPONSES: Record<DistortionType, {
   chips: string[];
-  questions: string[];
-  acknowledgments: string[];
-  reframes: string[];
+  explainability: string[];
 }> = {
   all_or_nothing: {
-    chips: ['Consider the middle ground', 'Not everything is black and white'],
-    questions: [
-      'What would be a more balanced way to see this?',
-      'Are there any exceptions to this "always" or "never"?',
-      'What would you tell a friend in this situation?'
+    chips: [
+      'That sounds heavy. Want to sanity-check that "always/never" feeling together?',
+      'I hear how absolute this feels. Wonder if there might be some middle ground?'
     ],
-    acknowledgments: [
-      'I notice you might be seeing this in very absolute terms.',
-      'It sounds like you\'re feeling like it\'s all or nothing right now.'
-    ],
-    reframes: [
-      'Most situations exist on a spectrum rather than being perfect or complete failures.',
-      'Even small steps forward are meaningful progress.'
+    explainability: [
+      'noticed absolute words like "always" or "never"',
+      'picked up on all-or-nothing language'
     ]
   },
   catastrophizing: {
-    chips: ['What\'s most likely to happen?', 'Focus on what you can control'],
-    questions: [
-      'What\'s the most realistic outcome here?',
-      'What would you do if this worst-case scenario actually happened?',
-      'What evidence do you have that this will definitely happen?'
+    chips: [
+      'I hear how overwhelming this feels. Wonder if we could look at what\'s most likely?',
+      'That sounds really scary. Want to explore what you can actually control?'
     ],
-    acknowledgments: [
-      'This sounds really overwhelming and scary right now.',
-      'I can hear that you\'re worried about the worst-case scenario.'
-    ],
-    reframes: [
-      'While this feels huge right now, most of our worst fears don\'t actually come true.',
-      'You\'ve handled difficult situations before and found ways through them.'
+    explainability: [
+      'noticed worry about worst-case scenarios',
+      'picked up on catastrophic thinking patterns'
     ]
   },
   overgeneralization: {
-    chips: ['Look for exceptions', 'This situation vs. all situations'],
-    questions: [
-      'Can you think of a time when this wasn\'t true?',
-      'What makes this specific situation different?',
-      'Is this pattern as universal as it feels right now?'
+    chips: [
+      'That pattern feels really strong right now. Curious if there might be exceptions?',
+      'This sounds like a big universal truth. Wonder if this specific situation is different?'
     ],
-    acknowledgments: [
-      'It sounds like this pattern feels really consistent to you.',
-      'I hear that this feels like something that always happens.'
-    ],
-    reframes: [
-      'One situation doesn\'t necessarily predict all future situations.',
-      'Each experience is unique, even when they feel similar.'
+    explainability: [
+      'noticed generalizing from one situation',
+      'picked up on "always happens" type thinking'
     ]
   },
   should_statements: {
-    chips: ['What would be helpful?', 'Replace "should" with "could"'],
-    questions: [
-      'What would be helpful or kind to yourself right now?',
-      'If you replaced "should" with "could," how does that feel?',
-      'Where did this "should" come from originally?'
+    chips: [
+      'Those expectations sound intense. What if we explored what would be helpful instead?',
+      'I hear a lot of "shoulds" there. Wonder what would feel kinder to yourself?'
     ],
-    acknowledgments: [
-      'I notice you have some strong expectations for yourself.',
-      'It sounds like you\'re putting a lot of pressure on yourself.'
-    ],
-    reframes: [
-      'Sometimes "could" gives us more space than "should."',
-      'Being kind to yourself is often more motivating than being demanding.'
+    explainability: [
+      'noticed self-critical "should" statements',
+      'picked up on harsh expectations for yourself'
     ]
   },
   mind_reading: {
-    chips: ['Ask instead of assuming', 'Focus on what you know'],
-    questions: [
-      'What evidence do you have for what they\'re thinking?',
-      'Is there another possible explanation for their behavior?',
-      'How could you find out what they actually think?'
+    chips: [
+      'Uncertainty about what others think is tough. Wonder what you actually know for sure?',
+      'That sounds like a lot of guessing about their thoughts. What if we focused on what\'s real?'
     ],
-    acknowledgments: [
-      'It sounds like you\'re worried about what others are thinking.',
-      'I can hear that uncertainty about others\' thoughts feels difficult.'
-    ],
-    reframes: [
-      'We often can\'t know what others are thinking unless they tell us.',
-      'People usually think about us much less than we imagine they do.'
+    explainability: [
+      'noticed assumptions about what others are thinking',
+      'picked up on mind-reading patterns'
     ]
   }
 };
@@ -146,37 +114,18 @@ function generateGenericResponse(interventionType: CBTDecision['interventionType
     case 'chip':
       return {
         type: 'chip',
-        text: 'Take a moment to reflect',
+        text: 'That sounds like a lot to hold. Want to explore this together?',
         data: {
-          followUpQuestions: [
-            'How are you feeling right now?',
-            'What would help in this moment?'
-          ]
+          explainability: 'noticed you might be working through something difficult'
         }
       };
       
     case 'none':
       return {
         type: 'ack',
-        text: 'I hear that this is difficult right now. 🤗',
+        text: 'I hear that this is difficult right now.',
         data: {
-          followUpQuestions: [
-            'Would it help to talk through this together?',
-            'What would you say to a good friend in this situation?'
-          ]
-        }
-      };
-      
-    default:
-      return {
-        type: 'question',
-        text: 'What would help you see this differently?',
-        data: {
-          followUpQuestions: [
-            'What evidence supports this thought?',
-            'What evidence might challenge it?',
-            'What would be a more balanced perspective?'
-          ]
+          explainability: 'checking in because this seems important to you'
         }
       };
   }
@@ -188,14 +137,14 @@ function generateDistortionResponseAction(
   responses: typeof DISTORTION_RESPONSES[DistortionType]
 ): CBTAction {
   
-  // PROMPT 3: Simplified to chip|none only
+  // PROMPT 4: Friend tone only, with explainability
   if (interventionType === 'chip') {
     return {
       type: 'chip',
       text: getRandomItem(responses.chips),
       data: {
         distortionType,
-        followUpQuestions: responses.questions.slice(0, 1)
+        explainability: getRandomItem(responses.explainability)
       }
     };
   }
@@ -203,10 +152,10 @@ function generateDistortionResponseAction(
   // Default case for 'none' or fallback
   return {
     type: 'ack',
-    text: getRandomItem(responses.acknowledgments),
+    text: 'I\'m here with you.',
     data: {
       distortionType,
-      followUpQuestions: responses.questions.slice(0, 1)
+      explainability: getRandomItem(responses.explainability)
     }
   };
 }

@@ -216,6 +216,26 @@ export function CBTConversationWrapper({
     return <>{children}</>;
   }
 
+  // PROMPT 4: Use CBTChip for chip actions, CBTActionCard for others
+  if (cbtGuidance.action.type === 'chip') {
+    const { CBTChipWrapper } = require('./CBTChip');
+    
+    return (
+      <div className="space-y-4">
+        {children}
+        
+        <CBTChipWrapper
+          action={cbtGuidance.action}
+          onEngagement={(engaged) => {
+            if (cbtGuidance.traceId) {
+              onCBTEngagement?.(cbtGuidance.traceId, engaged);
+            }
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
       {children}

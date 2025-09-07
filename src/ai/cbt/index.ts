@@ -104,13 +104,32 @@ export async function processCBTMessage(
 
 /**
  * Record user engagement with CBT action
+ * PROMPT 4: Connect "Not now" dismissal to fatigue system
  */
 export async function recordCBTEngagement(
   traceId: string,
   engaged: boolean,
   helpfulness?: number,
-  userResponse?: string
+  userResponse?: string,
+  userId?: string
 ): Promise<boolean> {
+  // PROMPT 4: If user dismisses ("Not now"), record topic decline for cooldown
+  if (!engaged && userId) {
+    try {
+      const trace = traceService.getById(traceId);
+      if (trace && trace.decision.targetDistortions.length > 0) {
+        const currentFatigue = getCurrentFatigueState(userId);
+        const updatedFatigue = fatigueService.recordTopicDecline(
+          currentFatigue,
+          [trace.decision.targetDistortions[0]] // Primary distortion as array
+        );
+        saveFatigueState(userId, updatedFatigue);
+      }
+    } catch (error) {
+      console.warn('Failed to record topic decline:', error);
+    }
+  }
+  
   return traceService.updateOutcome(traceId, {
     userEngaged: engaged,
     helpfulness,
