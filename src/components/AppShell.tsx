@@ -12,7 +12,7 @@ import { AudioQueueIndicator } from '@/components/AudioQueueIndicator';
 import { PhotoDebugPanel } from '@/components/PhotoDebugPanel';
 import { CleanHouseHeaderTimer } from '@/components/CleanHouseHeaderTimer';
 import { PomodoroHeaderTimer } from '@/components/PomodoroHeaderTimer';
-import { EnhancedAIChat } from '@/components/EnhancedAIChat';
+// import { EnhancedAIChat } from '@/components/CBTEnhancedChat';
 
 import NarrativeSearch from '@/components/NarrativeSearch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -94,7 +94,10 @@ export const AppShell: React.FC = () => {
               </p>
             </div>
             <div className="flex-1 overflow-hidden p-3">
-              <EnhancedAIChat />
+              {/* <EnhancedAIChat /> */}
+              <div className="flex items-center justify-center h-full text-muted-foreground">
+                AI Assistant (CBT Integration In Progress)
+              </div>
             </div>
           </div>
         </DialogContent>

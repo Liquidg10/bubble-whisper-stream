@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { CBTFatigueService, getHourlyLimit, getDailyLimit } from '../fatigue';
-import type { CBTPolicyContext } from '../types';
+import type { CBTPolicyContext, DistortionType } from '../types';
 
 describe('CBT Fatigue Service', () => {
   let fatigueService: CBTFatigueService;
@@ -20,7 +20,7 @@ describe('CBT Fatigue Service', () => {
 
   const mockFatigueState: CBTPolicyContext['fatigueState'] = {
     globalInterventions: 0,
-    topicCooldowns: {},
+    topicCooldowns: {} as Partial<Record<DistortionType, number>>,
     lastIntervention: 0,
     dailyCount: 0
   };
@@ -137,7 +137,7 @@ describe('CBT Fatigue Service', () => {
         ...mockFatigueState,
         topicCooldowns: {
           all_or_nothing: now + (60 * 60 * 1000) // 1 hour from now
-        }
+        } as Partial<Record<DistortionType, number>>
       };
       
       const context: CBTPolicyContext = {

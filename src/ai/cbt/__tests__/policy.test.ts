@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { decide } from '../policy';
-import type { CBTAnnotation, CBTPolicyContext } from '../types';
+import type { CBTAnnotation, CBTPolicyContext, DistortionType } from '../types';
 
 describe('CBT Policy Engine', () => {
   const mockAnnotation: CBTAnnotation = {
@@ -42,7 +42,7 @@ describe('CBT Policy Engine', () => {
 
   const defaultFatigueState: CBTPolicyContext['fatigueState'] = {
     globalInterventions: 0,
-    topicCooldowns: {},
+    topicCooldowns: {} as Partial<Record<DistortionType, number>>,
     lastIntervention: 0,
     dailyCount: 0
   };
