@@ -138,7 +138,7 @@ export function render(decision: CBTDecision): CBTAction | null {
     return generateGenericResponse(decision.interventionType);
   }
   
-  return generateDistortionResponse(decision.interventionType, primaryDistortion, responses);
+  return generateDistortionResponseAction(decision.interventionType, primaryDistortion, responses);
 }
 
 function generateGenericResponse(interventionType: CBTDecision['interventionType']): CBTAction {
@@ -179,16 +179,10 @@ function generateGenericResponse(interventionType: CBTDecision['interventionType
           ]
         }
       };
-      
-    default:
-      return {
-        type: 'ack',
-        text: 'I\'m here if you need support. 💙'
-      };
   }
 }
 
-function generateDistortionResponse(
+function generateDistortionResponseAction(
   interventionType: CBTDecision['interventionType'],
   distortionType: DistortionType,
   responses: typeof DISTORTION_RESPONSES[DistortionType]
@@ -221,7 +215,7 @@ function getRandomItem<T>(array: T[]): T {
   return array[Math.floor(Math.random() * array.length)];
 }
 
-export function formatActionForDisplay(action: CBTAction): {
+function formatActionForDisplay(action: CBTAction): {
   primary: string;
   secondary?: string;
   interactive: boolean;
@@ -261,3 +255,5 @@ export function formatActionForDisplay(action: CBTAction): {
       };
   }
 }
+
+export { formatActionForDisplay };
