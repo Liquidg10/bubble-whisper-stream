@@ -48,7 +48,16 @@ export interface CBTDecision {
 
 export interface CBTTrace {
   id: string;
+  conversationId: string;
+  messageId: string;
   userId: string;
+  distortion: DistortionType;
+  reframe?: string;
+  createdAt: number;
+  privacyLayer: 'surface' | 'context' | 'deep';
+  consent: boolean;
+  archived?: boolean;
+  // Legacy fields for backward compatibility
   timestamp: number;
   annotation: CBTAnnotation;
   decision: CBTDecision;
@@ -121,4 +130,5 @@ export interface RetentionPolicy {
   crisisTraces: number; // Keep crisis traces longer
   anonymizeAfterDays: number;
   purgeAfterDays: number;
+  archiveExemption: boolean; // Archived traces exempt from auto-delete
 }

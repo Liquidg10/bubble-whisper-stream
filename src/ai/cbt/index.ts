@@ -44,6 +44,8 @@ export async function processCBTMessage(
     userSettings: CBTPolicyContext['userSettings'];
     conversationContext?: CBTPolicyContext['conversationContext'];
     recentMood?: string;
+    conversationId?: string;
+    privacyLayer?: 'surface' | 'context' | 'deep';
   }
 ): Promise<{
   annotation: CBTTrace['annotation'];
@@ -84,14 +86,29 @@ export async function processCBTMessage(
     );
     saveFatigueState(userId, updatedFatigueState);
     
+    // Determine if consent was given
+    const consentGiven = context.userSettings.autoLogMode === 'on' || 
+                        (context.userSettings.autoLogMode === 'ask' && false);
+    
+    const primaryDistortion = annotation.distortions[0]?.type;
+    const reframe = action?.data?.reframes?.[0];
+    
     // Record trace
     traceId = await traceService.persist({
+      conversationId: context.conversationId || 'default',
+      messageId,
       userId,
+      distortion: primaryDistortion || 'all_or_nothing',
+      reframe,
+      createdAt: Date.now(),
+      privacyLayer: context.privacyLayer || 'context',
+      consent: consentGiven,
+      // Legacy fields for backward compatibility
       timestamp: Date.now(),
       annotation,
       decision,
       action: action || undefined
-    });
+    }, consentGiven);
   }
   
   return {

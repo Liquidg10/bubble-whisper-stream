@@ -1,5 +1,6 @@
 import { storageService } from './storage';
 import { consentService } from './consentService';
+import { traceService } from '@/ai/cbt/trace';
 import { CBTEntry, Glimmer, Reminder, SelfModelAudit, PatternHint } from '../types/bubble';
 
 export interface ExportData {
@@ -9,6 +10,7 @@ export interface ExportData {
   data: {
     bubbles?: any[];
     cbtEntries?: CBTEntry[];
+    cbtTraces?: any[];
     glimmers?: Glimmer[];
     reminders?: Reminder[];
     selfModelAudits?: SelfModelAudit[];
@@ -20,6 +22,7 @@ export interface ExportData {
 export interface ExportOptions {
   includeDeepLayer?: boolean;
   includeCBTEntries?: boolean;
+  includeCBTTraces?: boolean;
   includeGlimmers?: boolean;
   includeReminders?: boolean;
   includeAudits?: boolean;
@@ -37,6 +40,7 @@ class ExportService {
     const {
       includeDeepLayer = false,
       includeCBTEntries = true,
+      includeCBTTraces = true,
       includeGlimmers = true,
       includeReminders = true,
       includeAudits = false,
@@ -68,6 +72,18 @@ class ExportService {
       // Export CBT entries (placeholder - will be implemented when storage service is extended)
       if (includeCBTEntries) {
         exportData.data.cbtEntries = [];
+      }
+
+      // Export CBT traces with proper privacy controls
+      if (includeCBTTraces && canIncludeDeep) {
+        const traces = traceService.exportForUser('current-user', {
+          includeArchived: true,
+          dateRange,
+          privacyLayer: canIncludeDeep ? 'deep' : 'context'
+        });
+        exportData.data.cbtTraces = redactSensitive 
+          ? traces.map(trace => this.redactCBTTraceIfNeeded(trace, redactSensitive))
+          : traces;
       }
 
       // Export glimmers (placeholder - will be implemented when storage service is extended)
@@ -160,6 +176,28 @@ class ExportService {
     delete safePreferences.deepLayerSettings;
     
     return safePreferences;
+  }
+
+  private redactCBTTraceIfNeeded(trace: any, redact: boolean): any {
+    if (!redact) return trace;
+    
+    return {
+      ...trace,
+      messageId: '[REDACTED]',
+      reframe: trace.reframe ? '[REDACTED]' : undefined,
+      annotation: {
+        ...trace.annotation,
+        context: {
+          ...trace.annotation.context,
+          recentMood: undefined
+        }
+      },
+      outcome: trace.outcome ? {
+        userEngaged: trace.outcome.userEngaged,
+        helpfulness: trace.outcome.helpfulness,
+        userResponse: undefined
+      } : undefined
+    };
   }
 
   private anonymizePatternKey(key: string): string {

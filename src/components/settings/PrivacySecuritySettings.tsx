@@ -17,6 +17,7 @@ import {
 import { storageService } from '@/services/storage';
 import { hapticsService } from '@/services/haptics';
 import { PrivacyZoneToggle } from '@/components/PrivacyZoneToggle';
+import { CBTTraceSettings } from './CBTTraceSettings';
 
 export const PrivacySecuritySettings: React.FC = () => {
   const { settings, updateSettings, bubbles, reminders } = useBubbleStore();
@@ -170,6 +171,9 @@ export const PrivacySecuritySettings: React.FC = () => {
           </div>
         </CardContent>
       </Card>
+
+      {/* CBT Trace Management */}
+      <CBTTraceSettings />
 
       {/* Privacy Notice */}
       <Card className="border-primary/20 bg-primary/5">

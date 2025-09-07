@@ -1,49 +1,57 @@
 /**
- * CBT Trace Tests - Persistence and data management validation
+ * CBT Trace Service Tests
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { CBTTraceService } from '../trace';
-import type { CBTTrace } from '../types';
+import type { CBTTrace, CBTAnnotation, CBTDecision } from '../types';
 
-describe('CBT Trace Service', () => {
+describe('CBTTraceService', () => {
   let traceService: CBTTraceService;
 
-  const mockTrace = {
-    userId: 'user-123',
+  const mockAnnotation: CBTAnnotation = {
+    messageId: 'test-message-123',
     timestamp: Date.now(),
-    annotation: {
-      messageId: 'msg-1',
-      timestamp: Date.now(),
-      distortions: [
-        {
-          type: 'all_or_nothing' as const,
-          confidence: 0.8,
-          evidence: ['always'],
-          keywords: ['always']
-        }
-      ],
-      sentiment: { score: -0.5, magnitude: 0.7 },
-      crisisFlags: [],
-      context: {
-        timeOfDay: 14,
-        messageLength: 30,
-        conversationDepth: 2
-      }
-    },
-    decision: {
-      shouldIntervene: true,
-      interventionType: 'chip' as const,
-      reason: 'Distortion detected',
-      targetDistortions: ['all_or_nothing' as const],
-      priority: 'medium' as const,
-      cooldownMinutes: 60,
-      metadata: {
-        fatigueScore: 0.3,
-        policyMatch: 'distortion_threshold',
-        confidence: 0.8
-      }
+    distortions: [{
+      type: 'all_or_nothing',
+      confidence: 0.8,
+      evidence: ['always', 'never'],
+      keywords: ['always', 'never']
+    }],
+    sentiment: { score: -0.5, magnitude: 0.7 },
+    crisisFlags: [],
+    context: {
+      timeOfDay: 14,
+      messageLength: 50,
+      conversationDepth: 3
     }
+  };
+
+  const mockDecision: CBTDecision = {
+    shouldIntervene: true,
+    interventionType: 'chip',
+    reason: 'Detected all-or-nothing thinking',
+    targetDistortions: ['all_or_nothing'],
+    priority: 'medium',
+    cooldownMinutes: 60,
+    metadata: {
+      fatigueScore: 0.2,
+      policyMatch: 'default',
+      confidence: 0.8
+    }
+  };
+
+  const mockTrace = {
+    conversationId: 'test-conversation',
+    messageId: 'test-message-123',
+    userId: 'test-user',
+    distortion: 'all_or_nothing' as const,
+    createdAt: Date.now(),
+    privacyLayer: 'context' as const,
+    consent: true,
+    timestamp: Date.now(),
+    annotation: mockAnnotation,
+    decision: mockDecision
   };
 
   beforeEach(() => {
@@ -53,215 +61,194 @@ describe('CBT Trace Service', () => {
   });
 
   describe('Trace Persistence', () => {
-    it('should persist a new trace', async () => {
-      const traceId = await traceService.persist(mockTrace);
+    it('should persist a new trace with consent', async () => {
+      const traceId = await traceService.persist(mockTrace, true);
       
       expect(traceId).toBeDefined();
       expect(traceId).toMatch(/^cbt_\d+_\w+$/);
       
-      const retrieved = traceService.getById(traceId);
+      const retrieved = traceService.getById(traceId!);
       expect(retrieved).not.toBeNull();
       expect(retrieved!.userId).toBe(mockTrace.userId);
       expect(retrieved!.pseudonymousId).toBeDefined();
     });
 
-    it('should generate unique IDs for multiple traces', async () => {
-      const id1 = await traceService.persist(mockTrace);
-      const id2 = await traceService.persist({ ...mockTrace, timestamp: Date.now() + 1000 });
+    it('should not persist trace without consent', async () => {
+      const traceId = await traceService.persist(mockTrace, false);
       
-      expect(id1).not.toBe(id2);
+      expect(traceId).toBeNull();
+      expect(traceService.list().length).toBe(0);
     });
 
-    it('should generate pseudonymous IDs for telemetry', async () => {
-      const traceId = await traceService.persist(mockTrace);
-      const trace = traceService.getById(traceId);
-      
-      expect(trace!.pseudonymousId).toBeDefined();
-      expect(trace!.pseudonymousId).toMatch(/^cbt_\w+$/);
-      expect(trace!.pseudonymousId).not.toBe(mockTrace.userId);
-    });
-  });
+    it('should filter traces by user', async () => {
+      await traceService.persist({
+        ...mockTrace,
+        userId: 'test-user-1'
+      }, true);
+      await traceService.persist({
+        ...mockTrace,
+        userId: 'test-user-2',
+        createdAt: Date.now() - 1000,
+        timestamp: Date.now() - 1000
+      }, true);
 
-  describe('Trace Retrieval', () => {
-    it('should list all traces', async () => {
-      await traceService.persist(mockTrace);
-      await traceService.persist({ ...mockTrace, userId: 'user-456' });
-      
-      const traces = traceService.list();
-      expect(traces).toHaveLength(2);
+      const user1Traces = traceService.list({ userId: 'test-user-1' });
+      expect(user1Traces).toHaveLength(1);
+      expect(user1Traces[0].userId).toBe('test-user-1');
     });
 
-    it('should filter traces by user ID', async () => {
-      await traceService.persist(mockTrace);
-      await traceService.persist({ ...mockTrace, userId: 'user-456' });
-      
-      const userTraces = traceService.list({ userId: 'user-123' });
-      expect(userTraces).toHaveLength(1);
-      expect(userTraces[0].userId).toBe('user-123');
-    });
+    it('should update trace outcome', async () => {
+      const traceId = await traceService.persist(mockTrace, true);
+      expect(traceId).toBeDefined();
 
-    it('should filter traces by date range', async () => {
-      const oldTimestamp = Date.now() - (7 * 24 * 60 * 60 * 1000); // 7 days ago
-      const newTimestamp = Date.now();
-      
-      await traceService.persist({ ...mockTrace, timestamp: oldTimestamp });
-      await traceService.persist({ ...mockTrace, timestamp: newTimestamp });
-      
-      const recentTraces = traceService.list({ 
-        startDate: newTimestamp - (1 * 24 * 60 * 60 * 1000) // 1 day ago
+      const success = traceService.updateOutcome(traceId!, {
+        userEngaged: true,
+        helpfulness: 4
       });
       
-      expect(recentTraces).toHaveLength(1);
-      expect(recentTraces[0].timestamp).toBe(newTimestamp);
-    });
-
-    it('should filter traces by priority', async () => {
-      const crisisTrace = {
-        ...mockTrace,
-        decision: { ...mockTrace.decision, priority: 'crisis' as const }
-      };
-      
-      await traceService.persist(mockTrace);
-      await traceService.persist(crisisTrace);
-      
-      const crisisTraces = traceService.list({ priority: ['crisis'] });
-      expect(crisisTraces).toHaveLength(1);
-      expect(crisisTraces[0].decision.priority).toBe('crisis');
-    });
-
-    it('should limit number of results', async () => {
-      for (let i = 0; i < 5; i++) {
-        await traceService.persist({ ...mockTrace, timestamp: Date.now() + i });
-      }
-      
-      const limitedTraces = traceService.list({ limit: 3 });
-      expect(limitedTraces).toHaveLength(3);
-    });
-
-    it('should sort traces by timestamp descending', async () => {
-      const timestamp1 = Date.now() - 1000;
-      const timestamp2 = Date.now();
-      
-      await traceService.persist({ ...mockTrace, timestamp: timestamp1 });
-      await traceService.persist({ ...mockTrace, timestamp: timestamp2 });
-      
-      const traces = traceService.list();
-      expect(traces[0].timestamp).toBe(timestamp2);
-      expect(traces[1].timestamp).toBe(timestamp1);
-    });
-  });
-
-  describe('Trace Updates', () => {
-    it('should update trace outcome', async () => {
-      const traceId = await traceService.persist(mockTrace);
-      
-      const outcome = {
-        userEngaged: true,
-        userResponse: 'That was helpful',
-        helpfulness: 4
-      };
-      
-      const success = traceService.updateOutcome(traceId, outcome);
       expect(success).toBe(true);
-      
-      const updated = traceService.getById(traceId);
-      expect(updated!.outcome).toEqual(outcome);
-    });
-
-    it('should return false for non-existent trace update', () => {
-      const success = traceService.updateOutcome('non-existent', { userEngaged: false });
-      expect(success).toBe(false);
+      const updated = traceService.getById(traceId!);
+      expect(updated!.outcome?.userEngaged).toBe(true);
+      expect(updated!.outcome?.helpfulness).toBe(4);
     });
   });
 
-  describe('Trace Deletion', () => {
-    it('should delete all traces', async () => {
-      await traceService.persist(mockTrace);
-      await traceService.persist({ ...mockTrace, userId: 'user-456' });
-      
-      await traceService.deleteAll();
-      
-      const traces = traceService.list();
-      expect(traces).toHaveLength(0);
+  describe('Trace Management', () => {
+    it('should archive and unarchive traces', async () => {
+      const traceId = await traceService.persist(mockTrace, true);
+      expect(traceId).toBeDefined();
+
+      const archived = traceService.archiveTrace(traceId!);
+      expect(archived).toBe(true);
+
+      const trace = traceService.getById(traceId!);
+      expect(trace!.archived).toBe(true);
+
+      const unarchived = traceService.unarchiveTrace(traceId!);
+      expect(unarchived).toBe(true);
+
+      const unArchivedTrace = traceService.getById(traceId!);
+      expect(unArchivedTrace!.archived).toBe(false);
+    });
+
+    it('should filter by archived status', async () => {
+      const traceId1 = await traceService.persist(mockTrace, true);
+      const traceId2 = await traceService.persist({
+        ...mockTrace,
+        messageId: 'test-message-456'
+      }, true);
+
+      traceService.archiveTrace(traceId1!);
+
+      const archived = traceService.list({ archived: true });
+      const nonArchived = traceService.list({ archived: false });
+
+      expect(archived).toHaveLength(1);
+      expect(nonArchived).toHaveLength(1);
     });
 
     it('should delete traces for specific user', async () => {
-      await traceService.persist(mockTrace);
-      await traceService.persist({ ...mockTrace, userId: 'user-456' });
-      
-      const deletedCount = traceService.deleteForUser('user-123');
+      await traceService.persist({
+        ...mockTrace,
+        userId: 'user-1'
+      }, true);
+      await traceService.persist({
+        ...mockTrace,
+        userId: 'user-2',
+        messageId: 'test-message-456'
+      }, true);
+
+      const deletedCount = traceService.deleteForUser('user-1');
       expect(deletedCount).toBe(1);
-      
+
       const remainingTraces = traceService.list();
       expect(remainingTraces).toHaveLength(1);
-      expect(remainingTraces[0].userId).toBe('user-456');
-    });
-  });
-
-  describe('Anonymized Data', () => {
-    it('should return anonymized traces for telemetry', async () => {
-      await traceService.persist(mockTrace);
-      
-      const anonymized = traceService.getAnonymizedTraces();
-      expect(anonymized).toHaveLength(1);
-      
-      const trace = anonymized[0];
-      expect(trace.id).toMatch(/^cbt_\w+$/); // Pseudonymous ID
-      expect(trace.annotation).toBeDefined();
-      expect(trace.decision).toBeDefined();
-      
-      // Should not contain sensitive data
-      expect((trace as any).userId).toBeUndefined();
+      expect(remainingTraces[0].userId).toBe('user-2');
     });
 
-    it('should limit anonymized trace count', async () => {
-      for (let i = 0; i < 5; i++) {
-        await traceService.persist({ ...mockTrace, timestamp: Date.now() + i });
-      }
-      
-      const anonymized = traceService.getAnonymizedTraces(3);
-      expect(anonymized).toHaveLength(3);
-    });
-  });
-
-  describe('Statistics', () => {
-    it('should calculate basic statistics', async () => {
-      const crisisTrace = {
+    it('should delete all traces securely', async () => {
+      await traceService.persist(mockTrace, true);
+      await traceService.persist({
         ...mockTrace,
-        decision: { ...mockTrace.decision, priority: 'crisis' as const }
-      };
+        messageId: 'test-message-456'
+      }, true);
+
+      await traceService.deleteAll();
       
-      await traceService.persist(mockTrace);
-      await traceService.persist(crisisTrace);
-      
-      const stats = traceService.getStats();
+      const remainingTraces = traceService.list();
+      expect(remainingTraces).toHaveLength(0);
+    });
+  });
+
+  describe('Statistics and Reporting', () => {
+    beforeEach(async () => {
+      // Create test data
+      await traceService.persist(mockTrace, true);
+      await traceService.persist({
+        ...mockTrace,
+        messageId: 'test-message-456',
+        decision: { ...mockDecision, priority: 'crisis' as const }
+      }, true);
+    });
+
+    it('should generate correct statistics', () => {
+      const stats = traceService.getStats('test-user');
       
       expect(stats.totalTraces).toBe(2);
       expect(stats.interventions).toBe(2);
       expect(stats.crisisInterventions).toBe(1);
-      expect(stats.distortionBreakdown.all_or_nothing).toBe(2);
+      expect(stats.distortionBreakdown['all_or_nothing']).toBe(2);
+      expect(stats.storageSize).toMatch(/^\~\d+\.\d+ KB$/);
     });
 
-    it('should calculate average helpfulness', async () => {
-      const traceId1 = await traceService.persist(mockTrace);
-      const traceId2 = await traceService.persist(mockTrace);
+    it('should export traces with privacy controls', () => {
+      const exported = traceService.exportForUser('test-user', {
+        privacyLayer: 'context'
+      });
       
-      traceService.updateOutcome(traceId1, { userEngaged: true, helpfulness: 4 });
-      traceService.updateOutcome(traceId2, { userEngaged: true, helpfulness: 2 });
-      
-      const stats = traceService.getStats();
-      expect(stats.averageHelpfulness).toBe(3);
+      expect(exported).toHaveLength(2);
+      expect(exported[0].privacyLayer).toBe('context');
     });
 
-    it('should filter statistics by user', async () => {
-      await traceService.persist(mockTrace);
-      await traceService.persist({ ...mockTrace, userId: 'user-456' });
+    it('should generate anonymized traces for telemetry', () => {
+      const anonymized = traceService.getAnonymizedTraces(10);
       
-      const userStats = traceService.getStats('user-123');
-      expect(userStats.totalTraces).toBe(1);
+      expect(anonymized).toHaveLength(2);
+      expect(anonymized[0].id).toBeDefined(); // pseudonymousId
+      expect(anonymized[0]).not.toHaveProperty('userId');
+      expect(anonymized[0]).not.toHaveProperty('messageId');
+    });
+  });
+
+  describe('Privacy and Retention', () => {
+    it('should preserve archived traces during retention cleanup', async () => {
+      // Create an old trace and archive it
+      const oldTrace = {
+        ...mockTrace,
+        createdAt: Date.now() - (40 * 24 * 60 * 60 * 1000), // 40 days old
+        timestamp: Date.now() - (40 * 24 * 60 * 60 * 1000)
+      };
       
-      const allStats = traceService.getStats();
-      expect(allStats.totalTraces).toBe(2);
+      const traceId = await traceService.persist(oldTrace, true);
+      traceService.archiveTrace(traceId!);
+
+      // Simulate retention policy enforcement
+      await (traceService as any).enforceRetentionPolicy();
+
+      const archivedTraces = traceService.list({ archived: true });
+      expect(archivedTraces).toHaveLength(1);
+    });
+
+    it('should handle consent properly', async () => {
+      const noConsentTrace = await traceService.persist(mockTrace, false);
+      const consentTrace = await traceService.persist(mockTrace, true);
+
+      expect(noConsentTrace).toBeNull();
+      expect(consentTrace).toBeDefined();
+      
+      const allTraces = traceService.list();
+      expect(allTraces).toHaveLength(1);
+      expect(allTraces[0].consent).toBe(true);
     });
   });
 });

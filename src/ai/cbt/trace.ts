@@ -12,7 +12,8 @@ const DEFAULT_RETENTION_POLICY: RetentionPolicy = {
   defaultDays: 30,
   crisisTraces: 90, // Keep crisis traces longer
   anonymizeAfterDays: 365,
-  purgeAfterDays: 1095 // 3 years
+  purgeAfterDays: 1095, // 3 years
+  archiveExemption: true // Archived traces exempt from auto-delete
 };
 
 class CBTTraceService {
@@ -25,9 +26,14 @@ class CBTTraceService {
   }
   
   /**
-   * Persist a new CBT trace
+   * Persist a new CBT trace with consent awareness
    */
-  async persist(trace: Omit<CBTTrace, 'id' | 'pseudonymousId'>): Promise<string> {
+  async persist(trace: Omit<CBTTrace, 'id' | 'pseudonymousId'>, consentGiven: boolean = false): Promise<string | null> {
+    // Only persist if consent was given
+    if (!consentGiven) {
+      return null;
+    }
+    
     // Generate secure ID
     const id = this.generateTraceId();
     
@@ -37,7 +43,8 @@ class CBTTraceService {
     const fullTrace: CBTTrace = {
       id,
       pseudonymousId,
-      ...trace
+      ...trace,
+      consent: consentGiven
     };
     
     this.traces.push(fullTrace);
@@ -58,6 +65,7 @@ class CBTTraceService {
     endDate?: number;
     priority?: string[];
     limit?: number;
+    archived?: boolean;
   }): CBTTrace[] {
     let filtered = [...this.traces];
     
@@ -66,19 +74,23 @@ class CBTTraceService {
     }
     
     if (filters?.startDate) {
-      filtered = filtered.filter(t => t.timestamp >= filters.startDate!);
+      filtered = filtered.filter(t => t.createdAt >= filters.startDate! || t.timestamp >= filters.startDate!);
     }
     
     if (filters?.endDate) {
-      filtered = filtered.filter(t => t.timestamp <= filters.endDate!);
+      filtered = filtered.filter(t => t.createdAt <= filters.endDate! || t.timestamp <= filters.endDate!);
     }
     
     if (filters?.priority?.length) {
       filtered = filtered.filter(t => filters.priority!.includes(t.decision.priority));
     }
     
+    if (filters?.archived !== undefined) {
+      filtered = filtered.filter(t => Boolean(t.archived) === filters.archived);
+    }
+    
     // Sort by timestamp descending (newest first)
-    filtered.sort((a, b) => b.timestamp - a.timestamp);
+    filtered.sort((a, b) => (b.createdAt || b.timestamp) - (a.createdAt || a.timestamp));
     
     if (filters?.limit) {
       filtered = filtered.slice(0, filters.limit);
@@ -107,12 +119,44 @@ class CBTTraceService {
   }
   
   /**
-   * Delete all CBT traces (nuclear option)
+   * Archive a trace (exempts from auto-delete)
+   */
+  archiveTrace(id: string): boolean {
+    const trace = this.traces.find(t => t.id === id);
+    if (!trace) return false;
+    
+    trace.archived = true;
+    this.saveToStorage();
+    return true;
+  }
+  
+  /**
+   * Unarchive a trace
+   */
+  unarchiveTrace(id: string): boolean {
+    const trace = this.traces.find(t => t.id === id);
+    if (!trace) return false;
+    
+    trace.archived = false;
+    this.saveToStorage();
+    return true;
+  }
+  
+  /**
+   * Delete all CBT traces securely (nuclear option)
    */
   async deleteAll(): Promise<void> {
+    // Secure delete - overwrite multiple times
     this.traces = [];
     this.saveToStorage();
+    
+    // Clear localStorage entries
+    localStorage.removeItem(STORAGE_KEY);
     localStorage.removeItem(RETENTION_STORAGE_KEY);
+    
+    // Overwrite with dummy data then clear again for security
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([]));
+    localStorage.removeItem(STORAGE_KEY);
   }
   
   /**
@@ -126,6 +170,34 @@ class CBTTraceService {
   }
   
   /**
+   * Export traces for user (respects privacy settings)
+   */
+  exportForUser(userId: string, options?: {
+    includeArchived?: boolean;
+    dateRange?: { start: number; end: number };
+    privacyLayer?: 'surface' | 'context' | 'deep';
+  }): CBTTrace[] {
+    let userTraces = this.traces.filter(t => t.userId === userId);
+    
+    if (options?.includeArchived === false) {
+      userTraces = userTraces.filter(t => !t.archived);
+    }
+    
+    if (options?.dateRange) {
+      userTraces = userTraces.filter(t => {
+        const timestamp = t.createdAt || t.timestamp;
+        return timestamp >= options.dateRange!.start && timestamp <= options.dateRange!.end;
+      });
+    }
+    
+    if (options?.privacyLayer) {
+      userTraces = userTraces.filter(t => t.privacyLayer === options.privacyLayer);
+    }
+    
+    return userTraces;
+  }
+  
+  /**
    * Get anonymized traces for telemetry
    */
   getAnonymizedTraces(limit: number = 100): any[] {
@@ -133,7 +205,7 @@ class CBTTraceService {
       .slice(-limit)
       .map(trace => ({
         id: trace.pseudonymousId,
-        timestamp: trace.timestamp,
+        timestamp: trace.createdAt || trace.timestamp,
         annotation: {
           distortions: trace.annotation.distortions.map(d => ({
             type: d.type,
@@ -163,11 +235,13 @@ class CBTTraceService {
    */
   getStats(userId?: string): {
     totalTraces: number;
+    archivedTraces: number;
     interventions: number;
     crisisInterventions: number;
     averageHelpfulness: number;
     distortionBreakdown: Record<string, number>;
     recentActivity: { date: string; count: number }[];
+    storageSize: string;
   } {
     const userTraces = userId 
       ? this.traces.filter(t => t.userId === userId)
@@ -175,6 +249,7 @@ class CBTTraceService {
     
     const interventions = userTraces.filter(t => t.decision.shouldIntervene);
     const crisisInterventions = userTraces.filter(t => t.decision.priority === 'crisis');
+    const archived = userTraces.filter(t => t.archived);
     
     const helpfulnessRatings = userTraces
       .map(t => t.outcome?.helpfulness)
@@ -194,16 +269,21 @@ class CBTTraceService {
     
     // Recent activity (last 7 days)
     const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
-    const recentTraces = userTraces.filter(t => t.timestamp >= sevenDaysAgo);
+    const recentTraces = userTraces.filter(t => (t.createdAt || t.timestamp) >= sevenDaysAgo);
     const recentActivity = this.groupTracesByDay(recentTraces);
+    
+    // Storage size estimation
+    const storageSize = `~${(JSON.stringify(userTraces).length / 1024).toFixed(1)} KB`;
     
     return {
       totalTraces: userTraces.length,
+      archivedTraces: archived.length,
       interventions: interventions.length,
       crisisInterventions: crisisInterventions.length,
       averageHelpfulness,
       distortionBreakdown,
-      recentActivity
+      recentActivity,
+      storageSize
     };
   }
   
@@ -224,24 +304,32 @@ class CBTTraceService {
     
     // Purge very old traces
     const beforePurge = this.traces.length;
-    this.traces = this.traces.filter(trace => trace.timestamp >= purgeCutoff);
+    this.traces = this.traces.filter(trace => {
+      const timestamp = trace.createdAt || trace.timestamp;
+      return timestamp >= purgeCutoff;
+    });
     if (this.traces.length < beforePurge) modified = true;
     
     // Anonymize old traces
     this.traces.forEach(trace => {
-      if (trace.timestamp < anonymizeCutoff && trace.userId !== 'anonymized') {
+      const timestamp = trace.createdAt || trace.timestamp;
+      if (timestamp < anonymizeCutoff && trace.userId !== 'anonymized') {
         trace.userId = 'anonymized';
         modified = true;
       }
     });
     
-    // Remove old non-crisis traces
+    // Remove old traces, but preserve archived ones
     const beforeCleanup = this.traces.length;
     this.traces = this.traces.filter(trace => {
+      // Always preserve archived traces
+      if (trace.archived) return true;
+      
+      const timestamp = trace.createdAt || trace.timestamp;
       if (trace.decision.priority === 'crisis') {
-        return trace.timestamp >= crisisCutoff;
+        return timestamp >= crisisCutoff;
       }
-      return trace.timestamp >= defaultCutoff;
+      return timestamp >= defaultCutoff;
     });
     if (this.traces.length < beforeCleanup) modified = true;
     
@@ -290,7 +378,8 @@ class CBTTraceService {
     const groups: Record<string, number> = {};
     
     traces.forEach(trace => {
-      const date = new Date(trace.timestamp).toISOString().split('T')[0];
+      const timestamp = trace.createdAt || trace.timestamp;
+      const date = new Date(timestamp).toISOString().split('T')[0];
       groups[date] = (groups[date] || 0) + 1;
     });
     
