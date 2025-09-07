@@ -54,13 +54,93 @@ export async function processCBTMessage(
   traceId?: string;
 }> {
   
-  // Step 1: Analyze the message
-  const annotation = annotate(message, {
+  // PROMPT 6: Crisis session check first
+  const crisisSessionState = getCrisisSessionState(userId);
+  if (crisisSessionState.inCrisisMode) {
+    console.log('[CBT] Session silenced due to crisis mode');
+    return { annotation: null, decision: null, action: null };
+  }
+
+  // Step 1: Early crisis detection before normal annotation
+  const earlyAnnotation = annotate(message, {
     messageId,
     timestamp: Date.now(),
     recentMood: context.recentMood,
     conversationDepth: context.conversationContext?.messageCount || 0
   });
+
+  // PROMPT 6: If crisis detected, bypass all CBT processing
+  if (earlyAnnotation?.crisisFlags.length > 0) {
+    console.log('[CBT] Crisis detected - bypassing CBT processing');
+    
+    // Set crisis session silencing
+    setCrisisSessionState(userId, {
+      inCrisisMode: true,
+      crisisDetectedAt: Date.now(),
+      cooldownMinutes: 60,
+      crisisType: earlyAnnotation.crisisFlags[0].type,
+      sessionId: `crisis_${Date.now()}`
+    });
+
+    const crisisResources = await getCrisisResources();
+    const crisisAction: CBTAction = {
+      type: 'crisis_support',
+      text: 'I\'m here with you. You don\'t have to go through this alone. 💙',
+      data: {
+        resources: crisisResources.map(r => `${r.name}: ${r.contact}`),
+        followUpQuestions: [
+          'Would it help to talk about what\'s going on?',
+          'Is there someone you trust who could be with you right now?',
+          'What has helped you feel safer in the past?'
+        ]
+      }
+    };
+
+    const crisisDecision = {
+      shouldIntervene: true,
+      interventionType: 'none' as const,
+      reason: 'crisis',
+      targetDistortions: [],
+      priority: 'crisis' as const,
+      cooldownMinutes: 0,
+      metadata: {
+        fatigueScore: 0,
+        policyMatch: 'crisis_detected',
+        confidence: 1.0,
+        isCrisis: true
+      }
+    };
+
+    // Always persist crisis traces for safety
+    const traceId = await traceService.persist({
+      conversationId: context.conversationId || 'default',
+      messageId,
+      userId,
+      distortion: 'all_or_nothing', // Placeholder
+      reframe: undefined,
+      createdAt: Date.now(),
+      privacyLayer: context.privacyLayer || 'context',
+      consent: true, // Crisis traces always consented for safety
+      sensitive: true, // Mark as sensitive
+      timestamp: Date.now(),
+      annotation: earlyAnnotation,
+      decision: crisisDecision,
+      action: crisisAction
+    }, true);
+
+    return {
+      annotation: earlyAnnotation,
+      decision: crisisDecision,
+      action: crisisAction,
+      traceId
+    };
+  }
+
+  // Continue with normal CBT processing
+  const annotation = earlyAnnotation;
+  if (!annotation) {
+    return { annotation: null, decision: null, action: null };
+  }
   
   // Step 2: Get current fatigue state
   const fatigueState = getCurrentFatigueState(userId);
@@ -74,11 +154,11 @@ export async function processCBTMessage(
   );
   
   // Step 4: Render action if intervention needed
-  const action = decision.shouldIntervene ? render(decision) : null;
+  const action = decision.shouldIntervene ? await render(decision) : null;
   
   // Step 5: Record trace and update fatigue
   let traceId: string | undefined;
-  if (decision.shouldIntervene) {
+  if (decision.shouldIntervene && action) {
     // Update fatigue state
     const updatedFatigueState = fatigueService.recordIntervention(
       fatigueState,
@@ -107,7 +187,7 @@ export async function processCBTMessage(
       timestamp: Date.now(),
       annotation,
       decision,
-      action: action || undefined
+      action
     }, consentGiven);
   }
   
@@ -166,6 +246,71 @@ export function getCBTStats(userId: string) {
  */
 export async function deleteCBTData(userId: string): Promise<number> {
   return traceService.deleteForUser(userId);
+}
+
+// Crisis session state management
+interface CrisisSessionState {
+  inCrisisMode: boolean;
+  crisisDetectedAt: number;
+  cooldownMinutes: number;
+  crisisType: string;
+  sessionId: string;
+}
+
+function getCrisisSessionState(userId: string): CrisisSessionState {
+  const storageKey = `cbt_crisis_session_${userId}`;
+  const stored = localStorage.getItem(storageKey);
+  
+  if (!stored) {
+    return {
+      inCrisisMode: false,
+      crisisDetectedAt: 0,
+      cooldownMinutes: 60,
+      crisisType: '',
+      sessionId: ''
+    };
+  }
+
+  const parsed = JSON.parse(stored);
+  
+  // Check if cooldown has expired
+  const now = Date.now();
+  const cooldownExpiry = parsed.crisisDetectedAt + (parsed.cooldownMinutes * 60 * 1000);
+  
+  if (parsed.inCrisisMode && now > cooldownExpiry) {
+    // Reset crisis mode
+    const resetState = {
+      inCrisisMode: false,
+      crisisDetectedAt: 0,
+      cooldownMinutes: 60,
+      crisisType: '',
+      sessionId: ''
+    };
+    localStorage.setItem(storageKey, JSON.stringify(resetState));
+    return resetState;
+  }
+
+  return parsed;
+}
+
+function setCrisisSessionState(userId: string, state: CrisisSessionState): void {
+  const storageKey = `cbt_crisis_session_${userId}`;
+  localStorage.setItem(storageKey, JSON.stringify(state));
+}
+
+// Crisis resources helper
+async function getCrisisResources() {
+  try {
+    const { getCrisisResources: getRegionalResources } = await import('./crisis');
+    return getRegionalResources();
+  } catch (error) {
+    console.warn('Could not load regional crisis resources, using fallback');
+    return [
+      { name: 'Crisis Text Line', contact: 'Text HOME to 741741' },
+      { name: '988 Suicide & Crisis Lifeline', contact: 'Call or text 988' },
+      { name: 'Emergency Services', contact: 'Call your local emergency services' }
+    ];
+  }
 }
 
 // Helper functions for fatigue state management

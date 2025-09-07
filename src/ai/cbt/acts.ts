@@ -61,35 +61,50 @@ const DISTORTION_RESPONSES: Record<DistortionType, {
   }
 };
 
+// PROMPT 6: Enhanced crisis responses with region-aware resources
 const CRISIS_RESPONSES = {
   crisis_support: {
     text: 'I\'m here with you. You don\'t have to go through this alone. 💙',
     data: {
-      resources: [
-        'Crisis Text Line: Text HOME to 741741',
-        '988 Suicide & Crisis Lifeline: Call or text 988',
-        'In immediate danger: Call 911'
-      ],
+      resources: [], // Will be populated by getCrisisResources()
       followUpQuestions: [
         'Would it help to talk about what\'s going on?',
         'Is there someone you trust who could be with you right now?',
         'What has helped you feel safer in the past?'
+      ],
+      supportiveMessages: [
+        'Your life has value and meaning.',
+        'This pain you\'re feeling is temporary, even though it doesn\'t feel that way.',
+        'There are people who care about you and want to help.',
+        'You don\'t have to face this alone.'
       ]
     }
   }
 };
 
+// Crisis resources fallback
+function getBasicCrisisResources(): string[] {
+  return [
+    'Crisis Text Line: Text HOME to 741741',
+    '988 Suicide & Crisis Lifeline: Call or text 988',
+    'In immediate danger: Call your local emergency services'
+  ];
+}
+
 export function render(decision: CBTDecision): CBTAction | null {
-  if (!decision.shouldIntervene) {
+  if (!decision.shouldIntervene && !decision.metadata.isCrisis) {
     return null;
   }
   
-  // Crisis interventions always take priority
-  if (decision.priority === 'crisis') {
+  // PROMPT 6: Crisis interventions bypass all CBT and provide resources
+  if (decision.priority === 'crisis' || decision.metadata.isCrisis) {
     return {
       type: 'crisis_support',
       text: CRISIS_RESPONSES.crisis_support.text,
-      data: CRISIS_RESPONSES.crisis_support.data
+      data: {
+        ...CRISIS_RESPONSES.crisis_support.data,
+        resources: [] // Will be filled by calling code
+      }
     };
   }
   

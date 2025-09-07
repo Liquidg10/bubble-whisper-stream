@@ -82,16 +82,18 @@ const DISTORTION_PATTERNS: Record<DistortionType, {
   }
 };
 
-// Conservative crisis detection patterns - high precision
+// Enhanced conservative crisis detection patterns - PROMPT 6
 const CRISIS_PATTERNS = {
   self_harm: {
     keywords: [
       'hurt myself', 'harm myself', 'cut myself', 'self harm', 'cutting myself',
-      'injure myself', 'hurt me', 'self injury', 'self mutilation', 'burn myself'
+      'injure myself', 'hurt me', 'self injury', 'self mutilation', 'burn myself',
+      'scratch myself', 'hit myself', 'punish myself physically', 'self-destructive'
     ],
     patterns: [
-      /\b(?:want|going|gonna)\s+to\s+(?:hurt|harm|cut|injure)\s+myself\b/gi,
-      /\b(?:self\s+harm|self\s+injury|cutting)\b/gi
+      /\b(?:want|going|gonna|need)\s+to\s+(?:hurt|harm|cut|injure)\s+myself\b/gi,
+      /\b(?:self\s+harm|self\s+injury|cutting|self-harm)\b/gi,
+      /\b(?:urge|impulse)\s+to\s+(?:cut|harm|hurt)\b/gi
     ],
     severity: 'high' as const,
     confidence: 0.9
@@ -99,12 +101,15 @@ const CRISIS_PATTERNS = {
   suicide: {
     keywords: [
       'kill myself', 'end it all', 'not worth living', 'suicide', 'take my life',
-      'don\'t want to live', 'better off dead', 'suicidal', 'end my life'
+      'don\'t want to live', 'better off dead', 'suicidal', 'end my life',
+      'want to die', 'wish I was dead', 'thinking about suicide', 'suicidal thoughts',
+      'planning suicide', 'method to kill myself'
     ],
     patterns: [
-      /\b(?:want|going|gonna)\s+to\s+(?:kill|end)\s+myself\b/gi,
+      /\b(?:want|going|gonna|planning)\s+to\s+(?:kill|end)\s+myself\b/gi,
       /\b(?:suicide|suicidal|take\s+my\s+(?:own\s+)?life)\b/gi,
-      /\b(?:better\s+off\s+dead|don't\s+want\s+to\s+live)\b/gi
+      /\b(?:better\s+off\s+dead|don't\s+want\s+to\s+live|wish\s+I\s+was\s+dead)\b/gi,
+      /\b(?:suicidal\s+thoughts|thinking\s+about\s+suicide)\b/gi
     ],
     severity: 'critical' as const,
     confidence: 0.95
@@ -112,11 +117,14 @@ const CRISIS_PATTERNS = {
   severe_distress: {
     keywords: [
       'can\'t take it anymore', 'breaking down', 'falling apart', 'can\'t cope',
-      'losing my mind', 'going crazy', 'can\'t handle this', 'too much'
+      'losing my mind', 'going crazy', 'can\'t handle this', 'too much',
+      'overwhelmed completely', 'at my breaking point', 'can\'t go on',
+      'ready to give up', 'at the end of my rope'
     ],
     patterns: [
-      /\bcan't\s+(?:take\s+it|cope|handle)\s+(?:anymore|this)\b/gi,
-      /\b(?:breaking\s+down|falling\s+apart|losing\s+my\s+mind)\b/gi
+      /\bcan't\s+(?:take\s+it|cope|handle|go\s+on)\s+(?:anymore|this)\b/gi,
+      /\b(?:breaking\s+down|falling\s+apart|losing\s+my\s+mind)\b/gi,
+      /\b(?:at\s+my\s+breaking\s+point|end\s+of\s+my\s+rope|ready\s+to\s+give\s+up)\b/gi
     ],
     severity: 'medium' as const,
     confidence: 0.7
@@ -124,11 +132,13 @@ const CRISIS_PATTERNS = {
   emergency: {
     keywords: [
       'emergency', 'crisis', 'urgent help', 'immediate help', 'call 911',
-      'need help now', 'emergency room', 'psychiatric emergency'
+      'need help now', 'emergency room', 'psychiatric emergency',
+      'having a breakdown', 'mental health emergency', 'need immediate support'
     ],
     patterns: [
       /\b(?:emergency|crisis|urgent|immediate)\s+help\b/gi,
-      /\bneed\s+help\s+(?:now|immediately|right\s+now)\b/gi
+      /\bneed\s+help\s+(?:now|immediately|right\s+now|asap)\b/gi,
+      /\b(?:having\s+a\s+breakdown|mental\s+health\s+emergency)\b/gi
     ],
     severity: 'critical' as const,
     confidence: 0.85

@@ -57,6 +57,7 @@ export interface CBTTrace {
   privacyLayer: 'surface' | 'context' | 'deep';
   consent: boolean;
   archived?: boolean;
+  sensitive?: boolean; // PROMPT 6: Mark crisis traces as sensitive
   // Legacy fields for backward compatibility
   timestamp: number;
   annotation: CBTAnnotation;
