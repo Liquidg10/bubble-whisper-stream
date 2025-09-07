@@ -42,7 +42,7 @@ export const GOLDEN_SAMPLES: GoldenSample[] = [
     tags: ['catastrophizing', 'future_tense', 'high_confidence'],
     expectedAnnotations: {
       distortions: [
-        { type: 'catastrophizing', confidence: 0.95, keywords: ['ruined', 'never', 'recover'] }
+        { type: 'catastrophizing', confidence: 0.95, evidence: ['ruined', 'never', 'recover'], keywords: ['ruined', 'never', 'recover'] }
       ]
     }
   },
@@ -54,7 +54,7 @@ export const GOLDEN_SAMPLES: GoldenSample[] = [
     tags: ['mind_reading', 'assumptions'],
     expectedAnnotations: {
       distortions: [
-        { type: 'mind_reading', confidence: 0.85, keywords: ['probably thinks', 'can tell'] }
+        { type: 'mind_reading', confidence: 0.85, evidence: ['probably thinks', 'can tell'], keywords: ['probably thinks', 'can tell'] }
       ]
     }
   },
@@ -66,7 +66,7 @@ export const GOLDEN_SAMPLES: GoldenSample[] = [
     tags: ['should_statements', 'perfectionism'],
     expectedAnnotations: {
       distortions: [
-        { type: 'should_statements', confidence: 0.8, keywords: ['should', 'must'] }
+        { type: 'should_statements', confidence: 0.8, evidence: ['should', 'must'], keywords: ['should', 'must'] }
       ]
     }
   },
@@ -192,9 +192,9 @@ export const GOLDEN_SAMPLES: GoldenSample[] = [
     tags: ['multiple_distortions', 'complex'],
     expectedAnnotations: {
       distortions: [
-        { type: 'all_or_nothing', confidence: 0.85, keywords: ['always', 'never'] },
-        { type: 'mind_reading', confidence: 0.8, keywords: ['probably thinks'] },
-        { type: 'overgeneralization', confidence: 0.75, keywords: ['everyone'] }
+        { type: 'all_or_nothing', confidence: 0.85, evidence: ['always', 'never'], keywords: ['always', 'never'] },
+        { type: 'mind_reading', confidence: 0.8, evidence: ['probably thinks'], keywords: ['probably thinks'] },
+        { type: 'overgeneralization', confidence: 0.75, evidence: ['everyone'], keywords: ['everyone'] }
       ]
     }
   },
@@ -206,9 +206,9 @@ export const GOLDEN_SAMPLES: GoldenSample[] = [
     tags: ['multiple_distortions', 'career_anxiety'],
     expectedAnnotations: {
       distortions: [
-        { type: 'catastrophizing', confidence: 0.9, keywords: ['career is over'] },
-        { type: 'all_or_nothing', confidence: 0.85, keywords: ['total failure'] },
-        { type: 'should_statements', confidence: 0.8, keywords: ['should have'] }
+        { type: 'catastrophizing', confidence: 0.9, evidence: ['career is over'], keywords: ['career is over'] },
+        { type: 'all_or_nothing', confidence: 0.85, evidence: ['total failure'], keywords: ['total failure'] },
+        { type: 'should_statements', confidence: 0.8, evidence: ['should have'], keywords: ['should have'] }
       ]
     }
   },
@@ -222,10 +222,10 @@ export const GOLDEN_SAMPLES: GoldenSample[] = [
     tags: ['long_message', 'multiple_distortions', 'workplace'],
     expectedAnnotations: {
       distortions: [
-        { type: 'all_or_nothing', confidence: 0.9, keywords: ['always', 'everything', 'nothing', 'never', 'all'] },
-        { type: 'mind_reading', confidence: 0.85, keywords: ['they all believe'] },
-        { type: 'should_statements', confidence: 0.8, keywords: ['should'] },
-        { type: 'catastrophizing', confidence: 0.8, keywords: ['never improve', 'forever'] }
+        { type: 'all_or_nothing', confidence: 0.9, evidence: ['always', 'everything', 'nothing', 'never', 'all'], keywords: ['always', 'everything', 'nothing', 'never', 'all'] },
+        { type: 'mind_reading', confidence: 0.85, evidence: ['they all believe'], keywords: ['they all believe'] },
+        { type: 'should_statements', confidence: 0.8, evidence: ['should'], keywords: ['should'] },
+        { type: 'catastrophizing', confidence: 0.8, evidence: ['never improve', 'forever'], keywords: ['never improve', 'forever'] }
       ]
     }
   },

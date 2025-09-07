@@ -114,15 +114,18 @@ export default function DevCBTE2E() {
           traceId = await cbtTraceService.persist({
             messageId,
             userId: 'mock_user_e2e',
+            conversationId: 'e2e_conversation',
+            distortion: result.annotation.distortions[0]?.type || 'all_or_nothing',
+            timestamp: timestamp,
+            createdAt: timestamp,
             annotation: result.annotation,
-            intervention: result.decision.intervention || 'standard',
-            trigger: result.decision.trigger || 'policy_decision',
-            priority: result.decision.priority || 'low',
-            context: {
-              conversationDepth: messages.length,
-              currentTime: timestamp,
-              userSettings: cbtDevHarness.getMockUserSettings()
-            }
+            decision: {
+              ...result.decision,
+              shouldIntervene: result.decision.shouldShowCBT,
+              interventionType: (result.decision.intervention as any) || 'chip'
+            } as any,
+            privacyLayer: 'surface',
+            consent: true
           }, consentGiven);
         }
 
@@ -365,14 +368,22 @@ export default function DevCBTE2E() {
                       {/* CBT Chip */}
                       {message.cbtData?.chipShown && (
                         <div className="flex justify-start">
-                          <div className="max-w-[80%]">
-                            <CBTConversationWrapper
-                              messageId={message.id}
-                              messageText={message.text}
-                              onFeedback={(feedback) => handleCBTFeedback(message.id, feedback)}
-                            >
-                              <div /> {/* Empty div - wrapper handles chip rendering */}
-                            </CBTConversationWrapper>
+                        <div className="max-w-[80%]">
+                          <CBTConversationWrapper
+                            cbtGuidance={{
+                              shouldShow: true,
+                              action: {
+                                type: 'chip',
+                                text: `Detected ${message.cbtData.annotation?.distortions[0]?.type || 'distortion'}`
+                              },
+                              traceId: message.cbtData.traceId
+                            }}
+                            onCBTEngagement={(traceId, engaged, response, helpfulness) => 
+                              handleCBTFeedback(message.id, engaged ? 'helpful' : 'decline')
+                            }
+                          >
+                            <div /> {/* Empty div - wrapper handles chip rendering */}
+                          </CBTConversationWrapper>
                           </div>
                         </div>
                       )}

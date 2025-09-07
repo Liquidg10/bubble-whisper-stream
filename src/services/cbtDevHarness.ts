@@ -9,15 +9,21 @@ import { decide } from '@/ai/cbt/policy';
 
 export interface MockUserSettings {
   assistLevel: 'off' | 'subtle' | 'standard';
+  privacyLayer: 'surface' | 'context' | 'deep';
+  autoLogMode: 'off' | 'ask' | 'on';
   quietHours: { start: number; end: number };
   topicExclusions: string[];
+  neverInterveneOn: string[];
   cbtEnabled: boolean;
 }
 
 export interface MockFatigueState {
+  globalInterventions: number;
   dailyCount: number;
   lastInteraction: number;
+  lastIntervention: number;
   topicCooldowns: Record<string, number>;
+  topicDeclines: Record<string, number>;
   declineCountsByTopic: Record<string, number>;
   userThresholds: Record<string, number>;
 }
@@ -36,15 +42,21 @@ export interface PolicyTestResult {
 export class CBTDevHarness {
   private mockUserSettings: MockUserSettings = {
     assistLevel: 'standard',
+    privacyLayer: 'surface',
+    autoLogMode: 'ask',
     quietHours: { start: 22, end: 7 },
     topicExclusions: [],
+    neverInterveneOn: [],
     cbtEnabled: true
   };
 
   private mockFatigueState: MockFatigueState = {
+    globalInterventions: 0,
     dailyCount: 0,
     lastInteraction: 0,
+    lastIntervention: 0,
     topicCooldowns: {},
+    topicDeclines: {},
     declineCountsByTopic: {},
     userThresholds: {}
   };
@@ -110,14 +122,21 @@ export class CBTDevHarness {
 
     // Track decision timing
     const decisionStart = performance.now();
-    const decision = decide(annotation, this.mockUserSettings, this.mockFatigueState);
+    const decision = decide([annotation], {
+      ...this.mockUserSettings,
+      quietHours: this.mockUserSettings.quietHours ? {
+        enabled: true,
+        start: `${this.mockUserSettings.quietHours.start}:00`,
+        end: `${this.mockUserSettings.quietHours.end}:00`
+      } : undefined
+    }, this.mockFatigueState);
     const decisionTime = performance.now() - decisionStart;
 
     reasoning.push(`Decision took ${decisionTime.toFixed(2)}ms`);
 
     // Add reasoning based on decision
-    if (decision.shouldShowCBT) {
-      reasoning.push(`Intervention recommended: ${decision.intervention || 'unknown'}`);
+    if (decision.shouldIntervene) {
+      reasoning.push(`Intervention recommended: ${decision.interventionType || 'unknown'}`);
       if (decision.priority) {
         reasoning.push(`Priority level: ${decision.priority}`);
       }
@@ -130,7 +149,12 @@ export class CBTDevHarness {
 
     return {
       annotation,
-      decision,
+      decision: {
+        shouldShowCBT: decision.shouldIntervene,
+        intervention: decision.interventionType,
+        priority: decision.priority,
+        reason: decision.reason
+      },
       reasoning,
       timingMs: {
         annotation: annotationTime,
@@ -232,15 +256,21 @@ export class CBTDevHarness {
   resetMockState(): void {
     this.mockUserSettings = {
       assistLevel: 'standard',
+      privacyLayer: 'surface',
+      autoLogMode: 'ask',
       quietHours: { start: 22, end: 7 },
       topicExclusions: [],
+      neverInterveneOn: [],
       cbtEnabled: true
     };
 
     this.mockFatigueState = {
+      globalInterventions: 0,
       dailyCount: 0,
       lastInteraction: 0,
+      lastIntervention: 0,
       topicCooldowns: {},
+      topicDeclines: {},
       declineCountsByTopic: {},
       userThresholds: {}
     };
