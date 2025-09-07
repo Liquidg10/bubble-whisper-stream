@@ -31,6 +31,7 @@ import {
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { useToast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
+import { cbtConversationPipeline } from '@/services/cbtConversationPipeline';
 import { ttsService } from '@/services/tts';
 import { modalityService } from '@/services/modalityService';
 import { productivityLearningService } from '@/services/productivityLearningService';
@@ -120,6 +121,11 @@ interface AIMessage {
   content: string;
   timestamp: Date;
   context?: any;
+  cbtGuidance?: {
+    shouldShow: boolean;
+    action?: any;
+    traceId?: string;
+  };
 }
 
 interface SmartSuggestion {
@@ -326,6 +332,27 @@ export const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({
     setIsProcessing(true);
 
     try {
+      // PROMPT 7: CBT Conversation Pipeline Integration
+      const messageId = crypto.randomUUID();
+      const userId = (await supabase.auth.getUser()).data.user?.id || 'anonymous';
+      
+      // PROMPT 7: Main message interception point - analyze through CBT pipeline
+      const cbtResult = await cbtConversationPipeline.analyzeMessage({
+        messageText,
+        messageId,
+        userId,
+        conversationHistory: messages.slice(-8).map(msg => ({
+          role: msg.type === 'user' ? 'user' : 'assistant',
+          content: msg.content,
+          timestamp: msg.timestamp.getTime()
+        })),
+        currentContext: {
+          currentSession,
+          productivity,
+          currentActivity: currentSession?.anchorTask
+        }
+      });
+
       // Detect intent and handle accordingly
       const intent = detectIntent(messageText);
       
@@ -376,7 +403,13 @@ export const EnhancedAIChat: React.FC<EnhancedAIChatProps> = ({
         type: 'ai',
         content: data.response,
         timestamp: new Date(),
-        context: data.context
+        context: data.context,
+        // PROMPT 7: Attach CBT guidance if available
+        cbtGuidance: cbtResult.shouldShowCBT ? {
+          shouldShow: true,
+          action: cbtResult.cbtAction,
+          traceId: cbtResult.traceId
+        } : undefined
       };
 
       setMessages(prev => [...prev, aiMessage]);
