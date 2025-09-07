@@ -17,20 +17,21 @@ import {
   Brain
 } from 'lucide-react';
 import { useBubbleStore } from '@/stores/bubbleStore';
-import { hapticsService } from '@/services/haptics';
 import { useToast } from '@/hooks/use-toast';
 import { SessionCelebration } from './SessionCelebration';
+import { pomodoroService } from '@/services/pomodoroService';
 
 export function PomodoroTimer() {
   const { settings, updateSettings } = useBubbleStore();
-  const { toast } = useToast();
   const [showSettings, setShowSettings] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
 
-  const isActive = settings.pomodoroTimer?.isActive || false;
-  const timeRemaining = settings.pomodoroTimer?.timeRemaining || 0;
-  const currentPhase = settings.pomodoroTimer?.currentPhase || 'work';
-  const cycleCount = settings.pomodoroTimer?.cycleCount || 0;
+  const timer = settings.pomodoroTimer;
+  const isActive = timer?.isActive || false;
+  const timeRemaining = timer?.timeRemaining || 0;
+  const currentPhase = timer?.currentPhase || 'work';
+  const cycleCount = timer?.cycleCount || 0;
+  const isPaused = timer && !timer.startTime;
 
   // Default customization values
   const customization = {
@@ -45,152 +46,28 @@ export function PomodoroTimer() {
     ...settings.pomodoroCustomization
   };
 
-  // Timer countdown logic
-  useEffect(() => {
-    if (!isActive || !settings.pomodoroTimer?.startTime) return;
+  // Remove countdown logic - now handled by pomodoroService
 
-    const interval = setInterval(() => {
-      const now = Date.now();
-      const elapsed = Math.floor((now - settings.pomodoroTimer!.startTime!) / 1000);
-      const newTimeRemaining = Math.max(0, settings.pomodoroTimer!.duration - elapsed);
-
-      if (newTimeRemaining === 0) {
-        handlePhaseComplete();
-        return;
-      }
-
-      updateSettings({
-        pomodoroTimer: {
-          ...settings.pomodoroTimer!,
-          timeRemaining: newTimeRemaining
-        }
-      });
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [isActive, settings.pomodoroTimer?.startTime]);
-
-  const handlePhaseComplete = () => {
-    // Stop current timer
-    updateSettings({
-      pomodoroTimer: {
-        ...settings.pomodoroTimer!,
-        isActive: false,
-        startTime: null
-      }
-    });
-
-    // Trigger haptics and celebration
-    if (customization.hapticEnabled) {
-      hapticsService.success();
-    }
-
-    const currentCycle = settings.pomodoroTimer?.cycleCount || 0;
-    let nextPhase: 'work' | 'break' | 'longBreak';
-    let nextCycleCount = currentCycle;
-    let celebrationMessage = customization.celebrationMessage;
-
-    if (currentPhase === 'work') {
-      nextCycleCount = currentCycle + 1;
-      
-      if (nextCycleCount >= customization.cyclesBeforeLongBreak) {
-        nextPhase = 'longBreak';
-        nextCycleCount = 0;
-        celebrationMessage = "Excellent work cycle complete! Time for a long break 🛌";
-      } else {
-        nextPhase = 'break';
-        celebrationMessage = "Great focus! Time for a short break ☕";
-      }
-    } else {
-      nextPhase = 'work';
-      celebrationMessage = "Break's over! Ready to focus again? 🍅";
-    }
-
-    // Update phase and cycle count
-    const nextDuration = nextPhase === 'work' 
-      ? customization.workDuration
-      : nextPhase === 'break'
-      ? customization.shortBreakDuration
-      : customization.longBreakDuration;
-
-    updateSettings({
-      pomodoroTimer: {
-        ...settings.pomodoroTimer!,
-        currentPhase: nextPhase,
-        cycleCount: nextCycleCount,
-        duration: nextDuration,
-        timeRemaining: nextDuration
-      }
-    });
-
-    // Show celebration
-    setShowCelebration(true);
-    
-    toast({
-      title: "Phase Complete!",
-      description: celebrationMessage,
-    });
-
-    // Auto-start next phase if enabled
-    const shouldAutoStart = (nextPhase === 'work' && customization.autoStartWork) ||
-                           (nextPhase !== 'work' && customization.autoStartBreaks);
-    
-    if (shouldAutoStart) {
-      setTimeout(() => startTimer(nextPhase, nextDuration), 3000);
-    }
-  };
+  // Phase complete handling moved to pomodoroService
 
   const startTimer = (phase = currentPhase, duration?: number) => {
-    const timerDuration = duration || (phase === 'work' 
-      ? customization.workDuration
-      : phase === 'break'
-      ? customization.shortBreakDuration
-      : customization.longBreakDuration);
-
-    const startTime = Date.now();
-    updateSettings({
-      pomodoroTimer: {
-        isActive: true,
-        timeRemaining: timerDuration,
-        duration: timerDuration,
-        startTime,
-        currentPhase: phase,
-        cycleCount: settings.pomodoroTimer?.cycleCount || 0
-      }
-    });
-
-    toast({
-      title: `${phase === 'work' ? 'Focus' : 'Break'} Session Started`,
-      description: `${Math.floor(timerDuration / 60)} minutes of ${phase === 'work' ? 'focused work' : 'well-deserved rest'}`,
-    });
+    pomodoroService.startTimer(phase, duration);
   };
 
   const pauseTimer = () => {
-    updateSettings({
-      pomodoroTimer: {
-        ...settings.pomodoroTimer!,
-        isActive: false,
-        startTime: null
-      }
-    });
+    pomodoroService.pauseTimer();
+  };
+
+  const resumeTimer = () => {
+    pomodoroService.resumeTimer();
   };
 
   const resetTimer = () => {
-    const defaultDuration = customization.workDuration;
-    updateSettings({
-      pomodoroTimer: {
-        isActive: false,
-        timeRemaining: defaultDuration,
-        duration: defaultDuration,
-        startTime: null,
-        currentPhase: 'work',
-        cycleCount: 0
-      }
-    });
+    pomodoroService.resetTimer();
   };
 
   const skipPhase = () => {
-    handlePhaseComplete();
+    pomodoroService.skipPhase();
   };
 
   const formatTime = (seconds: number) => {
@@ -233,8 +110,8 @@ export function PomodoroTimer() {
   };
 
   const phaseInfo = getPhaseInfo();
-  const progress = settings.pomodoroTimer?.duration ? 
-    ((settings.pomodoroTimer.duration - timeRemaining) / settings.pomodoroTimer.duration) * 100 : 0;
+  const progress = timer?.duration ? 
+    ((timer.duration - timeRemaining) / timer.duration) * 100 : 0;
 
   if (showCelebration) {
     return (
@@ -299,6 +176,11 @@ export function PomodoroTimer() {
               <Button onClick={() => startTimer()} className="gap-2">
                 <Play className="h-4 w-4" />
                 Start {phaseInfo.title}
+              </Button>
+            ) : isPaused ? (
+              <Button onClick={resumeTimer} className="gap-2">
+                <Play className="h-4 w-4" />
+                Resume {phaseInfo.title}
               </Button>
             ) : (
               <Button onClick={pauseTimer} variant="outline" className="gap-2">

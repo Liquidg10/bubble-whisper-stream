@@ -4,16 +4,18 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Badge } from '@/components/ui/badge';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { Timer, Pause, Play, SkipForward } from 'lucide-react';
+import { pomodoroService } from '@/services/pomodoroService';
 
 export function PomodoroHeaderTimer() {
-  const { settings, updateSettings } = useBubbleStore();
+  const { settings } = useBubbleStore();
   const [showModal, setShowModal] = useState(false);
 
-  if (!settings.pomodoroTimer?.isActive) {
+  const timer = settings.pomodoroTimer;
+  if (!timer || !timer.isActive) {
     return null;
   }
 
-  const { timeRemaining, currentPhase, cycleCount } = settings.pomodoroTimer;
+  const { timeRemaining, currentPhase, cycleCount, startTime } = timer;
   const { cyclesBeforeLongBreak } = settings.pomodoroCustomization || {};
 
   const formatTime = (seconds: number) => {
@@ -40,44 +42,36 @@ export function PomodoroHeaderTimer() {
     }
   };
 
-  const progress = settings.pomodoroTimer.duration > 0 
-    ? ((settings.pomodoroTimer.duration - timeRemaining) / settings.pomodoroTimer.duration) * 100 
+  const progress = timer.duration > 0 
+    ? ((timer.duration - timeRemaining) / timer.duration) * 100 
     : 0;
 
-  const pauseTimer = () => {
-    updateSettings({
-      pomodoroTimer: {
-        ...settings.pomodoroTimer!,
-        isActive: false
-      }
-    });
-  };
+  const isPaused = !startTime;
 
-  const resumeTimer = () => {
-    updateSettings({
-      pomodoroTimer: {
-        ...settings.pomodoroTimer!,
-        isActive: true,
-        startTime: Date.now()
-      }
-    });
+  const handleTogglePause = () => {
+    if (isPaused) {
+      pomodoroService.resumeTimer();
+    } else {
+      pomodoroService.pauseTimer();
+    }
   };
 
   return (
     <>
       <Button
         variant="ghost"
-        size="sm"
+        size="default"
         onClick={() => setShowModal(true)}
-        className="relative h-8 px-2 gap-1"
+        className="relative h-12 px-3 gap-2 bg-accent-primary/10 hover:bg-accent-primary/20 border border-accent-primary/30"
       >
-        <div className="flex items-center gap-1">
-          <Timer className="h-3 w-3" />
-          <span className="text-xs font-mono">{formatTime(timeRemaining)}</span>
-          <span className="text-xs">{getPhaseEmoji()}</span>
+        <div className="flex items-center gap-2">
+          <Timer className="h-4 w-4 text-accent-primary" />
+          <span className="text-sm font-mono font-semibold text-accent-primary">{formatTime(timeRemaining)}</span>
+          <span className="text-sm">{getPhaseEmoji()}</span>
+          {isPaused && <Pause className="h-3 w-3 text-accent-flow animate-pulse" />}
         </div>
         <div 
-          className={`absolute bottom-0 left-0 h-0.5 transition-all duration-1000 ${getPhaseColor()}`}
+          className={`absolute bottom-0 left-0 h-1 transition-all duration-1000 ${getPhaseColor()} rounded-full`}
           style={{ width: `${progress}%` }}
         />
       </Button>
@@ -114,19 +108,31 @@ export function PomodoroHeaderTimer() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={settings.pomodoroTimer?.startTime ? pauseTimer : resumeTimer}
+                onClick={handleTogglePause}
               >
-                {settings.pomodoroTimer?.startTime ? (
-                  <>
-                    <Pause className="h-4 w-4 mr-1" />
-                    Pause
-                  </>
-                ) : (
+                {isPaused ? (
                   <>
                     <Play className="h-4 w-4 mr-1" />
                     Resume
                   </>
+                ) : (
+                  <>
+                    <Pause className="h-4 w-4 mr-1" />
+                    Pause
+                  </>
                 )}
+              </Button>
+              
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  pomodoroService.skipPhase();
+                  setShowModal(false);
+                }}
+              >
+                <SkipForward className="h-4 w-4 mr-1" />
+                Skip
               </Button>
             </div>
           </div>
