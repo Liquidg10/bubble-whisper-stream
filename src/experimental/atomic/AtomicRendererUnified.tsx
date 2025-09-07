@@ -147,23 +147,53 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     }
   });
 
-  // Convert bubbles to molecules with global position persistence
+  // Debounced molecule converter to prevent rapid re-conversions
+  const debouncedConvertRef = useRef<NodeJS.Timeout>();
+  const lastConversionRef = useRef<Bubble[]>([]);
+  
   const convertBubblesToMolecules = useCallback((inputBubbles: Bubble[]): Molecule[] => {
+    // Position tolerance - ignore tiny changes
+    const POSITION_TOLERANCE = 5;
+    
+    // Check if we need to rebuild at all
+    const bubblesChanged = inputBubbles.length !== lastConversionRef.current.length ||
+      inputBubbles.some((bubble, i) => {
+        const lastBubble = lastConversionRef.current[i];
+        if (!lastBubble) return true;
+        
+        const positionChanged = Math.abs((bubble.x || 0) - (lastBubble.x || 0)) > POSITION_TOLERANCE ||
+                               Math.abs((bubble.y || 0) - (lastBubble.y || 0)) > POSITION_TOLERANCE;
+        return bubble.id !== lastBubble.id || 
+               bubble.content !== lastBubble.content ||
+               positionChanged;
+      });
+    
+    if (!bubblesChanged && atomicState.molecules.length > 0) {
+      // Return existing molecules with preserved animation state
+      return atomicState.molecules;
+    }
+    
+    lastConversionRef.current = inputBubbles;
     const moleculeMap = new Map<string, Molecule>();
+    
+    // Preserve existing molecule positions and animation states
+    const existingMolecules = new Map<string, Molecule>();
+    atomicState.molecules.forEach(mol => {
+      existingMolecules.set(mol.id, mol);
+    });
     
     // Step 1: Collect all unique domains first
     const uniqueDomains = [...new Set(inputBubbles.map(bubble => classifyDomain(bubble)))];
-    console.log(`Global positioning: Found ${uniqueDomains.length} unique domains:`, uniqueDomains);
     
-    // Step 2: Calculate global positions for all domains at once
-    const globalPositions = calculateMoleculePositions(uniqueDomains);
+    // Step 2: Calculate global positions for new domains only
+    const newDomains = uniqueDomains.filter(domain => !existingMolecules.has(`mol-${domain}`));
+    const globalPositions = newDomains.length > 0 ? calculateMoleculePositions(newDomains) : [];
     const domainPositionMap = new Map<string, { x: number; y: number }>();
     
-    uniqueDomains.forEach((domain, index) => {
+    newDomains.forEach((domain, index) => {
       const position = globalPositions[index];
       if (position) {
         domainPositionMap.set(domain, { x: position.x, y: position.y });
-        console.log(`Global position assigned to ${domain}:`, { x: position.x, y: position.y });
       }
     });
 
@@ -175,72 +205,74 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
 
       let molecule = moleculeMap.get(domain);
       if (!molecule) {
-        // Step 3: Use global position or validate stored position
-        let finalPosition = domainPositionMap.get(domain);
+        // Check if we have an existing molecule to preserve
+        const existingMolecule = existingMolecules.get(`mol-${domain}`);
         
-        // Check if bubble has a stored position that doesn't conflict
-        const domainBubbles = inputBubbles.filter(b => classifyDomain(b) === domain);
-        const representativeBubble = domainBubbles[0];
-        
-        if (representativeBubble && representativeBubble.x && representativeBubble.y) {
-          const storedPosition = { x: representativeBubble.x, y: representativeBubble.y };
+        if (existingMolecule) {
+          // Preserve existing molecule position and state
+          molecule = {
+            ...existingMolecule,
+            electrons: [] // Will be rebuilt below
+          };
+        } else {
+          // Create new molecule with calculated position
+          let finalPosition = domainPositionMap.get(domain);
           
-          // Validate stored position against other global positions
-          const hasConflict = Array.from(domainPositionMap.values()).some(pos => {
-            if (pos.x === finalPosition?.x && pos.y === finalPosition?.y) return false; // Same position
-            const distance = Math.hypot(storedPosition.x - pos.x, storedPosition.y - pos.y);
-            return distance < 350; // MIN_DISTANCE from positioning.ts
-          });
+          // Check if bubble has a stored position that doesn't conflict
+          const domainBubbles = inputBubbles.filter(b => classifyDomain(b) === domain);
+          const representativeBubble = domainBubbles[0];
           
-          if (!hasConflict) {
-            finalPosition = storedPosition;
-            console.log(`Using validated stored position for ${domain}:`, storedPosition);
-          } else {
-            console.log(`Stored position conflicts for ${domain}, using global:`, { 
-              stored: storedPosition, 
-              global: finalPosition 
+          if (representativeBubble && representativeBubble.x && representativeBubble.y) {
+            const storedPosition = { x: representativeBubble.x, y: representativeBubble.y };
+            
+            // Only use stored position if no conflicts
+            const hasConflict = Array.from(domainPositionMap.values()).some(pos => {
+              const distance = Math.hypot(storedPosition.x - pos.x, storedPosition.y - pos.y);
+              return distance < 350;
             });
+            
+            if (!hasConflict) {
+              finalPosition = storedPosition;
+            }
           }
+          
+          if (!finalPosition) {
+            finalPosition = { x: 600, y: 375 };
+          }
+          
+          molecule = {
+            id: `mol-${domain}`,
+            x: finalPosition.x,
+            y: finalPosition.y,
+            nucleus: domainPreset.nucleus,
+            electrons: [],
+            selected: false,
+            pulseActive: false
+          };
         }
         
-        if (!finalPosition) {
-          // Fallback to center if no position available
-          finalPosition = { x: 600, y: 375 };
-          console.warn(`No position available for domain ${domain}, using center fallback`);
-        }
-        
-        molecule = {
-          id: `mol-${domain}`,
-          x: finalPosition.x,
-          y: finalPosition.y,
-          nucleus: domainPreset.nucleus,
-          electrons: [],
-          selected: false,
-          pulseActive: false
-        };
         moleculeMap.set(domain, molecule);
       }
 
-      // Add electron for this bubble with improved distribution
+      // Add electron with preserved animation state when possible
+      const existingElectron = existingMolecules.get(`mol-${domain}`)?.electrons.find(e => e.id === `elec-${bubble.id}`);
       const electronsInMolecule = molecule.electrons.length;
       
-      // Improved shell assignment - spread electrons across shells to prevent overcrowding
-      const MAX_ELECTRONS_PER_SHELL = 6; // Limit electrons per shell
+      const MAX_ELECTRONS_PER_SHELL = 6;
       const adjustedShellIndex = Math.min(
         Math.floor(electronsInMolecule / MAX_ELECTRONS_PER_SHELL) + shellIndex,
-        2 // Max 3 shells (0, 1, 2)
+        2
       );
       
-      // Count electrons in the assigned shell for better angle distribution
       const electronsInShell = molecule.electrons.filter(e => e.shell === adjustedShellIndex).length;
       const angleStep = (2 * Math.PI) / Math.max(MAX_ELECTRONS_PER_SHELL, electronsInShell + 1);
       
       const electron: Electron = {
         id: `elec-${bubble.id}`,
         moleculeId: molecule.id,
-        shell: adjustedShellIndex,
-        angle: electronsInShell * angleStep + Math.random() * 0.1, // Better spacing with minimal randomization
-        phase: Math.random() * 2 * Math.PI,
+        shell: existingElectron?.shell ?? adjustedShellIndex,
+        angle: existingElectron?.angle ?? (electronsInShell * angleStep + Math.random() * 0.1),
+        phase: existingElectron?.phase ?? Math.random() * 2 * Math.PI,
         content: bubble.content || '',
         originalBubble: bubble
       };
@@ -248,20 +280,31 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       molecule.electrons.push(electron);
     });
 
-    const result = Array.from(moleculeMap.values());
-    console.log(`Molecule conversion complete: ${result.length} molecules with ${result.reduce((sum, mol) => sum + mol.electrons.length, 0)} total electrons`);
-    
-    return result;
-  }, []);
+    return Array.from(moleculeMap.values());
+  }, [atomicState.molecules]);
 
-  // Update molecules when bubbles change
+  // Debounced molecule update to prevent rapid re-conversions
   useEffect(() => {
-    const newMolecules = convertBubblesToMolecules(bubbles);
-    setAtomicState(prev => ({
-      ...prev,
-      molecules: newMolecules
-    }));
-  }, [bubbles, convertBubblesToMolecules]);
+    // Don't update during drag operations
+    if (atomicState.dragState.isDragging) return;
+    
+    if (debouncedConvertRef.current) {
+      clearTimeout(debouncedConvertRef.current);
+    }
+    
+    debouncedConvertRef.current = setTimeout(() => {
+      setAtomicState(prev => ({
+        ...prev,
+        molecules: convertBubblesToMolecules(bubbles)
+      }));
+    }, 50); // 50ms debounce
+    
+    return () => {
+      if (debouncedConvertRef.current) {
+        clearTimeout(debouncedConvertRef.current);
+      }
+    };
+  }, [bubbles, convertBubblesToMolecules, atomicState.dragState.isDragging]);
 
   // Motion control
   useEffect(() => {
@@ -324,6 +367,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     // Lock position during selection/drag to prevent oscillations
     lockPosition(molecule.id);
     
+    // Prevent position updates during drag
     setAtomicState(prev => ({
       ...prev,
       dragState: {
@@ -333,7 +377,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         lastMousePos: { x: event.clientX, y: event.clientY }
       }
     }));
-  }, []);
+  }, [lockPosition]);
 
   // Global mouse handlers
   useEffect(() => {
@@ -404,9 +448,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
               const newX = mol.x + deltaX / viewport.scale;
               const newY = mol.y + deltaY / viewport.scale;
               
-              // Update representative bubble position for persistence
-              updateDomainBubblesPosition(mol.electrons, newX, newY);
-              
+              // Queue position update for after drag ends
               return { ...mol, x: newX, y: newY };
             }
             return mol;
@@ -459,8 +501,13 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         }
       }
 
-      // Unlock position after drag ends
+      // Handle molecule position persistence after drag ends
       if (atomicState.dragState.moleculeId) {
+        const draggedMolecule = atomicState.molecules.find(m => m.id === atomicState.dragState.moleculeId);
+        if (draggedMolecule) {
+          // Update bubble position after drag completes
+          updateDomainBubblesPosition(draggedMolecule.electrons, draggedMolecule.x, draggedMolecule.y);
+        }
         unlockPosition(atomicState.dragState.moleculeId);
       }
 
