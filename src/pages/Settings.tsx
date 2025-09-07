@@ -7,7 +7,8 @@ import {
   Shield, 
   Code,
   Bot,
-  Timer
+  Timer,
+  Home
 } from 'lucide-react';
 import { GeneralSettings } from '@/components/settings/GeneralSettings';
 import { IntelligenceSettings } from '@/components/IntelligenceSettings';
@@ -16,7 +17,8 @@ import { PrivacySecuritySettings } from '@/components/settings/PrivacySecuritySe
 import { AdvancedSettings } from '@/components/settings/AdvancedSettings';
 import { AISettings } from '@/components/settings/AISettings';
 import { ThoughtSupportSettings } from '@/components/settings/ThoughtSupportSettings';
-import { ProductivitySettings } from '@/components/settings/ProductivitySettings';
+import { PomodoroSettings } from '@/components/settings/PomodoroSettings';
+import { CleanHouseSettings } from '@/components/settings/CleanHouseSettings';
 import { useFeatureFlags } from '@/components/FeatureFlags';
 import { isFeatureEnabled } from '@/config/flags';
 
@@ -38,7 +40,7 @@ export const Settings: React.FC = () => {
 
       <div className="flex-1 overflow-hidden">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
-          <TabsList className={`grid w-full ${showCBTTab ? 'grid-cols-8' : 'grid-cols-7'} mx-4 mt-4`}>
+          <TabsList className={`grid w-full ${showCBTTab ? 'grid-cols-9' : 'grid-cols-8'} mx-4 mt-4`}>
             <TabsTrigger value="general" className="flex items-center gap-2">
               <SettingsIcon className="h-4 w-4" />
               <span className="hidden sm:inline">General</span>
@@ -47,9 +49,13 @@ export const Settings: React.FC = () => {
               <Bot className="h-4 w-4" />
               <span className="hidden sm:inline">AI</span>
             </TabsTrigger>
-            <TabsTrigger value="productivity" className="flex items-center gap-2">
+            <TabsTrigger value="pomodoro" className="flex items-center gap-2">
               <Timer className="h-4 w-4" />
-              <span className="hidden sm:inline">Focus</span>
+              <span className="hidden sm:inline">Pomodoro</span>
+            </TabsTrigger>
+            <TabsTrigger value="cleanhouse" className="flex items-center gap-2">
+              <Home className="h-4 w-4" />
+              <span className="hidden sm:inline">Clean House</span>
             </TabsTrigger>
             {showCBTTab && (
               <TabsTrigger value="thought-support" className="flex items-center gap-2">
@@ -86,8 +92,12 @@ export const Settings: React.FC = () => {
               <AISettings />
             </TabsContent>
 
-            <TabsContent value="productivity" className="space-y-6 mt-0">
-              <ProductivitySettings />
+            <TabsContent value="pomodoro" className="space-y-6 mt-0">
+              <PomodoroSettings />
+            </TabsContent>
+
+            <TabsContent value="cleanhouse" className="space-y-6 mt-0">
+              <CleanHouseSettings />
             </TabsContent>
 
             {showCBTTab && (
