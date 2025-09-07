@@ -6,7 +6,8 @@ import {
   Plug, 
   Shield, 
   Code,
-  Bot
+  Bot,
+  Timer
 } from 'lucide-react';
 import { GeneralSettings } from '@/components/settings/GeneralSettings';
 import { IntelligenceSettings } from '@/components/IntelligenceSettings';
@@ -15,6 +16,7 @@ import { PrivacySecuritySettings } from '@/components/settings/PrivacySecuritySe
 import { AdvancedSettings } from '@/components/settings/AdvancedSettings';
 import { AISettings } from '@/components/settings/AISettings';
 import { ThoughtSupportSettings } from '@/components/settings/ThoughtSupportSettings';
+import { ProductivitySettings } from '@/components/settings/ProductivitySettings';
 import { useFeatureFlags } from '@/components/FeatureFlags';
 import { isFeatureEnabled } from '@/config/flags';
 
@@ -36,7 +38,7 @@ export const Settings: React.FC = () => {
 
       <div className="flex-1 overflow-hidden">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
-          <TabsList className={`grid w-full ${showCBTTab ? 'grid-cols-7' : 'grid-cols-6'} mx-4 mt-4`}>
+          <TabsList className={`grid w-full ${showCBTTab ? 'grid-cols-8' : 'grid-cols-7'} mx-4 mt-4`}>
             <TabsTrigger value="general" className="flex items-center gap-2">
               <SettingsIcon className="h-4 w-4" />
               <span className="hidden sm:inline">General</span>
@@ -44,6 +46,10 @@ export const Settings: React.FC = () => {
             <TabsTrigger value="ai" className="flex items-center gap-2">
               <Bot className="h-4 w-4" />
               <span className="hidden sm:inline">AI</span>
+            </TabsTrigger>
+            <TabsTrigger value="productivity" className="flex items-center gap-2">
+              <Timer className="h-4 w-4" />
+              <span className="hidden sm:inline">Focus</span>
             </TabsTrigger>
             {showCBTTab && (
               <TabsTrigger value="thought-support" className="flex items-center gap-2">
@@ -78,6 +84,10 @@ export const Settings: React.FC = () => {
 
             <TabsContent value="ai" className="space-y-6 mt-0">
               <AISettings />
+            </TabsContent>
+
+            <TabsContent value="productivity" className="space-y-6 mt-0">
+              <ProductivitySettings />
             </TabsContent>
 
             {showCBTTab && (

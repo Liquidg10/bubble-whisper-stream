@@ -10,12 +10,12 @@ export function PomodoroHeaderTimer() {
   const { settings } = useBubbleStore();
   const [showModal, setShowModal] = useState(false);
 
-  const timer = settings.pomodoroTimer;
-  if (!timer || !timer.isActive) {
+  const timerState = pomodoroService.getState();
+  if (timerState.duration === 0) {
     return null;
   }
 
-  const { timeRemaining, currentPhase, cycleCount, startTime } = timer;
+  const { timeRemaining, currentPhase, cycleCount, isActive } = timerState;
   const { cyclesBeforeLongBreak } = settings.pomodoroCustomization || {};
 
   const formatTime = (seconds: number) => {
@@ -42,11 +42,11 @@ export function PomodoroHeaderTimer() {
     }
   };
 
-  const progress = timer.duration > 0 
-    ? ((timer.duration - timeRemaining) / timer.duration) * 100 
+  const progress = timerState.duration > 0 
+    ? ((timerState.duration - timeRemaining) / timerState.duration) * 100 
     : 0;
 
-  const isPaused = !startTime;
+  const isPaused = !isActive;
 
   const handleTogglePause = () => {
     if (isPaused) {
@@ -62,16 +62,16 @@ export function PomodoroHeaderTimer() {
         variant="ghost"
         size="default"
         onClick={() => setShowModal(true)}
-        className="relative h-12 px-3 gap-2 bg-accent-primary/10 hover:bg-accent-primary/20 border border-accent-primary/30"
+        className="relative h-12 px-4 gap-3 bg-accent-primary/10 hover:bg-accent-primary/20 border border-accent-primary/30"
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <Timer className="h-4 w-4 text-accent-primary" />
-          <span className="text-sm font-mono font-semibold text-accent-primary">{formatTime(timeRemaining)}</span>
-          <span className="text-sm">{getPhaseEmoji()}</span>
-          {isPaused && <Pause className="h-3 w-3 text-accent-flow animate-pulse" />}
+          <span className="text-base font-mono font-semibold text-accent-primary">{formatTime(timeRemaining)}</span>
+          <span className="text-base">{getPhaseEmoji()}</span>
+          {isPaused && <Pause className="h-4 w-4 text-accent-flow animate-pulse" />}
         </div>
         <div 
-          className={`absolute bottom-0 left-0 h-1 transition-all duration-1000 ${getPhaseColor()} rounded-full`}
+          className={`absolute bottom-0 left-0 h-2 transition-all duration-1000 ${getPhaseColor()} rounded-full`}
           style={{ width: `${progress}%` }}
         />
       </Button>

@@ -19,6 +19,21 @@ class PomodoroService {
   private intervalId: number | null = null;
   private phaseCompleteGuard = false;
 
+  // Get current state
+  getState(): PomodoroState {
+    const store = useBubbleStore.getState();
+    const timer = store.settings.pomodoroTimer;
+    
+    return {
+      isActive: timer?.isActive || false,
+      timeRemaining: timer?.timeRemaining || 0,
+      duration: timer?.duration || 0,
+      startTime: timer?.startTime || null,
+      currentPhase: timer?.currentPhase || 'work',
+      cycleCount: timer?.cycleCount || 0
+    };
+  }
+
   startTimer(phase: 'work' | 'break' | 'longBreak', duration?: number) {
     const store = useBubbleStore.getState();
     const customization = {
