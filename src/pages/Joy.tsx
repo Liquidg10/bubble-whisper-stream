@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -7,13 +7,17 @@ import { Badge } from '@/components/ui/badge';
 import { BecausePill } from '@/components/BecausePill';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { JoyCard } from '@/components/JoyCard';
-import { Heart, Search, Filter, Calendar, Star, Sparkles } from 'lucide-react';
+import { ConversationJoyCard } from '@/components/ConversationJoyCard';
+import { Heart, Search, Filter, Calendar, Star, Sparkles, MessageCircle } from 'lucide-react';
 import { Bubble } from '@/types/bubble';
+import { conversationJoyService, JoyfulConversation } from '@/services/conversationJoyService';
 
 export const Joy: React.FC = () => {
   const { bubbles } = useBubbleStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [timeFilter, setTimeFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
+  const [joyfulConversations, setJoyfulConversations] = useState<JoyfulConversation[]>([]);
+  const [isLoadingConversations, setIsLoadingConversations] = useState(false);
 
   // Filter bubbles to only show Joy-related ones (exclude receipts unless bookmarked)
   const joyBubbles = useMemo(() => {
@@ -100,6 +104,23 @@ export const Joy: React.FC = () => {
     return { today, thisWeek, favorites, auto, all: filteredJoyBubbles };
   }, [filteredJoyBubbles]);
 
+  // Load joyful conversations
+  useEffect(() => {
+    const loadJoyfulConversations = async () => {
+      setIsLoadingConversations(true);
+      try {
+        const conversations = await conversationJoyService.getJoyfulConversations(50);
+        setJoyfulConversations(conversations);
+      } catch (error) {
+        console.warn('Failed to load joyful conversations:', error);
+      } finally {
+        setIsLoadingConversations(false);
+      }
+    };
+    
+    loadJoyfulConversations();
+  }, []);
+
   const generateBecauseExplanation = (bubble: Bubble): string => {
     const isRecent = Date.now() - bubble.createdAt < (24 * 60 * 60 * 1000);
     const isFavorite = bubble.tags?.some(tag => 
@@ -181,10 +202,14 @@ export const Joy: React.FC = () => {
 
       {/* Content Tabs */}
       <Tabs defaultValue="all" className="w-full">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="all" className="flex items-center gap-2">
             <Calendar className="h-4 w-4" />
             All ({groupedBubbles.all.length})
+          </TabsTrigger>
+          <TabsTrigger value="conversations" className="flex items-center gap-2">
+            <MessageCircle className="h-4 w-4" />
+            Conversations
           </TabsTrigger>
           <TabsTrigger value="auto" className="flex items-center gap-2">
             <Sparkles className="h-4 w-4" />
@@ -203,6 +228,38 @@ export const Joy: React.FC = () => {
             Favorites ({groupedBubbles.favorites.length})
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="conversations" className="mt-6">
+          {isLoadingConversations ? (
+            <Card>
+              <CardContent className="text-center py-8">
+                <MessageCircle className="h-8 w-8 text-muted-foreground mx-auto mb-2 animate-pulse" />
+                <p className="text-muted-foreground">Loading joyful conversations...</p>
+              </CardContent>
+            </Card>
+          ) : joyfulConversations.length === 0 ? (
+            <Card>
+              <CardContent className="text-center py-8">
+                <MessageCircle className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                <p className="text-muted-foreground">No joyful conversations found yet.</p>
+                <p className="text-xs text-muted-foreground mt-1">Chat with the AI to build joyful conversation memories!</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {joyfulConversations.map((conversation) => (
+                <div key={conversation.id} className="space-y-2">
+                  <ConversationJoyCard conversation={conversation} />
+                  <BecausePill 
+                    explanation={`${(conversation.joyScore * 100).toFixed(0)}% joy detected from ${conversation.joyIndicators.length} indicators`}
+                    variant="pill"
+                    compact
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </TabsContent>
 
         <TabsContent value="auto" className="mt-6">
           {groupedBubbles.auto?.length === 0 ? (
