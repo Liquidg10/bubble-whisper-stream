@@ -104,7 +104,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
 }) => {
   const canvasRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
-  const { updateDomainBubblesPosition } = useMoleculePositionPersistence();
+  const { updateDomainBubblesPosition, lockPosition, unlockPosition } = useMoleculePositionPersistence();
   
   // State management
   const [atomicState, setAtomicState] = useState<AtomicState>({
@@ -321,6 +321,9 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     event.stopPropagation();
     event.preventDefault();
     
+    // Lock position during selection/drag to prevent oscillations
+    lockPosition(molecule.id);
+    
     setAtomicState(prev => ({
       ...prev,
       dragState: {
@@ -456,6 +459,11 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         }
       }
 
+      // Unlock position after drag ends
+      if (atomicState.dragState.moleculeId) {
+        unlockPosition(atomicState.dragState.moleculeId);
+      }
+
       // Reset drag state
       setAtomicState(prev => ({
         ...prev,
@@ -481,6 +489,11 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
 
   // Multi-select handling
   const handleMoleculeSelect = useCallback((moleculeId: string, isShiftClick: boolean = false) => {
+    // Prevent selection during drag to avoid position conflicts
+    if (atomicState.dragState.isDragging) {
+      return;
+    }
+
     setAtomicState(prev => {
       let newSelection: string[];
       
@@ -503,7 +516,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         }))
       };
     });
-  }, []);
+  }, [atomicState.dragState.isDragging]);
 
   // Fusion handling (requires exactly 2 molecules)
   const handleFusion = useCallback(() => {

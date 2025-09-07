@@ -45,9 +45,12 @@ export function checkBubblesOverlapping(
   const radius1 = getBubbleRadius(bubble1);
   const radius2 = getBubbleRadius(bubble2);
   
+  // Add stability margin to prevent oscillations at threshold boundaries
+  const STABILITY_MARGIN = 5; // pixels
+  
   // Calculate the threshold distance (combined radii with percentage adjustment)
   const combinedRadii = radius1 + radius2;
-  const thresholdDistance = combinedRadii * (mergeThreshold / 100);
+  const thresholdDistance = combinedRadii * (mergeThreshold / 100) + STABILITY_MARGIN;
   
   const isOverlapping = distance < thresholdDistance;
   const overlapPercentage = Math.max(0, (thresholdDistance - distance) / combinedRadii * 100);
