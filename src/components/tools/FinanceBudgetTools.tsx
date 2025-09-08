@@ -10,6 +10,7 @@ import {
 import { BankingIntegrationPlugin } from '@/plugins/BankingIntegrationPlugin';
 import { BudgetPaceAlerts } from '@/components/BudgetPaceAlerts';
 import { BudgetEnvelopeManager } from '@/components/BudgetEnvelopeManager';
+import { FinancialInsightsPanel } from '@/components/FinancialInsightsPanel';
 
 
 export function FinanceBudgetTools() {
@@ -60,19 +61,7 @@ export function FinanceBudgetTools() {
       </Card>
 
       {/* Financial Insights */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <TrendingUp className="h-5 w-5 text-orange-600" />
-            Financial Insights
-            <Badge variant="outline">Coming Soon</Badge>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="py-8 text-center text-muted-foreground">
-          <TrendingUp className="h-12 w-12 mx-auto mb-4 opacity-50" />
-          <p>Personalized financial insights and spending pattern analysis coming soon</p>
-        </CardContent>
-      </Card>
+      <FinancialInsightsPanel />
     </div>
   );
 }

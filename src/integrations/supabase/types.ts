@@ -1155,6 +1155,60 @@ export type Database = {
         }
         Relationships: []
       }
+      recurring_transactions: {
+        Row: {
+          amount_average: number
+          amount_variance: number
+          category: Json | null
+          confidence_score: number
+          created_at: string
+          frequency_days: number
+          id: string
+          is_active: boolean
+          last_transaction_date: string | null
+          merchant_name: string
+          next_expected_date: string | null
+          normalized_merchant: string
+          occurrence_count: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          amount_average: number
+          amount_variance?: number
+          category?: Json | null
+          confidence_score?: number
+          created_at?: string
+          frequency_days: number
+          id?: string
+          is_active?: boolean
+          last_transaction_date?: string | null
+          merchant_name: string
+          next_expected_date?: string | null
+          normalized_merchant: string
+          occurrence_count?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          amount_average?: number
+          amount_variance?: number
+          category?: Json | null
+          confidence_score?: number
+          created_at?: string
+          frequency_days?: number
+          id?: string
+          is_active?: boolean
+          last_transaction_date?: string | null
+          merchant_name?: string
+          next_expected_date?: string | null
+          normalized_merchant?: string
+          occurrence_count?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       sync_conflicts: {
         Row: {
           created_at: string

@@ -123,6 +123,11 @@ const devRoutes: DevRoute[] = [
     path: '/dev/email-compose',
     name: 'Email Compose & Safety',
     description: 'Test email composition with safety guardrails and contact disambiguation'
+  },
+  {
+    path: '/dev/recurring-finance',
+    name: 'Recurring Finance Detection',
+    description: 'Test recurring transaction detection with financial context integration'
   }
 ];
 
