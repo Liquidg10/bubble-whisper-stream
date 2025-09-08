@@ -792,6 +792,59 @@ export type Database = {
           },
         ]
       }
+      plaid_accounts: {
+        Row: {
+          account_id: string
+          balances: Json
+          created_at: string
+          id: string
+          is_active: boolean
+          name: string
+          official_name: string | null
+          plaid_item_id: string
+          subtype: string | null
+          type: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_id: string
+          balances?: Json
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          official_name?: string | null
+          plaid_item_id: string
+          subtype?: string | null
+          type: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_id?: string
+          balances?: Json
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          official_name?: string | null
+          plaid_item_id?: string
+          subtype?: string | null
+          type?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plaid_accounts_plaid_item_id_fkey"
+            columns: ["plaid_item_id"]
+            isOneToOne: false
+            referencedRelation: "plaid_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       plaid_items: {
         Row: {
           access_token: string
@@ -825,6 +878,184 @@ export type Database = {
           last_sync_at?: string | null
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      plaid_sync_status: {
+        Row: {
+          created_at: string
+          error_count: number
+          id: string
+          is_healthy: boolean
+          last_accounts_sync: string | null
+          last_error: string | null
+          last_transactions_sync: string | null
+          last_webhook_received: string | null
+          next_retry_at: string | null
+          plaid_item_id: string
+          updated_at: string
+          user_id: string
+          webhook_url: string | null
+        }
+        Insert: {
+          created_at?: string
+          error_count?: number
+          id?: string
+          is_healthy?: boolean
+          last_accounts_sync?: string | null
+          last_error?: string | null
+          last_transactions_sync?: string | null
+          last_webhook_received?: string | null
+          next_retry_at?: string | null
+          plaid_item_id: string
+          updated_at?: string
+          user_id: string
+          webhook_url?: string | null
+        }
+        Update: {
+          created_at?: string
+          error_count?: number
+          id?: string
+          is_healthy?: boolean
+          last_accounts_sync?: string | null
+          last_error?: string | null
+          last_transactions_sync?: string | null
+          last_webhook_received?: string | null
+          next_retry_at?: string | null
+          plaid_item_id?: string
+          updated_at?: string
+          user_id?: string
+          webhook_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plaid_sync_status_plaid_item_id_fkey"
+            columns: ["plaid_item_id"]
+            isOneToOne: true
+            referencedRelation: "plaid_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plaid_transactions: {
+        Row: {
+          account_id: string
+          account_owner: string | null
+          amount: number
+          authorized_date: string | null
+          category: Json | null
+          created_at: string
+          date: string
+          id: string
+          iso_currency_code: string | null
+          location: Json | null
+          merchant_name: string | null
+          metadata: Json | null
+          name: string
+          payment_meta: Json | null
+          pending: boolean | null
+          pending_transaction_id: string | null
+          plaid_item_id: string
+          transaction_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_id: string
+          account_owner?: string | null
+          amount: number
+          authorized_date?: string | null
+          category?: Json | null
+          created_at?: string
+          date: string
+          id?: string
+          iso_currency_code?: string | null
+          location?: Json | null
+          merchant_name?: string | null
+          metadata?: Json | null
+          name: string
+          payment_meta?: Json | null
+          pending?: boolean | null
+          pending_transaction_id?: string | null
+          plaid_item_id: string
+          transaction_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_id?: string
+          account_owner?: string | null
+          amount?: number
+          authorized_date?: string | null
+          category?: Json | null
+          created_at?: string
+          date?: string
+          id?: string
+          iso_currency_code?: string | null
+          location?: Json | null
+          merchant_name?: string | null
+          metadata?: Json | null
+          name?: string
+          payment_meta?: Json | null
+          pending?: boolean | null
+          pending_transaction_id?: string | null
+          plaid_item_id?: string
+          transaction_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plaid_transactions_plaid_item_id_fkey"
+            columns: ["plaid_item_id"]
+            isOneToOne: false
+            referencedRelation: "plaid_items"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plaid_webhooks: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          id: string
+          payload: Json
+          plaid_item_id: string | null
+          processed: boolean
+          processed_at: string | null
+          retry_count: number
+          user_id: string | null
+          webhook_code: string
+          webhook_id: string
+          webhook_type: string
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          payload: Json
+          plaid_item_id?: string | null
+          processed?: boolean
+          processed_at?: string | null
+          retry_count?: number
+          user_id?: string | null
+          webhook_code: string
+          webhook_id: string
+          webhook_type: string
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          payload?: Json
+          plaid_item_id?: string | null
+          processed?: boolean
+          processed_at?: string | null
+          retry_count?: number
+          user_id?: string | null
+          webhook_code?: string
+          webhook_id?: string
+          webhook_type?: string
         }
         Relationships: []
       }
