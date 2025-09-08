@@ -38,6 +38,7 @@ import DevModes from "./pages/DevModes";
 import { DevBudget } from "./pages/DevBudget";
 import { DevSyncBasic } from "./pages/DevSyncBasic";
 import { DevSyncDiff } from "./pages/DevSyncDiff";
+import { DevContextEngine } from "./pages/DevContextEngine";
 import Inbox from "./pages/Inbox";
 import Search from "./pages/Search";
 import { DevFlags } from "./pages/DevFlags";
@@ -110,6 +111,7 @@ const App = () => {
                       <Route path="dev/cbt-policy" element={<DevCBTPolicy />} />
                       <Route path="dev/cbt-e2e" element={<DevCBTE2E />} />
                       <Route path="dev/cbt-metrics" element={<DevCBTMetrics />} />
+                      <Route path="dev/context-engine" element={<DevContextEngine />} />
                       <Route path="privacy" element={<Privacy />} />
                     </Route>
                     <Route path="auth/callback" element={<AuthCallback />} />
