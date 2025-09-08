@@ -137,12 +137,20 @@ export type Database = {
           id: string
           is_primary: boolean | null
           last_sync_at: string | null
+          last_sync_error: string | null
+          next_sync_token: string | null
           oauth_token_id: string
           provider: string
+          sync_cursor: string | null
           sync_enabled: boolean | null
+          sync_status: string | null
           sync_token: string | null
           updated_at: string
           user_id: string
+          watch_channel_id: string | null
+          watch_expires_at: string | null
+          watch_resource_id: string | null
+          watch_status: string | null
         }
         Insert: {
           account_email: string
@@ -153,12 +161,20 @@ export type Database = {
           id?: string
           is_primary?: boolean | null
           last_sync_at?: string | null
+          last_sync_error?: string | null
+          next_sync_token?: string | null
           oauth_token_id: string
           provider: string
+          sync_cursor?: string | null
           sync_enabled?: boolean | null
+          sync_status?: string | null
           sync_token?: string | null
           updated_at?: string
           user_id: string
+          watch_channel_id?: string | null
+          watch_expires_at?: string | null
+          watch_resource_id?: string | null
+          watch_status?: string | null
         }
         Update: {
           account_email?: string
@@ -169,12 +185,20 @@ export type Database = {
           id?: string
           is_primary?: boolean | null
           last_sync_at?: string | null
+          last_sync_error?: string | null
+          next_sync_token?: string | null
           oauth_token_id?: string
           provider?: string
+          sync_cursor?: string | null
           sync_enabled?: boolean | null
+          sync_status?: string | null
           sync_token?: string | null
           updated_at?: string
           user_id?: string
+          watch_channel_id?: string | null
+          watch_expires_at?: string | null
+          watch_resource_id?: string | null
+          watch_status?: string | null
         }
         Relationships: [
           {
@@ -1465,6 +1489,18 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_expiring_watch_channels: {
+        Args: { hours_ahead?: number }
+        Returns: {
+          account_email: string
+          calendar_id: string
+          id: string
+          user_id: string
+          watch_channel_id: string
+          watch_expires_at: string
+          watch_resource_id: string
+        }[]
+      }
       get_user_tenant_id: {
         Args: Record<PropertyKey, never>
         Returns: string
