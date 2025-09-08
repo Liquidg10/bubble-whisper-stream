@@ -47,6 +47,7 @@ import DevCBTPolicy from "./pages/DevCBTPolicy";
 import DevCBTE2E from "./pages/DevCBTE2E";
 import DevCBTMetrics from "./pages/DevCBTMetrics";
 import DevPolicyEngine from "./pages/DevPolicyEngine";
+import DevCalendarSync from "./pages/DevCalendarSync";
 import { DevMenu } from "./components/DevMenu";
 import { useDevMenu } from "./hooks/useDevMenu";
 import { AuthCallback } from "./pages/AuthCallback";
@@ -114,6 +115,7 @@ const App = () => {
                       <Route path="dev/cbt-metrics" element={<DevCBTMetrics />} />
                         <Route path="dev/context-engine" element={<DevContextEngine />} />
                         <Route path="dev/policy-engine" element={<DevPolicyEngine />} />
+                        <Route path="dev/calendar-sync" element={<DevCalendarSync />} />
                       <Route path="privacy" element={<Privacy />} />
                     </Route>
                     <Route path="auth/callback" element={<AuthCallback />} />
