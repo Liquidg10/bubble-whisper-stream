@@ -111,7 +111,9 @@ const App = () => {
                       <Route path="dev/cbt-policy" element={<DevCBTPolicy />} />
                       <Route path="dev/cbt-e2e" element={<DevCBTE2E />} />
                       <Route path="dev/cbt-metrics" element={<DevCBTMetrics />} />
-                      <Route path="dev/context-engine" element={<DevContextEngine />} />
+                       <Route path="dev/context-engine" element={<DevContextEngine />} />
+                       <Route path="dev/policy-engine" element={<DevPolicyEngine />} />
+                       <Route path="dev/policy-engine" element={<DevPolicyEngine />} />
                       <Route path="privacy" element={<Privacy />} />
                     </Route>
                     <Route path="auth/callback" element={<AuthCallback />} />
