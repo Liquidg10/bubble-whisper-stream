@@ -1,10 +1,12 @@
 interface UndoEntry {
   id: string;
   timestamp: number;
-  view: 'bubble' | 'atomic';
-  type: 'merge' | 'drag' | 'edit' | 'create' | 'delete';
+  view: 'bubble' | 'atomic' | 'integration';
+  type: 'merge' | 'drag' | 'edit' | 'create' | 'delete' | 'calendar-create' | 'calendar-update' | 'email-draft' | 'email-send';
   data: any;
   description: string;
+  compensationFn?: () => Promise<void>;
+  traceId?: string;
 }
 
 class CrossViewUndoService {
@@ -32,12 +34,26 @@ class CrossViewUndoService {
     console.log(`🔄 Undo entry added: ${entry.description} (${entry.view} view)`);
   }
 
-  undo(): UndoEntry | null {
+  async undo(): Promise<UndoEntry | null> {
     if (this.stack.length === 0) return null;
 
     const entry = this.stack.shift()!;
-    this.notifyListeners();
     
+    // Execute compensation function if available
+    if (entry.compensationFn) {
+      try {
+        await entry.compensationFn();
+        console.log(`↩️ Compensated: ${entry.description}`);
+      } catch (error) {
+        console.error(`Failed to compensate ${entry.description}:`, error);
+        // Re-add to stack if compensation failed
+        this.stack.unshift(entry);
+        this.notifyListeners();
+        throw error;
+      }
+    }
+
+    this.notifyListeners();
     console.log(`↩️ Undoing: ${entry.description} (${entry.view} view)`);
     return entry;
   }

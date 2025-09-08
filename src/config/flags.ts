@@ -24,6 +24,13 @@ export const flags = {
   cbtSilentObserve: true, // Silent observation for testing (default ON)
   cbtCrisisEnabled: true, // Crisis intervention features (default ON)
   cbtDevRoutes: process.env.NODE_ENV === 'development', // Dev routes (default ON in dev)
+  // Auto-Write Feature Flags (Safety Shell)
+  autoWriteCalendar: false, // Auto-write to calendar (default OFF)
+  autoWriteEmail: false, // Auto-write email drafts (default OFF)
+  autoFinanceRead: false, // Read financial data (default OFF)
+  autoFinanceInsights: false, // Generate financial insights (default OFF)
+  contextEngine: false, // Context-aware suggestions (default OFF)
+  autoWriteKillSwitch: false, // Global kill switch for all auto-write features (default OFF)
 } as const;
 
 export type FeatureFlag = keyof typeof flags;
@@ -33,6 +40,11 @@ export type FeatureFlag = keyof typeof flags;
  * Supports localStorage overrides for development
  */
 export function isFeatureEnabled(flag: FeatureFlag): boolean {
+  // Check kill switch for auto-write features
+  if (isAutoWriteFeature(flag) && isKillSwitchActive()) {
+    return false;
+  }
+  
   // Check localStorage override first
   const storageKey = `flags.${flag}`;
   const override = localStorage.getItem(storageKey);
@@ -43,6 +55,22 @@ export function isFeatureEnabled(flag: FeatureFlag): boolean {
   
   // Fall back to default flag value
   return flags[flag];
+}
+
+/**
+ * Check if a feature is an auto-write feature
+ */
+export function isAutoWriteFeature(flag: FeatureFlag): boolean {
+  return ['autoWriteCalendar', 'autoWriteEmail', 'autoFinanceRead', 'autoFinanceInsights', 'contextEngine'].includes(flag);
+}
+
+/**
+ * Check if the kill switch is active
+ */
+export function isKillSwitchActive(): boolean {
+  const storageKey = 'flags.autoWriteKillSwitch';
+  const override = localStorage.getItem(storageKey);
+  return override === 'true' || flags.autoWriteKillSwitch;
 }
 
 /**

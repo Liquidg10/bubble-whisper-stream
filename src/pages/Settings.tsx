@@ -8,7 +8,9 @@ import {
   Code,
   Bot,
   Timer,
-  Home
+  Home,
+  Lock,
+  History
 } from 'lucide-react';
 import { GeneralSettings } from '@/components/settings/GeneralSettings';
 import { IntelligenceSettings } from '@/components/IntelligenceSettings';
@@ -19,6 +21,8 @@ import { AISettings } from '@/components/settings/AISettings';
 import { ThoughtSupportSettings } from '@/components/settings/ThoughtSupportSettings';
 import { PomodoroSettings } from '@/components/settings/PomodoroSettings';
 import { CleanHouseSettings } from '@/components/settings/CleanHouseSettings';
+import { SafetySettings } from '@/components/settings/SafetySettings';
+import { AuditSettings } from '@/components/settings/AuditSettings';
 import { useFeatureFlags } from '@/components/FeatureFlags';
 import { isFeatureEnabled } from '@/config/flags';
 
@@ -40,7 +44,7 @@ export const Settings: React.FC = () => {
 
       <div className="flex-1 overflow-hidden">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
-          <TabsList className={`grid w-full ${showCBTTab ? 'grid-cols-9' : 'grid-cols-8'} mx-4 mt-4`}>
+          <TabsList className={`grid w-full ${showCBTTab ? 'grid-cols-11' : 'grid-cols-10'} mx-4 mt-4`}>
             <TabsTrigger value="general" className="flex items-center gap-2">
               <SettingsIcon className="h-4 w-4" />
               <span className="hidden sm:inline">General</span>
@@ -70,6 +74,14 @@ export const Settings: React.FC = () => {
             <TabsTrigger value="integrations" className="flex items-center gap-2">
               <Plug className="h-4 w-4" />
               <span className="hidden sm:inline">Integrations</span>
+            </TabsTrigger>
+            <TabsTrigger value="safety" className="flex items-center gap-2">
+              <Lock className="h-4 w-4" />
+              <span className="hidden sm:inline">Safety</span>
+            </TabsTrigger>
+            <TabsTrigger value="audit" className="flex items-center gap-2">
+              <History className="h-4 w-4" />
+              <span className="hidden sm:inline">Audit</span>
             </TabsTrigger>
             <TabsTrigger value="privacy" className="flex items-center gap-2">
               <Shield className="h-4 w-4" />
@@ -112,6 +124,14 @@ export const Settings: React.FC = () => {
 
             <TabsContent value="integrations" className="space-y-6 mt-0">
               <IntegrationsSettings />
+            </TabsContent>
+
+            <TabsContent value="safety" className="space-y-6 mt-0">
+              <SafetySettings />
+            </TabsContent>
+
+            <TabsContent value="audit" className="space-y-6 mt-0">
+              <AuditSettings />
             </TabsContent>
 
             <TabsContent value="privacy" className="space-y-6 mt-0">
