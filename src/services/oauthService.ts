@@ -131,14 +131,15 @@ class OAuthService {
     const accounts = await Promise.all(
       (data || []).map(async (account) => ({
         ...account,
+        provider: account.provider as 'google' | 'microsoft' | 'apple' | 'github',
         access_token: account.access_token ? await this.decryptToken(account.access_token) : '',
         refresh_token: account.refresh_token ? await this.decryptToken(account.refresh_token) : undefined,
-        scopes: account.scopes || [],
-        account_email: account.account_email || ''
+        scopes: (account as any).scopes || [],
+        account_email: (account as any).account_email || ''
       }))
     );
 
-    return accounts;
+    return accounts as OAuthAccount[];
   }
 
   async storeTokens(account: Partial<OAuthAccount>): Promise<void> {

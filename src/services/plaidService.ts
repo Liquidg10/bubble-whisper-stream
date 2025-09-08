@@ -45,7 +45,7 @@ class PlaidService {
   async initializePlaidLink(): Promise<void> {
     return new Promise((resolve, reject) => {
       // Load Plaid Link script dynamically
-      if (window.Plaid) {
+      if ((window as any).Plaid) {
         resolve();
         return;
       }
@@ -82,7 +82,7 @@ class PlaidService {
     const linkToken = await this.createLinkToken();
 
     return new Promise((resolve, reject) => {
-      this.linkHandler = window.Plaid.create({
+      this.linkHandler = (window as any).Plaid.create({
         token: linkToken,
         onSuccess: (public_token: string, metadata: any) => {
           resolve({ public_token, metadata });

@@ -4,14 +4,31 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { 
   Calendar,
   Mail,
-  ExternalLink
+  ExternalLink,
+  Shield
 } from 'lucide-react';
 import { CalendarIntegrationPlugin } from '@/plugins/CalendarIntegrationPlugin';
 import { EmailIntegrationPlugin } from '@/plugins/EmailIntegrationPlugin';
+import { OAuthAccountManager } from '@/components/OAuthAccountManager';
 
 export function IntegrationsSettings() {
   return (
     <div className="space-y-6">
+      {/* OAuth Account Manager */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Shield className="h-5 w-5" />
+            Connected Accounts
+          </CardTitle>
+          <CardDescription>
+            Manage your connected services and their permissions
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <OAuthAccountManager />
+        </CardContent>
+      </Card>
       {/* Calendar Integration */}
       <Card>
         <CardHeader>

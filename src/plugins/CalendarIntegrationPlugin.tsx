@@ -13,10 +13,15 @@ import {
   CheckCircle, 
   Settings,
   RefreshCw,
-  Plus
+  Plus,
+  Trash2,
+  Shield
 } from 'lucide-react';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { useToast } from '@/hooks/use-toast';
+import { oauthService, SCOPES } from '@/services/oauthService';
+import { ScopeConsentModal } from '@/components/ScopeConsentModal';
+import { supabase } from '@/integrations/supabase/client';
 
 interface CalendarEvent {
   id: string;
@@ -46,6 +51,8 @@ export function CalendarIntegrationPlugin() {
   const [isLoading, setIsLoading] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [syncFrequency, setSyncFrequency] = useState(15); // minutes
+  const [showScopeModal, setShowScopeModal] = useState(false);
+  const [pendingScopeRequest, setPendingScopeRequest] = useState<any>(null);
 
   useEffect(() => {
     loadCalendarAccounts();
@@ -55,35 +62,75 @@ export function CalendarIntegrationPlugin() {
   }, [isEnabled]);
 
   const loadCalendarAccounts = async () => {
-    // Load connected calendar accounts from local storage
-    const savedAccounts = localStorage.getItem('calendar-accounts');
-    if (savedAccounts) {
-      setAccounts(JSON.parse(savedAccounts));
+    try {
+      const oauthAccounts = await oauthService.getConnectedAccounts();
+      const calendarAccounts = oauthAccounts
+        .filter(account => account.scopes.some(scope => scope.includes('calendar')))
+        .map(account => ({
+          id: account.id,
+          name: account.account_email,
+          type: 'google' as const,
+          connected: true,
+          email: account.account_email
+        }));
+      setAccounts(calendarAccounts);
+    } catch (error) {
+      console.error('Failed to load calendar accounts:', error);
     }
   };
 
   const loadUpcomingEvents = async () => {
     setIsLoading(true);
     try {
-      // In a real implementation, this would sync with actual calendar APIs
-      const mockEvents: CalendarEvent[] = [
-        {
-          id: '1',
-          title: 'Team Meeting',
-          start: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
-          end: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
-          description: 'Weekly team sync',
-          location: 'Conference Room A'
-        },
-        {
-          id: '2', 
-          title: 'Doctor Appointment',
-          start: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-          end: new Date(Date.now() + 25 * 60 * 60 * 1000).toISOString(),
-          location: 'Medical Center'
-        }
-      ];
-      setEvents(mockEvents);
+      const oauthAccounts = await oauthService.getConnectedAccounts();
+      const calendarAccount = oauthAccounts.find(account => 
+        account.scopes.some(scope => scope.includes('calendar'))
+      );
+
+      if (!calendarAccount) {
+        setEvents([]);
+        return;
+      }
+
+      // Check if we have read permission
+      const { hasPermission } = await oauthService.checkScopePermissions(
+        calendarAccount.id, 
+        [SCOPES.GOOGLE_CALENDAR.READ]
+      );
+
+      if (!hasPermission) {
+        setEvents([]);
+        return;
+      }
+
+      // Fetch real calendar events from Google Calendar API
+      const response = await oauthService.makeAuthenticatedRequest(
+        calendarAccount.id,
+        'https://www.googleapis.com/calendar/v3/calendars/primary/events?' + new URLSearchParams({
+          timeMin: new Date().toISOString(),
+          timeMax: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+          singleEvents: 'true',
+          orderBy: 'startTime',
+          maxResults: '10'
+        })
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        const googleEvents = data.items?.map((item: any) => ({
+          id: item.id,
+          title: item.summary || 'Untitled Event',
+          start: item.start?.dateTime || item.start?.date,
+          end: item.end?.dateTime || item.end?.date,
+          description: item.description,
+          location: item.location,
+          attendees: item.attendees?.map((a: any) => a.email) || []
+        })) || [];
+        
+        setEvents(googleEvents);
+      } else {
+        throw new Error('Failed to fetch calendar events');
+      }
     } catch (error) {
       console.error('Failed to load calendar events:', error);
       toast({
@@ -99,23 +146,49 @@ export function CalendarIntegrationPlugin() {
   const connectGoogleCalendar = async () => {
     setIsConnecting(true);
     try {
-      // In a real implementation, this would initiate OAuth flow
-      const newAccount: CalendarAccount = {
-        id: crypto.randomUUID(),
-        name: 'Personal Calendar',
-        type: 'google',
-        connected: true,
-        email: 'user@gmail.com'
-      };
-      
-      const updatedAccounts = [...accounts, newAccount];
-      setAccounts(updatedAccounts);
-      localStorage.setItem('calendar-accounts', JSON.stringify(updatedAccounts));
-      
-      toast({
-        title: "Calendar Connected",
-        description: "Google Calendar has been successfully connected.",
+      // Start with read-only scope for incremental consent
+      const authUrl = await oauthService.requestScopeEscalation({
+        provider: 'google',
+        service: 'calendar',
+        requiredScopes: [SCOPES.GOOGLE_CALENDAR.READ],
+        reason: 'view your calendar events'
       });
+
+      // Open OAuth flow in popup
+      const popup = window.open(authUrl, 'oauth', 'width=500,height=600');
+      
+      // Listen for OAuth completion
+      const handleMessage = async (event: MessageEvent) => {
+        if (event.origin !== window.location.origin) return;
+        
+        if (event.data.type === 'GOOGLE_OAUTH_SUCCESS') {
+          popup?.close();
+          
+          // Exchange code for tokens via edge function
+          const { data, error } = await supabase.functions.invoke('oauth-google', {
+            body: {
+              code: event.data.code,
+              redirect_uri: `${window.location.origin}/oauth-callback.html`
+            }
+          });
+
+          if (error) throw error;
+          
+          await loadCalendarAccounts();
+          toast({
+            title: "Calendar Connected",
+            description: "Google Calendar has been successfully connected with read access.",
+          });
+        } else if (event.data.type === 'GOOGLE_OAUTH_ERROR') {
+          popup?.close();
+          throw new Error(event.data.error);
+        }
+        
+        window.removeEventListener('message', handleMessage);
+      };
+
+      window.addEventListener('message', handleMessage);
+      
     } catch (error) {
       console.error('Failed to connect calendar:', error);
       toast({
