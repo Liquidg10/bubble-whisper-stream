@@ -15,6 +15,13 @@ interface SyncRequest {
   };
 }
 
+interface CalendarWriteRequest {
+  action: 'create_event' | 'update_event' | 'delete_event';
+  calendarAccountId: string;
+  eventData?: any;
+  eventId?: string;
+}
+
 interface GoogleCalendarEvent {
   id: string;
   summary: string;
@@ -75,6 +82,56 @@ async function refreshAccessToken(refreshToken: string): Promise<string | null> 
   } catch (error) {
     console.error('Error refreshing token:', error);
     return null;
+  }
+}
+
+async function createCalendarEvent(
+  accessToken: string,
+  calendarId: string,
+  eventData: any
+): Promise<GoogleCalendarEvent> {
+  const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`;
+  
+  console.log('Creating calendar event:', { calendarId, eventData });
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(eventData),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error('Create event error:', response.status, errorText);
+    throw new Error(`Calendar API error: ${response.status} ${errorText}`);
+  }
+
+  return await response.json();
+}
+
+async function deleteCalendarEvent(
+  accessToken: string,
+  calendarId: string,
+  eventId: string
+): Promise<void> {
+  const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`;
+  
+  console.log('Deleting calendar event:', { calendarId, eventId });
+
+  const response = await fetch(url, {
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok && response.status !== 404) {
+    const errorText = await response.text();
+    console.error('Delete event error:', response.status, errorText);
+    throw new Error(`Calendar API error: ${response.status} ${errorText}`);
   }
 }
 
@@ -214,7 +271,126 @@ const handler = async (req: Request): Promise<Response> => {
   }
 
   try {
-    const { calendarAccountId, fullSync = false, timeWindow }: SyncRequest = await req.json();
+    const requestBody = await req.json();
+    
+    // Handle write operations (create, update, delete events)
+    if ('action' in requestBody) {
+      const { action, calendarAccountId, eventData, eventId }: CalendarWriteRequest = requestBody;
+      
+      // Get calendar account details
+      const { data: calendarAccount, error: accountError } = await supabase
+        .from('calendar_accounts')
+        .select(`
+          *,
+          oauth_token_id (
+            access_token,
+            refresh_token,
+            token_expires_at
+          )
+        `)
+        .eq('id', calendarAccountId)
+        .single();
+
+      if (accountError || !calendarAccount) {
+        console.error('Calendar account not found:', accountError);
+        return new Response(
+          JSON.stringify({ error: 'Calendar account not found' }),
+          { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      // Check if token needs refresh
+      let accessToken = calendarAccount.oauth_token_id.access_token;
+      const tokenExpiry = new Date(calendarAccount.oauth_token_id.token_expires_at);
+      
+      if (tokenExpiry <= new Date()) {
+        console.log('Access token expired, refreshing...');
+        const newToken = await refreshAccessToken(calendarAccount.oauth_token_id.refresh_token);
+        
+        if (!newToken) {
+          return new Response(
+            JSON.stringify({ error: 'Token refresh failed' }),
+            { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+        
+        accessToken = newToken;
+        
+        // Update token in database
+        await supabase
+          .from('oauth_tokens')
+          .update({
+            access_token: newToken,
+            token_expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
+          })
+          .eq('id', calendarAccount.oauth_token_id);
+      }
+
+      // Execute the action
+      const calendarId = calendarAccount.calendar_id || 'primary';
+      
+      switch (action) {
+        case 'create_event':
+          if (!eventData) {
+            return new Response(
+              JSON.stringify({ error: 'Event data required for create action' }),
+              { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+          
+          const createdEvent = await createCalendarEvent(accessToken, calendarId, eventData);
+          
+          // Persist to our database
+          await supabase.from('calendar_events').insert({
+            user_id: calendarAccount.user_id,
+            calendar_account_id: calendarAccountId,
+            external_event_id: createdEvent.id,
+            title: createdEvent.summary || 'Untitled Event',
+            description: createdEvent.description || null,
+            location: createdEvent.location || null,
+            start_time: createdEvent.start.dateTime || createdEvent.start.date,
+            end_time: createdEvent.end.dateTime || createdEvent.end.date,
+            status: createdEvent.status || 'confirmed',
+            attendees: createdEvent.attendees ? JSON.stringify(createdEvent.attendees) : null,
+          });
+          
+          return new Response(
+            JSON.stringify({ success: true, event: createdEvent }),
+            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+          
+        case 'delete_event':
+          if (!eventId) {
+            return new Response(
+              JSON.stringify({ error: 'Event ID required for delete action' }),
+              { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
+          
+          await deleteCalendarEvent(accessToken, calendarId, eventId);
+          
+          // Remove from our database
+          await supabase
+            .from('calendar_events')
+            .delete()
+            .eq('external_event_id', eventId)
+            .eq('calendar_account_id', calendarAccountId);
+          
+          return new Response(
+            JSON.stringify({ success: true }),
+            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+          
+        default:
+          return new Response(
+            JSON.stringify({ error: 'Unsupported action' }),
+            { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+      }
+    }
+
+    // Handle sync operations (existing code)
+    const { calendarAccountId, fullSync = false, timeWindow }: SyncRequest = requestBody;
 
     console.log('Calendar sync request:', { calendarAccountId, fullSync, timeWindow });
 
