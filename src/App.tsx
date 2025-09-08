@@ -50,6 +50,7 @@ import DevPolicyEngine from "./pages/DevPolicyEngine";
 import DevCalendarSync from "./pages/DevCalendarSync";
 import DevAutoWriteCalendar from "./pages/DevAutoWriteCalendar";
 import DevTemporalReasoning from "./pages/DevTemporalReasoning";
+import { DevGmailIntents } from "./pages/DevGmailIntents";
 import { DevMenu } from "./components/DevMenu";
 import { useDevMenu } from "./hooks/useDevMenu";
 import { AuthCallback } from "./pages/AuthCallback";
@@ -120,6 +121,7 @@ const App = () => {
                         <Route path="dev/calendar-sync" element={<DevCalendarSync />} />
                         <Route path="dev/auto-write-calendar" element={<DevAutoWriteCalendar />} />
                         <Route path="dev/temporal-reasoning" element={<DevTemporalReasoning />} />
+                        <Route path="dev/gmail-intents" element={<DevGmailIntents />} />
                       <Route path="privacy" element={<Privacy />} />
                     </Route>
                     <Route path="auth/callback" element={<AuthCallback />} />

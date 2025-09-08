@@ -113,6 +113,11 @@ const devRoutes: DevRoute[] = [
     path: '/dev/temporal-reasoning',
     name: 'Temporal Reasoning',
     description: 'Test date/time parsing with ambiguity detection and conflict analysis'
+  },
+  {
+    path: '/dev/gmail-intents',
+    name: 'Gmail Intent Classification',
+    description: 'Test Gmail metadata-only intent extraction and classification'
   }
 ];
 
