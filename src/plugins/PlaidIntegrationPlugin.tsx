@@ -15,16 +15,46 @@ import {
   Trash2
 } from 'lucide-react';
 import { plaidService, PlaidAccount, PlaidTransaction } from '@/services/plaidService';
+import { PlaidStatusPanel } from '@/components/PlaidStatusPanel';
+import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
 
 export function PlaidIntegrationPlugin() {
   const [isEnabled, setIsEnabled] = useState(false);
+  const [connections, setConnections] = useState<any[]>([]);
   const [accounts, setAccounts] = useState<PlaidAccount[]>([]);
   const [transactions, setTransactions] = useState<PlaidTransaction[]>([]);
   const [insights, setInsights] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const { toast } = useToast();
+
+  const loadBankConnections = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('plaid_items')
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      
+      setConnections(data || []);
+      return data || [];
+    } catch (error) {
+      console.error('Failed to load connections:', error);
+      toast({
+        title: "Connection Error",
+        description: "Failed to load bank connections",
+        variant: "destructive"
+      });
+      return [];
+    }
+  };
+
+  useEffect(() => {
+    loadBankConnections();
+  }, []);
 
   useEffect(() => {
     if (isEnabled) {
@@ -73,6 +103,7 @@ export function PlaidIntegrationPlugin() {
         description: `${linkResult.metadata.institution.name} has been connected successfully.`,
       });
 
+      await loadBankConnections();
       await loadBankAccounts();
     } catch (error) {
       console.error('Failed to connect bank account:', error);
@@ -90,8 +121,14 @@ export function PlaidIntegrationPlugin() {
     setIsEnabled(enabled);
     
     if (enabled) {
+      await loadBankConnections();
       await loadBankAccounts();
     }
+  };
+
+  const handleRefresh = async () => {
+    await loadBankConnections();
+    await loadBankAccounts();
   };
 
   return (
@@ -134,6 +171,16 @@ export function PlaidIntegrationPlugin() {
         {isEnabled && (
           <>
             <Separator />
+
+            {/* Status Panel */}
+            {connections.length > 0 && (
+              <PlaidStatusPanel 
+                connections={connections} 
+                onRefresh={handleRefresh}
+              />
+            )}
+            
+            {connections.length > 0 && <Separator />}
             
             {/* Account Management */}
             <div className="space-y-3">

@@ -125,32 +125,68 @@ class PlaidService {
     }
   }
 
+  // Get accounts from local database (synced from Plaid)
   async getAccounts(): Promise<PlaidAccount[]> {
     try {
-      const { data, error } = await supabase.functions.invoke('plaid-get-accounts');
+      const { data, error } = await supabase
+        .from('plaid_accounts')
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
+
       if (error) throw error;
-      return data.accounts || [];
+
+      return data.map(account => ({
+        account_id: account.account_id,
+        name: account.name,
+        type: account.type,
+        subtype: account.subtype || '',
+        balances: account.balances as any
+      }));
     } catch (error) {
       console.error('Failed to fetch accounts:', error);
-      return [];
+      throw error;
     }
   }
 
+  // Get transactions from local database (synced from Plaid)
   async getTransactions(accountId?: string, startDate?: string, endDate?: string): Promise<PlaidTransaction[]> {
     try {
-      const { data, error } = await supabase.functions.invoke('plaid-get-transactions', {
-        body: {
-          account_id: accountId,
-          start_date: startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-          end_date: endDate || new Date().toISOString().split('T')[0]
-        }
-      });
+      let query = supabase
+        .from('plaid_transactions')
+        .select('*')
+        .order('date', { ascending: false });
+
+      // Apply filters
+      if (accountId) {
+        query = query.eq('account_id', accountId);
+      }
+      
+      if (startDate) {
+        query = query.gte('date', startDate);
+      }
+      
+      if (endDate) {
+        query = query.lte('date', endDate);
+      }
+
+      const { data, error } = await query.limit(1000); // Limit to prevent large payloads
 
       if (error) throw error;
-      return data.transactions || [];
+
+      return data.map(transaction => ({
+        transaction_id: transaction.transaction_id,
+        account_id: transaction.account_id,
+        amount: transaction.amount,
+        date: transaction.date,
+        name: transaction.name,
+        merchant_name: transaction.merchant_name || undefined,
+        category: Array.isArray(transaction.category) ? transaction.category as string[] : [],
+        iso_currency_code: transaction.iso_currency_code || 'USD'
+      }));
     } catch (error) {
       console.error('Failed to fetch transactions:', error);
-      return [];
+      throw error;
     }
   }
 
@@ -202,16 +238,86 @@ class PlaidService {
     };
   }
 
+  // Disconnect a Plaid account
   async disconnectAccount(itemId: string): Promise<void> {
     try {
-      const { error } = await supabase.functions.invoke('plaid-disconnect', {
+      // Mark the item as inactive in our database
+      const { error } = await supabase
+        .from('plaid_items')
+        .update({ is_active: false })
+        .eq('item_id', itemId);
+
+      if (error) throw error;
+
+      // Also mark associated accounts as inactive
+      const { data: itemData } = await supabase
+        .from('plaid_items')
+        .select('id')
+        .eq('item_id', itemId)
+        .single();
+
+      if (itemData) {
+        await supabase
+          .from('plaid_accounts')
+          .update({ is_active: false })
+          .eq('plaid_item_id', itemData.id);
+      }
+    } catch (error) {
+      console.error('Failed to disconnect account:', error);
+      throw error;
+    }
+  }
+
+  // Get sync status for all connections
+  async getSyncStatuses(): Promise<any[]> {
+    try {
+      const { data, error } = await supabase
+        .from('plaid_sync_status')
+        .select(`
+          *,
+          plaid_items (
+            item_id,
+            institution_name
+          )
+        `);
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Failed to fetch sync statuses:', error);
+      throw error;
+    }
+  }
+
+  // Trigger manual sync for accounts
+  async triggerAccountsSync(itemId: string): Promise<void> {
+    try {
+      const { error } = await supabase.functions.invoke('plaid-get-accounts', {
         body: { item_id: itemId }
       });
 
       if (error) throw error;
     } catch (error) {
-      console.error('Failed to disconnect Plaid account:', error);
-      throw new Error('Failed to disconnect bank account');
+      console.error('Failed to trigger accounts sync:', error);
+      throw error;
+    }
+  }
+
+  // Trigger manual sync for transactions  
+  async triggerTransactionsSync(itemId: string, startDate?: string, endDate?: string): Promise<void> {
+    try {
+      const { error } = await supabase.functions.invoke('plaid-get-transactions', {
+        body: { 
+          item_id: itemId,
+          start_date: startDate,
+          end_date: endDate
+        }
+      });
+
+      if (error) throw error;
+    } catch (error) {
+      console.error('Failed to trigger transactions sync:', error);
+      throw error;
     }
   }
 }
