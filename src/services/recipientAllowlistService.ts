@@ -33,7 +33,7 @@ class RecipientAllowlistService {
       .from('email_recipients')
       .select('*')
       .eq('email', email.toLowerCase())
-      .single();
+      .maybeSingle();
 
     if (error || !recipient) {
       return {
@@ -65,7 +65,7 @@ class RecipientAllowlistService {
       .from('email_recipients')
       .select('*')
       .eq('email', email.toLowerCase())
-      .single();
+      .maybeSingle();
 
     if (existing) {
       // Update existing recipient
@@ -86,9 +86,13 @@ class RecipientAllowlistService {
         .eq('id', existing.id);
     } else {
       // Create new recipient record
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
+      
       await supabase
         .from('email_recipients')
         .insert({
+          user_id: user.id,
           email: email.toLowerCase(),
           display_name: displayName,
           first_contacted_at: now,
@@ -110,7 +114,7 @@ class RecipientAllowlistService {
       .from('email_recipients')
       .select('*')
       .eq('email', email.toLowerCase())
-      .single();
+      .maybeSingle();
 
     if (existing) {
       await supabase
@@ -122,9 +126,13 @@ class RecipientAllowlistService {
         })
         .eq('id', existing.id);
     } else {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
+      
       await supabase
         .from('email_recipients')
         .insert({
+          user_id: user.id,
           email: email.toLowerCase(),
           display_name: displayName,
           first_contacted_at: now,
@@ -171,7 +179,7 @@ class RecipientAllowlistService {
       .from('email_recipients')
       .select('*')
       .eq('email', email.toLowerCase())
-      .single();
+      .maybeSingle();
 
     if (error) return null;
     return data;

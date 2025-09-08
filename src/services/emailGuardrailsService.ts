@@ -125,11 +125,13 @@ class EmailGuardrailsService {
 
     // Record decision trace
     const traceId = decisionTraceService.addTrace({
-      feature: 'email_composition',
+      feature: 'email',
       signals,
-      confidence,
-      decision: decision,
+      confidenceThreshold: this.HIGH_CONFIDENCE_THRESHOLD,
+      finalConfidence: confidence,
+      decision: decision === 'auto-send' ? 'auto-write' : decision === 'draft-only' ? 'draft' : 'skip',
       action: result.canAutoSend ? 'auto_send' : result.canDraft ? 'create_draft' : 'block',
+      becauseText: `Email composition decision: ${decision} (${Math.round(confidence * 100)}% confidence)`,
       undoable: true,
       metadata: {
         recipients: request.recipients,

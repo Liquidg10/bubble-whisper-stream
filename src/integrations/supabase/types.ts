@@ -453,6 +453,48 @@ export type Database = {
           },
         ]
       }
+      email_recipients: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          email: string
+          first_contacted_at: string
+          id: string
+          interaction_count: number
+          is_allowlisted: boolean
+          last_contacted_at: string
+          trust_score: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          email: string
+          first_contacted_at?: string
+          id?: string
+          interaction_count?: number
+          is_allowlisted?: boolean
+          last_contacted_at?: string
+          trust_score?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          email?: string
+          first_contacted_at?: string
+          id?: string
+          interaction_count?: number
+          is_allowlisted?: boolean
+          last_contacted_at?: string
+          trust_score?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       financial_audit_log: {
         Row: {
           amount: number

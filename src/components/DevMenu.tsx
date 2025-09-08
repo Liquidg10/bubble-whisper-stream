@@ -118,6 +118,11 @@ const devRoutes: DevRoute[] = [
     path: '/dev/gmail-intents',
     name: 'Gmail Intent Classification',
     description: 'Test Gmail metadata-only intent extraction and classification'
+  },
+  {
+    path: '/dev/email-compose',
+    name: 'Email Compose & Safety',
+    description: 'Test email composition with safety guardrails and contact disambiguation'
   }
 ];
 
