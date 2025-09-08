@@ -45,6 +45,27 @@ export function IntegrationsSettings() {
         </CardContent>
       </Card>
 
+      {/* Banking Integration */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Shield className="h-5 w-5" />
+            Banking Integration
+          </CardTitle>
+          <CardDescription>
+            Connect your bank accounts for spending insights and budgeting (read-only access)
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Alert>
+            <ExternalLink className="h-4 w-4" />
+            <AlertDescription>
+              Banking integration has been moved to the <strong>Tools</strong> section for easier access alongside other financial management features.
+            </AlertDescription>
+          </Alert>
+        </CardContent>
+      </Card>
+
       {/* Email Integration */}
       <Card>
         <CardHeader>
