@@ -1,45 +1,42 @@
 import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Checkbox } from '@/components/ui/checkbox';
-import { 
-  Mail, 
-  Star, 
-  AlertCircle, 
-  CheckCircle, 
-  Settings,
-  RefreshCw,
-  Plus,
-  MessageSquare,
-  Clock
-} from 'lucide-react';
-import { useBubbleStore } from '@/stores/bubbleStore';
+import { Separator } from '@/components/ui/separator';
+import { Loader2, Mail, Plus, X, AlertCircle, CheckCircle2, ExternalLink } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { useBubbleStore } from '@/stores/bubbleStore';
+import { oauthService } from '@/services/oauthService';
+import { ScopeConsentModal } from '@/components/ScopeConsentModal';
+import { supabase } from '@/integrations/supabase/client';
 
+// Email account interface
 interface EmailAccount {
   id: string;
   name: string;
   email: string;
-  type: 'gmail' | 'outlook' | 'imap';
+  provider: string;
   connected: boolean;
+  scopes: string[];
 }
 
+// Email message interface  
 interface EmailMessage {
   id: string;
-  from: string;
+  sender: string;
   subject: string;
   snippet: string;
-  receivedAt: string;
+  receivedAt: Date;
   isImportant: boolean;
-  isUnread: boolean;
-  labels?: string[];
+  isRead: boolean;
+  threadId?: string;
 }
 
+// Email filters interface
 interface EmailFilters {
   keywords: string[];
   senders: string[];
@@ -47,450 +44,575 @@ interface EmailFilters {
   unreadOnly: boolean;
 }
 
-export function EmailIntegrationPlugin() {
-  const { addBubble, addReminder, settings, updateSettings } = useBubbleStore();
-  const { toast } = useToast();
-  
-  const [isEnabled, setIsEnabled] = useState(settings.emailIntegrationEnabled || false);
-  const [accounts, setAccounts] = useState<EmailAccount[]>([]);
+export const EmailIntegrationPlugin: React.FC = () => {
+  const [isEnabled, setIsEnabled] = useState(false);
+  const [connectedAccounts, setConnectedAccounts] = useState<EmailAccount[]>([]);
   const [emails, setEmails] = useState<EmailMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [isConnecting, setIsConnecting] = useState(false);
-  
+  const [isLoadingEmails, setIsLoadingEmails] = useState(false);
+  const [scopeRequest, setScopeRequest] = useState<any>(null);
   const [filters, setFilters] = useState<EmailFilters>({
-    keywords: ['urgent', 'important', 'deadline', 'asap'],
+    keywords: [],
     senders: [],
-    importantOnly: false,
-    unreadOnly: true
+    importantOnly: true,
+    unreadOnly: false,
   });
-  
-  const [newKeyword, setNewKeyword] = useState('');
-  const [newSender, setNewSender] = useState('');
+  const [keywordInput, setKeywordInput] = useState('');
+  const [senderInput, setSenderInput] = useState('');
 
+  const { toast } = useToast();
+  const { addBubble } = useBubbleStore();
+
+  // Load settings and accounts on mount
   useEffect(() => {
+    const savedSettings = localStorage.getItem('emailIntegrationSettings');
+    if (savedSettings) {
+      const settings = JSON.parse(savedSettings);
+      setIsEnabled(settings.enabled || false);
+      setFilters(settings.filters || filters);
+    }
     loadEmailAccounts();
-    if (isEnabled) {
+  }, []);
+
+  // Load emails when enabled or filters change
+  useEffect(() => {
+    if (isEnabled && connectedAccounts.length > 0) {
       loadImportantEmails();
     }
-  }, [isEnabled]);
+  }, [isEnabled, filters, connectedAccounts]);
 
+  // Load email accounts from OAuth service
   const loadEmailAccounts = async () => {
-    const savedAccounts = localStorage.getItem('email-accounts');
-    if (savedAccounts) {
-      setAccounts(JSON.parse(savedAccounts));
+    try {
+      const accounts = await oauthService.getConnectedAccounts();
+      const gmailAccounts = accounts
+        .filter(account => account.provider === 'google' && account.scopes?.some(scope => 
+          scope.includes('gmail') || scope.includes('mail')))
+        .map(account => ({
+          id: account.id,
+          name: account.account_email || 'Gmail Account',
+          email: account.account_email || '',
+          provider: 'gmail',
+          connected: true,
+          scopes: account.scopes || [],
+        }));
+      
+      setConnectedAccounts(gmailAccounts);
+    } catch (error) {
+      console.error('Failed to load email accounts:', error);
     }
   };
 
+  // Load emails using real Gmail API
   const loadImportantEmails = async () => {
-    setIsLoading(true);
+    if (connectedAccounts.length === 0) return;
+    
+    setIsLoadingEmails(true);
+    
     try {
-      // Mock important emails - in real implementation would use Gmail/Outlook APIs
-      const mockEmails: EmailMessage[] = [
-        {
-          id: '1',
-          from: 'boss@company.com',
-          subject: 'URGENT: Project deadline moved to tomorrow',
-          snippet: 'Hi team, due to client requirements, we need to deliver the project by tomorrow...',
-          receivedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-          isImportant: true,
-          isUnread: true,
-          labels: ['work', 'urgent']
-        },
-        {
-          id: '2',
-          from: 'doctor@clinic.com',
-          subject: 'Appointment reminder - Thursday 3pm',
-          snippet: 'This is a friendly reminder about your upcoming appointment...',
-          receivedAt: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
-          isImportant: true,
-          isUnread: false,
-          labels: ['medical', 'appointment']
-        },
-        {
-          id: '3',
-          from: 'client@example.com',
-          subject: 'Re: Contract updates needed ASAP',
-          snippet: 'Thanks for the quick turnaround. Could you please review section 3...',
-          receivedAt: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
-          isImportant: true,
-          isUnread: true,
-          labels: ['client', 'contract']
-        }
-      ];
+      const account = connectedAccounts[0]; // Use first connected account
       
-      // Apply filters
-      let filteredEmails = mockEmails;
+      // Check if we have metadata scope at minimum
+      const hasMetadataScope = account.scopes.some(scope => 
+        scope.includes('gmail.metadata') || scope.includes('gmail.readonly'));
       
-      if (filters.unreadOnly) {
-        filteredEmails = filteredEmails.filter(email => email.isUnread);
+      if (!hasMetadataScope) {
+        // Request minimal Gmail scope
+        const request = await oauthService.requestScopeEscalation({
+          provider: 'google',
+          service: 'email',
+          requiredScopes: ['https://www.googleapis.com/auth/gmail.metadata'],
+          reason: 'Access email headers and basic information'
+        });
+        setScopeRequest(request);
+        setIsLoadingEmails(false);
+        return;
       }
-      
-      if (filters.importantOnly) {
-        filteredEmails = filteredEmails.filter(email => email.isImportant);
-      }
-      
+
+      // Build Gmail search query based on filters
+      let query = '';
+      if (filters.importantOnly) query += 'is:important ';
+      if (filters.unreadOnly) query += 'is:unread ';
       if (filters.keywords.length > 0) {
-        filteredEmails = filteredEmails.filter(email =>
-          filters.keywords.some(keyword =>
-            email.subject.toLowerCase().includes(keyword.toLowerCase()) ||
-            email.snippet.toLowerCase().includes(keyword.toLowerCase())
-          )
-        );
+        query += `(${filters.keywords.map(k => `subject:"${k}" OR "${k}"`).join(' OR ')}) `;
       }
-      
       if (filters.senders.length > 0) {
-        filteredEmails = filteredEmails.filter(email =>
-          filters.senders.some(sender =>
-            email.from.toLowerCase().includes(sender.toLowerCase())
-          )
-        );
+        query += `(${filters.senders.map(s => `from:"${s}"`).join(' OR ')}) `;
       }
       
-      setEmails(filteredEmails);
+      // Make request to our Gmail sync edge function
+      const { data, error } = await supabase.functions.invoke('gmail-sync', {
+        body: {
+          accountId: account.id,
+          operation: 'search',
+          query: query.trim() || 'is:important',
+          maxResults: 20
+        }
+      });
+
+      if (error) throw error;
+
+      // Get message details for each message
+      const messageDetails = await Promise.all(
+        (data.messages || []).slice(0, 10).map(async (msg: any) => {
+          const { data: details } = await supabase.functions.invoke('gmail-sync', {
+            body: {
+              accountId: account.id,
+              operation: 'get',
+              messageId: msg.id
+            }
+          });
+          
+          if (details) {
+            const headers = details.payload?.headers || [];
+            const subject = headers.find((h: any) => h.name === 'Subject')?.value || 'No Subject';
+            const from = headers.find((h: any) => h.name === 'From')?.value || 'Unknown Sender';
+            const date = headers.find((h: any) => h.name === 'Date')?.value;
+            
+            return {
+              id: details.id,
+              sender: from,
+              subject,
+              snippet: details.snippet || '',
+              receivedAt: date ? new Date(date) : new Date(),
+              isImportant: details.labelIds?.includes('IMPORTANT') || false,
+              isRead: !details.labelIds?.includes('UNREAD'),
+              threadId: details.threadId
+            };
+          }
+          return null;
+        })
+      );
+
+      setEmails(messageDetails.filter(Boolean) as EmailMessage[]);
+      
     } catch (error) {
       console.error('Failed to load emails:', error);
       toast({
-        title: "Email Sync Failed",
-        description: "Unable to sync emails. Please check your connection.",
-        variant: "destructive"
+        title: "Failed to load emails",
+        description: error instanceof Error ? error.message : "Unknown error occurred",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoadingEmails(false);
+    }
+  };
+
+  // Real Gmail OAuth connection
+  const connectGmailAccount = async () => {
+    setIsLoading(true);
+    
+    try {
+      // Request minimal Gmail metadata scope initially
+      const request = await oauthService.requestScopeEscalation({
+        provider: 'google',
+        service: 'email',
+        requiredScopes: ['https://www.googleapis.com/auth/gmail.metadata'],
+        reason: 'Access email headers and basic information'
+      });
+      
+      setScopeRequest(request);
+      
+    } catch (error) {
+      console.error('Failed to initiate Gmail connection:', error);
+      toast({
+        title: "Connection Failed",
+        description: "Failed to initiate Gmail connection",
+        variant: "destructive",
       });
     } finally {
       setIsLoading(false);
     }
   };
 
-  const connectGmailAccount = async () => {
-    setIsConnecting(true);
+  // Create bubble from email
+  const createBubbleFromEmail = async (email: EmailMessage) => {
     try {
-      // In real implementation, this would initiate OAuth flow
-      const newAccount: EmailAccount = {
+      const bubble = {
         id: crypto.randomUUID(),
-        name: 'Personal Gmail',
-        email: 'user@gmail.com',
-        type: 'gmail',
-        connected: true
+        content: `📧 ${email.subject}\n\nFrom: ${email.sender}\n\n${email.snippet}`,
+        type: 'Task' as const,
+        tags: [
+          { id: 'email', name: 'email', color: '#3b82f6' },
+          { id: 'follow-up', name: 'follow-up', color: '#f59e0b' }
+        ],
+        x: Math.random() * 400,
+        y: Math.random() * 400,
+        size: email.isImportant ? 60 : 45,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        completed: false
       };
-      
-      const updatedAccounts = [...accounts, newAccount];
-      setAccounts(updatedAccounts);
-      localStorage.setItem('email-accounts', JSON.stringify(updatedAccounts));
-      
+
+      await addBubble(bubble);
+
+      // Create follow-up reminder if important
+      if (email.isImportant) {
+        const { addReminder } = useBubbleStore.getState();
+        const reminder = {
+          id: crypto.randomUUID(),
+          bubbleId: bubble.id,
+          title: `Follow up: ${email.subject}`,
+          description: `Reply to email from ${email.sender}`,
+          scheduledFor: Date.now() + (4 * 60 * 60 * 1000), // 4 hours
+          scheduledAt: Date.now() + (4 * 60 * 60 * 1000),
+          level: 2 as 1 | 2 | 3,
+          status: 'Active' as const,
+          createdAt: Date.now(),
+          snoozes: []
+        };
+        
+        await addReminder(reminder);
+      }
+
       toast({
-        title: "Email Account Connected",
-        description: "Gmail account has been successfully connected.",
+        title: "Email Added",
+        description: `Created bubble for "${email.subject}"`,
       });
     } catch (error) {
-      console.error('Failed to connect email:', error);
+      console.error('Failed to create bubble:', error);
       toast({
-        title: "Connection Failed",
-        description: "Unable to connect to Gmail. Please try again.",
-        variant: "destructive"
+        title: "Failed to create bubble",
+        description: "Unable to create bubble from email",
+        variant: "destructive",
       });
-    } finally {
-      setIsConnecting(false);
     }
   };
 
-  const createBubbleFromEmail = async (email: EmailMessage) => {
-    const bubbleId = crypto.randomUUID();
-    const bubble = {
-      id: bubbleId,
-      content: `📧 ${email.subject}\n\nFrom: ${email.from}\n\n${email.snippet}`,
-      type: 'Task' as const,
-      tags: [{ id: 'email', name: 'email', color: '#3b82f6' }, { id: 'follow-up', name: 'follow-up', color: '#f59e0b' }],
-      x: Math.random() * 400,
-      y: Math.random() * 400,
-      size: email.isImportant ? 60 : 45,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      completed: false
-    };
-    
-    await addBubble(bubble);
-    
-    // Create follow-up reminder if urgent
-    if (email.isImportant || filters.keywords.some(k => 
-      email.subject.toLowerCase().includes(k.toLowerCase())
-    )) {
-      const reminder = {
-        id: crypto.randomUUID(),
-        bubbleId: bubbleId,
-        title: `Follow up: ${email.subject}`,
-        description: `Reply to email from ${email.from}`,
-        scheduledFor: Date.now() + (4 * 60 * 60 * 1000),
-        scheduledAt: Date.now() + (4 * 60 * 60 * 1000),
-        level: 2 as 1 | 2 | 3,
-        status: 'Active' as const,
-        createdAt: Date.now(),
-        snoozes: []
-      };
-      
-      await addReminder(reminder);
-    }
-    
-    toast({
-      title: "Email Added",
-      description: `Created bubble for "${email.subject}"`,
-    });
-  };
-
+  // Add keyword filter
   const addKeyword = () => {
-    if (newKeyword.trim() && !filters.keywords.includes(newKeyword.trim())) {
-      setFilters(prev => ({
-        ...prev,
-        keywords: [...prev.keywords, newKeyword.trim()]
-      }));
-      setNewKeyword('');
+    if (keywordInput.trim() && !filters.keywords.includes(keywordInput.trim())) {
+      const newFilters = {
+        ...filters,
+        keywords: [...filters.keywords, keywordInput.trim()]
+      };
+      setFilters(newFilters);
+      setKeywordInput('');
+      saveSettings({ enabled: isEnabled, filters: newFilters });
     }
   };
 
+  // Remove keyword filter
   const removeKeyword = (keyword: string) => {
-    setFilters(prev => ({
-      ...prev,
-      keywords: prev.keywords.filter(k => k !== keyword)
-    }));
+    const newFilters = {
+      ...filters,
+      keywords: filters.keywords.filter(k => k !== keyword)
+    };
+    setFilters(newFilters);
+    saveSettings({ enabled: isEnabled, filters: newFilters });
   };
 
+  // Add sender filter
   const addSender = () => {
-    if (newSender.trim() && !filters.senders.includes(newSender.trim())) {
-      setFilters(prev => ({
-        ...prev,
-        senders: [...prev.senders, newSender.trim()]
-      }));
-      setNewSender('');
+    if (senderInput.trim() && !filters.senders.includes(senderInput.trim())) {
+      const newFilters = {
+        ...filters,
+        senders: [...filters.senders, senderInput.trim()]
+      };
+      setFilters(newFilters);
+      setSenderInput('');
+      saveSettings({ enabled: isEnabled, filters: newFilters });
     }
   };
 
+  // Remove sender filter
   const removeSender = (sender: string) => {
-    setFilters(prev => ({
-      ...prev,
-      senders: prev.senders.filter(s => s !== sender)
-    }));
+    const newFilters = {
+      ...filters,
+      senders: filters.senders.filter(s => s !== sender)
+    };
+    setFilters(newFilters);
+    saveSettings({ enabled: isEnabled, filters: newFilters });
   };
 
-  const togglePlugin = async (enabled: boolean) => {
+  // Save settings to localStorage
+  const saveSettings = (settings: { enabled: boolean; filters: EmailFilters }) => {
+    localStorage.setItem('emailIntegrationSettings', JSON.stringify(settings));
+  };
+
+  // Toggle plugin enabled state
+  const togglePlugin = (enabled: boolean) => {
     setIsEnabled(enabled);
-    await updateSettings({ emailIntegrationEnabled: enabled });
+    saveSettings({ enabled, filters });
     
-    if (enabled) {
+    if (enabled && connectedAccounts.length > 0) {
       loadImportantEmails();
     }
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            <Mail className="h-5 w-5" />
-            Email Integration
-            <Badge variant="secondary">Core Plugin</Badge>
-          </CardTitle>
-          <Switch
-            checked={isEnabled}
-            onCheckedChange={togglePlugin}
-          />
-        </div>
-      </CardHeader>
-      
-      <CardContent className="space-y-4">
-        {!isEnabled && (
-          <Alert>
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
-              Enable email integration to automatically create bubbles and follow-up reminders from important emails.
-            </AlertDescription>
-          </Alert>
-        )}
-        
+    <>
+      <Card className="w-full">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Mail className="h-5 w-5" />
+                Email Integration
+              </CardTitle>
+              <CardDescription>
+                Connect your email accounts to automatically import important emails as bubbles
+              </CardDescription>
+            </div>
+            <Switch
+              checked={isEnabled}
+              onCheckedChange={(checked) => togglePlugin(checked)}
+            />
+          </div>
+        </CardHeader>
+
         {isEnabled && (
-          <>
-            {/* Account Management */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium">Connected Accounts</Label>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={connectGmailAccount}
-                  disabled={isConnecting}
-                >
-                  {isConnecting ? (
-                    <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
-                  ) : (
-                    <Plus className="h-3 w-3 mr-1" />
-                  )}
-                  Add Email
-                </Button>
-              </div>
-              
-              {accounts.length === 0 ? (
-                <Alert>
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>
-                    No email accounts connected. Add an account to start syncing important emails.
-                  </AlertDescription>
-                </Alert>
-              ) : (
-                <div className="space-y-2">
-                  {accounts.map((account) => (
-                    <div key={account.id} className="flex items-center justify-between p-2 border rounded">
-                      <div className="flex items-center gap-2">
-                        <CheckCircle className="h-4 w-4 text-green-500" />
+          <CardContent className="space-y-6">
+            {/* Connected Accounts */}
+            <div>
+              <Label className="text-sm font-medium">Connected Accounts</Label>
+              <div className="mt-2 space-y-2">
+                {connectedAccounts.length === 0 ? (
+                  <Alert>
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      No email accounts connected. Connect an account to get started.
+                    </AlertDescription>
+                  </Alert>
+                ) : (
+                  connectedAccounts.map((account) => (
+                    <div key={account.id} className="flex items-center justify-between p-3 border rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <Mail className="h-4 w-4 text-muted-foreground" />
                         <div>
-                          <div className="text-sm font-medium">{account.name}</div>
-                          <div className="text-xs text-muted-foreground">{account.email}</div>
+                          <div className="font-medium">{account.name}</div>
+                          <div className="text-sm text-muted-foreground">{account.email}</div>
                         </div>
                       </div>
-                      <Badge variant="outline">{account.type}</Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary" className="flex items-center gap-1">
+                          <CheckCircle2 className="h-3 w-3" />
+                          Connected
+                        </Badge>
+                        <Badge variant="outline" className="text-xs">
+                          {account.scopes.includes('gmail.readonly') ? 'Full Access' : 'Metadata Only'}
+                        </Badge>
+                      </div>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Email Filters */}
-            <div className="space-y-4 p-4 border rounded">
-              <Label className="text-sm font-medium">Smart Filters</Label>
-              
-              <div className="space-y-3">
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="important-only"
-                    checked={filters.importantOnly}
-                    onCheckedChange={(checked) => 
-                      setFilters(prev => ({ ...prev, importantOnly: checked as boolean }))
-                    }
-                  />
-                  <Label htmlFor="important-only" className="text-sm">Important emails only</Label>
-                </div>
+                  ))
+                )}
                 
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="unread-only"
-                    checked={filters.unreadOnly}
-                    onCheckedChange={(checked) => 
-                      setFilters(prev => ({ ...prev, unreadOnly: checked as boolean }))
-                    }
-                  />
-                  <Label htmlFor="unread-only" className="text-sm">Unread emails only</Label>
-                </div>
-              </div>
-              
-              <div className="space-y-2">
-                <Label className="text-sm">Priority Keywords</Label>
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="urgent, deadline..."
-                    value={newKeyword}
-                    onChange={(e) => setNewKeyword(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && addKeyword()}
-                  />
-                  <Button size="sm" onClick={addKeyword}>Add</Button>
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {filters.keywords.map((keyword) => (
-                    <Badge
-                      key={keyword}
-                      variant="secondary"
-                      className="cursor-pointer"
-                      onClick={() => removeKeyword(keyword)}
-                    >
-                      {keyword} ×
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-              
-              <div className="space-y-2">
-                <Label className="text-sm">VIP Senders</Label>
-                <div className="flex gap-2">
-                  <Input
-                    placeholder="boss@company.com"
-                    value={newSender}
-                    onChange={(e) => setNewSender(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && addSender()}
-                  />
-                  <Button size="sm" onClick={addSender}>Add</Button>
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {filters.senders.map((sender) => (
-                    <Badge
-                      key={sender}
-                      variant="secondary"
-                      className="cursor-pointer"
-                      onClick={() => removeSender(sender)}
-                    >
-                      {sender} ×
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Important Emails */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium">Important Emails</Label>
                 <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={loadImportantEmails}
+                  onClick={connectGmailAccount}
                   disabled={isLoading}
+                  variant="outline"
+                  className="w-full"
                 >
                   {isLoading ? (
-                    <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Connecting...
+                    </>
                   ) : (
-                    <RefreshCw className="h-3 w-3 mr-1" />
+                    <>
+                      <Plus className="mr-2 h-4 w-4" />
+                      Connect Gmail Account
+                    </>
                   )}
-                  Refresh
                 </Button>
               </div>
-              
-              {emails.length === 0 ? (
-                <Alert>
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>
-                    No important emails found matching your filters.
-                  </AlertDescription>
-                </Alert>
-              ) : (
-                <div className="space-y-2">
-                  {emails.slice(0, 3).map((email) => (
-                    <div key={email.id} className="flex items-start justify-between p-3 border rounded">
-                      <div className="flex-1 space-y-1">
-                        <div className="flex items-center gap-2">
-                          {email.isImportant && <Star className="h-3 w-3 text-yellow-500 fill-current" />}
-                          {email.isUnread && <div className="w-2 h-2 bg-blue-500 rounded-full" />}
-                          <div className="font-medium text-sm">{email.subject}</div>
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          From: {email.from}
-                        </div>
-                        <div className="text-xs text-muted-foreground line-clamp-2">
-                          {email.snippet}
-                        </div>
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <Clock className="h-3 w-3" />
-                          {new Date(email.receivedAt).toLocaleString()}
+            </div>
+
+            <Separator />
+
+            {/* Email Filters */}
+            <div>
+              <Label className="text-sm font-medium">Email Filters</Label>
+              <div className="mt-3 space-y-4">
+                {/* Filter checkboxes */}
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="important-only"
+                    checked={filters.importantOnly}
+                    onChange={(e) => {
+                      const newFilters = { ...filters, importantOnly: e.target.checked };
+                      setFilters(newFilters);
+                      saveSettings({ enabled: isEnabled, filters: newFilters });
+                    }}
+                    className="rounded"
+                  />
+                  <Label htmlFor="important-only" className="text-sm">
+                    Only important emails
+                  </Label>
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="unread-only"
+                    checked={filters.unreadOnly}
+                    onChange={(e) => {
+                      const newFilters = { ...filters, unreadOnly: e.target.checked };
+                      setFilters(newFilters);
+                      saveSettings({ enabled: isEnabled, filters: newFilters });
+                    }}
+                    className="rounded"
+                  />
+                  <Label htmlFor="unread-only" className="text-sm">
+                    Only unread emails
+                  </Label>
+                </div>
+
+                {/* Keywords */}
+                <div>
+                  <Label className="text-sm">Keywords</Label>
+                  <div className="flex gap-2 mt-1">
+                    <Input
+                      placeholder="urgent, deadline..."
+                      value={keywordInput}
+                      onChange={(e) => setKeywordInput(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && addKeyword()}
+                    />
+                    <Button onClick={addKeyword} size="sm">Add</Button>
+                  </div>
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {filters.keywords.map((keyword) => (
+                      <Badge
+                        key={keyword}
+                        variant="secondary"
+                        className="cursor-pointer"
+                        onClick={() => removeKeyword(keyword)}
+                      >
+                        {keyword}
+                        <X className="h-3 w-3 ml-1" />
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Senders */}
+                <div>
+                  <Label className="text-sm">Priority Senders</Label>
+                  <div className="flex gap-2 mt-1">
+                    <Input
+                      placeholder="boss@company.com"
+                      value={senderInput}
+                      onChange={(e) => setSenderInput(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && addSender()}
+                    />
+                    <Button onClick={addSender} size="sm">Add</Button>
+                  </div>
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {filters.senders.map((sender) => (
+                      <Badge
+                        key={sender}
+                        variant="secondary"
+                        className="cursor-pointer"
+                        onClick={() => removeSender(sender)}
+                      >
+                        {sender}
+                        <X className="h-3 w-3 ml-1" />
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <Separator />
+
+            {/* Latest Important Emails */}
+            <div>
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-medium">Latest Important Emails</Label>
+                <Button
+                  onClick={loadImportantEmails}
+                  disabled={isLoadingEmails}
+                  variant="outline"
+                  size="sm"
+                >
+                  {isLoadingEmails ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    'Refresh'
+                  )}
+                </Button>
+              </div>
+
+              <div className="mt-3">
+                {isLoadingEmails ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin" />
+                    <span className="ml-2">Loading emails...</span>
+                  </div>
+                ) : emails.length === 0 ? (
+                  <Alert>
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      No emails found matching your filters.
+                    </AlertDescription>
+                  </Alert>
+                ) : (
+                  <div className="space-y-3">
+                    {emails.slice(0, 5).map((email) => (
+                      <div key={email.id} className="p-3 border rounded-lg">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2">
+                              {email.isImportant && (
+                                <Badge variant="destructive" className="text-xs">Important</Badge>
+                              )}
+                              {!email.isRead && (
+                                <Badge variant="default" className="text-xs">Unread</Badge>
+                              )}
+                            </div>
+                            <h4 className="font-medium text-sm mt-1">{email.subject}</h4>
+                            <p className="text-sm text-muted-foreground mt-1">From: {email.sender}</p>
+                            <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
+                              {email.snippet}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-2">
+                              {email.receivedAt.toLocaleString()}
+                            </p>
+                          </div>
+                          <Button
+                            onClick={() => createBubbleFromEmail(email)}
+                            size="sm"
+                            className="ml-3"
+                          >
+                            <Plus className="h-4 w-4 mr-1" />
+                            Add Bubble
+                          </Button>
                         </div>
                       </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => createBubbleFromEmail(email)}
-                      >
-                        <Plus className="h-3 w-3 mr-1" />
-                        Add Bubble
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-          </>
+          </CardContent>
         )}
-      </CardContent>
-    </Card>
+      </Card>
+
+      {/* Scope Consent Modal */}
+      {scopeRequest && (
+        <ScopeConsentModal
+          open={!!scopeRequest}
+          onOpenChange={(open) => !open && setScopeRequest(null)}
+          request={scopeRequest}
+          onApprove={(authUrl) => {
+            window.open(authUrl, '_blank', 'width=500,height=600');
+            setScopeRequest(null);
+            toast({
+              title: "Gmail Connection",
+              description: "Complete the authorization in the popup window",
+            });
+          }}
+          onDeny={() => {
+            setScopeRequest(null);
+            toast({
+              title: "Connection Cancelled",
+              description: "Gmail connection was cancelled",
+            });
+          }}
+        />
+      )}
+    </>
   );
-}
+};
