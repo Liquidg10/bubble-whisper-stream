@@ -98,6 +98,16 @@ const devRoutes: DevRoute[] = [
     path: '/dev/cbt-metrics',
     name: 'CBT Metrics',
     description: 'Metrics dashboard with A/B testing and performance'
+  },
+  {
+    path: '/dev/calendar-sync',
+    name: 'Calendar Sync',
+    description: 'Calendar health monitoring and sync status'
+  },
+  {
+    path: '/dev/auto-write-calendar',
+    name: 'Auto-Write Calendar',
+    description: 'Test auto-write calendar with Context Engine gates'
   }
 ];
 
