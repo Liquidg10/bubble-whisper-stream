@@ -201,6 +201,25 @@ export function CalendarIntegrationPlugin() {
     }
   };
 
+  const revokeCalendarAccess = async (accountId: string) => {
+    try {
+      await oauthService.revokeAccount(accountId);
+      await loadCalendarAccounts();
+      setEvents([]);
+      toast({
+        title: "Access Revoked",
+        description: "Calendar access has been revoked. Write actions are now disabled.",
+      });
+    } catch (error) {
+      console.error('Failed to revoke access:', error);
+      toast({
+        title: "Revoke Failed",
+        description: "Unable to revoke calendar access. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
   const createBubbleFromEvent = async (event: CalendarEvent) => {
     const bubbleId = crypto.randomUUID();
     const bubble = {
@@ -319,7 +338,17 @@ export function CalendarIntegrationPlugin() {
                           <div className="text-xs text-muted-foreground">{account.email}</div>
                         </div>
                       </div>
-                      <Badge variant="outline">{account.type}</Badge>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline">{account.type}</Badge>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => revokeCalendarAccess(account.id)}
+                        >
+                          <Trash2 className="h-3 w-3 mr-1" />
+                          Revoke
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>

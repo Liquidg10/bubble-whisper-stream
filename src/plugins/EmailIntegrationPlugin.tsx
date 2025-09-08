@@ -225,6 +225,26 @@ export const EmailIntegrationPlugin: React.FC = () => {
     }
   };
 
+  // Revoke Gmail account access
+  const revokeEmailAccess = async (accountId: string) => {
+    try {
+      await oauthService.revokeAccount(accountId);
+      await loadEmailAccounts();
+      setEmails([]);
+      toast({
+        title: "Access Revoked",
+        description: "Email access has been revoked. Write actions are now disabled.",
+      });
+    } catch (error) {
+      console.error('Failed to revoke access:', error);
+      toast({
+        title: "Revoke Failed",
+        description: "Unable to revoke email access. Please try again.",
+        variant: "destructive"
+      });
+    }
+  };
+
   // Create bubble from email
   const createBubbleFromEmail = async (email: EmailMessage) => {
     try {
@@ -392,6 +412,14 @@ export const EmailIntegrationPlugin: React.FC = () => {
                         <Badge variant="outline" className="text-xs">
                           {account.scopes.includes('gmail.readonly') ? 'Full Access' : 'Metadata Only'}
                         </Badge>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => revokeEmailAccess(account.id)}
+                        >
+                          <X className="h-3 w-3 mr-1" />
+                          Revoke
+                        </Button>
                       </div>
                     </div>
                   ))

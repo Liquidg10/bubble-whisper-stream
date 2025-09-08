@@ -272,6 +272,11 @@ class OAuthService {
     }
   }
 
+  // Alias for consistency with plugin naming
+  async revokeAccount(accountId: string): Promise<void> {
+    return this.revokeAccess(accountId);
+  }
+
   async handleScopeDecay(): Promise<void> {
     const accounts = await this.getConnectedAccounts();
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
