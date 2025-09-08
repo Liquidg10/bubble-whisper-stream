@@ -103,6 +103,24 @@ export class TemporalReasoningService {
     this.userLocale = locale || this.detectLocale();
   }
 
+  /**
+   * Update user preferences
+   */
+  updatePreferences(timezone?: string, locale?: 'US' | 'EU' | 'ISO') {
+    if (timezone) this.userTimezone = timezone;
+    if (locale) this.userLocale = locale;
+  }
+
+  /**
+   * Get current user preferences
+   */
+  getPreferences() {
+    return {
+      timezone: this.userTimezone,
+      locale: this.userLocale
+    };
+  }
+
   private detectLocale(): 'US' | 'EU' | 'ISO' {
     const locale = navigator.language;
     if (locale.startsWith('en-US')) return 'US';

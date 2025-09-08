@@ -108,6 +108,11 @@ const devRoutes: DevRoute[] = [
     path: '/dev/auto-write-calendar',
     name: 'Auto-Write Calendar',
     description: 'Test auto-write calendar with Context Engine gates'
+  },
+  {
+    path: '/dev/temporal-reasoning',
+    name: 'Temporal Reasoning',
+    description: 'Test date/time parsing with ambiguity detection and conflict analysis'
   }
 ];
 
