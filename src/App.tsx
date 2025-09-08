@@ -46,6 +46,7 @@ import DevCBTObserver from "./pages/DevCBTObserver";
 import DevCBTPolicy from "./pages/DevCBTPolicy";
 import DevCBTE2E from "./pages/DevCBTE2E";
 import DevCBTMetrics from "./pages/DevCBTMetrics";
+import DevPolicyEngine from "./pages/DevPolicyEngine";
 import { DevMenu } from "./components/DevMenu";
 import { useDevMenu } from "./hooks/useDevMenu";
 import { AuthCallback } from "./pages/AuthCallback";
@@ -111,9 +112,8 @@ const App = () => {
                       <Route path="dev/cbt-policy" element={<DevCBTPolicy />} />
                       <Route path="dev/cbt-e2e" element={<DevCBTE2E />} />
                       <Route path="dev/cbt-metrics" element={<DevCBTMetrics />} />
-                       <Route path="dev/context-engine" element={<DevContextEngine />} />
-                       <Route path="dev/policy-engine" element={<DevPolicyEngine />} />
-                       <Route path="dev/policy-engine" element={<DevPolicyEngine />} />
+                        <Route path="dev/context-engine" element={<DevContextEngine />} />
+                        <Route path="dev/policy-engine" element={<DevPolicyEngine />} />
                       <Route path="privacy" element={<Privacy />} />
                     </Route>
                     <Route path="auth/callback" element={<AuthCallback />} />
