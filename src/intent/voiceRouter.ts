@@ -13,6 +13,8 @@ export interface IntentResult {
   confidence: number;
   clarification?: string;
   needsClarification: boolean;
+  autoCommitRecommended: boolean;
+  confidenceGate: 'high' | 'medium' | 'low';
 }
 
 export interface VoiceRouterOptions {
@@ -26,6 +28,10 @@ export interface VoiceRouterOptions {
 
 class VoiceRouter {
   private confidenceThreshold = 0.6;
+  
+  // Confidence thresholds for auto-commit gates
+  private HIGH_CONFIDENCE = 0.8;
+  private MEDIUM_CONFIDENCE = 0.5;
   
   // Intent patterns with confidence weights
   private patterns = {
@@ -103,7 +109,9 @@ class VoiceRouter {
       tags: [],
       confidence: 0.5,
       needsClarification: true,
-      clarification: "I'm not sure what type of note this should be. Could you clarify?"
+      clarification: "I'm not sure what type of note this should be. Could you clarify?",
+      autoCommitRecommended: false,
+      confidenceGate: 'low'
     };
 
     // Score each intent type
@@ -115,8 +123,10 @@ class VoiceRouter {
       }
     }
 
-    // Apply confidence threshold
+    // Apply confidence threshold and gates
     bestMatch.needsClarification = bestMatch.confidence < confidenceThreshold;
+    bestMatch.autoCommitRecommended = bestMatch.confidence >= this.HIGH_CONFIDENCE;
+    bestMatch.confidenceGate = this.getConfidenceGate(bestMatch.confidence);
     
     // Add context-based adjustments
     if (context) {
@@ -188,7 +198,9 @@ class VoiceRouter {
       tags,
       horizon,
       confidence: Math.min(score, 0.95), // Cap at 95%
-      needsClarification: false
+      needsClarification: false,
+      autoCommitRecommended: false,
+      confidenceGate: 'low'
     };
   }
 
@@ -279,6 +291,28 @@ class VoiceRouter {
     }
 
     return bubble;
+  }
+
+  private getConfidenceGate(confidence: number): 'high' | 'medium' | 'low' {
+    if (confidence >= this.HIGH_CONFIDENCE) return 'high';
+    if (confidence >= this.MEDIUM_CONFIDENCE) return 'medium';
+    return 'low';
+  }
+  
+  /**
+   * Get confidence-based TTS message for feedback
+   */
+  getConfidenceFeedback(text: string, intent: IntentResult): string {
+    switch (intent.confidenceGate) {
+      case 'high':
+        return intent.autoCommitRecommended ? 
+          "Got it!" : 
+          `Added "${text.substring(0, 30)}..." as ${intent.type.toLowerCase()}`;
+      case 'medium':
+        return `I heard "${text.substring(0, 40)}...", is that right?`;
+      case 'low':
+        return intent.clarification || this.generateClarification(text, intent.confidence);
+    }
   }
 
   private getTagEmoji(tag: string): string {

@@ -64,6 +64,11 @@ interface BubbleStore {
       initialChoice?: 'off' | 'ask' | 'on';
       onboardingCompleted: boolean;
     };
+    // Voice-First Capture Settings
+    voiceAutoCommit?: boolean;
+    voiceHotkey?: string;
+    voiceConfidenceThreshold?: number;
+    voiceFeedbackLevel?: 'minimal' | 'standard' | 'verbose';
   };
   selfModel: SelfModel;
   isLoading: boolean;
@@ -121,6 +126,11 @@ interface BubbleStore {
     viewMode?: 'bubble' | 'atomic';
     aiSystemPrompt?: string;
     aiPersonalInfo?: string;
+    // Voice-First Capture Settings
+    voiceAutoCommit?: boolean;
+    voiceHotkey?: string;
+    voiceConfidenceThreshold?: number;
+    voiceFeedbackLevel?: 'minimal' | 'standard' | 'verbose';
     cbtSettings?: {
       cbtAssistEnabled: boolean;
       assistLevel: 'off' | 'subtle' | 'standard';

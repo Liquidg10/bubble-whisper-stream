@@ -128,6 +128,11 @@ const devRoutes: DevRoute[] = [
     path: '/dev/recurring-finance',
     name: 'Recurring Finance Detection',
     description: 'Test recurring transaction detection with financial context integration'
+  },
+  {
+    path: '/dev/voice-first',
+    name: 'Voice-First Capture',
+    description: 'Test voice capture with confidence gates, hotkeys, and auto-commit'
   }
 ];
 
