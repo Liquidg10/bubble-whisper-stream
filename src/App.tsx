@@ -56,6 +56,7 @@ import { DevGmailIntents } from "./pages/DevGmailIntentsQA";
 import DevEmailCompose from "./pages/DevEmailCompose";
 import DevRecurringFinance from "./pages/DevRecurringFinance";
 import { DevVoiceFirst } from "./pages/DevVoiceFirst";
+import DevHealthDashboard from "./pages/DevHealthDashboard";
 import DevPlaidRecur from "./pages/DevPlaidRecur";
 import DevMetricsAlerts from "./pages/DevMetricsAlerts";
 import { DevMenu } from "./components/DevMenu";
@@ -134,8 +135,9 @@ const App = () => {
                          <Route path="dev/email-compose" element={<DevEmailCompose />} />
                          <Route path="dev/plaid-recur" element={<DevPlaidRecur />} />
                          <Route path="dev/metrics-alerts" element={<DevMetricsAlerts />} />
-                        <Route path="dev/recurring-finance" element={<DevRecurringFinance />} />
-                        <Route path="dev/voice-first" element={<DevVoiceFirst />} />
+                         <Route path="dev/recurring-finance" element={<DevRecurringFinance />} />
+                         <Route path="dev/voice-first" element={<DevVoiceFirst />} />
+                         <Route path="dev/health-dashboard" element={<DevHealthDashboard />} />
                       <Route path="privacy" element={<Privacy />} />
                     </Route>
                     <Route path="auth/callback" element={<AuthCallback />} />
