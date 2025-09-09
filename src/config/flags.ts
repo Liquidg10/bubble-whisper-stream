@@ -31,6 +31,32 @@ export const flags = {
   autoFinanceInsights: false, // Generate financial insights (default OFF)
   contextEngine: false, // Context-aware suggestions (default OFF)
   autoWriteKillSwitch: false, // Global kill switch for all auto-write features (default OFF)
+  
+  // Voice System Consolidation (Phase 1)
+  VOICE_ENGINE_UNIFIED: true,
+  VOICE_SESSION_LOCK: true,
+  VOICE_HOTKEY_UNIFIED: true,
+  VOICE_ROUTER_UNIFIED: true,
+  VOICE_DECISION_TRACE: true,
+  VOICE_SETTINGS_UNIFIED: true,
+  
+  // Voice System Fallback Ladder
+  VOICE_FALLBACK_LADDER: false,
+  VOICE_WHISPER_ENABLED: false,
+  VOICE_WEB_SPEECH_ENABLED: true,
+  
+  // Voice Auto-Commit & Confidence Gates
+  VOICE_AUTO_COMMIT_DEFAULT: false,
+  VOICE_CONFIDENCE_GATING: true,
+  
+  // Voice UI Features
+  VOICE_TTS_CONFIRMATIONS: false,
+  VOICE_LIVE_TRANSCRIPT: true,
+  
+  // Dev & Testing
+  VOICE_DEV_ROUTE_ENABLED: true,
+  VOICE_TELEMETRY_ENABLED: true,
+  VOICE_DEBUG_LOGGING: true,
 } as const;
 
 export type FeatureFlag = keyof typeof flags;
