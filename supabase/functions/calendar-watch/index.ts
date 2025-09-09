@@ -59,7 +59,7 @@ async function setupWatchChannel(
   calendarId: string,
   webhookUrl: string
 ): Promise<GoogleWatchResponse> {
-  const channelId = `calendar-${calendarId}-${Date.now()}`;
+  const channelId = `calendar-${calendarId.replace('@', '-')}-${Date.now()}`;
   
   const watchRequest = {
     id: channelId,
@@ -68,7 +68,7 @@ async function setupWatchChannel(
     token: channelId, // Use channel ID as verification token
   };
 
-  console.log('Setting up watch channel:', { calendarId, webhookUrl, channelId });
+  console.log('🔔 Setting up watch channel:', { calendarId, webhookUrl, channelId });
 
   const response = await fetch(
     `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/watch`,
@@ -84,11 +84,13 @@ async function setupWatchChannel(
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error('Watch channel setup failed:', errorText);
+    console.error('❌ Watch channel setup failed:', errorText);
     throw new Error(`Watch channel setup failed: ${response.status} ${errorText}`);
   }
 
-  return await response.json();
+  const result = await response.json();
+  console.log('✅ Watch channel created:', { channelId: result.id, expiration: result.expiration });
+  return result;
 }
 
 async function stopWatchChannel(accessToken: string, channelId: string, resourceId: string) {
@@ -97,7 +99,7 @@ async function stopWatchChannel(accessToken: string, channelId: string, resource
     resourceId: resourceId,
   };
 
-  console.log('Stopping watch channel:', { channelId, resourceId });
+  console.log('🛑 Stopping watch channel:', { channelId, resourceId });
 
   const response = await fetch(
     'https://www.googleapis.com/calendar/v3/channels/stop',
@@ -113,26 +115,30 @@ async function stopWatchChannel(accessToken: string, channelId: string, resource
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.warn('Watch channel stop failed (may already be expired):', errorText);
+    console.warn('⚠️ Watch channel stop failed (may already be expired):', errorText);
     // Don't throw error as channel might already be expired
+  } else {
+    console.log('✅ Watch channel stopped successfully');
   }
 }
 
 async function updateWatchChannelStatus(
   calendarAccountId: string,
-  status: 'active' | 'expired' | 'failed',
-  channelData?: {
-    channelId: string;
-    resourceId: string;
-    expiresAt: Date;
-  }
+  status: 'inactive' | 'active' | 'expired' | 'failed',
+  channelId?: string,
+  resourceId?: string,
+  expiresAt?: string
 ) {
   const updates: any = { watch_status: status };
   
-  if (channelData) {
-    updates.watch_channel_id = channelData.channelId;
-    updates.watch_resource_id = channelData.resourceId;
-    updates.watch_expires_at = channelData.expiresAt.toISOString();
+  if (channelId) {
+    updates.watch_channel_id = channelId;
+  }
+  if (resourceId) {
+    updates.watch_resource_id = resourceId;
+  }
+  if (expiresAt) {
+    updates.watch_expires_at = expiresAt;
   }
 
   const { error } = await supabase
@@ -141,142 +147,222 @@ async function updateWatchChannelStatus(
     .eq('id', calendarAccountId);
 
   if (error) {
-    console.error('Error updating watch channel status:', error);
+    console.error('❌ Error updating watch channel status:', error);
     throw new Error(`Database error: ${error.message}`);
   }
 }
 
 async function handleWebhookNotification(req: Request): Promise<Response> {
-  // Google sends push notifications to this endpoint
-  const channelId = req.headers.get('x-goog-channel-id');
-  const resourceId = req.headers.get('x-goog-resource-id');
-  const resourceState = req.headers.get('x-goog-resource-state');
-  const channelToken = req.headers.get('x-goog-channel-token');
+  const resourceState = req.headers.get('X-Goog-Resource-State');
+  const resourceId = req.headers.get('X-Goog-Resource-Id');
+  const channelId = req.headers.get('X-Goog-Channel-Id');
+  const messageNumber = req.headers.get('X-Goog-Message-Number');
 
-  console.log('Webhook notification received:', {
-    channelId,
-    resourceId,
+  console.log('📨 Webhook notification received:', {
     resourceState,
-    channelToken,
+    resourceId,
+    channelId,
+    messageNumber
   });
 
-  if (!channelId || !resourceId) {
-    console.error('Missing required headers in webhook notification');
-    return new Response('Bad Request', { status: 400 });
+  if (!resourceState || !resourceId) {
+    console.log('⚠️ Missing required headers');
+    return new Response('Missing required headers', { status: 400 });
+  }
+
+  // Handle different resource states
+  if (resourceState === 'sync') {
+    console.log('🔄 Initial sync notification - no action needed');
+    return new Response('OK', { status: 200 });
   }
 
   // Find the calendar account for this channel
-  const { data: calendarAccount, error } = await supabase
+  const { data: account, error } = await supabase
     .from('calendar_accounts')
     .select('id, user_id, calendar_id')
     .eq('watch_channel_id', channelId)
     .eq('watch_resource_id', resourceId)
     .single();
 
-  if (error || !calendarAccount) {
-    console.error('Calendar account not found for channel:', channelId);
-    return new Response('Not Found', { status: 404 });
+  if (error || !account) {
+    console.log('⚠️ Calendar account not found for channel:', channelId);
+    return new Response('OK', { status: 200 }); // Still return 200 to acknowledge
   }
 
-  // Handle different resource states
-  if (resourceState === 'sync') {
-    console.log('Initial sync notification, ignoring');
-    return new Response('OK', { status: 200 });
-  }
-
+  // Handle exists state - calendar events have changed
   if (resourceState === 'exists') {
-    console.log('Calendar events changed, triggering incremental sync');
+    console.log(`🔄 Calendar changes detected for account ${account.id} - triggering incremental sync`);
     
-    // Trigger incremental sync
     try {
-      const syncResponse = await supabase.functions.invoke('calendar-sync', {
+      // Call the calendar-sync function for incremental sync
+      const { error: syncError } = await supabase.functions.invoke('calendar-sync', {
         body: {
-          calendarAccountId: calendarAccount.id,
-          fullSync: false,
-        },
+          calendarAccountId: account.id,
+          fullSync: false, // Incremental sync
+          boundedWindow: false // Use sync token
+        }
       });
 
-      if (syncResponse.error) {
-        console.error('Failed to trigger sync:', syncResponse.error);
+      if (syncError) {
+        console.error('❌ Failed to trigger incremental sync:', syncError);
+        
+        // If incremental sync fails, try bounded window sync as fallback
+        console.log('🔄 Falling back to bounded window sync...');
+        const { error: boundedSyncError } = await supabase.functions.invoke('calendar-sync', {
+          body: {
+            calendarAccountId: account.id,
+            fullSync: true,
+            boundedWindow: true
+          }
+        });
+        
+        if (boundedSyncError) {
+          console.error('❌ Bounded sync fallback also failed:', boundedSyncError);
+        } else {
+          console.log('✅ Bounded sync fallback succeeded');
+        }
       } else {
-        console.log('Incremental sync triggered successfully');
+        console.log('✅ Incremental sync triggered successfully');
       }
-    } catch (syncError) {
-      console.error('Error triggering sync:', syncError);
+    } catch (error) {
+      console.error('❌ Error triggering sync:', error);
     }
   }
 
   return new Response('OK', { status: 200 });
 }
 
-async function renewExpiringChannels() {
-  console.log('Checking for expiring watch channels...');
-  
-  // Get channels expiring in the next 24 hours
-  const { data: expiringChannels, error } = await supabase.rpc('get_expiring_watch_channels', {
-    hours_ahead: 24,
-  });
+async function renewExpiringChannels(): Promise<void> {
+  console.log('🔄 Checking for expiring watch channels...');
+
+  // Check for channels expiring in the next 24 hours (T-1 day renewal)
+  const { data: expiringChannels, error } = await supabase
+    .rpc('get_expiring_watch_channels', { hours_ahead: 24 });
 
   if (error) {
-    console.error('Error fetching expiring channels:', error);
+    console.error('❌ Error fetching expiring channels:', error);
     return;
   }
 
-  console.log(`Found ${expiringChannels?.length || 0} expiring channels`);
+  if (!expiringChannels || expiringChannels.length === 0) {
+    console.log('✅ No expiring channels found');
+    return;
+  }
 
-  for (const channel of expiringChannels || []) {
+  console.log(`🔄 Found ${expiringChannels.length} expiring channels for proactive renewal`);
+
+  for (const channel of expiringChannels) {
     try {
-      console.log(`Renewing channel for calendar ${channel.calendar_id}`);
-      
-      // Get fresh OAuth token
-      const { data: tokenData, error: tokenError } = await supabase
-        .from('oauth_tokens')
-        .select('access_token, refresh_token, token_expires_at')
-        .eq('user_id', channel.user_id)
-        .eq('service_type', 'calendar')
-        .single();
-
-      if (tokenError || !tokenData) {
-        console.error('OAuth token not found for user:', channel.user_id);
-        continue;
-      }
-
-      let accessToken = tokenData.access_token;
-      
-      // Refresh token if expired
-      if (new Date(tokenData.token_expires_at) <= new Date()) {
-        const newToken = await refreshAccessToken(tokenData.refresh_token);
-        if (!newToken) {
-          console.error('Failed to refresh token for user:', channel.user_id);
-          await updateWatchChannelStatus(channel.id, 'failed');
-          continue;
-        }
-        accessToken = newToken;
-      }
-
-      // Stop old channel
-      if (channel.watch_channel_id && channel.watch_resource_id) {
-        await stopWatchChannel(accessToken, channel.watch_channel_id, channel.watch_resource_id);
-      }
-
-      // Setup new channel
-      const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/calendar-watch`;
-      const watchResponse = await setupWatchChannel(accessToken, channel.calendar_id, webhookUrl);
-      
-      // Update database
-      await updateWatchChannelStatus(channel.id, 'active', {
-        channelId: watchResponse.id,
-        resourceId: watchResponse.resourceId,
-        expiresAt: new Date(parseInt(watchResponse.expiration)),
-      });
-
-      console.log(`Successfully renewed channel for calendar ${channel.calendar_id}`);
-      
+      console.log(`⏰ Renewing channel ${channel.watch_channel_id} for calendar ${channel.calendar_id} (expires: ${channel.watch_expires_at})`);
+      await renewWatchChannel(channel.id);
     } catch (error) {
-      console.error(`Failed to renew channel for calendar ${channel.calendar_id}:`, error);
-      await updateWatchChannelStatus(channel.id, 'failed');
+      console.error(`❌ Failed to renew channel ${channel.id}:`, error);
+      
+      // If renewal fails, try to recover by setting up a new channel
+      try {
+        console.log(`🔧 Attempting recovery by setting up new watch channel for account ${channel.id}`);
+        await setupNewWatchChannel(channel.id);
+      } catch (recoveryError) {
+        console.error(`❌ Recovery failed for channel ${channel.id}:`, recoveryError);
+        await updateWatchChannelStatus(channel.id, 'failed');
+      }
     }
   }
+}
+
+async function renewWatchChannel(calendarAccountId: string): Promise<void> {
+  // Get account details
+  const { data: account, error: accountError } = await supabase
+    .from('calendar_accounts')
+    .select(`
+      *,
+      oauth_tokens!calendar_accounts_oauth_token_id_fkey (
+        access_token,
+        refresh_token,
+        token_expires_at
+      )
+    `)
+    .eq('id', calendarAccountId)
+    .single();
+
+  if (accountError || !account) {
+    throw new Error(`Failed to get account details: ${accountError?.message}`);
+  }
+
+  let accessToken = account.oauth_tokens.access_token;
+
+  // Refresh token if needed
+  if (new Date(account.oauth_tokens.token_expires_at) <= new Date()) {
+    accessToken = await refreshAccessToken(account.oauth_tokens.refresh_token);
+    if (!accessToken) {
+      throw new Error('Failed to refresh access token');
+    }
+  }
+
+  // Stop old channel if it exists
+  if (account.watch_channel_id && account.watch_resource_id) {
+    await stopWatchChannel(accessToken, account.watch_channel_id, account.watch_resource_id);
+  }
+
+  // Setup new watch channel
+  const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/calendar-watch`;
+  const watchResponse = await setupWatchChannel(accessToken, account.calendar_id || 'primary', webhookUrl);
+  
+  // Update database with new channel info
+  await updateWatchChannelStatus(
+    calendarAccountId,
+    'active',
+    watchResponse.id,
+    watchResponse.resourceId,
+    new Date(parseInt(watchResponse.expiration)).toISOString()
+  );
+
+  console.log(`✅ Successfully renewed watch channel for account ${calendarAccountId}`);
+}
+
+async function setupNewWatchChannel(calendarAccountId: string): Promise<void> {
+  // Get account details
+  const { data: account, error: accountError } = await supabase
+    .from('calendar_accounts')
+    .select(`
+      *,
+      oauth_tokens!calendar_accounts_oauth_token_id_fkey (
+        access_token,
+        refresh_token,
+        token_expires_at
+      )
+    `)
+    .eq('id', calendarAccountId)
+    .single();
+
+  if (accountError || !account) {
+    throw new Error(`Failed to get account details: ${accountError?.message}`);
+  }
+
+  let accessToken = account.oauth_tokens.access_token;
+
+  // Refresh token if needed
+  if (new Date(account.oauth_tokens.token_expires_at) <= new Date()) {
+    accessToken = await refreshAccessToken(account.oauth_tokens.refresh_token);
+    if (!accessToken) {
+      throw new Error('Failed to refresh access token');
+    }
+  }
+
+  // Setup new watch channel
+  const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/calendar-watch`;
+  const watchResponse = await setupWatchChannel(accessToken, account.calendar_id || 'primary', webhookUrl);
+  
+  // Update database with new channel info
+  await updateWatchChannelStatus(
+    calendarAccountId,
+    'active',
+    watchResponse.id,
+    watchResponse.resourceId,
+    new Date(parseInt(watchResponse.expiration)).toISOString()
+  );
+
+  console.log(`✅ Successfully set up new watch channel for account ${calendarAccountId}`);
 }
 
 const handler = async (req: Request): Promise<Response> => {
@@ -285,7 +371,7 @@ const handler = async (req: Request): Promise<Response> => {
   }
 
   // Handle webhook notifications from Google
-  if (req.method === 'POST' && req.headers.get('x-goog-channel-id')) {
+  if (req.method === 'POST' && req.headers.get('X-Goog-Channel-Id')) {
     return await handleWebhookNotification(req);
   }
 
@@ -294,7 +380,7 @@ const handler = async (req: Request): Promise<Response> => {
     try {
       const { calendarAccountId, action }: WatchChannelRequest = await req.json();
 
-      console.log('Watch channel request:', { calendarAccountId, action });
+      console.log('🔔 Watch channel request:', { calendarAccountId, action });
 
       if (action === 'renew') {
         await renewExpiringChannels();
@@ -309,7 +395,7 @@ const handler = async (req: Request): Promise<Response> => {
         .from('calendar_accounts')
         .select(`
           *,
-          oauth_token_id (
+          oauth_tokens!calendar_accounts_oauth_token_id_fkey (
             access_token,
             refresh_token,
             token_expires_at
@@ -326,11 +412,11 @@ const handler = async (req: Request): Promise<Response> => {
       }
 
       // Get fresh access token
-      let accessToken = calendarAccount.oauth_token_id.access_token;
-      const tokenExpiry = new Date(calendarAccount.oauth_token_id.token_expires_at);
+      let accessToken = calendarAccount.oauth_tokens.access_token;
+      const tokenExpiry = new Date(calendarAccount.oauth_tokens.token_expires_at);
       
       if (tokenExpiry <= new Date()) {
-        const newToken = await refreshAccessToken(calendarAccount.oauth_token_id.refresh_token);
+        const newToken = await refreshAccessToken(calendarAccount.oauth_tokens.refresh_token);
         if (!newToken) {
           return new Response(
             JSON.stringify({ error: 'Token refresh failed' }),
@@ -348,11 +434,13 @@ const handler = async (req: Request): Promise<Response> => {
           webhookUrl
         );
 
-        await updateWatchChannelStatus(calendarAccountId, 'active', {
-          channelId: watchResponse.id,
-          resourceId: watchResponse.resourceId,
-          expiresAt: new Date(parseInt(watchResponse.expiration)),
-        });
+        await updateWatchChannelStatus(
+          calendarAccountId, 
+          'active',
+          watchResponse.id,
+          watchResponse.resourceId,
+          new Date(parseInt(watchResponse.expiration)).toISOString()
+        );
 
         return new Response(
           JSON.stringify({
@@ -387,7 +475,7 @@ const handler = async (req: Request): Promise<Response> => {
       );
 
     } catch (error: any) {
-      console.error('Calendar watch error:', error);
+      console.error('❌ Calendar watch error:', error);
       
       return new Response(
         JSON.stringify({ 

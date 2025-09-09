@@ -9,10 +9,12 @@ const corsHeaders = {
 interface SyncRequest {
   calendarAccountId: string;
   fullSync?: boolean;
+  simulate410?: boolean;
   timeWindow?: {
-    start: string;
-    end: string;
+    startDays?: number;
+    endDays?: number;
   };
+  boundedWindow?: boolean;
 }
 
 interface CalendarWriteRequest {
@@ -20,13 +22,23 @@ interface CalendarWriteRequest {
   calendarAccountId: string;
   eventData?: any;
   eventId?: string;
+  sendUpdates?: 'all' | 'externalOnly' | 'none';
+  draft?: boolean;
+}
+
+interface CalendarSyncWindow {
+  timeMin: string;
+  timeMax: string;
+  windowDays: number;
 }
 
 interface GoogleCalendarEvent {
   id: string;
+  etag?: string;
   summary: string;
   description?: string;
   location?: string;
+  htmlLink?: string;
   start: {
     dateTime?: string;
     date?: string;
@@ -56,6 +68,18 @@ const supabase = createClient(
   Deno.env.get('SUPABASE_URL') ?? '',
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 );
+
+function createSyncWindow(windowDays: number = 90): CalendarSyncWindow {
+  const now = new Date();
+  const timeMin = new Date(now.getTime() - (windowDays * 24 * 60 * 60 * 1000));
+  const timeMax = new Date(now.getTime() + (windowDays * 24 * 60 * 60 * 1000));
+  
+  return {
+    timeMin: timeMin.toISOString(),
+    timeMax: timeMax.toISOString(),
+    windowDays
+  };
+}
 
 async function refreshAccessToken(refreshToken: string): Promise<string | null> {
   try {
@@ -88,11 +112,17 @@ async function refreshAccessToken(refreshToken: string): Promise<string | null> 
 async function createCalendarEvent(
   accessToken: string,
   calendarId: string,
-  eventData: any
+  eventData: any,
+  sendUpdates: 'all' | 'externalOnly' | 'none' = 'none'
 ): Promise<GoogleCalendarEvent> {
-  const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`;
+  const params = new URLSearchParams();
+  if (eventData.attendees && eventData.attendees.length > 0) {
+    params.append('sendUpdates', sendUpdates);
+  }
   
-  console.log('Creating calendar event:', { calendarId, eventData });
+  const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?${params}`;
+  
+  console.log('📅 Creating calendar event:', { calendarId, eventData, sendUpdates });
 
   const response = await fetch(url, {
     method: 'POST',
@@ -105,7 +135,7 @@ async function createCalendarEvent(
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error('Create event error:', response.status, errorText);
+    console.error('❌ Create event error:', response.status, errorText);
     throw new Error(`Calendar API error: ${response.status} ${errorText}`);
   }
 
@@ -115,11 +145,13 @@ async function createCalendarEvent(
 async function deleteCalendarEvent(
   accessToken: string,
   calendarId: string,
-  eventId: string
+  eventId: string,
+  sendUpdates: 'all' | 'externalOnly' | 'none' = 'none'
 ): Promise<void> {
-  const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`;
+  const params = new URLSearchParams({ sendUpdates });
+  const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}?${params}`;
   
-  console.log('Deleting calendar event:', { calendarId, eventId });
+  console.log('🗑️ Deleting calendar event:', { calendarId, eventId, sendUpdates });
 
   const response = await fetch(url, {
     method: 'DELETE',
@@ -130,7 +162,7 @@ async function deleteCalendarEvent(
 
   if (!response.ok && response.status !== 404) {
     const errorText = await response.text();
-    console.error('Delete event error:', response.status, errorText);
+    console.error('❌ Delete event error:', response.status, errorText);
     throw new Error(`Calendar API error: ${response.status} ${errorText}`);
   }
 }
@@ -138,86 +170,137 @@ async function deleteCalendarEvent(
 async function syncCalendarEvents(
   accessToken: string,
   calendarId: string,
+  calendarAccountId: string,
+  userId: string,
   syncToken?: string,
-  timeWindow?: { start: string; end: string }
-): Promise<{ events: GoogleCalendarEvent[]; nextSyncToken?: string }> {
-  const params = new URLSearchParams();
-  
-  if (syncToken) {
-    params.append('syncToken', syncToken);
-  } else {
-    // Full sync with time window
-    const timeMin = timeWindow?.start || new Date().toISOString();
-    const timeMax = timeWindow?.end || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-    params.append('timeMin', timeMin);
-    params.append('timeMax', timeMax);
-    params.append('singleEvents', 'true');
-    params.append('orderBy', 'startTime');
-  }
-
-  params.append('maxResults', '250');
-
-  const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?${params}`;
-  
-  console.log('Fetching calendar events:', { calendarId, syncToken: !!syncToken, url });
-
-  const response = await fetch(url, {
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Accept': 'application/json',
-    },
-  });
-
-  if (!response.ok) {
-    if (response.status === 410) {
-      // Sync token expired, need full sync
-      throw new Error('SYNC_TOKEN_EXPIRED');
+  simulate410 = false,
+  timeWindow?: { startDays?: number; endDays?: number },
+  boundedWindow = false
+): Promise<{ success: boolean; data?: any; error?: string; syncToken?: string; requiresFullSync?: boolean }> {
+  try {
+    let url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?maxResults=250&singleEvents=true&orderBy=startTime`;
+    
+    // Handle incremental sync with syncToken
+    if (syncToken && !simulate410) {
+      url += `&syncToken=${encodeURIComponent(syncToken)}`;
+      console.log('🔄 Incremental sync with syncToken');
+    } else {
+      // Bounded window sync - use ±90 days by default or custom window
+      const windowDays = boundedWindow ? 90 : (timeWindow?.startDays ?? 30);
+      const syncWindow = createSyncWindow(windowDays);
+      
+      url += `&timeMin=${syncWindow.timeMin}&timeMax=${syncWindow.timeMax}`;
+      console.log(`📅 Bounded sync: ${syncWindow.timeMin} to ${syncWindow.timeMax} (±${syncWindow.windowDays} days)`);
     }
-    throw new Error(`Calendar API error: ${response.status} ${await response.text()}`);
-  }
 
-  const data: GoogleCalendarResponse = await response.json();
-  
-  return {
-    events: data.items || [],
-    nextSyncToken: data.nextSyncToken,
-  };
-}
+    if (simulate410) {
+      console.log('🧪 Simulating 410 Gone error');
+      return { success: false, error: '410 Gone - Invalid sync token', requiresFullSync: true };
+    }
 
-async function persistEvents(calendarAccountId: string, userId: string, events: GoogleCalendarEvent[]) {
-  const eventRecords = events.map(event => ({
-    user_id: userId,
-    calendar_account_id: calendarAccountId,
-    external_event_id: event.id,
-    title: event.summary || 'Untitled Event',
-    description: event.description || null,
-    location: event.location || null,
-    start_time: event.start.dateTime || event.start.date,
-    end_time: event.end.dateTime || event.end.date,
-    status: event.status || 'confirmed',
-    attendees: event.attendees ? JSON.stringify(event.attendees) : null,
-  }));
-
-  console.log(`Persisting ${eventRecords.length} events`);
-
-  // Use upsert to handle idempotent updates
-  const { error } = await supabase
-    .from('calendar_events')
-    .upsert(eventRecords, {
-      onConflict: 'external_event_id,calendar_account_id',
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Accept': 'application/json'
+      }
     });
 
-  if (error) {
-    console.error('Error persisting events:', error);
-    throw new Error(`Database error: ${error.message}`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`❌ Calendar API error: ${response.status} ${response.statusText}`, errorText);
+      
+      if (response.status === 401) {
+        throw new Error('Token expired - refresh required');
+      }
+      
+      // Handle 410 Gone - invalid sync token
+      if (response.status === 410 || errorText.includes('invalidSyncToken')) {
+        console.log('🔄 Received 410 Gone - sync token invalid, triggering bounded re-sync');
+        return { success: false, error: '410 Gone - Invalid sync token', requiresFullSync: true };
+      }
+      
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+
+    const data: GoogleCalendarResponse = await response.json();
+    console.log(`📥 Retrieved ${data.items?.length || 0} events`);
+
+    // Persist events with enhanced data
+    if (data.items && data.items.length > 0) {
+      await persistEvents(calendarAccountId, userId, data.items);
+    }
+
+    return {
+      success: true,
+      data,
+      syncToken: data.nextSyncToken
+    };
+
+  } catch (error: any) {
+    console.error('❌ Sync error:', error.message);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+async function persistEvents(calendarAccountId: string, userId: string, events: GoogleCalendarEvent[]): Promise<void> {
+  if (!events || events.length === 0) {
+    console.log('📝 No events to persist');
+    return;
   }
 
-  return eventRecords.length;
+  console.log(`📝 Persisting ${events.length} events`);
+
+  for (const event of events) {
+    try {
+      // Extract timezone information
+      const startTz = event.start?.timeZone;
+      const endTz = event.end?.timeZone;
+      
+      // Convert Google event to our enhanced schema
+      const eventData = {
+        calendar_account_id: calendarAccountId,
+        user_id: userId,
+        external_event_id: event.id,
+        etag: event.etag || null,
+        title: event.summary || 'Untitled Event',
+        description: event.description || null,
+        location: event.location || null,
+        start_time: event.start?.dateTime || event.start?.date,
+        end_time: event.end?.dateTime || event.end?.date,
+        start_tz: startTz || null,
+        end_tz: endTz || null,
+        status: event.status || 'confirmed',
+        attendees: event.attendees || [],
+        html_link: event.htmlLink || null,
+        last_synced_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      // Upsert the event with enhanced data
+      const { error } = await supabase
+        .from('calendar_events')
+        .upsert(eventData, { 
+          onConflict: 'calendar_account_id,external_event_id',
+          ignoreDuplicates: false 
+        });
+
+      if (error) {
+        console.error(`❌ Failed to persist event ${event.id}:`, error);
+      }
+    } catch (error) {
+      console.error(`❌ Error processing event ${event.id}:`, error);
+    }
+  }
+
+  console.log('✅ Events persisted successfully');
 }
 
 async function updateSyncStatus(
   calendarAccountId: string,
-  status: 'syncing' | 'complete' | 'error',
+  status: 'idle' | 'syncing' | 'complete' | 'error',
   syncToken?: string,
   error?: string
 ) {
@@ -235,6 +318,7 @@ async function updateSyncStatus(
 
   if (status === 'complete') {
     updates.last_sync_at = new Date().toISOString();
+    updates.last_full_sync_at = new Date().toISOString();
   }
 
   await supabase
@@ -244,8 +328,8 @@ async function updateSyncStatus(
 }
 
 async function logSyncOperation(
-  userId: string,
   calendarAccountId: string,
+  userId: string,
   operation: string,
   status: 'success' | 'error',
   itemsProcessed: number = 0,
@@ -259,10 +343,45 @@ async function logSyncOperation(
     operation,
     status,
     items_processed: itemsProcessed,
+    items_created: itemsProcessed,
+    items_updated: 0,
     error_message: errorMessage,
     started_at: new Date().toISOString(),
     completed_at: new Date().toISOString(),
   });
+}
+
+async function createDraftEvent(calendarAccountId: string, userId: string, eventData: any): Promise<string> {
+  console.log('📋 Creating draft event for preview');
+  
+  const draftId = `draft-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  
+  // Store draft in database for user preview
+  const { error } = await supabase
+    .from('calendar_events')
+    .insert({
+      id: draftId,
+      calendar_account_id: calendarAccountId,
+      user_id: userId,
+      external_event_id: draftId,
+      title: eventData.summary || 'Draft Event',
+      description: eventData.description || null,
+      location: eventData.location || null,
+      start_time: eventData.start?.dateTime || eventData.start?.date,
+      end_time: eventData.end?.dateTime || eventData.end?.date,
+      start_tz: eventData.start?.timeZone || null,
+      end_tz: eventData.end?.timeZone || null,
+      status: 'tentative',
+      attendees: eventData.attendees || [],
+      updated_at: new Date().toISOString()
+    });
+    
+  if (error) {
+    console.error('❌ Failed to create draft event:', error);
+    throw new Error('Failed to create draft event');
+  }
+  
+  return draftId;
 }
 
 const handler = async (req: Request): Promise<Response> => {
@@ -275,14 +394,14 @@ const handler = async (req: Request): Promise<Response> => {
     
     // Handle write operations (create, update, delete events)
     if ('action' in requestBody) {
-      const { action, calendarAccountId, eventData, eventId }: CalendarWriteRequest = requestBody;
+      const { action, calendarAccountId, eventData, eventId, sendUpdates = 'none', draft = false }: CalendarWriteRequest = requestBody;
       
       // Get calendar account details
       const { data: calendarAccount, error: accountError } = await supabase
         .from('calendar_accounts')
         .select(`
           *,
-          oauth_token_id (
+          oauth_tokens!calendar_accounts_oauth_token_id_fkey (
             access_token,
             refresh_token,
             token_expires_at
@@ -300,12 +419,12 @@ const handler = async (req: Request): Promise<Response> => {
       }
 
       // Check if token needs refresh
-      let accessToken = calendarAccount.oauth_token_id.access_token;
-      const tokenExpiry = new Date(calendarAccount.oauth_token_id.token_expires_at);
+      let accessToken = calendarAccount.oauth_tokens.access_token;
+      const tokenExpiry = new Date(calendarAccount.oauth_tokens.token_expires_at);
       
       if (tokenExpiry <= new Date()) {
-        console.log('Access token expired, refreshing...');
-        const newToken = await refreshAccessToken(calendarAccount.oauth_token_id.refresh_token);
+        console.log('🔄 Access token expired, refreshing...');
+        const newToken = await refreshAccessToken(calendarAccount.oauth_tokens.refresh_token);
         
         if (!newToken) {
           return new Response(
@@ -326,7 +445,6 @@ const handler = async (req: Request): Promise<Response> => {
           .eq('id', calendarAccount.oauth_token_id);
       }
 
-      // Execute the action
       const calendarId = calendarAccount.calendar_id || 'primary';
       
       switch (action) {
@@ -338,24 +456,51 @@ const handler = async (req: Request): Promise<Response> => {
             );
           }
           
-          const createdEvent = await createCalendarEvent(accessToken, calendarId, eventData);
+          if (draft) {
+            // Create draft for user preview
+            const draftId = await createDraftEvent(calendarAccountId, calendarAccount.user_id, eventData);
+            
+            return new Response(
+              JSON.stringify({ 
+                success: true, 
+                draft: true,
+                draftId,
+                message: 'Draft event created for preview'
+              }),
+              { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+          }
           
-          // Persist to our database
+          // Determine sendUpdates based on attendees
+          const finalSendUpdates = eventData.attendees && eventData.attendees.length > 0 ? 'all' : 'none';
+          
+          const createdEvent = await createCalendarEvent(accessToken, calendarId, eventData, finalSendUpdates);
+          
+          // Persist to our database with enhanced schema
           await supabase.from('calendar_events').insert({
             user_id: calendarAccount.user_id,
             calendar_account_id: calendarAccountId,
             external_event_id: createdEvent.id,
+            etag: createdEvent.etag || null,
             title: createdEvent.summary || 'Untitled Event',
             description: createdEvent.description || null,
             location: createdEvent.location || null,
             start_time: createdEvent.start.dateTime || createdEvent.start.date,
             end_time: createdEvent.end.dateTime || createdEvent.end.date,
+            start_tz: createdEvent.start.timeZone || null,
+            end_tz: createdEvent.end.timeZone || null,
             status: createdEvent.status || 'confirmed',
-            attendees: createdEvent.attendees ? JSON.stringify(createdEvent.attendees) : null,
+            attendees: createdEvent.attendees || [],
+            html_link: createdEvent.htmlLink || null,
+            last_synced_at: new Date().toISOString(),
           });
           
           return new Response(
-            JSON.stringify({ success: true, event: createdEvent }),
+            JSON.stringify({ 
+              success: true, 
+              event: createdEvent,
+              sendUpdates: finalSendUpdates
+            }),
             { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
           
@@ -367,7 +512,7 @@ const handler = async (req: Request): Promise<Response> => {
             );
           }
           
-          await deleteCalendarEvent(accessToken, calendarId, eventId);
+          await deleteCalendarEvent(accessToken, calendarId, eventId, sendUpdates);
           
           // Remove from our database
           await supabase
@@ -377,7 +522,7 @@ const handler = async (req: Request): Promise<Response> => {
             .eq('calendar_account_id', calendarAccountId);
           
           return new Response(
-            JSON.stringify({ success: true }),
+            JSON.stringify({ success: true, sendUpdates }),
             { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
           );
           
@@ -389,17 +534,17 @@ const handler = async (req: Request): Promise<Response> => {
       }
     }
 
-    // Handle sync operations (existing code)
-    const { calendarAccountId, fullSync = false, timeWindow }: SyncRequest = requestBody;
+    // Handle sync operations
+    const { calendarAccountId, fullSync = false, simulate410 = false, timeWindow, boundedWindow = false }: SyncRequest = requestBody;
 
-    console.log('Calendar sync request:', { calendarAccountId, fullSync, timeWindow });
+    console.log('📅 Calendar sync request:', { calendarAccountId, fullSync, simulate410, boundedWindow });
 
     // Get calendar account details
     const { data: calendarAccount, error: accountError } = await supabase
       .from('calendar_accounts')
       .select(`
         *,
-        oauth_token_id (
+        oauth_tokens!calendar_accounts_oauth_token_id_fkey (
           access_token,
           refresh_token,
           token_expires_at
@@ -420,16 +565,16 @@ const handler = async (req: Request): Promise<Response> => {
     await updateSyncStatus(calendarAccountId, 'syncing');
 
     // Check if token needs refresh
-    let accessToken = calendarAccount.oauth_token_id.access_token;
-    const tokenExpiry = new Date(calendarAccount.oauth_token_id.token_expires_at);
+    let accessToken = calendarAccount.oauth_tokens.access_token;
+    const tokenExpiry = new Date(calendarAccount.oauth_tokens.token_expires_at);
     
     if (tokenExpiry <= new Date()) {
-      console.log('Access token expired, refreshing...');
-      const newToken = await refreshAccessToken(calendarAccount.oauth_token_id.refresh_token);
+      console.log('🔄 Access token expired, refreshing...');
+      const newToken = await refreshAccessToken(calendarAccount.oauth_tokens.refresh_token);
       
       if (!newToken) {
         await updateSyncStatus(calendarAccountId, 'error', undefined, 'Token refresh failed');
-        await logSyncOperation(calendarAccount.user_id, calendarAccountId, 'sync', 'error', 0, 'Token refresh failed');
+        await logSyncOperation(calendarAccountId, calendarAccount.user_id, 'sync', 'error', 0, 'Token refresh failed');
         
         return new Response(
           JSON.stringify({ error: 'Token refresh failed' }),
@@ -444,109 +589,125 @@ const handler = async (req: Request): Promise<Response> => {
         .from('oauth_tokens')
         .update({
           access_token: newToken,
-          token_expires_at: new Date(Date.now() + 3600 * 1000).toISOString(), // 1 hour
+          token_expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
         })
         .eq('id', calendarAccount.oauth_token_id);
     }
 
-    // Determine sync strategy
-    const useSyncToken = !fullSync && calendarAccount.next_sync_token;
-    
-    try {
-      const { events, nextSyncToken } = await syncCalendarEvents(
+    const calendarId = calendarAccount.calendar_id || 'primary';
+    const syncToken = fullSync ? undefined : calendarAccount.next_sync_token;
+
+    // Perform the sync
+    const syncResult = await syncCalendarEvents(
+      accessToken,
+      calendarId,
+      calendarAccountId,
+      calendarAccount.user_id,
+      syncToken,
+      simulate410,
+      timeWindow,
+      boundedWindow || fullSync
+    );
+
+    // Handle 410 Gone - trigger bounded re-sync
+    if (!syncResult.success && syncResult.requiresFullSync) {
+      console.log('🔄 Sync token invalid, performing bounded re-sync...');
+      
+      // Clear the invalid sync token
+      await updateSyncStatus(calendarAccountId, 'syncing', null, 'Sync token invalid, performing bounded re-sync');
+      
+      // Perform bounded re-sync
+      const boundedSyncResult = await syncCalendarEvents(
         accessToken,
-        calendarAccount.calendar_id || 'primary',
-        useSyncToken ? calendarAccount.next_sync_token : undefined,
-        timeWindow
-      );
-
-      // Persist events
-      const processedCount = await persistEvents(calendarAccountId, calendarAccount.user_id, events);
-
-      // Update sync status
-      await updateSyncStatus(calendarAccountId, 'complete', nextSyncToken);
-      
-      // Log success
-      await logSyncOperation(
-        calendarAccount.user_id,
+        calendarId,
         calendarAccountId,
-        fullSync ? 'full_sync' : 'incremental_sync',
-        'success',
-        processedCount
+        calendarAccount.user_id,
+        undefined, // No sync token
+        false,
+        undefined,
+        true // Enable bounded window
       );
-
-      console.log(`Sync completed: ${processedCount} events processed`);
-
-      return new Response(
-        JSON.stringify({
-          success: true,
-          eventsProcessed: processedCount,
-          syncType: fullSync ? 'full' : 'incremental',
-          nextSyncToken,
-        }),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-
-    } catch (syncError: any) {
-      console.error('Sync error:', syncError);
       
-      if (syncError.message === 'SYNC_TOKEN_EXPIRED') {
-        console.log('Sync token expired, triggering full sync...');
+      if (boundedSyncResult.success) {
+        await updateSyncStatus(calendarAccountId, 'complete', boundedSyncResult.syncToken);
+        await logSyncOperation(calendarAccountId, calendarAccount.user_id, 'bounded-resync', 'success', boundedSyncResult.data?.items?.length || 0);
         
-        // Retry with full sync
-        const { events, nextSyncToken } = await syncCalendarEvents(
-          accessToken,
-          calendarAccount.calendar_id || 'primary',
-          undefined,
-          timeWindow
-        );
-
-        const processedCount = await persistEvents(calendarAccountId, calendarAccount.user_id, events);
-        await updateSyncStatus(calendarAccountId, 'complete', nextSyncToken);
+        return new Response(JSON.stringify({
+          success: true,
+          message: 'Bounded re-sync completed successfully',
+          data: boundedSyncResult.data,
+          syncToken: boundedSyncResult.syncToken
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 200
+        });
+      } else {
+        await updateSyncStatus(calendarAccountId, 'error', null, boundedSyncResult.error || 'Bounded re-sync failed');
+        await logSyncOperation(calendarAccountId, calendarAccount.user_id, 'bounded-resync', 'error', 0, boundedSyncResult.error);
         
-        await logSyncOperation(
-          calendarAccount.user_id,
-          calendarAccountId,
-          'full_sync_after_token_expiry',
-          'success',
-          processedCount
-        );
+        return new Response(JSON.stringify({
+          success: false,
+          error: boundedSyncResult.error || 'Bounded re-sync failed'
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          status: 500
+        });
+      }
+    }
 
-        return new Response(
-          JSON.stringify({
-            success: true,
-            eventsProcessed: processedCount,
-            syncType: 'full_after_token_expiry',
-            nextSyncToken,
-          }),
-          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+    if (syncResult.success) {
+      await updateSyncStatus(calendarAccountId, 'complete', syncResult.syncToken);
+      await logSyncOperation(
+        calendarAccountId, 
+        calendarAccount.user_id, 
+        fullSync ? 'full-sync' : 'incremental-sync', 
+        'success', 
+        syncResult.data?.items?.length || 0
+      );
+
+      // Clean up old events outside sync window
+      if (fullSync || boundedWindow) {
+        const windowDays = calendarAccount.bounded_sync_window_days || 90;
+        await supabase.rpc('cleanup_old_calendar_events', {
+          account_id: calendarAccountId,
+          window_days: windowDays
+        });
       }
 
-      // Handle other sync errors
-      await updateSyncStatus(calendarAccountId, 'error', undefined, syncError.message);
-      await logSyncOperation(
-        calendarAccount.user_id,
-        calendarAccountId,
-        fullSync ? 'full_sync' : 'incremental_sync',
-        'error',
-        0,
-        syncError.message
-      );
-
-      throw syncError;
+      return new Response(JSON.stringify({
+        success: true,
+        eventsProcessed: syncResult.data?.items?.length || 0,
+        syncType: fullSync ? 'full' : 'incremental',
+        syncToken: syncResult.syncToken,
+        boundedWindow
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 200
+      });
+    } else {
+      await updateSyncStatus(calendarAccountId, 'error', null, syncResult.error);
+      await logSyncOperation(calendarAccountId, calendarAccount.user_id, 'sync', 'error', 0, syncResult.error);
+      
+      return new Response(JSON.stringify({
+        success: false,
+        error: syncResult.error
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 500
+      });
     }
 
   } catch (error: any) {
-    console.error('Calendar sync error:', error);
+    console.error('❌ Calendar sync handler error:', error);
     
-    return new Response(
-      JSON.stringify({ 
-        error: 'Sync failed',
-        details: error.message 
-      }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    return new Response(JSON.stringify({
+      success: false,
+      error: 'Internal server error',
+      details: error.message
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 500
+    });
   }
 };
 

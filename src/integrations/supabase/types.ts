@@ -131,11 +131,13 @@ export type Database = {
         Row: {
           account_email: string
           account_name: string
+          bounded_sync_window_days: number | null
           calendar_id: string | null
           calendar_name: string | null
           created_at: string
           id: string
           is_primary: boolean | null
+          last_full_sync_at: string | null
           last_sync_at: string | null
           last_sync_error: string | null
           next_sync_token: string | null
@@ -143,6 +145,7 @@ export type Database = {
           provider: string
           sync_cursor: string | null
           sync_enabled: boolean | null
+          sync_page_token: string | null
           sync_status: string | null
           sync_token: string | null
           updated_at: string
@@ -155,11 +158,13 @@ export type Database = {
         Insert: {
           account_email: string
           account_name: string
+          bounded_sync_window_days?: number | null
           calendar_id?: string | null
           calendar_name?: string | null
           created_at?: string
           id?: string
           is_primary?: boolean | null
+          last_full_sync_at?: string | null
           last_sync_at?: string | null
           last_sync_error?: string | null
           next_sync_token?: string | null
@@ -167,6 +172,7 @@ export type Database = {
           provider: string
           sync_cursor?: string | null
           sync_enabled?: boolean | null
+          sync_page_token?: string | null
           sync_status?: string | null
           sync_token?: string | null
           updated_at?: string
@@ -179,11 +185,13 @@ export type Database = {
         Update: {
           account_email?: string
           account_name?: string
+          bounded_sync_window_days?: number | null
           calendar_id?: string | null
           calendar_name?: string | null
           created_at?: string
           id?: string
           is_primary?: boolean | null
+          last_full_sync_at?: string | null
           last_sync_at?: string | null
           last_sync_error?: string | null
           next_sync_token?: string | null
@@ -191,6 +199,7 @@ export type Database = {
           provider?: string
           sync_cursor?: string | null
           sync_enabled?: boolean | null
+          sync_page_token?: string | null
           sync_status?: string | null
           sync_token?: string | null
           updated_at?: string
@@ -218,11 +227,16 @@ export type Database = {
           created_at: string
           description: string | null
           end_time: string
+          end_tz: string | null
+          etag: string | null
           external_event_id: string
+          html_link: string | null
           id: string
+          last_synced_at: string | null
           location: string | null
           reminder_created: boolean | null
           start_time: string
+          start_tz: string | null
           status: string | null
           title: string
           updated_at: string
@@ -235,11 +249,16 @@ export type Database = {
           created_at?: string
           description?: string | null
           end_time: string
+          end_tz?: string | null
+          etag?: string | null
           external_event_id: string
+          html_link?: string | null
           id?: string
+          last_synced_at?: string | null
           location?: string | null
           reminder_created?: boolean | null
           start_time: string
+          start_tz?: string | null
           status?: string | null
           title: string
           updated_at?: string
@@ -252,11 +271,16 @@ export type Database = {
           created_at?: string
           description?: string | null
           end_time?: string
+          end_tz?: string | null
+          etag?: string | null
           external_event_id?: string
+          html_link?: string | null
           id?: string
+          last_synced_at?: string | null
           location?: string | null
           reminder_created?: boolean | null
           start_time?: string
+          start_tz?: string | null
           status?: string | null
           title?: string
           updated_at?: string
@@ -1624,6 +1648,10 @@ export type Database = {
       cleanup_expired_oauth_state: {
         Args: Record<PropertyKey, never>
         Returns: undefined
+      }
+      cleanup_old_calendar_events: {
+        Args: { account_id: string; window_days?: number }
+        Returns: number
       }
       get_expiring_watch_channels: {
         Args: { hours_ahead?: number }

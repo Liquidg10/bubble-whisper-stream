@@ -150,17 +150,33 @@ class CalendarHealthService {
     };
   }
 
-  async triggerSync(calendarAccountId: string, fullSync: boolean = false): Promise<void> {
+  async triggerSync(calendarAccountId: string, fullSync: boolean = false, boundedWindow: boolean = false): Promise<void> {
     const { error } = await supabase.functions.invoke('calendar-sync', {
       body: {
         calendarAccountId,
         fullSync,
+        boundedWindow,
       },
     });
 
     if (error) {
       console.error('Error triggering calendar sync:', error);
       throw new Error(`Failed to trigger sync: ${error.message}`);
+    }
+  }
+
+  async triggerBoundedSync(calendarAccountId: string): Promise<void> {
+    const { error } = await supabase.functions.invoke('calendar-sync', {
+      body: {
+        calendarAccountId,
+        fullSync: true,
+        boundedWindow: true,
+      },
+    });
+
+    if (error) {
+      console.error('Error triggering bounded sync:', error);
+      throw new Error(`Failed to trigger bounded sync: ${error.message}`);
     }
   }
 
