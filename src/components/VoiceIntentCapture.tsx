@@ -223,16 +223,16 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
         console.log('🎯 Intent routed:', { text, intent });
       }
       
-      // Create bubble
+      // Create bubble - position prominently in view center
       const bubble: Bubble = {
         id: crypto.randomUUID(),
         type: intent.type,
         content: text,
         createdAt: Date.now(),
         updatedAt: Date.now(),
-        x: Math.random() * 400 + 100,
-        y: Math.random() * 300 + 100,
-        size: 0.7,
+        x: window.innerWidth / 2 + (Math.random() - 0.5) * 200,
+        y: window.innerHeight / 2 + (Math.random() - 0.5) * 200,
+        size: 0.8, // Slightly larger for visibility
         tags: intent.tags.map(tag => ({
           id: crypto.randomUUID(),
           name: tag,
@@ -252,8 +252,8 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
       await provideFeedback(text, intent);
       
       toast({
-        title: "Voice Captured",
-        description: `Created ${intent.type.toLowerCase()} "${text.substring(0, 30)}${text.length > 30 ? '...' : ''}"`,
+        title: `Auto-created ${intent.type}!`,
+        description: `${Math.round(intent.confidence * 100)}% confidence: "${text.substring(0, 40)}${text.length > 40 ? '...' : ''}"`,
       });
       
     } catch (error) {
