@@ -177,6 +177,69 @@ class UserContextService {
     return Math.max(0.3, baseThreshold + adjustment);
   }
 
+  /**
+   * Record a successful plan completion for learning
+   */
+  async recordPlanCompletion(planId: string, planType: string): Promise<void> {
+    await this.addPatternHint(
+      `successful_plan_${planType}`,
+      `Completed ${planType} plan successfully`,
+      0.8,
+      'context'
+    );
+    
+    await this.trackActivity('bubble_created'); // Plans often create bubbles
+  }
+
+  /**
+   * Record a plan modification for learning user preferences
+   */
+  async recordPlanModification(planType: string, modification: string): Promise<void> {
+    await this.addPatternHint(
+      `plan_modification_${planType}`,
+      modification,
+      0.7,
+      'context'
+    );
+  }
+
+  /**
+   * Get personalization insights for plan generation
+   */
+  getPersonalizationInsights(): {
+    preferredPlanTypes: string[];
+    commonModifications: string[];
+    successPatterns: string[];
+  } {
+    if (!this.cachedContext) {
+      return {
+        preferredPlanTypes: [],
+        commonModifications: [],
+        successPatterns: []
+      };
+    }
+
+    const patterns = this.cachedContext.patterns;
+    
+    const preferredPlanTypes = patterns
+      .filter(p => p.key.startsWith('successful_plan_'))
+      .map(p => p.key.replace('successful_plan_', ''));
+    
+    const commonModifications = patterns
+      .filter(p => p.key.startsWith('plan_modification_'))
+      .map(p => p.value);
+    
+    const successPatterns = patterns
+      .filter(p => p.confidence > 0.7)
+      .map(p => p.value);
+
+    return {
+      preferredPlanTypes,
+      commonModifications,
+      successPatterns
+    };
+  }
+
   private async getRecentActivity() {
     try {
       const lastLogin = localStorage.getItem('last_login');

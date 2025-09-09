@@ -6,6 +6,8 @@ import { Send, Bot, User, Sparkles, MapPin, CheckCircle } from 'lucide-react';
 import { userContextService } from '@/services/userContextService';
 import { planGenerationService, GeneratedPlan } from '@/services/planGenerationService';
 import { PlanImplementationDialog } from './PlanImplementationDialog';
+import { PlanEditor } from './PlanEditor';
+import { conversationPlanService } from '@/services/conversationPlanService';
 import { supabase } from '@/integrations/supabase/client';
 
 interface Message {
@@ -34,6 +36,7 @@ export const SmartAIAssistant: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [currentPlan, setCurrentPlan] = useState<GeneratedPlan | null>(null);
   const [showImplementDialog, setShowImplementDialog] = useState(false);
+  const [conversationId] = useState(() => crypto.randomUUID());
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -58,23 +61,71 @@ export const SmartAIAssistant: React.FC = () => {
     setIsLoading(true);
 
     try {
-      // Check if this looks like a planning request
-      const planKeywords = ['plan', 'help me', 'schedule', 'organize', 'strategy', 'routine', 'morning', 'day', 'health', 'work'];
-      const isPlanning = planKeywords.some(keyword => 
-        userMessage.content.toLowerCase().includes(keyword)
-      );
-
+      const activePlan = conversationPlanService.getActivePlan(conversationId);
       let assistantMessage: Message;
 
-      if (isPlanning) {
-        // Generate a plan
+      // Check if user wants to implement the current plan
+      if (conversationPlanService.isImplementationRequest(userMessage.content)) {
+        if (activePlan) {
+          setCurrentPlan(activePlan);
+          setShowImplementDialog(true);
+          
+          assistantMessage = {
+            id: `assistant-${Date.now()}`,
+            role: 'assistant',
+            content: 'Perfect! I\'ll help you implement this plan. Please choose how you\'d like to set it up.',
+            timestamp: Date.now()
+          };
+        } else {
+          assistantMessage = {
+            id: `assistant-${Date.now()}`,
+            role: 'assistant',
+            content: 'I don\'t see a plan to implement. Would you like me to create a new plan for you?',
+            timestamp: Date.now()
+          };
+        }
+      }
+      // Check if user wants to modify the current plan
+      else if (activePlan && conversationPlanService.isPlanModificationRequest(userMessage.content, conversationId)) {
+        const modifiedPlan = await conversationPlanService.modifyPlan(conversationId, userMessage.content);
+        
+        if (modifiedPlan) {
+          setCurrentPlan(modifiedPlan);
+          
+          assistantMessage = {
+            id: `assistant-${Date.now()}`,
+            role: 'assistant',
+            content: 'I\'ve updated your plan based on your request. Here\'s the modified version:',
+            timestamp: Date.now(),
+            plan: modifiedPlan,
+            actions: [{
+              type: 'implement_plan',
+              label: 'Implement Plan',
+              planId: modifiedPlan.id
+            }]
+          };
+        } else {
+          assistantMessage = {
+            id: `assistant-${Date.now()}`,
+            role: 'assistant',
+            content: 'I had trouble understanding how to modify the plan. Could you be more specific about what you\'d like to change?',
+            timestamp: Date.now()
+          };
+        }
+      }
+      // Check if this looks like a new planning request
+      else if (isPlanningRequest(userMessage.content)) {
         const planType = determinePlanType(userMessage.content);
         const plan = await planGenerationService.generatePlan(userMessage.content, planType);
+        
+        // Set this as the active plan for the conversation
+        conversationPlanService.setActivePlan(conversationId, plan);
+        setCurrentPlan(plan);
         
         assistantMessage = {
           id: `assistant-${Date.now()}`,
           role: 'assistant',
-          content: `I've created a personalized ${planType} plan for you! This plan has ${plan.steps.length} steps and should take about ${Math.round(plan.totalEstimatedMinutes)} minutes total. Would you like me to implement this plan by creating bubbles, reminders, or calendar events?`,
+          content: `I've created a personalized ${planType} plan for you! This plan has ${plan.steps.length} steps and should take about ${Math.round(plan.totalEstimatedMinutes)} minutes total. You can review and modify any part of it below, or ask me to implement it.`,
           timestamp: Date.now(),
           plan,
           actions: [{
@@ -122,6 +173,13 @@ export const SmartAIAssistant: React.FC = () => {
     }
   };
 
+  const isPlanningRequest = (content: string): boolean => {
+    const planKeywords = ['plan', 'help me', 'schedule', 'organize', 'strategy', 'routine', 'morning', 'day', 'health', 'work'];
+    return planKeywords.some(keyword => 
+      content.toLowerCase().includes(keyword)
+    );
+  };
+
   const determinePlanType = (content: string): 'morning' | 'workday' | 'health' | 'project' | 'general' => {
     const lowerContent = content.toLowerCase();
     if (lowerContent.includes('morning') || lowerContent.includes('wake up')) return 'morning';
@@ -134,6 +192,18 @@ export const SmartAIAssistant: React.FC = () => {
   const handleImplementPlan = (plan: GeneratedPlan) => {
     setCurrentPlan(plan);
     setShowImplementDialog(true);
+  };
+
+  const handlePlanUpdate = (updatedPlan: GeneratedPlan) => {
+    setCurrentPlan(updatedPlan);
+    conversationPlanService.setActivePlan(conversationId, updatedPlan);
+    
+    // Update the message with the plan
+    setMessages(prev => prev.map(msg => 
+      msg.plan?.id === updatedPlan.id 
+        ? { ...msg, plan: updatedPlan }
+        : msg
+    ));
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -176,29 +246,17 @@ export const SmartAIAssistant: React.FC = () => {
                 } max-w-fit ${message.role === 'user' ? 'ml-auto' : 'mr-auto'}`}>
                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
                    
-                   {/* Plan Preview */}
-                   {message.plan && (
-                     <div className="mt-3 p-3 bg-background/50 rounded border">
-                       <div className="flex items-center gap-2 mb-2">
-                         <MapPin className="h-4 w-4" />
-                         <span className="font-medium text-sm">{message.plan.title}</span>
-                       </div>
-                       <p className="text-xs text-muted-foreground mb-2">{message.plan.description}</p>
-                       <div className="space-y-1">
-                         {message.plan.steps.slice(0, 3).map((step, index) => (
-                           <div key={step.id} className="text-xs flex justify-between">
-                             <span>{index + 1}. {step.title}</span>
-                             <span>{step.estimatedMinutes}m</span>
-                           </div>
-                         ))}
-                         {message.plan.steps.length > 3 && (
-                           <div className="text-xs text-muted-foreground">
-                             +{message.plan.steps.length - 3} more steps
-                           </div>
-                         )}
-                       </div>
-                     </div>
-                   )}
+                    {/* Plan Editor */}
+                    {message.plan && (
+                      <div className="mt-3">
+                        <PlanEditor
+                          plan={message.plan}
+                          onPlanUpdate={handlePlanUpdate}
+                          onImplement={() => handleImplementPlan(message.plan!)}
+                          className="border-0 bg-background/50"
+                        />
+                      </div>
+                    )}
                    
                    {/* Action Buttons */}
                    {message.actions && (

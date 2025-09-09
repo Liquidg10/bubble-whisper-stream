@@ -167,10 +167,13 @@ export class VoiceHotkeyManager {
     const isContentEditable = target.contentEditable === 'true';
     const hasRole = target.getAttribute('role') === 'textbox';
     
-    // Check if the target is inside the AI Assistant chat area
+    // Check if the target is inside the AI Assistant chat area (textarea specifically)
     const isInAIAssistant = target.closest('[data-ai-assistant]') !== null;
+    const isAITextarea = isInAIAssistant && tagName === 'textarea';
     
-    return isInput || isContentEditable || hasRole || isInAIAssistant;
+    devLog(`Voice hotkey typing check - tagName: ${tagName}, isInput: ${isInput}, isInAIAssistant: ${isInAIAssistant}, isAITextarea: ${isAITextarea}`);
+    
+    return isInput || isContentEditable || hasRole || isAITextarea;
   }
 }
 
