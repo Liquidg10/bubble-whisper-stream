@@ -80,5 +80,5 @@ export async function setupCompleteCleanSlate() {
   console.log('🧹 Complete clean slate: All bubbles removed');
 }
 
-// Execute immediately
-setupCleanBubbles();
+// DON'T execute immediately - let dev pages control this explicitly
+// setupCleanBubbles();

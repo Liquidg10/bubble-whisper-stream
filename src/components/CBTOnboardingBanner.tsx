@@ -34,14 +34,18 @@ export function CBTOnboardingBanner({ className = '' }: CBTOnboardingBannerProps
       const cbtEnabled = settings.cbtSettings?.cbtAssistEnabled;
       const dismissedAt = localStorage.getItem('cbt_onboarding_dismissed_at');
       
-      // Show if CBT is enabled but onboarding hasn't been shown
-      if (cbtEnabled && !hasShown) {
+      // Prevent showing during progressive onboarding period
+      const progressiveState = settings.progressiveOnboarding;
+      const isInProgressiveOnboarding = progressiveState && !progressiveState.hasSkippedProgression && progressiveState.currentDay <= 7;
+      
+      // Show if CBT is enabled but onboarding hasn't been shown, and not in progressive onboarding
+      if (cbtEnabled && !hasShown && !isInProgressiveOnboarding) {
         setIsVisible(true);
         return;
       }
       
-      // Re-offer after 7 days if dismissed
-      if (dismissedAt && cbtEnabled) {
+      // Re-offer after 7 days if dismissed (but not during progressive onboarding)
+      if (dismissedAt && cbtEnabled && !isInProgressiveOnboarding) {
         const dismissedTime = parseInt(dismissedAt);
         const weekInMs = 7 * 24 * 60 * 60 * 1000;
         if (Date.now() - dismissedTime > weekInMs) {
@@ -53,7 +57,7 @@ export function CBTOnboardingBanner({ className = '' }: CBTOnboardingBannerProps
     };
 
     checkOnboardingState();
-  }, [settings.cbtSettings?.cbtAssistEnabled]);
+  }, [settings.cbtSettings?.cbtAssistEnabled, settings.progressiveOnboarding]);
 
   const handleChoice = (choice: 'off' | 'ask' | 'on') => {
     setSelectedChoice(choice);
