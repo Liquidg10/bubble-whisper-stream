@@ -39,7 +39,7 @@ import DevModes from "./pages/DevModes";
 import { DevBudget } from "./pages/DevBudget";
 import { DevSyncBasic } from "./pages/DevSyncBasic";
 import { DevSyncDiff } from "./pages/DevSyncDiff";
-import { DevContextEngine } from "./pages/DevContextEngine";
+import { DevContextEngine } from "./pages/DevContextEngineQA";
 import Inbox from "./pages/Inbox";
 import Search from "./pages/Search";
 import { DevFlags } from "./pages/DevFlags";
@@ -48,13 +48,14 @@ import DevCBTPolicy from "./pages/DevCBTPolicy";
 import DevCBTE2E from "./pages/DevCBTE2E";
 import DevCBTMetrics from "./pages/DevCBTMetrics";
 import DevPolicyEngine from "./pages/DevPolicyEngine";
-import DevCalendarSync from "./pages/DevCalendarSync";
+import DevCalendarSync from "./pages/DevCalendarSyncQA";
 import DevAutoWriteCalendar from "./pages/DevAutoWriteCalendar";
 import DevTemporalReasoning from "./pages/DevTemporalReasoning";
-import { DevGmailIntents } from "./pages/DevGmailIntents";
+import { DevGmailIntents } from "./pages/DevGmailIntentsQA";
 import DevEmailCompose from "./pages/DevEmailCompose";
 import DevRecurringFinance from "./pages/DevRecurringFinance";
 import { DevVoiceFirst } from "./pages/DevVoiceFirst";
+import DevPlaidRecur from "./pages/DevPlaidRecur";
 import { DevMenu } from "./components/DevMenu";
 import { useDevMenu } from "./hooks/useDevMenu";
 import { AuthCallback } from "./pages/AuthCallback";
@@ -127,7 +128,8 @@ const App = () => {
                         <Route path="dev/auto-write-calendar" element={<DevAutoWriteCalendar />} />
                         <Route path="dev/temporal-reasoning" element={<DevTemporalReasoning />} />
                         <Route path="dev/gmail-intents" element={<DevGmailIntents />} />
-                        <Route path="dev/email-compose" element={<DevEmailCompose />} />
+                         <Route path="dev/email-compose" element={<DevEmailCompose />} />
+                         <Route path="dev/plaid-recur" element={<DevPlaidRecur />} />
                         <Route path="dev/recurring-finance" element={<DevRecurringFinance />} />
                         <Route path="dev/voice-first" element={<DevVoiceFirst />} />
                       <Route path="privacy" element={<Privacy />} />
