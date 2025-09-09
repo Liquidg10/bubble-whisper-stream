@@ -140,11 +140,11 @@ const App = () => {
                          <Route path="dev/health-dashboard" element={<DevHealthDashboard />} />
                       <Route path="privacy" element={<Privacy />} />
                     </Route>
-                    <Route path="auth/callback" element={<AuthCallback />} />
-                    <Route path="*" element={<NotFound />} />
-                  </Routes>
-                </BrowserRouter>
-                <DevMenu isOpen={isDevMenuOpen} onClose={closeDevMenu} />
+                     <Route path="auth/callback" element={<AuthCallback />} />
+                     <Route path="*" element={<NotFound />} />
+                   </Routes>
+                   <DevMenu isOpen={isDevMenuOpen} onClose={closeDevMenu} />
+                 </BrowserRouter>
                 </TooltipProvider>
               </QueryClientProvider>
             </CalmModeProvider>
