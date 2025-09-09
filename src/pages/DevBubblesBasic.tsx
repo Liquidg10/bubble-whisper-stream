@@ -159,10 +159,11 @@ export default function DevBubblesBasic() {
   const performanceMetrics = getPerformanceMetrics();
 
   useEffect(() => {
-    // Add test bubbles if none exist
-    if (bubbles.length === 0) {
+    // Add test bubbles if none exist and we're in dev mode
+    if (bubbles.length === 0 && !localStorage.getItem('test_bubbles_loaded')) {
       const testBubbles = createTestBubbles();
       testBubbles.forEach(bubble => addBubble(bubble));
+      localStorage.setItem('test_bubbles_loaded', 'true');
     }
   }, [bubbles.length, addBubble]);
 

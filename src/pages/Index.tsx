@@ -24,6 +24,7 @@ import { useProgressiveOnboarding } from '@/providers/ProgressiveOnboardingProvi
 import { ViewModeToggle } from '@/components/ViewModeToggle';
 import { VoiceIntentCapture } from '@/components/VoiceIntentCapture';
 import { isFeatureEnabled } from '@/config/flags';
+import { CBTOnboardingBanner } from '@/components/CBTOnboardingBanner';
 
 import { crossDeviceSyncService } from '@/services/crossDeviceSyncService';
 
@@ -69,6 +70,9 @@ export default function Index() {
 
   return (
     <div className="relative h-full bg-background">
+      {/* CBT Onboarding Banner */}
+      <CBTOnboardingBanner />
+      
       {/* View Mode Toggle */}
       <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20">
         <ViewModeToggle />
