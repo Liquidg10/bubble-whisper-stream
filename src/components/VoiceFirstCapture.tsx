@@ -29,24 +29,19 @@ import { motion, AnimatePresence } from 'framer-motion';
 interface VoiceFirstCaptureProps {
   className?: string;
   onBubbleCreated?: (bubble: any) => void;
-  hotkey?: string;
-  autoCommitEnabled?: boolean;
-}
-
-interface VoiceSettings {
-  hotkey: string;
-  autoCommitEnabled: boolean;
-  confidenceThreshold: number;
-  feedbackLevel: 'minimal' | 'standard' | 'verbose';
 }
 
 export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
   className,
-  onBubbleCreated,
-  hotkey = 'Space',
-  autoCommitEnabled = true
+  onBubbleCreated
 }) => {
   const { addBubble, settings } = useBubbleStore();
+  
+  // Get voice settings from bubble store
+  const voiceAutoCommit = settings.voiceAutoCommit ?? true;
+  const voiceConfidenceThreshold = settings.voiceConfidenceThreshold ?? 0.6;
+  const voiceFeedbackLevel = settings.voiceFeedbackLevel ?? 'standard';
+  const voiceHotkey = settings.voiceHotkey ?? 'Space';
   
   // Voice capture states
   const [isListening, setIsListening] = useState(false);
@@ -58,14 +53,6 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
   // Confirmation states for medium confidence
   const [awaitingConfirmation, setAwaitingConfirmation] = useState(false);
   const [pendingBubble, setPendingBubble] = useState<any>(null);
-  
-  // Voice settings
-  const [voiceSettings, setVoiceSettings] = useState<VoiceSettings>({
-    hotkey,
-    autoCommitEnabled,
-    confidenceThreshold: 0.6,
-    feedbackLevel: 'standard'
-  });
   
   // Refs for audio processing
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -131,7 +118,7 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
   // Global hotkey listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === voiceSettings.hotkey && !e.repeat) {
+      if (e.code === voiceHotkey && !e.repeat) {
         e.preventDefault();
         if (!isListening && !isHotkeyPressed.current) {
           isHotkeyPressed.current = true;
@@ -141,7 +128,7 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.code === voiceSettings.hotkey && isHotkeyPressed.current) {
+      if (e.code === voiceHotkey && isHotkeyPressed.current) {
         e.preventDefault();
         isHotkeyPressed.current = false;
         if (isListening) {
@@ -157,7 +144,7 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
       document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('keyup', handleKeyUp);
     };
-  }, [voiceSettings.hotkey, isListening]);
+  }, [voiceHotkey, isListening]);
 
   const startListening = async () => {
     try {
@@ -311,7 +298,7 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
           timeOfDay: new Date().getHours() > 17 ? 'evening' : 'day',
           recentBubbles: []
         },
-        confidenceThreshold: voiceSettings.confidenceThreshold
+        confidenceThreshold: voiceConfidenceThreshold
       });
       
       setCurrentIntent(intent);
@@ -334,9 +321,9 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
             source: 'transcript'
           }
         ],
-        confidenceThreshold: voiceSettings.confidenceThreshold,
+        confidenceThreshold: voiceConfidenceThreshold,
         finalConfidence: intent.confidence,
-        decision: intent.autoCommitRecommended && voiceSettings.autoCommitEnabled ? 'auto-write' : 
+        decision: intent.autoCommitRecommended && voiceAutoCommit ? 'auto-write' : 
                  intent.confidenceGate === 'medium' ? 'draft' : 'suggest',
         action: `Create ${intent.type} bubble: "${finalText.substring(0, 50)}..."`,
         becauseText: `Because ${intent.confidenceGate} confidence voice intent detected`,
@@ -345,11 +332,11 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
       });
       
       // Handle based on confidence gate
-      if (intent.confidenceGate === 'high' && voiceSettings.autoCommitEnabled) {
+      if (intent.confidenceGate === 'high' && voiceAutoCommit) {
         // High confidence - auto-commit
         await createBubbleFromIntent(finalText, intent, traceId);
         
-        if (voiceSettings.feedbackLevel !== 'minimal') {
+        if (voiceFeedbackLevel !== 'minimal') {
           await ttsService.speak(
             voiceRouter.getConfidenceFeedback(finalText, intent), 
             { tone: 'gentle', context: 'companion' }
@@ -361,7 +348,7 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
         setAwaitingConfirmation(true);
         setPendingBubble({ text: finalText, intent, traceId });
         
-        if (voiceSettings.feedbackLevel !== 'minimal') {
+        if (voiceFeedbackLevel !== 'minimal') {
           await ttsService.speak(
             voiceRouter.getConfidenceFeedback(finalText, intent),
             { tone: 'neutral', context: 'companion' }
@@ -370,7 +357,7 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
         
       } else {
         // Low confidence - show clarification
-        if (voiceSettings.feedbackLevel !== 'minimal') {
+        if (voiceFeedbackLevel !== 'minimal') {
           await ttsService.speak(
             voiceRouter.getConfidenceFeedback(finalText, intent),
             { tone: 'gentle', context: 'companion' }
@@ -431,7 +418,7 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
     if (isListening) return 'Listening...';
     if (isProcessing) return 'Processing...';
     if (awaitingConfirmation) return 'Confirm?';
-    return `Hold ${voiceSettings.hotkey} to speak`;
+    return `Hold ${voiceHotkey} to speak`;
   };
 
   const getConfidenceColor = (confidence: number) => {
@@ -476,7 +463,7 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
             <p className="text-sm font-medium">{getStatusText()}</p>
             <p className="text-xs text-muted-foreground flex items-center gap-1">
               <Keyboard className="h-3 w-3" />
-              {voiceSettings.hotkey} key
+              {voiceHotkey} key
             </p>
           </div>
           
