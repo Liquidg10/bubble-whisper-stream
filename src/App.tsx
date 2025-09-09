@@ -9,6 +9,7 @@ import { AppShell } from '@/components/AppShell';
 import { ThemeProvider } from '@/themes/provider';
 import { AccessibilityProvider } from '@/components/AccessibilityProvider';
 import { FeatureFlagsProvider } from '@/components/FeatureFlags';
+import { ProgressiveOnboardingProvider } from '@/providers/ProgressiveOnboardingProvider';
 import Index from "./pages/Index";
 import { Timeline } from './pages/Timeline';
 import { Settings } from './pages/Settings';
@@ -77,8 +78,9 @@ const App = () => {
       <ThemeProvider defaultTheme="iridescent-soap">
         <AccessibilityProvider>
           <FeatureFlagsProvider>
-            <QueryClientProvider client={queryClient}>
-              <TooltipProvider>
+            <ProgressiveOnboardingProvider>
+              <QueryClientProvider client={queryClient}>
+                <TooltipProvider>
                 <Toaster />
                 <Sonner />
                 <BrowserRouter>
@@ -135,8 +137,9 @@ const App = () => {
                   </Routes>
                 </BrowserRouter>
                 <DevMenu isOpen={isDevMenuOpen} onClose={closeDevMenu} />
-              </TooltipProvider>
-            </QueryClientProvider>
+                </TooltipProvider>
+              </QueryClientProvider>
+            </ProgressiveOnboardingProvider>
           </FeatureFlagsProvider>
         </AccessibilityProvider>
       </ThemeProvider>

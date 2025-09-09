@@ -69,6 +69,15 @@ interface BubbleStore {
     voiceHotkey?: string;
     voiceConfidenceThreshold?: number;
     voiceFeedbackLevel?: 'minimal' | 'standard' | 'verbose';
+    // Progressive Onboarding Settings
+    progressiveOnboarding?: {
+      isEnabled: boolean;
+      currentDay: number;
+      startDate: number;
+      completedMilestones: number[];
+      hasSkippedProgression: boolean;
+      lastShownMilestone?: number;
+    };
   };
   selfModel: SelfModel;
   isLoading: boolean;
@@ -143,6 +152,14 @@ interface BubbleStore {
       };
       topicExclusions: string[];
       neverInterveneOn: string[];
+    };
+    progressiveOnboarding?: {
+      isEnabled: boolean;
+      currentDay: number;
+      startDate: number;
+      completedMilestones: number[];
+      hasSkippedProgression: boolean;
+      lastShownMilestone?: number;
     };
   }>) => Promise<void>;
   

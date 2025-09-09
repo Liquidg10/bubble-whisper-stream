@@ -16,6 +16,10 @@ import { ConflictResolutionDialog } from '@/components/ConflictResolutionDialog'
 import { CollaborationHub } from '@/components/CollaborationHub';
 import { EnhancedVoiceCapture } from '@/components/EnhancedVoiceCapture';
 import { EnhancedPhotoCapture } from '@/components/EnhancedPhotoCapture';
+import { ProgressiveMilestoneCard } from '@/components/ProgressiveMilestoneCard';
+import { OnboardingProgressIndicator } from '@/components/OnboardingProgressIndicator';
+import { FeatureGate } from '@/components/FeatureGate';
+import { useProgressiveOnboarding } from '@/providers/ProgressiveOnboardingProvider';
 
 import { ViewModeToggle } from '@/components/ViewModeToggle';
 import { VoiceIntentCapture } from '@/components/VoiceIntentCapture';
@@ -26,6 +30,18 @@ import { crossDeviceSyncService } from '@/services/crossDeviceSyncService';
 export default function Index() {
   const { isLoading, bubbles, settings } = useBubbleStore();
   const currentViewMode = settings.viewMode || 'bubble';
+  
+  // Progressive onboarding integration
+  const {
+    state: onboardingState,
+    currentMilestone,
+    shouldShowMilestone,
+    completeMilestone,
+    skipProgression,
+    rewindToDay,
+    markMilestoneShown,
+    remindLater
+  } = useProgressiveOnboarding();
   const [selectedBubble, setSelectedBubble] = useState<Bubble | null>(null);
   const [viewport, setViewport] = useState<CanvasViewport>({
     x: 0,
@@ -53,10 +69,35 @@ export default function Index() {
 
   return (
     <div className="relative h-full bg-background">
+      {/* Progressive Onboarding Progress Indicator */}
+      <div className="absolute top-4 left-4 z-20">
+        <OnboardingProgressIndicator 
+          onboardingState={onboardingState}
+          onSkipProgression={skipProgression}
+          onRewindToDay={rewindToDay}
+        />
+      </div>
+      
       {/* View Mode Toggle */}
       <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20">
         <ViewModeToggle />
       </div>
+      
+      {/* Progressive Milestone Card */}
+      {currentMilestone && shouldShowMilestone && (
+        <div className="absolute top-20 left-1/2 transform -translate-x-1/2 z-30 w-96">
+          <ProgressiveMilestoneCard
+            milestone={currentMilestone}
+            isVisible={shouldShowMilestone}
+            onComplete={() => {
+              completeMilestone(currentMilestone.day);
+              markMilestoneShown(currentMilestone.day);
+            }}
+            onSkip={() => completeMilestone(currentMilestone.day)}
+            onRemindLater={() => remindLater(currentMilestone.day)}
+          />
+        </div>
+      )}
 
       {currentViewMode === 'bubble' ? (
         <BubbleCanvas 

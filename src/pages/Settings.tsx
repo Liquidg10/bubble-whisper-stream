@@ -10,7 +10,8 @@ import {
   Timer,
   Home,
   Lock,
-  History
+  History,
+  GraduationCap
 } from 'lucide-react';
 import { GeneralSettings } from '@/components/settings/GeneralSettings';
 import { IntelligenceSettings } from '@/components/IntelligenceSettings';
@@ -23,6 +24,7 @@ import { PomodoroSettings } from '@/components/settings/PomodoroSettings';
 import { CleanHouseSettings } from '@/components/settings/CleanHouseSettings';
 import { SafetySettings } from '@/components/settings/SafetySettings';
 import { AuditSettings } from '@/components/settings/AuditSettings';
+import { OnboardingSettings } from '@/components/settings/OnboardingSettings';
 import { useFeatureFlags } from '@/components/FeatureFlags';
 import { isFeatureEnabled } from '@/config/flags';
 
@@ -44,10 +46,14 @@ export const Settings: React.FC = () => {
 
       <div className="flex-1 overflow-hidden">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
-          <TabsList className={`grid w-full ${showCBTTab ? 'grid-cols-11' : 'grid-cols-10'} mx-4 mt-4`}>
+          <TabsList className={`grid w-full ${showCBTTab ? 'grid-cols-12' : 'grid-cols-11'} mx-4 mt-4`}>
             <TabsTrigger value="general" className="flex items-center gap-2">
               <SettingsIcon className="h-4 w-4" />
               <span className="hidden sm:inline">General</span>
+            </TabsTrigger>
+            <TabsTrigger value="onboarding" className="flex items-center gap-2">
+              <GraduationCap className="h-4 w-4" />
+              <span className="hidden sm:inline">Learning</span>
             </TabsTrigger>
             <TabsTrigger value="ai" className="flex items-center gap-2">
               <Bot className="h-4 w-4" />
@@ -98,6 +104,10 @@ export const Settings: React.FC = () => {
           <div className="flex-1 overflow-y-auto p-4">
             <TabsContent value="general" className="space-y-6 mt-0">
               <GeneralSettings />
+            </TabsContent>
+
+            <TabsContent value="onboarding" className="space-y-6 mt-0">
+              <OnboardingSettings />
             </TabsContent>
 
             <TabsContent value="ai" className="space-y-6 mt-0">
