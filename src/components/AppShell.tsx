@@ -13,6 +13,8 @@ import { PhotoDebugPanel } from '@/components/PhotoDebugPanel';
 import { CleanHouseHeaderTimer } from '@/components/CleanHouseHeaderTimer';
 import { PomodoroHeaderTimer } from '@/components/PomodoroHeaderTimer';
 import { HeaderVoiceCapture } from '@/components/HeaderVoiceCapture';
+import { OnboardingProgressIndicator } from '@/components/OnboardingProgressIndicator';
+import { useProgressiveOnboarding } from '@/providers/ProgressiveOnboardingProvider';
 // import { EnhancedAIChat } from '@/components/CBTEnhancedChat';
 
 import NarrativeSearch from '@/components/NarrativeSearch';
@@ -21,6 +23,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 export const AppShell: React.FC = () => {
   const location = useLocation();
   const { settings } = useBubbleStore();
+  const { state: onboardingState, skipProgression, rewindToDay } = useProgressiveOnboarding();
   
   const [showSearch, setShowSearch] = useState(false);
   const [showAIAssistant, setShowAIAssistant] = useState(false);
@@ -44,7 +47,14 @@ export const AppShell: React.FC = () => {
     <div className="flex flex-col h-screen bg-background">
       {/* Header */}
       <header className="flex items-center justify-between p-4 border-b border-border/50 bg-card/50 backdrop-blur">
-        <h1 className="text-lg font-semibold text-foreground">Bubble Universe</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-lg font-semibold text-foreground">Bubble Universe</h1>
+          <OnboardingProgressIndicator 
+            onboardingState={onboardingState}
+            onSkipProgression={skipProgression}
+            onRewindToDay={rewindToDay}
+          />
+        </div>
         <div className="flex items-center gap-2">
             <CleanHouseHeaderTimer />
             <PomodoroHeaderTimer />

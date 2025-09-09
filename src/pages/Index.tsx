@@ -17,7 +17,7 @@ import { CollaborationHub } from '@/components/CollaborationHub';
 import { EnhancedVoiceCapture } from '@/components/EnhancedVoiceCapture';
 import { EnhancedPhotoCapture } from '@/components/EnhancedPhotoCapture';
 import { ProgressiveMilestoneCard } from '@/components/ProgressiveMilestoneCard';
-import { OnboardingProgressIndicator } from '@/components/OnboardingProgressIndicator';
+
 import { FeatureGate } from '@/components/FeatureGate';
 import { useProgressiveOnboarding } from '@/providers/ProgressiveOnboardingProvider';
 
@@ -69,15 +69,6 @@ export default function Index() {
 
   return (
     <div className="relative h-full bg-background">
-      {/* Progressive Onboarding Progress Indicator */}
-      <div className="absolute top-4 left-4 z-20">
-        <OnboardingProgressIndicator 
-          onboardingState={onboardingState}
-          onSkipProgression={skipProgression}
-          onRewindToDay={rewindToDay}
-        />
-      </div>
-      
       {/* View Mode Toggle */}
       <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20">
         <ViewModeToggle />
