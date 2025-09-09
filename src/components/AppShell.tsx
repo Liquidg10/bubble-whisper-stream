@@ -49,16 +49,8 @@ export const AppShell: React.FC = () => {
       <header className="flex items-center justify-between p-4 border-b border-border/50 bg-card/50 backdrop-blur">
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-semibold text-foreground">Bubble Universe</h1>
-          <OnboardingProgressIndicator 
-            onboardingState={onboardingState}
-            onSkipProgression={skipProgression}
-            onRewindToDay={rewindToDay}
-          />
         </div>
         <div className="flex items-center gap-2">
-            <CleanHouseHeaderTimer />
-            <PomodoroHeaderTimer />
-            <HeaderVoiceCapture />
           <Button
             variant="ghost"
             size="sm"
@@ -79,6 +71,20 @@ export const AppShell: React.FC = () => {
           <CompactThemeToggle />
         </div>
       </header>
+
+      {/* Secondary Header Bar */}
+      <div className="flex items-center justify-between px-4 py-2 border-b border-border/30 bg-card/30">
+        <OnboardingProgressIndicator 
+          onboardingState={onboardingState}
+          onSkipProgression={skipProgression}
+          onRewindToDay={rewindToDay}
+        />
+        <div className="flex items-center gap-2">
+          <CleanHouseHeaderTimer />
+          <PomodoroHeaderTimer />
+          <HeaderVoiceCapture />
+        </div>
+      </div>
 
       {/* Main Content */}
       <main className="flex-1 overflow-auto">
