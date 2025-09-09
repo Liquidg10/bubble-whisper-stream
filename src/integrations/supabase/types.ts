@@ -750,6 +750,36 @@ export type Database = {
         }
         Relationships: []
       }
+      oauth_state: {
+        Row: {
+          code_verifier: string
+          created_at: string
+          expires_at: string
+          id: string
+          origin: string
+          service: string | null
+          state: string
+        }
+        Insert: {
+          code_verifier: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          origin: string
+          service?: string | null
+          state: string
+        }
+        Update: {
+          code_verifier?: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          origin?: string
+          service?: string | null
+          state?: string
+        }
+        Relationships: []
+      }
       oauth_tokens: {
         Row: {
           access_token: string
@@ -1591,6 +1621,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      cleanup_expired_oauth_state: {
+        Args: Record<PropertyKey, never>
+        Returns: undefined
+      }
       get_expiring_watch_channels: {
         Args: { hours_ahead?: number }
         Returns: {
