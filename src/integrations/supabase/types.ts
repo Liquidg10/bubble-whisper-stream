@@ -366,9 +366,12 @@ export type Database = {
         Row: {
           account_email: string
           account_name: string | null
+          context_cache_enabled: boolean | null
           created_at: string
           filters: Json | null
+          history_id: string | null
           id: string
+          labels_cache: Json | null
           last_sync_at: string | null
           oauth_token_id: string
           provider: string
@@ -376,13 +379,19 @@ export type Database = {
           sync_token: string | null
           updated_at: string
           user_id: string
+          watch_channel_id: string | null
+          watch_expiration: string | null
+          watch_resource_id: string | null
         }
         Insert: {
           account_email: string
           account_name?: string | null
+          context_cache_enabled?: boolean | null
           created_at?: string
           filters?: Json | null
+          history_id?: string | null
           id?: string
+          labels_cache?: Json | null
           last_sync_at?: string | null
           oauth_token_id: string
           provider: string
@@ -390,13 +399,19 @@ export type Database = {
           sync_token?: string | null
           updated_at?: string
           user_id: string
+          watch_channel_id?: string | null
+          watch_expiration?: string | null
+          watch_resource_id?: string | null
         }
         Update: {
           account_email?: string
           account_name?: string | null
+          context_cache_enabled?: boolean | null
           created_at?: string
           filters?: Json | null
+          history_id?: string | null
           id?: string
+          labels_cache?: Json | null
           last_sync_at?: string | null
           oauth_token_id?: string
           provider?: string
@@ -404,6 +419,9 @@ export type Database = {
           sync_token?: string | null
           updated_at?: string
           user_id?: string
+          watch_channel_id?: string | null
+          watch_expiration?: string | null
+          watch_resource_id?: string | null
         }
         Relationships: [
           {
@@ -422,14 +440,19 @@ export type Database = {
           created_at: string
           email_account_id: string
           external_message_id: string
+          gmail_thread_id: string | null
           id: string
           importance_score: number | null
+          internal_date: string | null
+          label_ids: string[] | null
           labels: Json | null
+          payload_metadata: Json | null
           received_at: string
           sender_email: string
           sender_name: string | null
           subject: string
           thread_id: string | null
+          to_emails: string[] | null
           updated_at: string
           user_id: string
         }
@@ -439,14 +462,19 @@ export type Database = {
           created_at?: string
           email_account_id: string
           external_message_id: string
+          gmail_thread_id?: string | null
           id?: string
           importance_score?: number | null
+          internal_date?: string | null
+          label_ids?: string[] | null
           labels?: Json | null
+          payload_metadata?: Json | null
           received_at: string
           sender_email: string
           sender_name?: string | null
           subject: string
           thread_id?: string | null
+          to_emails?: string[] | null
           updated_at?: string
           user_id: string
         }
@@ -456,14 +484,19 @@ export type Database = {
           created_at?: string
           email_account_id?: string
           external_message_id?: string
+          gmail_thread_id?: string | null
           id?: string
           importance_score?: number | null
+          internal_date?: string | null
+          label_ids?: string[] | null
           labels?: Json | null
+          payload_metadata?: Json | null
           received_at?: string
           sender_email?: string
           sender_name?: string | null
           subject?: string
           thread_id?: string | null
+          to_emails?: string[] | null
           updated_at?: string
           user_id?: string
         }
@@ -722,6 +755,87 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      gmail_actionables: {
+        Row: {
+          action_completed: boolean | null
+          action_required: boolean | null
+          actionable_type: string
+          created_at: string
+          due_date: string | null
+          id: string
+          message_id: string
+          metadata: Json | null
+          priority_score: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          action_completed?: boolean | null
+          action_required?: boolean | null
+          actionable_type: string
+          created_at?: string
+          due_date?: string | null
+          id?: string
+          message_id: string
+          metadata?: Json | null
+          priority_score?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          action_completed?: boolean | null
+          action_required?: boolean | null
+          actionable_type?: string
+          created_at?: string
+          due_date?: string | null
+          id?: string
+          message_id?: string
+          metadata?: Json | null
+          priority_score?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      gmail_threads: {
+        Row: {
+          created_at: string
+          history_id: string | null
+          id: string
+          label_ids: string[] | null
+          last_message_date: string | null
+          message_count: number | null
+          snippet: string | null
+          thread_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          history_id?: string | null
+          id?: string
+          label_ids?: string[] | null
+          last_message_date?: string | null
+          message_count?: number | null
+          snippet?: string | null
+          thread_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          history_id?: string | null
+          id?: string
+          label_ids?: string[] | null
+          last_message_date?: string | null
+          message_count?: number | null
+          snippet?: string | null
+          thread_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       oauth_accounts: {
         Row: {
