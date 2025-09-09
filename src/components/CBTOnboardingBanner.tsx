@@ -134,13 +134,23 @@ export function CBTOnboardingBanner({ className = '' }: CBTOnboardingBannerProps
 
   return (
     <AnimatePresence>
+      {/* Fixed overlay with backdrop */}
       <motion.div
-        initial={shouldAnimate ? { opacity: 0, y: -20 } : undefined}
-        animate={shouldAnimate ? { opacity: 1, y: 0 } : {}}
-        exit={shouldAnimate ? { opacity: 0, y: -20 } : undefined}
+        initial={shouldAnimate ? { opacity: 0 } : undefined}
+        animate={shouldAnimate ? { opacity: 1 } : {}}
+        exit={shouldAnimate ? { opacity: 0 } : undefined}
         transition={{ duration: 0.3, ease: "easeOut" }}
-        className={`w-full max-w-3xl mx-auto mb-6 ${className}`}
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+        onClick={handleDismiss}
       >
+        <motion.div
+          initial={shouldAnimate ? { opacity: 0, scale: 0.95, y: 20 } : undefined}
+          animate={shouldAnimate ? { opacity: 1, scale: 1, y: 0 } : {}}
+          exit={shouldAnimate ? { opacity: 0, scale: 0.95, y: 20 } : undefined}
+          transition={{ duration: 0.3, ease: "easeOut" }}
+          className={`w-full max-w-3xl mx-4 ${className}`}
+          onClick={(e) => e.stopPropagation()}
+        >
         <Card className="border border-primary/20 bg-gradient-to-r from-background to-muted/30">
           <CardContent className="p-6">
             {/* Header */}
@@ -256,6 +266,7 @@ export function CBTOnboardingBanner({ className = '' }: CBTOnboardingBannerProps
             </Alert>
           </CardContent>
         </Card>
+        </motion.div>
       </motion.div>
     </AnimatePresence>
   );

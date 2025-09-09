@@ -70,9 +70,6 @@ export default function Index() {
 
   return (
     <div className="relative h-full bg-background">
-      {/* CBT Onboarding Banner */}
-      <CBTOnboardingBanner />
-      
       {/* View Mode Toggle */}
       <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-20">
         <ViewModeToggle />
@@ -168,6 +165,9 @@ export default function Index() {
           setCurrentConflict(null);
         }}
       />
+
+      {/* CBT Onboarding Banner as overlay */}
+      <CBTOnboardingBanner />
     </div>
   );
 }

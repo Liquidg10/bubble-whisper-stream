@@ -614,8 +614,8 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
         </Button>
       </div>
 
-      {/* Status indicators */}
-      <div className="absolute bottom-6 left-6 flex gap-2 z-30">
+      {/* Status indicators - Moved to avoid overlap with zoom controls */}
+      <div className="absolute bottom-6 left-20 flex gap-2 z-30">
         {declutterMode && (
           <Badge variant="secondary" className="bg-card/80 backdrop-blur-sm">
             Decluttered
