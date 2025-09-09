@@ -10,11 +10,14 @@ import {
   Trash2, 
   Eye,
   CheckCircle,
-  Clock
+  Clock,
+  ExternalLink
 } from 'lucide-react';
 import { gmailDraftSendService } from '@/services/gmailDraftSendService';
 import { usePrecisionGateUndo } from '@/hooks/usePrecisionGateUndo';
 import { toast } from '@/hooks/use-toast';
+import { GmailEmbed } from '@/components/EmbedPreview';
+import { InlineActionBar } from '@/components/InlineActionBar';
 
 interface EmailDraft {
   id: string;
@@ -25,6 +28,7 @@ interface EmailDraft {
   autoSendEligible?: boolean;
   created_at: string;
   account_id: string;
+  threadId?: string;
 }
 
 interface EmailAutoWriteWidgetProps {
@@ -70,7 +74,7 @@ export function EmailAutoWriteWidget({ className }: EmailAutoWriteWidgetProps) {
         localStorage.setItem('email_drafts', JSON.stringify(updatedDrafts));
         
         toast({
-          title: "Email Sent",
+          title: "Sent • Undo",
           description: `Email sent to ${draft.to.join(', ')}`,
         });
       } else {
@@ -123,64 +127,39 @@ export function EmailAutoWriteWidget({ className }: EmailAutoWriteWidgetProps) {
       <CardContent className="space-y-4">
         {drafts.map((draft) => (
           <div key={draft.id} className="border border-border rounded-lg p-4 space-y-3">
-            <div className="space-y-2">
-              <div className="font-medium">{draft.subject}</div>
-              
-              <div className="text-sm text-muted-foreground">
-                To: {draft.to.join(', ')}
-              </div>
-              
-              <div className="text-sm text-muted-foreground line-clamp-2">
-                {draft.body.substring(0, 150)}...
-              </div>
+            {/* Gmail Thread Preview */}
+            <GmailEmbed
+              thread={{
+                id: draft.threadId || draft.id,
+                subject: draft.subject,
+                from: "Auto-compose",
+                snippet: draft.body.substring(0, 150) + "...",
+                date: draft.created_at,
+                labels: draft.autoSendEligible ? ["Auto-eligible"] : ["Draft"],
+                accountId: draft.account_id
+              }}
+              onOpenExternal={() => {
+                if (draft.threadId) {
+                  const gmailUrl = `https://mail.google.com/mail/u/0/#inbox/${draft.threadId}`;
+                  window.open(gmailUrl, '_blank');
+                }
+              }}
+            />
 
-              <div className="flex items-center gap-2">
-                <Badge variant={draft.autoSendEligible ? "default" : "secondary"}>
-                  {Math.round((draft.confidence || 0.5) * 100)}% confidence
-                </Badge>
-                {draft.autoSendEligible && (
-                  <Badge variant="outline" className="text-green-600 border-green-600">
-                    Auto-send eligible
-                  </Badge>
-                )}
-                <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <Clock className="h-3 w-3" />
-                  {new Date(draft.created_at).toLocaleString()}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                onClick={() => handleSendDraft(draft)}
-                disabled={loading}
-                className="flex-1"
-              >
-                <Send className="h-4 w-4 mr-1" />
-                Send
-              </Button>
-              
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleEditDraft(draft)}
-                disabled={loading}
-              >
-                <Edit3 className="h-4 w-4 mr-1" />
-                Edit
-              </Button>
-              
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleDeleteDraft(draft.id)}
-                disabled={loading}
-              >
-                <Trash2 className="h-4 w-4 mr-1" />
-                Delete
-              </Button>
-            </div>
+            {/* Inline Action Bar */}
+            <InlineActionBar
+              state="draft"
+              confidence={draft.confidence || 0.5}
+              autoWriteEligible={draft.autoSendEligible}
+              onConfirm={() => handleSendDraft(draft)}
+              onEdit={() => handleEditDraft(draft)}
+              onReject={() => handleDeleteDraft(draft.id)}
+              onOpenExternal={draft.threadId ? () => {
+                const gmailUrl = `https://mail.google.com/mail/u/0/#inbox/${draft.threadId}`;
+                window.open(gmailUrl, '_blank');
+              } : undefined}
+              loading={loading}
+            />
           </div>
         ))}
 

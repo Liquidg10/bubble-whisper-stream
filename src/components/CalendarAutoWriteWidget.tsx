@@ -10,12 +10,14 @@ import {
   Users, 
   CheckCircle, 
   XCircle, 
-  Undo2,
-  Eye
+  Eye,
+  ExternalLink
 } from 'lucide-react';
 import { calendarWriteService } from '@/services/calendarWriteService';
 import { usePrecisionGateUndo } from '@/hooks/usePrecisionGateUndo';
 import { toast } from '@/hooks/use-toast';
+import { CalendarEmbed } from '@/components/EmbedPreview';
+import { InlineActionBar } from '@/components/InlineActionBar';
 
 interface CalendarAutoWriteWidgetProps {
   className?: string;
@@ -47,8 +49,8 @@ export function CalendarAutoWriteWidget({ className }: CalendarAutoWriteWidgetPr
       loadDrafts();
       
       toast({
-        title: "Event Created",
-        description: "Calendar event has been successfully created.",
+        title: "Added • Undo",
+        description: "Calendar event created successfully",
       });
     } catch (error) {
       console.error('Failed to confirm draft:', error);
@@ -89,69 +91,34 @@ export function CalendarAutoWriteWidget({ className }: CalendarAutoWriteWidgetPr
       <CardContent className="space-y-4">
         {drafts.map((draft) => (
           <div key={draft.id} className="border border-border rounded-lg p-4 space-y-3">
-            <div className="space-y-2">
-              <div className="font-medium">{draft.title}</div>
-              
-              <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                <div className="flex items-center gap-1">
-                  <Clock className="h-4 w-4" />
-                  {new Date(draft.startTime).toLocaleString()}
-                </div>
-                
-                {draft.location && (
-                  <div className="flex items-center gap-1">
-                    <MapPin className="h-4 w-4" />
-                    {draft.location}
-                  </div>
-                )}
-                
-                {draft.attendees && draft.attendees.length > 0 && (
-                  <div className="flex items-center gap-1">
-                    <Users className="h-4 w-4" />
-                    {draft.attendees.length} attendees
-                  </div>
-                )}
-              </div>
+            {/* Calendar Event Preview */}
+            <CalendarEmbed
+              event={{
+                id: draft.id,
+                title: draft.title,
+                startTime: draft.startTime,
+                endTime: draft.endTime,
+                location: draft.location,
+                attendees: draft.attendees,
+                description: draft.description,
+                htmlLink: draft.htmlLink, // Google Calendar link if available
+                confidence: draft.confidence
+              }}
+              onOpenExternal={() => {
+                console.log('Opening calendar event in Google Calendar');
+              }}
+            />
 
-              {draft.description && (
-                <div className="text-sm text-muted-foreground">
-                  {draft.description}
-                </div>
-              )}
-
-              <div className="flex items-center gap-2">
-                <Badge variant={draft.autoWriteEligible ? "default" : "secondary"}>
-                  {Math.round((draft.confidence || 0.5) * 100)}% confidence
-                </Badge>
-                {draft.autoWriteEligible && (
-                  <Badge variant="outline" className="text-green-600 border-green-600">
-                    Auto-write eligible
-                  </Badge>
-                )}
-              </div>
-            </div>
-
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                onClick={() => handleConfirmDraft(draft.id)}
-                disabled={loading}
-                className="flex-1"
-              >
-                <CheckCircle className="h-4 w-4 mr-1" />
-                Confirm & Create
-              </Button>
-              
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleDeleteDraft(draft.id)}
-                disabled={loading}
-              >
-                <XCircle className="h-4 w-4 mr-1" />
-                Delete
-              </Button>
-            </div>
+            {/* Inline Action Bar */}
+            <InlineActionBar
+              state="draft"
+              confidence={draft.confidence || 0.5}
+              autoWriteEligible={draft.autoWriteEligible}
+              onConfirm={() => handleConfirmDraft(draft.id)}
+              onReject={() => handleDeleteDraft(draft.id)}
+              onOpenExternal={draft.htmlLink ? () => window.open(draft.htmlLink, '_blank') : undefined}
+              loading={loading}
+            />
           </div>
         ))}
 

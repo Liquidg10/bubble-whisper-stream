@@ -7,6 +7,7 @@
 
 import { useState, useCallback } from 'react';
 import { toast } from '@/hooks/use-toast';
+import { Button } from '@/components/ui/button';
 import { decisionTraceService } from '@/services/decisionTraceService';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -19,37 +20,6 @@ export interface UndoAction {
 
 export function usePrecisionGateUndo() {
   const [pendingUndos, setPendingUndos] = useState<Map<string, UndoAction>>(new Map());
-  
-  /**
-   * Show undo toast for a decision
-   */
-  const showUndoToast = useCallback((action: UndoAction) => {
-    setPendingUndos(prev => new Map(prev.set(action.traceId, action)));
-    
-    const featureLabels = {
-      calendar: 'Calendar event',
-      email: 'Email',
-      finance: 'Transaction',
-      reminder: 'Reminder'
-    };
-    
-    const featureLabel = featureLabels[action.feature as keyof typeof featureLabels] || 'Action';
-    
-    toast({
-      title: `${featureLabel} created`,
-      description: `${action.action} • Click to undo`,
-      duration: 8000, // 8 seconds to undo
-    });
-    
-    // Auto-remove from pending after toast duration
-    setTimeout(() => {
-      setPendingUndos(prev => {
-        const newMap = new Map(prev);
-        newMap.delete(action.traceId);
-        return newMap;
-      });
-    }, 8000);
-  }, []);
   
   /**
    * Handle undo action
@@ -114,6 +84,37 @@ export function usePrecisionGateUndo() {
       });
     }
   }, [pendingUndos]);
+  
+  /**
+   * Show undo toast for a decision
+   */
+  const showUndoToast = useCallback((action: UndoAction) => {
+    setPendingUndos(prev => new Map(prev.set(action.traceId, action)));
+    
+    const featureLabels = {
+      calendar: 'Calendar event',
+      email: 'Email',
+      finance: 'Transaction',
+      reminder: 'Reminder'
+    };
+    
+    const featureLabel = featureLabels[action.feature as keyof typeof featureLabels] || 'Action';
+    
+    toast({
+      title: `${action.action} • Undo`,
+      description: "Click to reverse this action",
+      duration: 8000, // 8 seconds to undo
+    });
+    
+    // Auto-remove from pending after toast duration
+    setTimeout(() => {
+      setPendingUndos(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(action.traceId);
+        return newMap;
+      });
+    }, 8000);
+  }, [handleUndo]);
   
   /**
    * Create undo action for calendar events
