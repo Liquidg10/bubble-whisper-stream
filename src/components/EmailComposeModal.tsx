@@ -281,11 +281,28 @@ export function EmailComposeModal({
                 Cancel
               </Button>
               <Button 
-                onClick={resolveRecipientsAndCompose}
+                variant="outline"
+                onClick={() => {
+                  // Create draft only
+                  setAutoSendEnabled(false);
+                  resolveRecipientsAndCompose();
+                }}
                 disabled={isLoading || !recipients.length || !subject || !body}
               >
                 {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                Compose Email
+                <FileText className="h-4 w-4 mr-2" />
+                Save Draft
+              </Button>
+              <Button 
+                onClick={() => {
+                  // Allow send if enabled
+                  resolveRecipientsAndCompose();
+                }}
+                disabled={isLoading || !recipients.length || !subject || !body}
+              >
+                {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                <Send className="h-4 w-4 mr-2" />
+                {autoSendEnabled ? 'Send' : 'Compose'}
               </Button>
             </div>
           </div>
