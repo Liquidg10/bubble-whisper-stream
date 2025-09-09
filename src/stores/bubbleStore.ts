@@ -64,11 +64,17 @@ interface BubbleStore {
       initialChoice?: 'off' | 'ask' | 'on';
       onboardingCompleted: boolean;
     };
-    // Voice-First Capture Settings
+    // Voice System Unified Settings (Phase 2)
     voiceAutoCommit?: boolean;
     voiceHotkey?: string;
     voiceConfidenceThreshold?: number;
     voiceFeedbackLevel?: 'minimal' | 'standard' | 'verbose';
+    voiceTTSEnabled?: boolean;
+    voiceWebSpeechEnabled?: boolean;
+    voiceWhisperEnabled?: boolean;
+    voiceBackendPreference?: 'web-speech' | 'whisper' | 'auto';
+    voiceDebugMode?: boolean;
+    voiceSessionTimeout?: number;
     // Progressive Onboarding Settings
     progressiveOnboarding?: {
       isEnabled: boolean;
