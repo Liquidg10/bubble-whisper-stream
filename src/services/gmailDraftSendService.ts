@@ -41,7 +41,7 @@ class GmailDraftSendService {
     
     try {
       // Check OAuth scope permissions
-      const scopeCheck = await oauthService.checkScopePermissions(accountId, [SCOPES.GMAIL.COMPOSE]);
+      const scopeCheck = await oauthService.checkScopePermissions(accountId, [SCOPES.GMAIL.MODIFY]);
       if (!scopeCheck.hasPermission) {
         throw new Error('Insufficient Gmail permissions. Compose scope required.');
       }

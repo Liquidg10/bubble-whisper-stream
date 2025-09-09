@@ -4,17 +4,31 @@ import { supabase } from '@/integrations/supabase/client';
 export const SCOPES = {
   GOOGLE_CALENDAR: {
     READ: 'https://www.googleapis.com/auth/calendar.readonly',
-    WRITE: 'https://www.googleapis.com/auth/calendar'
+    WRITE: 'https://www.googleapis.com/auth/calendar.events' // Fixed to use calendar.events for minimal write access
   },
   GMAIL: {
     METADATA: 'https://www.googleapis.com/auth/gmail.metadata',
     READ: 'https://www.googleapis.com/auth/gmail.readonly',
-    COMPOSE: 'https://www.googleapis.com/auth/gmail.compose',
-    MODIFY: 'https://www.googleapis.com/auth/gmail.modify'
+    MODIFY: 'https://www.googleapis.com/auth/gmail.modify',
+    SEND: 'https://www.googleapis.com/auth/gmail.send' // Added send scope for explicit send functionality
   }
 } as const;
 
-// Default scope strings for when escalation is missing required scopes
+// Scope combinations for different permission levels
+export const SCOPE_LEVELS = {
+  GMAIL: {
+    MINIMAL: [SCOPES.GMAIL.METADATA], // Just headers and labels
+    READ: [SCOPES.GMAIL.METADATA, SCOPES.GMAIL.READ], // Read email content
+    COMPOSE: [SCOPES.GMAIL.METADATA, SCOPES.GMAIL.READ, SCOPES.GMAIL.MODIFY], // Drafts and labels
+    SEND: [SCOPES.GMAIL.METADATA, SCOPES.GMAIL.READ, SCOPES.GMAIL.MODIFY, SCOPES.GMAIL.SEND] // Full permissions
+  },
+  CALENDAR: {
+    READ: [SCOPES.GOOGLE_CALENDAR.READ], // View calendar events
+    WRITE: [SCOPES.GOOGLE_CALENDAR.READ, SCOPES.GOOGLE_CALENDAR.WRITE] // Create/edit events
+  }
+} as const;
+
+// Default scope strings for initial connection
 export const DEFAULT_SCOPES = {
   'google-calendar': SCOPES.GOOGLE_CALENDAR.READ,
   'gmail': SCOPES.GMAIL.METADATA,
@@ -237,6 +251,61 @@ class OAuthService {
       hasPermission: missingScopes.length === 0,
       missingScopes
     };
+  }
+
+  // Get current permission level for a service
+  async getPermissionLevel(accountId: string, service: 'calendar' | 'gmail'): Promise<string> {
+    const accounts = await this.getConnectedAccounts();
+    const account = accounts.find(acc => acc.id === accountId);
+    
+    if (!account) return 'none';
+    
+    if (service === 'calendar') {
+      if (account.scopes.some(s => s.includes('calendar.events'))) return 'write';
+      if (account.scopes.some(s => s.includes('calendar.readonly'))) return 'read';
+      return 'none';
+    }
+    
+    if (service === 'gmail') {
+      if (account.scopes.some(s => s.includes('gmail.send'))) return 'send';
+      if (account.scopes.some(s => s.includes('gmail.modify'))) return 'compose';
+      if (account.scopes.some(s => s.includes('gmail.readonly'))) return 'read';
+      if (account.scopes.some(s => s.includes('gmail.metadata'))) return 'minimal';
+      return 'none';
+    }
+    
+    return 'none';
+  }
+
+  // Check if scope escalation is needed for an operation
+  async needsEscalation(accountId: string, operation: string): Promise<{ needed: boolean; scopes?: string[]; reason?: string }> {
+    const permissionLevel = await this.getPermissionLevel(accountId, operation.includes('calendar') ? 'calendar' : 'gmail');
+    
+    if (operation === 'calendar-read' && permissionLevel === 'none') {
+      return { needed: true, scopes: [...SCOPE_LEVELS.CALENDAR.READ], reason: 'view your calendar events' };
+    }
+    
+    if (operation === 'calendar-write' && !['write'].includes(permissionLevel)) {
+      return { needed: true, scopes: [...SCOPE_LEVELS.CALENDAR.WRITE], reason: 'create calendar events from your tasks' };
+    }
+    
+    if (operation === 'gmail-metadata' && permissionLevel === 'none') {
+      return { needed: true, scopes: [...SCOPE_LEVELS.GMAIL.MINIMAL], reason: 'access email headers and organize your inbox' };
+    }
+    
+    if (operation === 'gmail-read' && !['read', 'compose', 'send'].includes(permissionLevel)) {
+      return { needed: true, scopes: [...SCOPE_LEVELS.GMAIL.READ], reason: 'read email content to create meaningful bubbles' };
+    }
+    
+    if (operation === 'gmail-compose' && !['compose', 'send'].includes(permissionLevel)) {
+      return { needed: true, scopes: [...SCOPE_LEVELS.GMAIL.COMPOSE], reason: 'create email drafts and manage labels' };
+    }
+    
+    if (operation === 'gmail-send' && permissionLevel !== 'send') {
+      return { needed: true, scopes: [...SCOPE_LEVELS.GMAIL.SEND], reason: 'send emails on your behalf' };
+    }
+    
+    return { needed: false };
   }
 
   async requestScopeEscalation(request: ScopeRequest): Promise<string> {

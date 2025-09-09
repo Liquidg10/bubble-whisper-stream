@@ -118,13 +118,12 @@ export const EmailIntegrationPlugin: React.FC = () => {
       
       if (!hasMetadataScope) {
         // Request minimal Gmail scope
-        const request = await oauthService.requestScopeEscalation({
+        setScopeRequest({
           provider: 'google',
           service: 'email',
           requiredScopes: ['https://www.googleapis.com/auth/gmail.metadata'],
           reason: 'Access email headers and basic information'
         });
-        setScopeRequest(request);
         setIsLoadingEmails(false);
         return;
       }

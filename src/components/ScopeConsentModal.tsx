@@ -15,6 +15,7 @@ import {
   Mail, 
   Eye, 
   Edit, 
+  Send,
   AlertTriangle,
   CheckCircle 
 } from 'lucide-react';
@@ -33,37 +34,43 @@ const SCOPE_DESCRIPTIONS = {
     icon: Eye,
     title: 'Read Calendar Events',
     description: 'View your calendar events and details',
-    risk: 'low'
+    risk: 'low',
+    reason: 'Needed to display your upcoming events and create reminders'
   },
-  'https://www.googleapis.com/auth/calendar': {
+  'https://www.googleapis.com/auth/calendar.events': {
     icon: Edit,
-    title: 'Manage Calendar Events',
-    description: 'Create, edit, and delete calendar events',
-    risk: 'medium'
+    title: 'Create Calendar Events',
+    description: 'Create and edit calendar events (minimal write access)',
+    risk: 'medium',
+    reason: 'Required when you want to create events from bubbles or tasks'
   },
   'https://www.googleapis.com/auth/gmail.metadata': {
     icon: Eye,
-    title: 'Read Email Metadata',
-    description: 'View email subjects, senders, and labels (not content)',
-    risk: 'low'
+    title: 'Email Headers & Labels',
+    description: 'View email subjects, senders, and labels (not message content)',
+    risk: 'low',
+    reason: 'Minimal access to organize and filter your emails without reading content'
   },
   'https://www.googleapis.com/auth/gmail.readonly': {
     icon: Eye,
     title: 'Read Email Content',
-    description: 'View and search your email messages',
-    risk: 'medium'
-  },
-  'https://www.googleapis.com/auth/gmail.compose': {
-    icon: Edit,
-    title: 'Compose Emails',
-    description: 'Create and send email drafts',
-    risk: 'high'
+    description: 'View and search your full email messages',
+    risk: 'medium',
+    reason: 'Needed to create bubbles from email content and understand context'
   },
   'https://www.googleapis.com/auth/gmail.modify': {
     icon: Edit,
-    title: 'Modify Emails',
-    description: 'Mark emails as read, archive, or apply labels',
-    risk: 'medium'
+    title: 'Modify Emails & Labels',
+    description: 'Mark emails as read, archive, or apply labels (no sending)',
+    risk: 'medium',
+    reason: 'Required to manage email organization and create drafts'
+  },
+  'https://www.googleapis.com/auth/gmail.send': {
+    icon: Send,
+    title: 'Send Emails',
+    description: 'Send emails on your behalf',
+    risk: 'high',
+    reason: 'Only requested when you explicitly enable email sending features'
   }
 } as const;
 
