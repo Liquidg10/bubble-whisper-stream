@@ -71,11 +71,16 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  const recognitionRef = useRef<any>(null);
   const isHotkeyPressed = useRef(false);
+  const processingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Voice Activity Detection for near-instant processing
   const startVADProcessing = useCallback(async () => {
-    if (!isListening || !transcript) return;
+    if (!isListening || !transcript || transcript.length < 5) return;
+    
+    // Prevent duplicate processing
+    if (isProcessing) return;
     
     setIsProcessing(true);
     try {
@@ -102,13 +107,24 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
     } finally {
       setIsProcessing(false);
     }
-  }, [transcript, isListening]);
+  }, [transcript, isListening, isProcessing]);
 
   // Debounced VAD processing for partial transcripts
   useEffect(() => {
-    if (transcript && isListening) {
-      const timer = setTimeout(startVADProcessing, 300);
-      return () => clearTimeout(timer);
+    if (transcript && isListening && transcript.length > 5) {
+      // Clear existing timeout
+      if (processingTimeoutRef.current) {
+        clearTimeout(processingTimeoutRef.current);
+      }
+      
+      // Set new timeout with longer delay to avoid processing spam
+      processingTimeoutRef.current = setTimeout(startVADProcessing, 500);
+      
+      return () => {
+        if (processingTimeoutRef.current) {
+          clearTimeout(processingTimeoutRef.current);
+        }
+      };
     }
   }, [transcript, isListening, startVADProcessing]);
 
@@ -173,26 +189,51 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
         recognition.lang = 'en-US';
         
         recognition.onresult = (event: any) => {
+          let finalTranscript = '';
           let interimTranscript = '';
+          
           for (let i = event.resultIndex; i < event.results.length; i++) {
             const result = event.results[i];
             if (result.isFinal) {
-              setTranscript(prev => prev + result[0].transcript);
+              finalTranscript += result[0].transcript;
             } else {
               interimTranscript += result[0].transcript;
             }
           }
           
-          // Update with partial results for near-instant feedback
-          if (interimTranscript) {
-            setTranscript(prev => prev + interimTranscript);
+          // Only update with final results to prevent repetition
+          if (finalTranscript) {
+            setTranscript(prev => prev + finalTranscript);
+          } else if (interimTranscript && !transcript) {
+            // Show interim only when no final transcript exists
+            setTranscript(interimTranscript);
+          }
+        };
+        
+        recognition.onerror = (event: any) => {
+          console.error('Speech recognition error:', event.error);
+          if (event.error === 'no-speech') {
+            // Silent timeout - normal behavior
+            return;
+          }
+          setIsListening(false);
+        };
+        
+        recognition.onend = () => {
+          if (isListening) {
+            // Recognition ended unexpectedly while we're still supposed to be listening
+            console.log('Recognition ended, restarting...');
+            try {
+              recognition.start();
+            } catch (error) {
+              console.error('Failed to restart recognition:', error);
+              setIsListening(false);
+            }
           }
         };
         
         recognition.start();
-        
-        streamRef.current = stream;
-        (streamRef.current as any).recognition = recognition;
+        recognitionRef.current = recognition;
       }
       
       // Also record for fallback processing
@@ -217,14 +258,29 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
   const stopListening = async () => {
     setIsListening(false);
     
-    // Stop speech recognition
-    if (streamRef.current && (streamRef.current as any).recognition) {
-      (streamRef.current as any).recognition.stop();
+    // Clear any pending timeouts
+    if (processingTimeoutRef.current) {
+      clearTimeout(processingTimeoutRef.current);
+      processingTimeoutRef.current = null;
+    }
+    
+    // Stop speech recognition properly
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (error) {
+        console.error('Error stopping recognition:', error);
+      }
+      recognitionRef.current = null;
     }
     
     // Stop media recorder
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (error) {
+        console.error('Error stopping media recorder:', error);
+      }
     }
     
     // Stop audio stream
@@ -233,10 +289,14 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
       streamRef.current = null;
     }
     
-    // Process final transcript
-    if (transcript.trim()) {
-      await processFinalTranscript(transcript.trim());
+    // Process final transcript only if we have meaningful content
+    const finalText = transcript.trim();
+    if (finalText && finalText.length > 2) {
+      await processFinalTranscript(finalText);
     }
+    
+    // Reset transcript after processing
+    setTranscript('');
   };
 
   const processFinalTranscript = async (finalText: string) => {
