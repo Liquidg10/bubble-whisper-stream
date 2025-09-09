@@ -133,6 +133,11 @@ const devRoutes: DevRoute[] = [
     path: '/dev/voice-first',
     name: 'Voice-First Capture',
     description: 'Test voice capture with confidence gates, hotkeys, and auto-commit'
+  },
+  {
+    path: '/dev/health-dashboard',
+    name: 'Developer Health Dashboard',
+    description: 'Comprehensive system health monitoring and bug detection'
   }
 ];
 
