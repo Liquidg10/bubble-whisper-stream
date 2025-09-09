@@ -1,4 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
+import { autoWritePrecisionGate } from './autoWritePrecisionGate';
+import { decisionTraceService } from './decisionTraceService';
 
 export interface CalendarEventDraft {
   id: string;
@@ -108,24 +110,70 @@ class CalendarWriteService {
     eventData: any,
     options: WriteEventOptions = {}
   ): Promise<any> {
-    const confidence = options.confidence || 0.5;
-    
-    // Check auto-write threshold
-    if (options.autoWrite && confidence >= 0.85 && this.isAutoWriteEligible(eventData, confidence)) {
-      // Direct auto-write
-      return this.executeAutoWrite(calendarAccountId, eventData, options);
-    } else if (options.draft || (confidence >= 0.60 && confidence < 0.85)) {
-      // Create draft for review
-      return this.createEventDraft(calendarAccountId, eventData);
-    } else if (confidence < 0.60) {
-      // Suggest only
-      return {
-        suggestion: true,
-        eventData,
-        message: 'Event suggestion created. Would you like to create this event?'
+    try {
+      // Use unified precision gate for decision making
+      const entities = {
+        title: eventData.title || '',
+        startTime: eventData.startTime || '',
+        endTime: eventData.endTime || '',
+        location: eventData.location || '',
+        attendees: eventData.attendees || []
       };
-    } else {
-      // Direct creation
+
+      const decision = await autoWritePrecisionGate.evaluateDecision({
+        content: `${eventData.title} ${eventData.description || ''}`.trim(),
+        entities,
+        feature: 'calendar',
+        userTrust: {
+          calendarWhitelisted: true,
+          contactTrustScore: 0.8
+        },
+        userPreferences: {
+          autoWriteEnabled: options.autoWrite || false,
+          featureEnabled: true
+        }
+      });
+
+      // Record decision trace
+      const traceId = await decisionTraceService.addTrace({
+        feature: 'calendar',
+        decision: decision.decision,
+        finalConfidence: decision.score,
+        confidenceThreshold: 0.85,
+        signals: decision.reasons.map(r => ({ 
+          type: 'system', 
+          value: r, 
+          confidence: 1.0, 
+          source: 'precision-gate' 
+        })),
+        action: `create_event_${decision.decision}`,
+        becauseText: decision.reasons.join(', '),
+        metadata: { eventData, calendarAccountId },
+        undoable: true
+      });
+
+      // Execute based on decision
+      switch (decision.decision) {
+        case 'auto-write':
+          const result = await this.executeAutoWrite(calendarAccountId, eventData, options);
+          return { ...result, traceId, autoWritten: true };
+        
+        case 'draft':
+          const draft = await this.createEventDraft(calendarAccountId, eventData);
+          return { ...draft, traceId, drafted: true };
+        
+        case 'suggest':
+        default:
+          return {
+            suggestion: true,
+            eventData,
+            traceId,
+            message: `Event suggestion: ${decision.reasons.join(', ')}`
+          };
+      }
+    } catch (error) {
+      console.error('Error in createEvent:', error);
+      // Fallback to direct creation
       return this.executeDirectWrite(calendarAccountId, eventData, options);
     }
   }

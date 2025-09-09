@@ -1,6 +1,8 @@
 import { supabase } from '@/integrations/supabase/client';
 import { gmailDraftSendService, EmailDraft, EmailSendResult } from './gmailDraftSendService';
 import { emailGuardrailsService } from './emailGuardrailsService';
+import { autoWritePrecisionGate } from './autoWritePrecisionGate';
+import { decisionTraceService } from './decisionTraceService';
 
 export interface EnhancedEmailDraft extends EmailDraft {
   mimeFormatted?: boolean;
@@ -108,6 +110,28 @@ Best regards,
         processedDraft = await this.generateMimeFormat(processedDraft);
       }
 
+      // Use unified precision gate for decision making
+      const entities = {
+        recipients: {
+          emails: processedDraft.to || processedDraft.recipients || [],
+          confidence: 1.0
+        }
+      };
+
+      const decision = await autoWritePrecisionGate.evaluateDecision({
+        content: `${processedDraft.subject} ${processedDraft.body}`.trim(),
+        entities,
+        feature: 'email',
+        userTrust: {
+          recipientAllowlisted: true,
+          contactTrustScore: 0.8
+        },
+        userPreferences: {
+          autoWriteEnabled: options.autoSendEnabled || false,
+          featureEnabled: true
+        }
+      });
+
       // Enhanced guardrails check with template analysis
       if (!options.bypassGuardrails) {
         const guardrailResult = await emailGuardrailsService.evaluateEmailSafety({
@@ -133,6 +157,24 @@ Best regards,
           };
         }
       }
+
+      // Record decision trace
+      const traceId = await decisionTraceService.addTrace({
+        feature: 'email',
+        decision: decision.decision,
+        finalConfidence: decision.score,
+        confidenceThreshold: 0.85,
+        signals: decision.reasons.map(r => ({ 
+          type: 'system', 
+          value: r, 
+          confidence: 1.0, 
+          source: 'precision-gate' 
+        })),
+        action: `compose_email_${decision.decision}`,
+        becauseText: decision.reasons.join(', '),
+        metadata: { draft: processedDraft, accountId },
+        undoable: true
+      });
 
       // Handle scheduling if requested
       if (draft.scheduling) {

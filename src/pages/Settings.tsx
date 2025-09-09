@@ -28,6 +28,7 @@ import { SafetySettings } from '@/components/settings/SafetySettings';
 import { AuditSettings } from '@/components/settings/AuditSettings';
 import { OnboardingSettings } from '@/components/settings/OnboardingSettings';
 import { AccessibilitySettings } from '@/components/settings/AccessibilitySettings';
+import { AutoWriteSettings } from '@/components/settings/AutoWriteSettings';
 import { useFeatureFlags } from '@/components/FeatureFlags';
 import { isFeatureEnabled } from '@/config/flags';
 
@@ -80,6 +81,10 @@ export const Settings: React.FC = () => {
               <TabsTrigger value="intelligence" className="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm gap-2 min-w-fit">
                 <Brain className="h-4 w-4" />
                 <span>Intelligence</span>
+              </TabsTrigger>
+              <TabsTrigger value="autowrite" className="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm gap-2 min-w-fit">
+                <Bot className="h-4 w-4" />
+                <span>Auto-Write</span>
               </TabsTrigger>
               <TabsTrigger value="integrations" className="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm gap-2 min-w-fit">
                 <Plug className="h-4 w-4" />
@@ -139,6 +144,10 @@ export const Settings: React.FC = () => {
 
             <TabsContent value="intelligence" className="space-y-6 mt-0">
               <IntelligenceSettings />
+            </TabsContent>
+
+            <TabsContent value="autowrite" className="space-y-6 mt-0">
+              <AutoWriteSettings />
             </TabsContent>
 
             <TabsContent value="integrations" className="space-y-6 mt-0">
