@@ -56,6 +56,7 @@ import DevEmailCompose from "./pages/DevEmailCompose";
 import DevRecurringFinance from "./pages/DevRecurringFinance";
 import { DevVoiceFirst } from "./pages/DevVoiceFirst";
 import DevPlaidRecur from "./pages/DevPlaidRecur";
+import DevMetricsAlerts from "./pages/DevMetricsAlerts";
 import { DevMenu } from "./components/DevMenu";
 import { useDevMenu } from "./hooks/useDevMenu";
 import { AuthCallback } from "./pages/AuthCallback";
@@ -130,6 +131,7 @@ const App = () => {
                         <Route path="dev/gmail-intents" element={<DevGmailIntents />} />
                          <Route path="dev/email-compose" element={<DevEmailCompose />} />
                          <Route path="dev/plaid-recur" element={<DevPlaidRecur />} />
+                         <Route path="dev/metrics-alerts" element={<DevMetricsAlerts />} />
                         <Route path="dev/recurring-finance" element={<DevRecurringFinance />} />
                         <Route path="dev/voice-first" element={<DevVoiceFirst />} />
                       <Route path="privacy" element={<Privacy />} />
