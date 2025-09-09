@@ -711,6 +711,8 @@ export type Database = {
           provider_user_id: string
           refresh_token: string | null
           scopes: string[] | null
+          scopes_string: string | null
+          token_type: string | null
           updated_at: string
           user_id: string
         }
@@ -725,6 +727,8 @@ export type Database = {
           provider_user_id: string
           refresh_token?: string | null
           scopes?: string[] | null
+          scopes_string?: string | null
+          token_type?: string | null
           updated_at?: string
           user_id: string
         }
@@ -739,6 +743,8 @@ export type Database = {
           provider_user_id?: string
           refresh_token?: string | null
           scopes?: string[] | null
+          scopes_string?: string | null
+          token_type?: string | null
           updated_at?: string
           user_id?: string
         }

@@ -14,22 +14,31 @@ export const SCOPES = {
   }
 } as const;
 
+// Default scope strings for when escalation is missing required scopes
+export const DEFAULT_SCOPES = {
+  'google-calendar': SCOPES.GOOGLE_CALENDAR.READ,
+  'gmail': SCOPES.GMAIL.METADATA,
+  'google': 'openid email profile'
+} as const;
+
 export interface OAuthAccount {
   id: string;
-  provider: 'google' | 'microsoft' | 'apple' | 'github';
+  provider: 'google-calendar' | 'gmail' | 'google' | 'microsoft' | 'apple' | 'github';
   provider_user_id: string;
   access_token: string;
   refresh_token?: string;
   expires_at?: string;
   last_used_at?: string;
   scopes: string[];
+  scopes_string?: string;
   account_email: string;
+  token_type?: string;
 }
 
 export interface ScopeRequest {
   provider: 'google' | 'microsoft';
   service: 'calendar' | 'email';
-  requiredScopes: string[];
+  requiredScopes?: string[];
   reason: string;
 }
 
@@ -127,14 +136,16 @@ class OAuthService {
       return [];
     }
 
-    // Decrypt tokens
+    // Decrypt tokens and handle both old array and new string scopes
     const accounts = await Promise.all(
       (data || []).map(async (account) => ({
         ...account,
-        provider: account.provider as 'google' | 'microsoft' | 'apple' | 'github',
+        provider: account.provider as OAuthAccount['provider'],
         access_token: account.access_token ? await this.decryptToken(account.access_token) : '',
         refresh_token: account.refresh_token ? await this.decryptToken(account.refresh_token) : undefined,
-        scopes: (account as any).scopes || [],
+        scopes: (account as any).scopes_string 
+          ? (account as any).scopes_string.split(' ').filter(Boolean)
+          : ((account as any).scopes || []),
         account_email: (account as any).account_email || ''
       }))
     );
@@ -172,30 +183,23 @@ class OAuthService {
   }
 
   async refreshAccessToken(account: OAuthAccount): Promise<string> {
-    if (!account.refresh_token || account.provider !== 'google') {
+    if (!account.refresh_token || !account.provider.includes('google')) {
       throw new Error('Cannot refresh token: no refresh token available');
     }
 
-    const response = await fetch('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({
-        client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID || '',
-        client_secret: import.meta.env.VITE_GOOGLE_CLIENT_SECRET || '',
+    // Use our edge function for secure token refresh (no client secret exposure)
+    const { data, error } = await supabase.functions.invoke('oauth-google-refresh', {
+      body: {
         refresh_token: account.refresh_token,
-        grant_type: 'refresh_token',
-      }),
+        account_id: account.id
+      }
     });
 
-    if (!response.ok) {
-      throw new Error('Failed to refresh access token');
+    if (error) {
+      throw new Error(`Failed to refresh access token: ${error.message}`);
     }
 
-    const data = await response.json();
-    
-    // Update stored token
+    // Update stored token via server-side encryption
     await this.storeTokens({
       ...account,
       access_token: data.access_token,
@@ -228,18 +232,25 @@ class OAuthService {
   }
 
   async requestScopeEscalation(request: ScopeRequest): Promise<string> {
-    // Generate OAuth URL with incremental scopes
-    const params = new URLSearchParams({
-      client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID || '',
-      redirect_uri: `${window.location.origin}/oauth-callback.html`,
-      response_type: 'code',
-      scope: request.requiredScopes.join(' '),
-      access_type: 'offline',
-      include_granted_scopes: 'true', // For incremental authorization
-      prompt: 'consent' // Force consent to ensure we get refresh token
+    // Validate and provide default scopes if requiredScopes is undefined
+    const list = Array.isArray(request.requiredScopes) ? request.requiredScopes : [];
+    const defaultScope = DEFAULT_SCOPES[request.service === 'calendar' ? 'google-calendar' : 'gmail'];
+    const scope = list.length ? list.join(' ') : defaultScope;
+
+    // Use our edge function to generate OAuth URLs with proper state/PKCE
+    const { data, error } = await supabase.functions.invoke('oauth-google-start', {
+      body: {
+        scope,
+        service: request.service,
+        reason: request.reason
+      }
     });
 
-    return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+    if (error) {
+      throw new Error(`Failed to generate OAuth URL: ${error.message}`);
+    }
+
+    return data.authUrl;
   }
 
   async revokeAccess(accountId: string): Promise<void> {
