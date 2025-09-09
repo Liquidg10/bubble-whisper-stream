@@ -1,5 +1,5 @@
 /**
- * Voice-First Capture Component with Confidence Gates and Hotkeys
+ * Voice-First Capture Component with Confidence Gates and Hotkeys  
  * Implements near-instant voice capture with auto-commit for high confidence
  */
 
