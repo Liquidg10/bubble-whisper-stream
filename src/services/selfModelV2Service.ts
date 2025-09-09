@@ -226,63 +226,103 @@ class SelfModelV2Service {
   async generateMonthlyReview(): Promise<MonthlyReview> {
     await this.initialize();
     
+    console.log('Generating monthly review...');
+    
     const now = new Date();
     const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     
-    // Get audits from this month
-    const audits = await this.getAudits();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-    const monthAudits = audits.filter(a => a.at >= monthStart);
-    
-    // Get patterns that should be archived (low confidence, old)
-    const patterns = await this.getPatternHints();
-    const archivedPatterns = patterns.filter(p => 
-      p.confidence < 0.3 && Date.now() - p.lastUpdated > 30 * 24 * 60 * 60 * 1000
-    );
-    
-    // Try AI-powered summary first
-    let insights = [
-      `You made ${monthAudits.length} updates to your self-model this month`,
-      'Your patterns continue to evolve',
-      'Growth happens in small steps'
-    ];
-
     try {
-      const { aiService } = await import('./aiService');
-      if (aiService.isAIAvailable()) {
-        const response = await aiService.generateMonthlySummary(
-          month,
-          {},
-          [],
-          [],
-          patterns,
-          monthAudits.length
-        );
+      // Get audits from this month
+      const audits = await this.getAudits();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+      const monthAudits = audits.filter(a => a.at >= monthStart);
+      
+      console.log(`Found ${monthAudits.length} audits for this month`);
+      
+      // Get patterns that should be archived (low confidence, old)
+      const patterns = await this.getPatternHints();
+      const archivedPatterns = patterns.filter(p => 
+        p.confidence < 0.3 && Date.now() - p.lastUpdated > 30 * 24 * 60 * 60 * 1000
+      );
+      
+      console.log(`Found ${patterns.length} patterns, ${archivedPatterns.length} to archive`);
+      
+      // Enhanced local insights with fallback
+      let insights = [
+        `You made ${monthAudits.length} updates to your self-model this month`,
+        'Your patterns continue to evolve',
+        'Growth happens in small steps'
+      ];
 
-        if (response.success && response.summary) {
-          insights = response.summary.insights || insights;
+      // Add pattern-based insights
+      if (patterns.length > 0) {
+        const highConfidencePatterns = patterns.filter(p => p.confidence > 0.7);
+        if (highConfidencePatterns.length > 0) {
+          insights.push(`You have ${highConfidencePatterns.length} strong behavioral patterns identified`);
         }
       }
-    } catch (error) {
-      console.warn('AI monthly summary failed, using local insights:', error);
-    }
 
-    const review: MonthlyReview = {
-      id: `review-${month}`,
-      month,
-      createdAt: Date.now(),
-      changes: monthAudits,
-      archivedPatterns,
-      userNotes: '',
-      insights
-    };
-    
-    const transaction = this.db!.transaction(['monthly_reviews'], 'readwrite');
-    const store = transaction.objectStore('monthly_reviews');
-    store.put(review);
-    
-    await this.promisifyRequest(transaction);
-    return review;
+      try {
+        const { aiService } = await import('./aiService');
+        if (aiService.isAIAvailable()) {
+          console.log('Attempting AI-powered summary...');
+          const response = await aiService.generateMonthlySummary(
+            month,
+            {},
+            [],
+            [],
+            patterns,
+            monthAudits.length
+          );
+
+          if (response.success && response.summary) {
+            insights = response.summary.insights || insights;
+            console.log('AI summary successful');
+          }
+        }
+      } catch (error) {
+        console.warn('AI monthly summary failed, using local insights:', error);
+      }
+
+      const review: MonthlyReview = {
+        id: `review-${month}`,
+        month,
+        createdAt: Date.now(),
+        changes: monthAudits,
+        archivedPatterns,
+        userNotes: '',
+        insights,
+        stats: {
+          totalAudits: monthAudits.length,
+          confirmedAudits: monthAudits.filter(a => a.userConfirmed).length,
+          newPatterns: patterns.filter(p => Date.now() - p.lastUpdated < 7 * 24 * 60 * 60 * 1000).length,
+          strengthenedPatterns: patterns.filter(p => p.confidence > 0.8).length
+        }
+      };
+      
+      const transaction = this.db!.transaction(['monthly_reviews'], 'readwrite');
+      const store = transaction.objectStore('monthly_reviews');
+      store.put(review);
+      
+      await this.promisifyRequest(transaction);
+      console.log('Monthly review generated successfully');
+      return review;
+    } catch (error) {
+      console.error('Failed to generate monthly review:', error);
+      
+      // Return minimal review on error
+      const fallbackReview: MonthlyReview = {
+        id: `review-${month}-fallback`,
+        month,
+        createdAt: Date.now(),
+        changes: [],
+        archivedPatterns: [],
+        userNotes: '',
+        insights: ['Monthly review temporarily unavailable', 'Your data is safe and will be included in future reviews']
+      };
+      
+      return fallbackReview;
+    }
   }
 
   async getMonthlyReview(month: string): Promise<MonthlyReview | null> {

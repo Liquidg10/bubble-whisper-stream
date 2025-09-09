@@ -15,7 +15,7 @@ import { PomodoroHeaderTimer } from '@/components/PomodoroHeaderTimer';
 import { HeaderVoiceCapture } from '@/components/HeaderVoiceCapture';
 import { OnboardingProgressIndicator } from '@/components/OnboardingProgressIndicator';
 import { useProgressiveOnboarding } from '@/providers/ProgressiveOnboardingProvider';
-// import { EnhancedAIChat } from '@/components/CBTEnhancedChat';
+import { SmartAIAssistant } from '@/components/SmartAIAssistant';
 
 import NarrativeSearch from '@/components/NarrativeSearch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -105,22 +105,8 @@ export const AppShell: React.FC = () => {
                 Your empathetic AI companion, always ready to help
               </p>
             </div>
-            <div className="flex-1 overflow-hidden p-3">
-              <div className="flex items-center justify-center h-full text-muted-foreground">
-                <div className="text-center space-y-4">
-                  <Bot className="h-12 w-12 mx-auto text-primary" />
-                  <div>
-                    <h3 className="text-lg font-medium text-foreground">AI Assistant</h3>
-                    <p className="text-sm">Your empathetic companion for productivity and well-being</p>
-                  </div>
-                  <div className="space-y-2 text-xs">
-                    <p>✓ CBT-enhanced conversations</p>
-                    <p>✓ Context-aware suggestions</p>
-                    <p>✓ Joy moment detection</p>
-                    <p className="text-amber-600">🚧 Full integration coming soon</p>
-                  </div>
-                </div>
-              </div>
+            <div className="flex-1 overflow-hidden">
+              <SmartAIAssistant />
             </div>
           </div>
         </DialogContent>

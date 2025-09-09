@@ -64,6 +64,7 @@ import { useDevMenu } from "./hooks/useDevMenu";
 import { AuthCallback } from "./pages/AuthCallback";
 import Privacy from "./pages/Privacy";
 import { oauthService } from '@/services/oauthService';
+import { OnboardingManager } from '@/components/OnboardingManager';
 
 const queryClient = new QueryClient();
 
@@ -156,12 +157,13 @@ const App = () => {
                      <Route path="auth/callback" element={<AuthCallback />} />
                      <Route path="*" element={<NotFound />} />
                    </Routes>
-                   <DevMenu isOpen={isDevMenuOpen} onClose={closeDevMenu} />
-                 </BrowserRouter>
-                </TooltipProvider>
-              </QueryClientProvider>
-            </CalmModeProvider>
-          </ProgressiveOnboardingProvider>
+                    <DevMenu isOpen={isDevMenuOpen} onClose={closeDevMenu} />
+                    <OnboardingManager />
+                  </BrowserRouter>
+                 </TooltipProvider>
+               </QueryClientProvider>
+             </CalmModeProvider>
+           </ProgressiveOnboardingProvider>
         </FeatureFlagsProvider>
       </AccessibilityProvider>
       </ThemeProvider>

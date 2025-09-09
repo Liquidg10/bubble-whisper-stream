@@ -334,12 +334,25 @@ export class VoiceEngine {
 
     this.stopRecognition();
     
+    // Properly stop all media tracks
     if (this.stream) {
-      this.stream.getTracks().forEach(track => track.stop());
+      this.stream.getTracks().forEach(track => {
+        track.stop();
+        console.log(`Stopped ${track.kind} track`);
+      });
       this.stream = null;
     }
     
+    // Clean up media recorder
+    if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
+      try {
+        this.mediaRecorder.stop();
+      } catch (error) {
+        console.warn('Error stopping media recorder:', error);
+      }
+    }
     this.mediaRecorder = null;
+    
     this.isRecording = false;
     this.config = null;
     this.callbacks = {};

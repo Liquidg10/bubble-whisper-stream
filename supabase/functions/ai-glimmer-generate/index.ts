@@ -31,7 +31,9 @@ serve(async (req) => {
       tone = 'friend', 
       patterns = [], 
       timeContext = {},
-      userPreferences = {} 
+      userPreferences = {},
+      userContext = {},
+      contextualTriggers = []
     } = await req.json();
 
     if (!trigger) {
@@ -39,28 +41,46 @@ serve(async (req) => {
     }
 
     // Clean and limit input data
-    const cleanPatterns = patterns.map((p: any) => stripPII(p.description || '')).slice(0, 3);
+    const cleanPatterns = patterns.map((p: any) => stripPII(p.key || p.description || '')).slice(0, 3);
     const timeOfDay = timeContext.timeOfDay || 'unknown';
     const mood = timeContext.mood || 'neutral';
+    const userName = userContext.preferences?.name || '';
+    const goals = userContext.preferences?.primaryGoals?.slice(0, 2) || [];
+    const challenges = userContext.currentChallenges || '';
+    const recentActivity = userContext.recentActivity || {};
+
+    // Calculate personalization confidence
+    const personalizationScore = [
+      userName ? 0.2 : 0,
+      goals.length > 0 ? 0.2 : 0,
+      cleanPatterns.length > 0 ? 0.3 : 0,
+      challenges ? 0.2 : 0,
+      contextualTriggers.length > 0 ? 0.1 : 0
+    ].reduce((a, b) => a + b, 0);
 
     const systemPrompt = `You are a ${TONE_STYLES[tone]} offering gentle self-compassion glimmers.
 
 Guidelines:
 - Write 1-2 sentences max (under 100 characters total)
-- Use ${tone} voice
-- Be specific to their situation, not generic
+- Use ${tone} voice with ${personalizationScore > 0.6 ? 'highly specific' : 'gently personalized'} content
+- ${userName ? `Address them as ${userName}` : 'Use warm, inclusive language'}
+- Be specific to their situation, not generic platitudes
 - Focus on small wins, progress, or gentle reminders
 - Never be preachy or overwhelming
-- Include subtle context awareness
-- Format as JSON: {"message": "...", "because": "...", "type": "encouragement|progress|rest"}`;
+- Include subtle context awareness from their patterns
+- Format as JSON: {"message": "...", "because": "...", "type": "encouragement|progress|rest|insight"}`;
 
     const userPrompt = `Context:
 - Trigger: ${trigger}
-- Time: ${timeOfDay}
-- Recent patterns: ${cleanPatterns.join(', ') || 'none noted'}
-- Mood: ${mood}
+- Time: ${timeOfDay} (mood: ${mood})
+- User: ${userName || 'Anonymous'}
+- Current goals: ${goals.join(', ') || 'general well-being'}
+- Recent patterns: ${cleanPatterns.join(', ') || 'none noted yet'}
+- Current challenges: ${challenges || 'day-to-day life'}
+- Activity level: ${recentActivity.bubblesCreated > 5 ? 'highly active' : recentActivity.bubblesCreated > 0 ? 'moderately active' : 'getting started'}
+- Contextual hints: ${contextualTriggers.slice(0, 3).join(', ') || 'none'}
 
-Generate a personalized glimmer:`;
+Generate a ${personalizationScore > 0.6 ? 'highly personalized' : 'contextually aware'} glimmer:`;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
