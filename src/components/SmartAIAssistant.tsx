@@ -2,8 +2,10 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Send, Bot, User, Sparkles } from 'lucide-react';
+import { Send, Bot, User, Sparkles, MapPin, CheckCircle } from 'lucide-react';
 import { userContextService } from '@/services/userContextService';
+import { planGenerationService, GeneratedPlan } from '@/services/planGenerationService';
+import { PlanImplementationDialog } from './PlanImplementationDialog';
 import { supabase } from '@/integrations/supabase/client';
 
 interface Message {
@@ -11,6 +13,12 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
+  plan?: GeneratedPlan;
+  actions?: Array<{
+    type: 'implement_plan';
+    label: string;
+    planId: string;
+  }>;
 }
 
 export const SmartAIAssistant: React.FC = () => {
@@ -18,12 +26,14 @@ export const SmartAIAssistant: React.FC = () => {
     {
       id: 'welcome',
       role: 'assistant',
-      content: 'Hi! I\'m your AI companion. I can help you organize thoughts, process emotions, and create personalized reminders. What\'s on your mind?',
+      content: 'Hi! I\'m your AI companion. I can help you organize thoughts, process emotions, and create personalized plans. Try asking me to "help plan my morning" or "create a job search strategy"!',
       timestamp: Date.now()
     }
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [currentPlan, setCurrentPlan] = useState<GeneratedPlan | null>(null);
+  const [showImplementDialog, setShowImplementDialog] = useState(false);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -48,26 +58,52 @@ export const SmartAIAssistant: React.FC = () => {
     setIsLoading(true);
 
     try {
-      // Get user context for personalization
-      const context = await userContextService.getUserContext();
-      
-      // Call AI conversation function
-      const { data, error } = await supabase.functions.invoke('ai-conversation', {
-        body: {
-          message: userMessage.content,
-          userContext: context,
-          conversationHistory: messages.slice(-5) // Last 5 messages for context
-        }
-      });
+      // Check if this looks like a planning request
+      const planKeywords = ['plan', 'help me', 'schedule', 'organize', 'strategy', 'routine', 'morning', 'day', 'health', 'work'];
+      const isPlanning = planKeywords.some(keyword => 
+        userMessage.content.toLowerCase().includes(keyword)
+      );
 
-      if (error) throw error;
+      let assistantMessage: Message;
 
-      const assistantMessage: Message = {
-        id: `assistant-${Date.now()}`,
-        role: 'assistant',
-        content: data.response || 'I\'m sorry, I couldn\'t process that right now. Please try again.',
-        timestamp: Date.now()
-      };
+      if (isPlanning) {
+        // Generate a plan
+        const planType = determinePlanType(userMessage.content);
+        const plan = await planGenerationService.generatePlan(userMessage.content, planType);
+        
+        assistantMessage = {
+          id: `assistant-${Date.now()}`,
+          role: 'assistant',
+          content: `I've created a personalized ${planType} plan for you! This plan has ${plan.steps.length} steps and should take about ${Math.round(plan.totalEstimatedMinutes)} minutes total. Would you like me to implement this plan by creating bubbles, reminders, or calendar events?`,
+          timestamp: Date.now(),
+          plan,
+          actions: [{
+            type: 'implement_plan',
+            label: 'Implement Plan',
+            planId: plan.id
+          }]
+        };
+      } else {
+        // Regular conversation
+        const context = await userContextService.getUserContext();
+        
+        const { data, error } = await supabase.functions.invoke('ai-conversation', {
+          body: {
+            message: userMessage.content,
+            userContext: context,
+            conversationHistory: messages.slice(-5)
+          }
+        });
+
+        if (error) throw error;
+
+        assistantMessage = {
+          id: `assistant-${Date.now()}`,
+          role: 'assistant',
+          content: data.response || 'I\'m sorry, I couldn\'t process that right now. Please try again.',
+          timestamp: Date.now()
+        };
+      }
 
       setMessages(prev => [...prev, assistantMessage]);
     } catch (error) {
@@ -86,6 +122,20 @@ export const SmartAIAssistant: React.FC = () => {
     }
   };
 
+  const determinePlanType = (content: string): 'morning' | 'workday' | 'health' | 'project' | 'general' => {
+    const lowerContent = content.toLowerCase();
+    if (lowerContent.includes('morning') || lowerContent.includes('wake up')) return 'morning';
+    if (lowerContent.includes('work') || lowerContent.includes('job') || lowerContent.includes('career')) return 'workday';
+    if (lowerContent.includes('health') || lowerContent.includes('fitness') || lowerContent.includes('supplement')) return 'health';
+    if (lowerContent.includes('project') || lowerContent.includes('goal')) return 'project';
+    return 'general';
+  };
+
+  const handleImplementPlan = (plan: GeneratedPlan) => {
+    setCurrentPlan(plan);
+    setShowImplementDialog(true);
+  };
+
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -94,7 +144,7 @@ export const SmartAIAssistant: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full" data-ai-assistant>
       <ScrollArea className="flex-1 p-4" ref={scrollAreaRef}>
         <div className="space-y-4">
           {messages.map((message) => (
@@ -119,13 +169,55 @@ export const SmartAIAssistant: React.FC = () => {
               <div className={`flex-1 max-w-[80%] ${
                 message.role === 'user' ? 'text-right' : 'text-left'
               }`}>
-                <div className={`p-3 rounded-lg ${
+                 <div className={`p-3 rounded-lg ${
                   message.role === 'user'
                     ? 'bg-primary text-primary-foreground ml-auto'
                     : 'bg-muted'
                 } max-w-fit ${message.role === 'user' ? 'ml-auto' : 'mr-auto'}`}>
-                  <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                </div>
+                   <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                   
+                   {/* Plan Preview */}
+                   {message.plan && (
+                     <div className="mt-3 p-3 bg-background/50 rounded border">
+                       <div className="flex items-center gap-2 mb-2">
+                         <MapPin className="h-4 w-4" />
+                         <span className="font-medium text-sm">{message.plan.title}</span>
+                       </div>
+                       <p className="text-xs text-muted-foreground mb-2">{message.plan.description}</p>
+                       <div className="space-y-1">
+                         {message.plan.steps.slice(0, 3).map((step, index) => (
+                           <div key={step.id} className="text-xs flex justify-between">
+                             <span>{index + 1}. {step.title}</span>
+                             <span>{step.estimatedMinutes}m</span>
+                           </div>
+                         ))}
+                         {message.plan.steps.length > 3 && (
+                           <div className="text-xs text-muted-foreground">
+                             +{message.plan.steps.length - 3} more steps
+                           </div>
+                         )}
+                       </div>
+                     </div>
+                   )}
+                   
+                   {/* Action Buttons */}
+                   {message.actions && (
+                     <div className="mt-3 flex gap-2">
+                       {message.actions.map((action, index) => (
+                         <Button
+                           key={index}
+                           variant="outline"
+                           size="sm"
+                           onClick={() => message.plan && handleImplementPlan(message.plan)}
+                           className="text-xs"
+                         >
+                           <CheckCircle className="h-3 w-3 mr-1" />
+                           {action.label}
+                         </Button>
+                       ))}
+                     </div>
+                   )}
+                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
                   {new Date(message.timestamp).toLocaleTimeString()}
                 </p>
@@ -169,6 +261,19 @@ export const SmartAIAssistant: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      <PlanImplementationDialog
+        plan={currentPlan}
+        isOpen={showImplementDialog}
+        onClose={() => {
+          setShowImplementDialog(false);
+          setCurrentPlan(null);
+        }}
+        onImplemented={() => {
+          setShowImplementDialog(false);
+          setCurrentPlan(null);
+        }}
+      />
     </div>
   );
 };
