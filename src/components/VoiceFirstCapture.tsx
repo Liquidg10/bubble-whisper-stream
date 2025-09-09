@@ -47,12 +47,17 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
   const [isListening, setIsListening] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [transcript, setTranscript] = useState('');
+  const [interimTranscript, setInterimTranscript] = useState('');
   const [currentIntent, setCurrentIntent] = useState<IntentResult | null>(null);
   const [confidence, setConfidence] = useState(0);
   
   // Confirmation states for medium confidence
   const [awaitingConfirmation, setAwaitingConfirmation] = useState(false);
   const [pendingBubble, setPendingBubble] = useState<any>(null);
+  
+  // Bubble creation feedback
+  const [recentlyCreatedBubble, setRecentlyCreatedBubble] = useState<any>(null);
+  const [showCreationSuccess, setShowCreationSuccess] = useState(false);
   
   // Refs for audio processing
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -61,10 +66,13 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
   const recognitionRef = useRef<any>(null);
   const isHotkeyPressed = useRef(false);
   const processingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const sessionIdRef = useRef<string>('');
+  const finalResultProcessedRef = useRef(false);
 
   // Voice Activity Detection for near-instant processing
   const startVADProcessing = useCallback(async () => {
-    if (!isListening || !transcript || transcript.length < 5) return;
+    const currentText = interimTranscript || transcript;
+    if (!isListening || !currentText || currentText.length < 5) return;
     
     // Prevent duplicate processing
     if (isProcessing) return;
@@ -72,7 +80,7 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
     setIsProcessing(true);
     try {
       // Route intent with partial transcript for near-instant feedback
-      const intent = voiceRouter.route(transcript, {
+      const intent = voiceRouter.route(currentText, {
         context: {
           timeOfDay: new Date().getHours() > 17 ? 'evening' : 'day',
           recentBubbles: []
@@ -83,7 +91,7 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
       setConfidence(intent.confidence);
       
       console.log('🎯 Voice intent (partial):', {
-        text: transcript,
+        text: currentText,
         intent: intent.type,
         confidence: intent.confidence,
         gate: intent.confidenceGate
@@ -94,11 +102,12 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
     } finally {
       setIsProcessing(false);
     }
-  }, [transcript, isListening, isProcessing]);
+  }, [transcript, interimTranscript, isListening, isProcessing]);
 
   // Debounced VAD processing for partial transcripts
   useEffect(() => {
-    if (transcript && isListening && transcript.length > 5) {
+    const currentText = interimTranscript || transcript;
+    if (currentText && isListening && currentText.length > 5) {
       // Clear existing timeout
       if (processingTimeoutRef.current) {
         clearTimeout(processingTimeoutRef.current);
@@ -113,7 +122,7 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
         }
       };
     }
-  }, [transcript, isListening, startVADProcessing]);
+  }, [transcript, interimTranscript, isListening, startVADProcessing]);
 
   // Global hotkey listener
   useEffect(() => {
@@ -150,9 +159,13 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
     try {
       setIsListening(true);
       setTranscript('');
+      setInterimTranscript('');
       setCurrentIntent(null);
       setConfidence(0);
+      setShowCreationSuccess(false);
       audioChunksRef.current = [];
+      sessionIdRef.current = Date.now().toString();
+      finalResultProcessedRef.current = false;
 
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -176,24 +189,26 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
         recognition.lang = 'en-US';
         
         recognition.onresult = (event: any) => {
-          let finalTranscript = '';
-          let interimTranscript = '';
+          let newFinalTranscript = '';
+          let newInterimTranscript = '';
           
           for (let i = event.resultIndex; i < event.results.length; i++) {
             const result = event.results[i];
             if (result.isFinal) {
-              finalTranscript += result[0].transcript;
+              newFinalTranscript += result[0].transcript;
             } else {
-              interimTranscript += result[0].transcript;
+              newInterimTranscript += result[0].transcript;
             }
           }
           
-          // Only update with final results to prevent repetition
-          if (finalTranscript) {
-            setTranscript(prev => prev + finalTranscript);
-          } else if (interimTranscript && !transcript) {
-            // Show interim only when no final transcript exists
-            setTranscript(interimTranscript);
+          // Handle final results - accumulate them properly
+          if (newFinalTranscript && !finalResultProcessedRef.current) {
+            setTranscript(prev => prev + newFinalTranscript);
+            setInterimTranscript(''); // Clear interim when we get final
+            finalResultProcessedRef.current = true;
+          } else if (newInterimTranscript && !finalResultProcessedRef.current) {
+            // Only show interim if we haven't processed final results yet
+            setInterimTranscript(newInterimTranscript);
           }
         };
         
@@ -284,6 +299,7 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
     
     // Reset transcript after processing
     setTranscript('');
+    setInterimTranscript('');
   };
 
   const processFinalTranscript = async (finalText: string) => {
@@ -381,6 +397,10 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
     addBubble(bubble);
     onBubbleCreated?.(bubble);
     
+    // Show creation success feedback
+    setRecentlyCreatedBubble(bubble);
+    setShowCreationSuccess(true);
+    
     // Success feedback
     toast.success(`${intent.type} created!`, {
       description: text.substring(0, 60) + (text.length > 60 ? '...' : '')
@@ -388,10 +408,17 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
     
     // Reset state
     setTranscript('');
+    setInterimTranscript('');
     setCurrentIntent(null);
     setConfidence(0);
     setAwaitingConfirmation(false);
     setPendingBubble(null);
+    
+    // Hide success indicator after a delay
+    setTimeout(() => {
+      setShowCreationSuccess(false);
+      setRecentlyCreatedBubble(null);
+    }, 3000);
     
     console.log('✅ Voice bubble created:', { bubble, intent, trace: traceId });
   };
@@ -469,7 +496,7 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
           
           {/* Live Transcript */}
           <AnimatePresence>
-            {transcript && (
+            {(transcript || interimTranscript) && (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -477,7 +504,36 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
                 className="w-full max-w-md"
               >
                 <div className="bg-muted/50 rounded-lg p-3 text-sm">
-                  <p className="text-center">{transcript}</p>
+                  <p className="text-center">
+                    {transcript}
+                    {interimTranscript && (
+                      <span className="text-muted-foreground">{interimTranscript}</span>
+                    )}
+                  </p>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+          
+          {/* Bubble Creation Success */}
+          <AnimatePresence>
+            {showCreationSuccess && recentlyCreatedBubble && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9, y: -10 }}
+                className="w-full max-w-md"
+              >
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-sm">
+                  <div className="flex items-center gap-2 text-green-700">
+                    <Check className="h-4 w-4" />
+                    <span className="font-medium">
+                      {recentlyCreatedBubble.type} created!
+                    </span>
+                  </div>
+                  <p className="text-green-600 mt-1 text-xs">
+                    "{recentlyCreatedBubble.title}"
+                  </p>
                 </div>
               </motion.div>
             )}
