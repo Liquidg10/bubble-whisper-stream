@@ -110,10 +110,26 @@ Best regards,
         processedDraft = await this.generateMimeFormat(processedDraft);
       }
 
+      // Check recipient allowlist status for draft-first enforcement
+      const recipientEmails = processedDraft.to || processedDraft.recipients || [];
+      const recipientStatusList = await Promise.all(
+        recipientEmails.map(email => 
+          import('./recipientAllowlistService').then(m => m.recipientAllowlistService.checkRecipientStatus(email))
+        )
+      );
+
+      // Enforce draft-first behavior: only auto-send if ALL recipients are allowlisted
+      const allRecipientsAllowlisted = recipientStatusList.length > 0 && 
+        recipientStatusList.every(status => status.isAllowlisted);
+      
+      const avgTrustScore = recipientStatusList.length > 0 
+        ? recipientStatusList.reduce((sum, status) => sum + status.trustScore, 0) / recipientStatusList.length
+        : 0;
+
       // Use unified precision gate for decision making
       const entities = {
         recipients: {
-          emails: processedDraft.to || processedDraft.recipients || [],
+          emails: recipientEmails,
           confidence: 1.0
         }
       };
@@ -123,11 +139,11 @@ Best regards,
         entities,
         feature: 'email',
         userTrust: {
-          recipientAllowlisted: true,
-          contactTrustScore: 0.8
+          recipientAllowlisted: allRecipientsAllowlisted,
+          contactTrustScore: avgTrustScore
         },
         userPreferences: {
-          autoWriteEnabled: options.autoSendEnabled || false,
+          autoWriteEnabled: options.autoSendEnabled && allRecipientsAllowlisted,
           featureEnabled: true
         }
       });
@@ -181,12 +197,24 @@ Best regards,
         return await this.scheduleEmail(accountId, processedDraft);
       }
 
+      // Enforce draft-first behavior: override auto-send if recipients not allowlisted
+      const shouldAutoSend = options.autoSendEnabled && allRecipientsAllowlisted && decision.decision === 'auto-write';
+      
       // Use the base Gmail service for actual sending
       const result = await gmailDraftSendService.composeEmail(accountId, processedDraft, {
-        autoSendEnabled: options.autoSendEnabled,
-        requireConfirmation: options.requireConfirmation,
+        autoSendEnabled: shouldAutoSend,
+        requireConfirmation: options.requireConfirmation || !allRecipientsAllowlisted,
         bypassGuardrails: true // We already checked above
       });
+
+      // Record interactions for allowlisted recipients
+      if (result.success && result.decision === 'sent') {
+        await Promise.all(recipientEmails.map(email => 
+          import('./recipientAllowlistService').then(m => 
+            m.recipientAllowlistService.recordInteraction(email)
+          )
+        ));
+      }
 
       // Store compose activity for learning
       await this.recordComposeActivity(accountId, processedDraft, result);

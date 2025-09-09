@@ -395,12 +395,16 @@ class OAuthService {
       throw new Error('Account not found');
     }
 
-    // Check if token needs refresh
+    // Check if token is expired or will expire soon (within 5 minutes)
     const expiresAt = account.expires_at ? new Date(account.expires_at) : null;
     const isExpired = expiresAt && expiresAt <= new Date();
+    const willExpireSoon = expiresAt && expiresAt <= new Date(Date.now() + 5 * 60 * 1000);
 
     let accessToken = account.access_token;
-    if (isExpired && account.refresh_token) {
+    
+    // Proactively refresh if expired or expiring soon
+    if ((isExpired || willExpireSoon) && account.refresh_token) {
+      console.log('Proactively refreshing token before request');
       accessToken = await this.refreshAccessToken(account);
     }
 
@@ -420,6 +424,41 @@ class OAuthService {
     });
 
     return response;
+  }
+
+  /**
+   * Start automated background services
+   */
+  async startBackgroundServices(): Promise<void> {
+    console.log('Starting OAuth background services...');
+    
+    // Import and start services dynamically to avoid circular dependencies
+    try {
+      const { proactiveTokenRefreshService } = await import('./proactiveTokenRefresh');
+      const { watchRenewalService } = await import('./watchRenewalService');
+      
+      proactiveTokenRefreshService.startProactiveRefresh();
+      await watchRenewalService.startWatchRenewal();
+    } catch (error) {
+      console.error('Failed to start background services:', error);
+    }
+  }
+
+  /**
+   * Stop automated background services
+   */
+  async stopBackgroundServices(): Promise<void> {
+    console.log('Stopping OAuth background services...');
+    
+    try {
+      const { proactiveTokenRefreshService } = await import('./proactiveTokenRefresh');
+      const { watchRenewalService } = await import('./watchRenewalService');
+      
+      proactiveTokenRefreshService.stopProactiveRefresh();
+      watchRenewalService.stopWatchRenewal();
+    } catch (error) {
+      console.error('Failed to stop background services:', error);
+    }
   }
 }
 

@@ -132,9 +132,44 @@ const handler = async (req: Request): Promise<Response> => {
 };
 
 async function encryptToken(token: string): Promise<string> {
-  // For now, return the token as-is. In production, implement proper encryption
-  // This matches the database function we created
-  return token;
+  try {
+    const ENCRYPTION_KEY_LENGTH = 32;
+    const IV_LENGTH = 12;
+    
+    // Get encryption key from environment
+    const keyMaterial = new TextEncoder().encode(
+      Deno.env.get('OAUTH_ENCRYPTION_KEY') || 'default-oauth-encryption-key-change-me-in-production'
+    );
+
+    const key = await crypto.subtle.importKey(
+      'raw',
+      keyMaterial.slice(0, ENCRYPTION_KEY_LENGTH),
+      { name: 'AES-GCM' },
+      false,
+      ['encrypt']
+    );
+
+    const iv = crypto.getRandomValues(new Uint8Array(IV_LENGTH));
+    const data = new TextEncoder().encode(token);
+
+    const encrypted = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv },
+      key,
+      data
+    );
+
+    // Combine IV and encrypted data
+    const combined = new Uint8Array(iv.length + encrypted.byteLength);
+    combined.set(iv);
+    combined.set(new Uint8Array(encrypted), iv.length);
+
+    // Return base64 encoded
+    return btoa(String.fromCharCode(...combined));
+  } catch (error) {
+    console.error('Token encryption failed:', error);
+    // Fallback to plaintext in case of encryption failure
+    return token;
+  }
 }
 
 serve(handler);

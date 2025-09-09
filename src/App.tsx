@@ -63,6 +63,7 @@ import { DevMenu } from "./components/DevMenu";
 import { useDevMenu } from "./hooks/useDevMenu";
 import { AuthCallback } from "./pages/AuthCallback";
 import Privacy from "./pages/Privacy";
+import { oauthService } from '@/services/oauthService';
 
 const queryClient = new QueryClient();
 
@@ -76,6 +77,18 @@ const App = () => {
     React.useEffect(() => {
       console.log('Initializing store...');
       initializeStore();
+      
+      // Start OAuth background services
+      oauthService.startBackgroundServices().catch(error => {
+        console.error('Failed to start OAuth background services:', error);
+      });
+
+      // Cleanup on unmount
+      return () => {
+        oauthService.stopBackgroundServices().catch(error => {
+          console.error('Failed to stop OAuth background services:', error);
+        });
+      };
     }, [initializeStore]);
 
     return (
