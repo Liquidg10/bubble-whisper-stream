@@ -8,9 +8,12 @@ import { BecausePill } from '@/components/BecausePill';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { JoyCard } from '@/components/JoyCard';
 import { ConversationJoyCard } from '@/components/ConversationJoyCard';
-import { Heart, Search, Filter, Calendar, Star, Sparkles, MessageCircle } from 'lucide-react';
+import { JoyContextualChip } from '@/components/JoyContextualChip';
+import { ContextualNudgeSystem } from '@/components/ContextualNudgeSystem';
+import { Heart, Search, Filter, Calendar, Star, Sparkles, MessageCircle, MapPin, Zap } from 'lucide-react';
 import { Bubble } from '@/types/bubble';
 import { conversationJoyService, JoyfulConversation } from '@/services/conversationJoyService';
+import { joyContextualService, JoyMoment } from '@/services/joyContextualService';
 
 export const Joy: React.FC = () => {
   const { bubbles } = useBubbleStore();
@@ -18,6 +21,8 @@ export const Joy: React.FC = () => {
   const [timeFilter, setTimeFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
   const [joyfulConversations, setJoyfulConversations] = useState<JoyfulConversation[]>([]);
   const [isLoadingConversations, setIsLoadingConversations] = useState(false);
+  const [joyMoments, setJoyMoments] = useState<JoyMoment[]>([]);
+  const [isLoadingMoments, setIsLoadingMoments] = useState(false);
 
   // Filter bubbles to only show Joy-related ones (exclude receipts unless bookmarked)
   const joyBubbles = useMemo(() => {
@@ -104,7 +109,7 @@ export const Joy: React.FC = () => {
     return { today, thisWeek, favorites, auto, all: filteredJoyBubbles };
   }, [filteredJoyBubbles]);
 
-  // Load joyful conversations
+  // Load joyful conversations and contextual joy moments
   useEffect(() => {
     const loadJoyfulConversations = async () => {
       setIsLoadingConversations(true);
@@ -117,8 +122,21 @@ export const Joy: React.FC = () => {
         setIsLoadingConversations(false);
       }
     };
+
+    const loadJoyMoments = async () => {
+      setIsLoadingMoments(true);
+      try {
+        const moments = await joyContextualService.getJoyMoments();
+        setJoyMoments(moments);
+      } catch (error) {
+        console.warn('Failed to load joy moments:', error);
+      } finally {
+        setIsLoadingMoments(false);
+      }
+    };
     
     loadJoyfulConversations();
+    loadJoyMoments();
   }, []);
 
   const generateBecauseExplanation = (bubble: Bubble): string => {
@@ -201,8 +219,21 @@ export const Joy: React.FC = () => {
       </Card>
 
       {/* Content Tabs */}
-      <Tabs defaultValue="all" className="w-full">
-        <TabsList className="grid w-full grid-cols-6">
+      {/* Contextual Joy Nudges */}
+      <ContextualNudgeSystem 
+        className="mb-6"
+        onPhotoCapture={() => {
+          // TODO: Open photo capture modal
+          console.log('Photo capture requested from joy nudge');
+        }}
+      />
+
+      <Tabs defaultValue="contextual" className="w-full">
+        <TabsList className="grid w-full grid-cols-7">
+          <TabsTrigger value="contextual" className="flex items-center gap-2">
+            <Zap className="h-4 w-4" />
+            Contextual ({joyMoments.length})
+          </TabsTrigger>
           <TabsTrigger value="all" className="flex items-center gap-2">
             <Calendar className="h-4 w-4" />
             All ({groupedBubbles.all.length})
@@ -228,6 +259,56 @@ export const Joy: React.FC = () => {
             Favorites ({groupedBubbles.favorites.length})
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="contextual" className="mt-6">
+          {isLoadingMoments ? (
+            <Card>
+              <CardContent className="text-center py-8">
+                <Zap className="h-8 w-8 text-muted-foreground mx-auto mb-2 animate-pulse" />
+                <p className="text-muted-foreground">Loading contextual joy moments...</p>
+              </CardContent>
+            </Card>
+          ) : joyMoments.length === 0 ? (
+            <Card>
+              <CardContent className="text-center py-8">
+                <MapPin className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                <p className="text-muted-foreground">No contextual joy moments detected yet.</p>
+                <p className="text-xs text-muted-foreground mt-1">Enable location services and add calendar events to discover joy moments!</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {joyMoments.map((moment) => (
+                <div key={moment.id} className="space-y-2">
+                  <JoyContextualChip 
+                    joyMoment={moment}
+                    onFavorite={async (momentId) => {
+                      await joyContextualService.favoriteJoyMoment(momentId);
+                      // Refresh joy moments
+                      const updatedMoments = await joyContextualService.getJoyMoments();
+                      setJoyMoments(updatedMoments);
+                    }}
+                    onArchive={async (momentId) => {
+                      await joyContextualService.archiveJoyMoment(momentId);
+                      // Refresh joy moments
+                      const updatedMoments = await joyContextualService.getJoyMoments();
+                      setJoyMoments(updatedMoments);
+                    }}
+                    onPhotoNudge={() => {
+                      // TODO: Open photo capture modal
+                      console.log('Photo capture requested for moment:', moment.id);
+                    }}
+                  />
+                  <BecausePill 
+                    explanation={`${(moment.confidence * 100).toFixed(0)}% confidence from ${moment.source} data`}
+                    variant="pill"
+                    compact
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </TabsContent>
 
         <TabsContent value="conversations" className="mt-6">
           {isLoadingConversations ? (
