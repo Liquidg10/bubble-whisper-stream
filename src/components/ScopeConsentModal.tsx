@@ -134,7 +134,7 @@ export function ScopeConsentModal({
           <div className="space-y-3">
             <h4 className="text-sm font-medium">Requested Permissions:</h4>
             <div className="space-y-2">
-              {request.requiredScopes.map((scope) => {
+              {request.requiredScopes?.map((scope) => {
                 const scopeInfo = SCOPE_DESCRIPTIONS[scope as keyof typeof SCOPE_DESCRIPTIONS];
                 if (!scopeInfo) return null;
 
