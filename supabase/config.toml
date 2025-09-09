@@ -16,5 +16,14 @@ additional_redirect_urls = ["https://ekekeywoxvdbfbmqyhjy.supabase.co"]
 [edge_functions]
 enabled = true
 
+[functions.oauth-google-start]
+verify_jwt = false
+
+[functions.oauth-google-callback]
+verify_jwt = false
+
+[functions.oauth-scope-decay]
+verify_jwt = false
+
 [functions.ai-tts-generate]
 verify_jwt = false

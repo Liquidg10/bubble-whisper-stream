@@ -159,21 +159,29 @@ class OAuthService {
       throw new Error('User not authenticated');
     }
 
-    const encryptedData = {
+    // Use the new scopes_string format and let the server handle encryption
+    const updateData = {
       user_id: session.session.user.id,
       provider: account.provider,
       provider_user_id: account.provider_user_id,
-      access_token: account.access_token ? await this.encryptToken(account.access_token) : null,
-      refresh_token: account.refresh_token ? await this.encryptToken(account.refresh_token) : null,
+      access_token: account.access_token,
+      refresh_token: account.refresh_token,
       expires_at: account.expires_at,
       last_used_at: new Date().toISOString(),
-      scopes: account.scopes,
-      account_email: account.account_email
+      account_email: account.account_email,
+      token_type: account.token_type || 'Bearer'
     };
+
+    // Handle scopes - convert array to space-delimited string
+    if (account.scopes) {
+      (updateData as any).scopes_string = Array.isArray(account.scopes) 
+        ? account.scopes.join(' ')
+        : account.scopes;
+    }
 
     const { error } = await supabase
       .from('oauth_accounts')
-      .upsert(encryptedData, {
+      .upsert(updateData, {
         onConflict: 'provider,provider_user_id'
       });
 

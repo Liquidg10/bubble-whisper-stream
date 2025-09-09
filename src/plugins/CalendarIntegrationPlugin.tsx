@@ -164,11 +164,11 @@ export function CalendarIntegrationPlugin() {
         if (event.data.type === 'GOOGLE_OAUTH_SUCCESS') {
           popup?.close();
           
-          // Exchange code for tokens via edge function
-          const { data, error } = await supabase.functions.invoke('oauth-google', {
+          // Use our new OAuth callback edge function
+          const { data, error } = await supabase.functions.invoke('oauth-google-callback', {
             body: {
               code: event.data.code,
-              redirect_uri: `${window.location.origin}/oauth-callback.html`
+              state: event.data.state
             }
           });
 

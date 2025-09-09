@@ -204,14 +204,36 @@ export const EmailIntegrationPlugin: React.FC = () => {
     
     try {
       // Request minimal Gmail metadata scope initially
-      const request = await oauthService.requestScopeEscalation({
+      const authUrl = await oauthService.requestScopeEscalation({
         provider: 'google',
         service: 'email',
         requiredScopes: ['https://www.googleapis.com/auth/gmail.metadata'],
         reason: 'Access email headers and basic information'
       });
       
-      setScopeRequest(request);
+      // Open OAuth flow in popup
+      const popup = window.open(authUrl, 'oauth', 'width=500,height=600');
+      
+      // Handle OAuth callback
+      const handleMessage = async (event: MessageEvent) => {
+        if (event.origin !== window.location.origin) return;
+        
+        if (event.data.type === 'GOOGLE_OAUTH_SUCCESS') {
+          popup?.close();
+          await loadEmailAccounts();
+          toast({
+            title: "Gmail Connected",
+            description: "Gmail has been successfully connected.",
+          });
+        } else if (event.data.type === 'GOOGLE_OAUTH_ERROR') {
+          popup?.close();
+          throw new Error(event.data.error);
+        }
+        
+        window.removeEventListener('message', handleMessage);
+      };
+
+      window.addEventListener('message', handleMessage);
       
     } catch (error) {
       console.error('Failed to initiate Gmail connection:', error);
