@@ -24,6 +24,7 @@ export interface EnhancedEmailSendResult extends EmailSendResult {
   templateUsed?: string;
   scheduled?: boolean;
   mimeGenerated?: boolean;
+  guardrailDecision?: string;
 }
 
 export interface EmailTemplate {
@@ -110,12 +111,14 @@ Best regards,
       // Enhanced guardrails check with template analysis
       if (!options.bypassGuardrails) {
         const guardrailResult = await emailGuardrailsService.evaluateEmailSafety({
-          recipients: processedDraft.to,
+          recipients: processedDraft.to || processedDraft.recipients,
           subject: processedDraft.subject,
           body: processedDraft.body,
-          hasAttachments: (draft.attachments?.length || 0) > 0,
-          isReply: !!processedDraft.replyTo,
-          userSettings: {}
+          userSettings: {
+            autoSendEnabled: options.autoSendEnabled ?? false,
+            maxDailyAutoSends: 20,
+            requireConfirmationForNewRecipients: true
+          }
         });
 
         if (guardrailResult.decision === 'blocked') {
@@ -125,7 +128,8 @@ Best regards,
             messageId: '',
             draftId: '',
             error: `Email blocked: ${guardrailResult.warnings.join(', ')}`,
-            templateUsed: draft.templateId
+            templateUsed: draft.templateId,
+            guardrailCheck: guardrailResult
           };
         }
       }
@@ -155,11 +159,20 @@ Best regards,
       console.error('Error in enhanced Gmail compose:', error);
       return {
         success: false,
-        decision: 'error',
+        decision: 'blocked',
         messageId: '',
         draftId: '',
         error: error.message,
-        templateUsed: draft.templateId
+        templateUsed: draft.templateId,
+        guardrailCheck: {
+          canAutoSend: false,
+          canDraft: false,
+          requiresConfirmation: false,
+          blockedReasons: [error.message],
+          warnings: [],
+          confidence: 0,
+          decision: 'blocked'
+        }
       };
     }
   }
@@ -259,21 +272,26 @@ Best regards,
 
     if (draftResult.success && draftResult.draftId) {
       // Store scheduling information in database
-      await supabase
-        .from('email_messages')
-        .insert({
-          user_id: draft.scheduling?.timezone || 'unknown', // This should be the actual user ID
-          email_account_id: accountId,
-          external_message_id: draftResult.draftId,
-          subject: draft.subject,
-          sender_email: 'scheduled@local',
-          to_emails: draft.to,
-          payload_metadata: {
-            scheduled: true,
-            sendAt: draft.scheduling?.sendAt,
-            timezone: draft.scheduling?.timezone
-          }
-        });
+      try {
+        await supabase
+          .from('email_messages')
+          .insert({
+            user_id: accountId, // Use the account ID as user ID for now
+            email_account_id: accountId,
+            external_message_id: draftResult.draftId,
+            subject: draft.subject,
+            sender_email: 'scheduled@local',
+            to_emails: draft.to || draft.recipients,
+            received_at: new Date().toISOString(),
+            payload_metadata: {
+              scheduled: true,
+              sendAt: draft.scheduling?.sendAt?.toISOString(),
+              timezone: draft.scheduling?.timezone
+            }
+          });
+      } catch (error) {
+        console.error('Failed to store scheduling info:', error);
+      }
     }
 
     return {
@@ -298,7 +316,7 @@ Best regards,
         recipient_count: draft.to.length + (draft.cc?.length || 0) + (draft.bcc?.length || 0),
         success: result.success,
         decision: result.decision,
-        guardrail_decision: result.guardrailDecision,
+        guardrail_decision: result.guardrailCheck?.decision,
         mime_formatted: draft.mimeFormatted,
         scheduled: !!draft.scheduling,
         timestamp: new Date().toISOString()

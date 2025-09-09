@@ -7,11 +7,15 @@ import { decisionTraceService } from './decisionTraceService';
 export interface EmailDraft {
   id?: string;
   recipients: string[];
+  to?: string[];
+  cc?: string[];
+  bcc?: string[];
   subject: string;
   body: string;
   htmlBody?: string;
   threadId?: string;
   inReplyTo?: string;
+  replyTo?: string;
   references?: string;
 }
 

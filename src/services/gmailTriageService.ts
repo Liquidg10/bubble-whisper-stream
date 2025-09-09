@@ -324,9 +324,12 @@ class GmailTriageService {
       dueDate: item.due_date ? new Date(item.due_date) : undefined,
       completed: item.action_completed,
       metadata: {
-        subject: item.metadata?.subject || '',
-        sender: item.metadata?.sender || '',
-        snippet: item.metadata?.snippet || '',
+        subject: (typeof item.metadata === 'object' && item.metadata && 'subject' in item.metadata) ? 
+          String(item.metadata.subject) : '',
+        sender: (typeof item.metadata === 'object' && item.metadata && 'sender' in item.metadata) ? 
+          String(item.metadata.sender) : '',
+        snippet: (typeof item.metadata === 'object' && item.metadata && 'snippet' in item.metadata) ? 
+          String(item.metadata.snippet) : '',
         extractedData: item.metadata
       }
     }));
@@ -427,7 +430,8 @@ class GmailTriageService {
         thread_id: message.threadId,
         external_message_id: message.id,
         gmail_thread_id: message.threadId,
-        internal_date: new Date(parseInt(message.internalDate)),
+        received_at: new Date(parseInt(message.internalDate)).toISOString(),
+        internal_date: new Date(parseInt(message.internalDate)).toISOString(),
         subject,
         sender_email: senderEmail,
         sender_name: senderName,
