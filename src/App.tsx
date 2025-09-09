@@ -10,6 +10,7 @@ import { ThemeProvider } from '@/themes/provider';
 import { AccessibilityProvider } from '@/components/AccessibilityProvider';
 import { FeatureFlagsProvider } from '@/components/FeatureFlags';
 import { ProgressiveOnboardingProvider } from '@/providers/ProgressiveOnboardingProvider';
+import { CalmModeProvider } from '@/providers/CalmModeProvider';
 import Index from "./pages/Index";
 import { Timeline } from './pages/Timeline';
 import { Settings } from './pages/Settings';
@@ -81,8 +82,9 @@ const App = () => {
         <AccessibilityProvider>
           <FeatureFlagsProvider>
             <ProgressiveOnboardingProvider>
-              <QueryClientProvider client={queryClient}>
-                <TooltipProvider>
+              <CalmModeProvider>
+                <QueryClientProvider client={queryClient}>
+                  <TooltipProvider>
                 <Toaster />
                 <Sonner />
                 <BrowserRouter>
@@ -143,9 +145,10 @@ const App = () => {
                 <DevMenu isOpen={isDevMenuOpen} onClose={closeDevMenu} />
                 </TooltipProvider>
               </QueryClientProvider>
-            </ProgressiveOnboardingProvider>
-          </FeatureFlagsProvider>
-        </AccessibilityProvider>
+            </CalmModeProvider>
+          </ProgressiveOnboardingProvider>
+        </FeatureFlagsProvider>
+      </AccessibilityProvider>
       </ThemeProvider>
     );
   } catch (error) {

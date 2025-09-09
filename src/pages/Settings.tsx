@@ -11,7 +11,8 @@ import {
   Home,
   Lock,
   History,
-  GraduationCap
+  GraduationCap,
+  Eye
 } from 'lucide-react';
 import { GeneralSettings } from '@/components/settings/GeneralSettings';
 import { IntelligenceSettings } from '@/components/IntelligenceSettings';
@@ -25,6 +26,7 @@ import { CleanHouseSettings } from '@/components/settings/CleanHouseSettings';
 import { SafetySettings } from '@/components/settings/SafetySettings';
 import { AuditSettings } from '@/components/settings/AuditSettings';
 import { OnboardingSettings } from '@/components/settings/OnboardingSettings';
+import { AccessibilitySettings } from '@/components/settings/AccessibilitySettings';
 import { useFeatureFlags } from '@/components/FeatureFlags';
 import { isFeatureEnabled } from '@/config/flags';
 
@@ -46,7 +48,7 @@ export const Settings: React.FC = () => {
 
       <div className="flex-1 overflow-hidden">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
-          <TabsList className={`grid w-full ${showCBTTab ? 'grid-cols-12' : 'grid-cols-11'} mx-4 mt-4`}>
+          <TabsList className={`grid w-full ${showCBTTab ? 'grid-cols-13' : 'grid-cols-12'} mx-4 mt-4`}>
             <TabsTrigger value="general" className="flex items-center gap-2">
               <SettingsIcon className="h-4 w-4" />
               <span className="hidden sm:inline">General</span>
@@ -92,6 +94,10 @@ export const Settings: React.FC = () => {
             <TabsTrigger value="privacy" className="flex items-center gap-2">
               <Shield className="h-4 w-4" />
               <span className="hidden sm:inline">Privacy</span>
+            </TabsTrigger>
+            <TabsTrigger value="accessibility" className="flex items-center gap-2">
+              <Eye className="h-4 w-4" />
+              <span className="hidden sm:inline">A11y</span>
             </TabsTrigger>
             {isLegacyFeatureEnabled('debugMode') && (
               <TabsTrigger value="advanced" className="flex items-center gap-2">
@@ -146,6 +152,10 @@ export const Settings: React.FC = () => {
 
             <TabsContent value="privacy" className="space-y-6 mt-0">
               <PrivacySecuritySettings />
+            </TabsContent>
+
+            <TabsContent value="accessibility" className="space-y-6 mt-0">
+              <AccessibilitySettings />
             </TabsContent>
 
             {isLegacyFeatureEnabled('debugMode') && (
