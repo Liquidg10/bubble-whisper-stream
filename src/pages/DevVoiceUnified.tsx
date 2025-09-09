@@ -16,11 +16,14 @@ import { voiceRouter } from '@/intent/voiceRouter';
 import { audioSessionManager } from '@/services/voiceSessionManager';
 import { voiceHotkeyManager } from '@/services/voiceHotkeyManager';
 import { decisionTraceService } from '@/services/decisionTraceService';
+import { voiceMetricsService } from '@/services/voiceMetricsService';
 import { HeaderVoiceCapture } from '@/components/HeaderVoiceCaptureUnified';
 import { VoiceFirstCaptureUnified } from '@/components/VoiceFirstCaptureUnified';
 import { VoiceSettingsUnified } from '@/components/VoiceSettingsUnified';
+import { VoicePerformanceMonitor } from '@/components/VoicePerformanceMonitor';
+import { goldenScenarios, testSuiteConfig, categoryBudgets } from '@/test/voice/goldenScenarios';
 import { flags } from '@/config/flags';
-import { Mic, TestTube, Settings, Activity, Target, Zap } from 'lucide-react';
+import { Mic, TestTube, Settings, Activity, Target, Zap, BarChart3 } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function DevVoiceUnified() {

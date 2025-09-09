@@ -10,6 +10,7 @@ import { modalityService } from './modalityService';
 import { audioService } from './audio';
 import { devLog } from '@/devtools/devLog';
 import { useBubbleStore } from '@/stores/bubbleStore';
+import { voiceMetricsService } from './voiceMetricsService';
 
 export interface VoiceEngineConfig {
   source: string; // Component identifier
