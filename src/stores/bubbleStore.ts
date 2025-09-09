@@ -495,6 +495,12 @@ export const useBubbleStore = create<BubbleStore>()(
         set({ settings: updated });
         
         try {
+          // Check if database is initialized before attempting to persist
+          if (!storageService.isInitialized()) {
+            console.warn('Database not yet initialized, skipping settings persistence');
+            return;
+          }
+          
           // Persist to storage in background
           await storageService.updateSettings(updated);
         } catch (error) {
