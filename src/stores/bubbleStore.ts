@@ -392,6 +392,14 @@ export const useBubbleStore = create<BubbleStore>()(
       clearAllBubbles: async () => {
         try {
           const state = get();
+          
+          // Clear from storage
+          await storageService.clearAllBubbles();
+          
+          // Clear from memory
+          set({ bubbles: [] });
+          
+          console.log('🧹 All bubbles cleared from storage and memory');
           // Delete all bubbles from storage
           await Promise.all(state.bubbles.map(bubble => storageService.deleteBubble(bubble.id)));
           // Clear state

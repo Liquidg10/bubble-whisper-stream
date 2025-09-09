@@ -21,6 +21,12 @@ export function DebugDataPanel() {
     await clearSampleData();
     await initializeStore(); // Refresh the store
   };
+
+  const handleCompleteCleanSlate = async () => {
+    const { clearAllBubbles } = useBubbleStore.getState();
+    await clearAllBubbles();
+    await initializeStore(); // Refresh the store
+  };
   
   return (
     <div className="w-full max-w-4xl mx-auto m-4 space-y-4">
@@ -74,6 +80,9 @@ export function DebugDataPanel() {
           </Button>
           <Button onClick={handleClearSampleData} variant="outline">
             🗑️ Clear Sample Data
+          </Button>
+          <Button onClick={handleCompleteCleanSlate} variant="destructive">
+            🧹 Complete Clean Slate
           </Button>
           <Button onClick={initializeStore} variant="secondary">
             🔄 Refresh Store

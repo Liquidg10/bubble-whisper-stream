@@ -137,6 +137,14 @@ class StorageService {
     await this.promisifyRequest(store.delete(id));
   }
 
+  async clearAllBubbles(): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+    
+    const transaction = this.db.transaction(['bubbles'], 'readwrite');
+    const store = transaction.objectStore('bubbles');
+    await this.promisifyRequest(store.clear());
+  }
+
   // Reminders CRUD
   async createReminder(reminder: Reminder): Promise<void> {
     if (!this.db) throw new Error('Database not initialized');

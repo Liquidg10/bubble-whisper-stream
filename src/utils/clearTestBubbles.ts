@@ -71,5 +71,14 @@ export async function setupCleanBubbles() {
   }
 }
 
+export async function setupCompleteCleanSlate() {
+  const { clearAllBubbles } = useBubbleStore.getState();
+  
+  // Clear ALL bubbles - complete clean slate
+  await clearAllBubbles();
+  
+  console.log('🧹 Complete clean slate: All bubbles removed');
+}
+
 // Execute immediately
 setupCleanBubbles();

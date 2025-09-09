@@ -7,29 +7,41 @@ import { useToast } from '@/hooks/use-toast';
 import { Mic, MicOff, Play, Pause, Square, Trash2, Sparkles } from 'lucide-react';
 import { modalityService } from '@/services/modalityService';
 import { motion, AnimatePresence } from 'framer-motion';
+import { VoiceConfidenceIndicator } from '@/components/VoiceConfidenceIndicator';
+import { useVoiceAutoCommit } from '@/hooks/useVoiceAutoCommit';
 
 interface EnhancedVoiceCaptureProps {
   onTranscription?: (text: string, sentiment?: any) => void;
   onAudioBlob?: (blob: Blob) => void;
   autoTranscribe?: boolean;
   analyzeSentiment?: boolean;
+  autoCommit?: boolean;
 }
 
 export const EnhancedVoiceCapture: React.FC<EnhancedVoiceCaptureProps> = ({
   onTranscription,
   onAudioBlob,
   autoTranscribe = true,
-  analyzeSentiment = true
+  analyzeSentiment = true,
+  autoCommit = true
 }) => {
   const { toast } = useToast();
   const [isRecording, setIsRecording] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [transcription, setTranscription] = useState<string>('');
   const [sentiment, setSentiment] = useState<any>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
+
+  const { 
+    isProcessing, 
+    lastIntent, 
+    wasAutoCommitted, 
+    bubbleCreated, 
+    processVoiceInput,
+    resetState 
+  } = useVoiceAutoCommit();
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -110,7 +122,6 @@ export const EnhancedVoiceCapture: React.FC<EnhancedVoiceCaptureProps> = ({
   }, [isRecording]);
 
   const transcribeAudio = useCallback(async (blob: Blob) => {
-    setIsProcessing(true);
     setSentiment(null);
     
     try {
@@ -127,6 +138,11 @@ export const EnhancedVoiceCapture: React.FC<EnhancedVoiceCaptureProps> = ({
           onTranscription?.(result.text);
         }
 
+        // Process with auto-commit if enabled
+        if (autoCommit) {
+          await processVoiceInput(result.text);
+        }
+
         toast({
           title: "Transcription Complete",
           description: result.because,
@@ -141,8 +157,6 @@ export const EnhancedVoiceCapture: React.FC<EnhancedVoiceCaptureProps> = ({
         description: "Could not transcribe audio. Please try again.",
         variant: "destructive",
       });
-    } finally {
-      setIsProcessing(false);
     }
   }, [analyzeSentiment, onTranscription, toast]);
 
@@ -179,6 +193,7 @@ export const EnhancedVoiceCapture: React.FC<EnhancedVoiceCaptureProps> = ({
     setIsPlaying(false);
     setCurrentTime(0);
     setDuration(0);
+    resetState();
 
     if (audioRef.current) {
       audioRef.current.pause();
@@ -189,7 +204,7 @@ export const EnhancedVoiceCapture: React.FC<EnhancedVoiceCaptureProps> = ({
       URL.revokeObjectURL(audioUrlRef.current);
       audioUrlRef.current = null;
     }
-  }, []);
+  }, [resetState]);
 
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
@@ -324,6 +339,16 @@ export const EnhancedVoiceCapture: React.FC<EnhancedVoiceCaptureProps> = ({
                     </Badge>
                   ))}
                 </div>
+              )}
+
+              {/* Voice Auto-Commit Feedback */}
+              {autoCommit && lastIntent && (
+                <VoiceConfidenceIndicator
+                  intentResult={lastIntent}
+                  isProcessing={isProcessing}
+                  wasAutoCommitted={wasAutoCommitted}
+                  bubbleCreated={bubbleCreated}
+                />
               )}
             </motion.div>
           )}
