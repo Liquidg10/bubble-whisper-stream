@@ -25,6 +25,7 @@ import { ttsService } from '@/services/tts';
 import { decisionTraceService } from '@/services/decisionTraceService';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
+import { OverlayHandle } from '@/components/OverlayHandle';
 
 interface VoiceFirstCaptureProps {
   className?: string;
@@ -36,6 +37,11 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
   onBubbleCreated
 }) => {
   const { addBubble, settings } = useBubbleStore();
+  
+  // Drag state
+  const [isDragging, setIsDragging] = useState(false);
+  const [position, setPosition] = useState({ x: 20, y: 20 });
+  const dragRef = useRef<{ startX: number; startY: number; startPosX: number; startPosY: number } | null>(null);
   
   // Get voice settings from bubble store
   const voiceAutoCommit = settings.voiceAutoCommit ?? true;
@@ -454,13 +460,63 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
     return 'text-red-600';
   };
 
+  // Drag handlers
+  const handleDragStart = (e: React.MouseEvent) => {
+    setIsDragging(true);
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startPosX: position.x,
+      startPosY: position.y
+    };
+    
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!dragRef.current) return;
+      
+      const deltaX = e.clientX - dragRef.current.startX;
+      const deltaY = e.clientY - dragRef.current.startY;
+      
+      setPosition({
+        x: dragRef.current.startPosX + deltaX,
+        y: dragRef.current.startPosY + deltaY
+      });
+    };
+    
+    const handleMouseUp = () => {
+      setIsDragging(false);
+      dragRef.current = null;
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+    
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  };
+
   return (
-    <div className={cn('space-y-4', className)}>
+    <div 
+      className={cn('fixed z-50', className)}
+      style={{
+        left: `${position.x}px`,
+        top: `${position.y}px`,
+        transform: isDragging ? 'scale(1.02)' : 'scale(1)',
+        transition: isDragging ? 'none' : 'transform 0.2s ease-out'
+      }}
+    >
+      {/* Drag Handle */}
+      <OverlayHandle 
+        onMouseDown={handleDragStart}
+        className="mb-2"
+      >
+        Voice Capture
+      </OverlayHandle>
+      
       {/* Main Voice Capture Button */}
       <Card className={cn(
         'p-6 transition-all duration-200',
         isListening && 'ring-2 ring-primary',
-        awaitingConfirmation && 'ring-2 ring-yellow-500'
+        awaitingConfirmation && 'ring-2 ring-yellow-500',
+        isDragging && 'shadow-2xl'
       )}>
         <div className="flex flex-col items-center space-y-4">
           {/* Voice Button */}
