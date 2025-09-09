@@ -12,7 +12,7 @@ import { AudioQueueIndicator } from '@/components/AudioQueueIndicator';
 import { PhotoDebugPanel } from '@/components/PhotoDebugPanel';
 import { CleanHouseHeaderTimer } from '@/components/CleanHouseHeaderTimer';
 import { PomodoroHeaderTimer } from '@/components/PomodoroHeaderTimer';
-import { VoiceFirstCapture } from '@/components/VoiceFirstCapture';
+import { HeaderVoiceCapture } from '@/components/HeaderVoiceCapture';
 // import { EnhancedAIChat } from '@/components/CBTEnhancedChat';
 
 import NarrativeSearch from '@/components/NarrativeSearch';
@@ -48,6 +48,7 @@ export const AppShell: React.FC = () => {
         <div className="flex items-center gap-2">
             <CleanHouseHeaderTimer />
             <PomodoroHeaderTimer />
+            <HeaderVoiceCapture />
           <Button
             variant="ghost"
             size="sm"
@@ -82,11 +83,6 @@ export const AppShell: React.FC = () => {
         <GlimmerNotificationSystem />
         <OfflineDetector />
         <AudioQueueIndicator />
-        
-        {/* Voice-First Capture - Global */}
-        <div className="fixed bottom-24 right-6 z-50">
-          <VoiceFirstCapture />
-        </div>
       </main>
 
       {/* AI Assistant Modal */}
