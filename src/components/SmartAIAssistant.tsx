@@ -183,10 +183,31 @@ export const SmartAIAssistant: React.FC = () => {
   };
 
   const isPlanningRequest = (content: string): boolean => {
-    const planKeywords = ['plan', 'help me', 'schedule', 'organize', 'strategy', 'routine', 'morning', 'day', 'health', 'work'];
-    return planKeywords.some(keyword => 
-      content.toLowerCase().includes(keyword)
-    );
+    const lowerContent = content.toLowerCase();
+    
+    // Explicit planning request phrases
+    const explicitPlanRequests = [
+      'help me plan', 'create a plan', 'make a plan', 'plan my',
+      'help plan my', 'planning help', 'create a routine',
+      'help me organize', 'need a strategy', 'create a strategy'
+    ];
+    
+    // Check for explicit requests first
+    if (explicitPlanRequests.some(phrase => lowerContent.includes(phrase))) {
+      return true;
+    }
+    
+    // More specific planning indicators (not just keywords)
+    const planningIndicators = [
+      /plan.*for.*tomorrow/i,
+      /plan.*for.*today/i,
+      /help.*organize.*my/i,
+      /create.*schedule/i,
+      /need.*routine/i,
+      /strategy.*for/i
+    ];
+    
+    return planningIndicators.some(pattern => pattern.test(content));
   };
 
   const determinePlanType = (content: string): 'morning' | 'workday' | 'health' | 'project' | 'general' => {

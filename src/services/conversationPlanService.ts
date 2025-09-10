@@ -78,33 +78,22 @@ class ConversationPlanService {
     const context = this.contexts.get(conversationId);
     if (!context?.activePlan) return null;
 
-    try {
-      // Use enhanced plan revision service for better modifications
-      const { enhancedPlanRevisionService } = await import('./enhancedPlanRevisionService');
-      
-      const revisionRequest = {
-        originalPlan: context.activePlan,
-        userFeedback: modification,
-        conversationHistory: context.planModifications,
-        revisionType: this.determineRevisionType(modification) as 'incremental' | 'comprehensive'
-      };
+    devLog(`Modifying plan for conversation ${conversationId}: ${modification}`);
 
-      const result = await enhancedPlanRevisionService.revisePlan(revisionRequest);
-      
+    // Use direct modification logic for better reliability
+    const modifiedPlan = await this.fallbackModifyPlan(conversationId, modification);
+    
+    if (modifiedPlan) {
       // Update context
-      context.activePlan = result.revisedPlan;
+      context.activePlan = modifiedPlan;
       context.planModifications.push(modification);
       this.contexts.set(conversationId, context);
-
-      devLog(`Plan revised: ${result.changesSummary}`);
-      return result.revisedPlan;
-
-    } catch (error) {
-      devLog(`Plan modification error: ${error}`);
-      
-      // Fallback to original simple modification
-      return await this.fallbackModifyPlan(conversationId, modification);
+      devLog(`Plan successfully modified`);
+    } else {
+      devLog(`Plan modification failed`);
     }
+
+    return modifiedPlan;
   }
 
   /**
@@ -195,7 +184,7 @@ class ConversationPlanService {
     const newStep: PlanStep = {
       id: `step-${crypto.randomUUID().slice(0, 8)}`,
       title: stepTitle,
-      description: '',
+      description: `Added based on: ${modification}`,
       estimatedMinutes: 10, // Default, can be refined
       priority: 'medium',
       category: 'action',
@@ -207,6 +196,8 @@ class ConversationPlanService {
       newStep,
       ...plan.steps.slice(insertPosition)
     ];
+
+    devLog(`Added step "${stepTitle}" at position ${insertPosition}`);
 
     return {
       ...plan,
@@ -253,22 +244,26 @@ class ConversationPlanService {
 
   private extractStepTitle(modification: string): string {
     // Extract meaningful step title from modification text
-    const addWords = ['add', 'include', 'insert'];
-    const afterWords = ['after', 'following'];
+    let title = modification.toLowerCase();
     
-    let title = modification;
+    // Remove common modification words and phrases
+    const removePatterns = [
+      /^add\s+/i, /^include\s+/i, /^insert\s+/i,
+      /\s+after\s+.*/i, /\s+before\s+.*/i, /\s+to\s+the\s+plan/i,
+      /\s+to\s+my\s+plan/i, /\s+please/i
+    ];
     
-    // Remove common modification words
-    addWords.forEach(word => {
-      title = title.replace(new RegExp(`\\b${word}\\b`, 'gi'), '');
+    removePatterns.forEach(pattern => {
+      title = title.replace(pattern, '');
     });
     
-    afterWords.forEach(word => {
-      const regex = new RegExp(`\\b${word}\\b.*`, 'gi');
-      title = title.replace(regex, '');
-    });
+    // Clean up and capitalize
+    title = title.trim();
+    if (title) {
+      title = title.charAt(0).toUpperCase() + title.slice(1);
+    }
     
-    return title.trim() || 'New Step';
+    return title || 'New Step';
   }
 
   private findInsertPosition(plan: GeneratedPlan, modification: string): number {

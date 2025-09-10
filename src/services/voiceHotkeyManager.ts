@@ -163,29 +163,38 @@ export class VoiceHotkeyManager {
     if (!target || !(target instanceof HTMLElement)) return false;
     
     const tagName = target.tagName.toLowerCase();
-    const isInput = tagName === 'input' || tagName === 'textarea';
-    const isContentEditable = target.contentEditable === 'true';
-    const hasRole = target.getAttribute('role') === 'textbox';
     
-    // Enhanced detection for AI Assistant chat area
-    let element: HTMLElement | null = target;
-    while (element) {
-      // Check if we're in the AI Assistant container
-      if (element.getAttribute('data-ai-assistant') !== null) {
-        devLog(`Voice hotkey blocked - inside AI Assistant, tagName: ${tagName}`);
-        return true;
-      }
-      element = element.parentElement;
+    // Primary check: is this a text input element?
+    const isTextInput = tagName === 'input' || tagName === 'textarea';
+    const isContentEditable = target.contentEditable === 'true';
+    const hasTextboxRole = target.getAttribute('role') === 'textbox';
+    
+    // If it's clearly a text input, block hotkey
+    if (isTextInput || isContentEditable || hasTextboxRole) {
+      devLog(`Voice hotkey blocked - text input detected: ${tagName}`);
+      return true;
     }
     
-    // Check for specific textarea attributes used by shadcn components
-    const isTextArea = tagName === 'textarea';
-    const hasAriaDescriptor = target.hasAttribute('aria-describedby');
-    const hasAutoComplete = target.hasAttribute('autocomplete');
+    // Enhanced detection for AI Assistant chat area - check the exact element first
+    if (target.closest('[data-ai-assistant]')) {
+      devLog(`Voice hotkey blocked - inside AI Assistant container`);
+      return true;
+    }
     
-    devLog(`Voice hotkey typing check - tagName: ${tagName}, isInput: ${isInput}, isTextArea: ${isTextArea}, hasAriaDescriptor: ${hasAriaDescriptor}`);
+    // Check if we're in any form field or input-like element
+    const inputSelectors = [
+      'input', 'textarea', '[contenteditable="true"]', 
+      '[role="textbox"]', '[role="combobox"]'
+    ];
     
-    return isInput || isContentEditable || hasRole;
+    for (const selector of inputSelectors) {
+      if (target.matches(selector) || target.closest(selector)) {
+        devLog(`Voice hotkey blocked - matches input selector: ${selector}`);
+        return true;
+      }
+    }
+    
+    return false;
   }
 }
 
