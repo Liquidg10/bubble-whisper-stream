@@ -24,7 +24,7 @@ export const VoiceSettingsUnified: React.FC = () => {
   
   // Voice settings with defaults
   const voiceAutoCommit = settings.voiceAutoCommit ?? false;
-  const voiceHotkey = settings.voiceHotkey ?? 'Space';
+  const voiceHotkey = settings.voiceHotkey ?? 'Tab';
   const voiceConfidenceThreshold = settings.voiceConfidenceThreshold ?? 0.7;
   const voiceFeedbackLevel = settings.voiceFeedbackLevel ?? 'standard';
   const voiceTTSEnabled = settings.voiceTTSEnabled ?? false;
@@ -186,6 +186,7 @@ export const VoiceSettingsUnified: React.FC = () => {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="Tab">Tab</SelectItem>
                 <SelectItem value="Space">Space</SelectItem>
                 <SelectItem value="KeyV">V</SelectItem>
                 <SelectItem value="KeyM">M</SelectItem>

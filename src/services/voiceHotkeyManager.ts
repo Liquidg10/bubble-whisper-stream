@@ -17,7 +17,7 @@ export interface VoiceHotkeyTarget {
 export class VoiceHotkeyManager {
   private static instance: VoiceHotkeyManager;
   private targets: Map<string, VoiceHotkeyTarget> = new Map();
-  private currentHotkey = 'Space';
+  private currentHotkey = 'Tab';
   private isPressed = false;
   private activeTarget: VoiceHotkeyTarget | null = null;
   private isListening = false;
