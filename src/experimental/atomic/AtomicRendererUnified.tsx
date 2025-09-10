@@ -392,58 +392,63 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         setAtomicState(prev => {
           let nearestShell = 0;
           let minShellDist = Infinity;
+          let targetShell = 0; // Move to outer scope for dragState access
+          
+          const updatedMolecules = prev.molecules.map(mol => {
+            const electron = mol.electrons.find(e => e.id === electronId);
+            if (!electron) return mol;
+            
+            // Calculate molecule center in the same coordinate space as transformed mouse
+            const molCenterX = mol.x;
+            const molCenterY = mol.y;
+            const distToMouse = Math.sqrt((mouseX - molCenterX) ** 2 + (mouseY - molCenterY) ** 2);
+            
+            // Determine target shell based on which shell boundary the mouse is closest to
+            let minBoundaryDist = Infinity;
+            
+            SHELL_CONFIG.forEach((shell, shellIndex) => {
+              const boundaryDist = Math.abs(distToMouse - shell.radius);
+              if (boundaryDist < minBoundaryDist) {
+                minBoundaryDist = boundaryDist;
+                targetShell = shellIndex;
+              }
+            });
+            
+            // Calculate nearest shell for debugging
+            SHELL_CONFIG.forEach((shell, shellIndex) => {
+              const shellDist = Math.abs(distToMouse - shell.radius);
+              if (shellDist < minShellDist) {
+                minShellDist = shellDist;
+                nearestShell = shellIndex;
+              }
+            });
+
+            console.log('Electron drag move:', {
+              electronId,
+              mouseCoords: { mouseX, mouseY },
+              molCenter: { molCenterX, molCenterY },
+              distToMouse,
+              minBoundaryDist,
+              targetShell,
+              nearestShell,
+              shellRadii: SHELL_CONFIG.map(s => s.radius)
+            });
+
+            return {
+              ...mol,
+              electrons: mol.electrons.map(e => 
+                e.id === electronId ? { ...e, shell: targetShell } : e
+              )
+            };
+          });
           
           return {
             ...prev,
-            molecules: prev.molecules.map(mol => {
-              const electron = mol.electrons.find(e => e.id === electronId);
-              if (!electron) return mol;
-              
-              // Calculate molecule center in the same coordinate space as transformed mouse
-              const molCenterX = mol.x;
-              const molCenterY = mol.y;
-              const distToMouse = Math.sqrt((mouseX - molCenterX) ** 2 + (mouseY - molCenterY) ** 2);
-              
-              // Determine shell based on distance ranges (not just nearest)
-              let targetShell = 2; // Default to outermost shell
-              
-              if (distToMouse <= (SHELL_CONFIG[0].radius + SHELL_CONFIG[1].radius) / 2) {
-                targetShell = 0; // Today shell
-              } else if (distToMouse <= (SHELL_CONFIG[1].radius + SHELL_CONFIG[2].radius) / 2) {
-                targetShell = 1; // Week shell  
-              } else {
-                targetShell = 2; // Later shell
-              }
-              
-              // Calculate nearest shell for debugging
-              SHELL_CONFIG.forEach((shell, shellIndex) => {
-                const shellDist = Math.abs(distToMouse - shell.radius);
-                if (shellDist < minShellDist) {
-                  minShellDist = shellDist;
-                  nearestShell = shellIndex;
-                }
-              });
-
-              console.log('Electron drag move:', {
-                electronId,
-                distToMouse,
-                minShellDist,
-                nearestShell,
-                targetShell,
-                thresholds: [80, 120] // (60+100)/2, (100+140)/2
-              });
-
-              return {
-                ...mol,
-                electrons: mol.electrons.map(e => 
-                  e.id === electronId ? { ...e, shell: targetShell } : e
-                )
-              };
-            }),
+            molecules: updatedMolecules,
             dragState: {
               ...prev.dragState,
               lastMousePos: { x: event.clientX, y: event.clientY },
-              hoveredShell: nearestShell
+              hoveredShell: targetShell
             }
           };
         });
