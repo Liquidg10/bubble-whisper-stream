@@ -24,6 +24,26 @@ export class VoiceHotkeyManager {
 
   private constructor() {
     this.setupEventListeners();
+    this.initializeFromSettings();
+  }
+
+  private initializeFromSettings(): void {
+    // Initialize hotkey from stored settings
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        const bubbleStore = localStorage.getItem('bubble-store');
+        if (bubbleStore) {
+          const parsed = JSON.parse(bubbleStore);
+          const storedHotkey = parsed?.state?.settings?.voiceHotkey;
+          if (storedHotkey) {
+            this.currentHotkey = storedHotkey;
+            devLog(`Voice hotkey initialized from settings: ${storedHotkey}`);
+          }
+        }
+      } catch (error) {
+        devLog('Failed to load hotkey from settings, using default Tab');
+      }
+    }
   }
 
   static getInstance(): VoiceHotkeyManager {

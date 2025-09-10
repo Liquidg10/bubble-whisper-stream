@@ -7,7 +7,7 @@ import { Separator } from '@/components/ui/separator';
 import { Brain, User, MessageSquare, Volume2, Settings } from 'lucide-react';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { useToast } from '@/hooks/use-toast';
-import { VoiceSettings } from '@/components/VoiceSettings';
+import { VoiceSettingsUnified } from '@/components/VoiceSettingsUnified';
 import { TTSDebugConsole } from '@/components/TTSDebugConsole';
 
 export const AISettings: React.FC = () => {
@@ -138,7 +138,7 @@ export const AISettings: React.FC = () => {
       <Separator />
 
       {/* Voice Settings */}
-      <VoiceSettings />
+      <VoiceSettingsUnified />
 
       <Separator />
 
