@@ -404,7 +404,18 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
               const molCenterY = mol.y;
               const distToMouse = Math.sqrt((mouseX - molCenterX) ** 2 + (mouseY - molCenterY) ** 2);
               
-              // Find nearest shell with improved detection
+              // Determine shell based on distance ranges (not just nearest)
+              let targetShell = 2; // Default to outermost shell
+              
+              if (distToMouse <= (SHELL_CONFIG[0].radius + SHELL_CONFIG[1].radius) / 2) {
+                targetShell = 0; // Today shell
+              } else if (distToMouse <= (SHELL_CONFIG[1].radius + SHELL_CONFIG[2].radius) / 2) {
+                targetShell = 1; // Week shell  
+              } else {
+                targetShell = 2; // Later shell
+              }
+              
+              // Calculate nearest shell for debugging
               SHELL_CONFIG.forEach((shell, shellIndex) => {
                 const shellDist = Math.abs(distToMouse - shell.radius);
                 if (shellDist < minShellDist) {
@@ -413,15 +424,13 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                 }
               });
 
-              // Use the nearest shell as target (no tolerance restriction)
-              const targetShell = nearestShell;
-
               console.log('Electron drag move:', {
                 electronId,
                 distToMouse,
                 minShellDist,
                 nearestShell,
-                targetShell
+                targetShell,
+                thresholds: [80, 120] // (60+100)/2, (100+140)/2
               });
 
               return {
