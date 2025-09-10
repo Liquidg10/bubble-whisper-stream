@@ -407,54 +407,16 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         const dragOffsetX = mouseX - startMouseX;
         const dragOffsetY = mouseY - startMouseY;
         
-        setAtomicState(prev => {
-          let targetShell = 0; // Move to outer scope for dragState access
-          
-          const updatedMolecules = prev.molecules.map(mol => {
-            const electron = mol.electrons.find(e => e.id === electronId);
-            if (!electron) return mol;
-            
-            // Calculate molecule center in the same coordinate space as transformed mouse
-            const molCenterX = mol.x;
-            const molCenterY = mol.y;
-            const distToMouse = Math.sqrt((mouseX - molCenterX) ** 2 + (mouseY - molCenterY) ** 2);
-            
-            // Zone-based shell assignment using distance thresholds
-            if (distToMouse <= 80) {
-              targetShell = 0; // Today shell (0-80px)
-            } else if (distToMouse <= 120) {
-              targetShell = 1; // Week shell (80-120px)
-            } else {
-              targetShell = 2; // Later shell (>120px)
-            }
-
-            console.log('Electron drag move (zone-based):', {
-              electronId,
-              mouseCoords: { mouseX: Math.round(mouseX), mouseY: Math.round(mouseY) },
-              molCenter: { molCenterX: Math.round(molCenterX), molCenterY: Math.round(molCenterY) },
-              distToMouse: Math.round(distToMouse),
-              dragOffset: { x: Math.round(dragOffsetX), y: Math.round(dragOffsetY) },
-              targetShell,
-              shellName: SHELL_CONFIG[targetShell]?.name,
-              thresholds: { today: '≤80px', week: '≤120px', later: '>120px' },
-              panZoom: { x: panZoomState.x, y: panZoomState.y, scale: panZoomState.scale }
-            });
-
-            return mol; // Don't update shell until drop - just for visual feedback
-          });
-          
-          return {
-            ...prev,
-            molecules: updatedMolecules,
-            dragState: {
-              ...prev.dragState,
-              lastMousePos: { x: event.clientX, y: event.clientY },
-              currentMousePos: { x: event.clientX, y: event.clientY },
-              dragOffset: { x: dragOffsetX, y: dragOffsetY },
-              hoveredShell: targetShell
-            }
-          };
-        });
+        // Store drag offset for visual feedback only - no shell updates during drag
+        setAtomicState(prev => ({
+          ...prev,
+          dragState: {
+            ...prev.dragState,
+            lastMousePos: { x: event.clientX, y: event.clientY },
+            currentMousePos: { x: event.clientX, y: event.clientY },
+            dragOffset: { x: dragOffsetX, y: dragOffsetY }
+          }
+        }));
       } else if (atomicState.dragState.type === 'molecule') {
         // Handle molecule dragging
         const moleculeId = atomicState.dragState.moleculeId;
@@ -492,7 +454,38 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         
         if (electron?.originalBubble && onTimeHorizonUpdate) {
           const originalShell = atomicState.dragState.originalShell ?? electron.shell;
-          const targetShell = atomicState.dragState.hoveredShell ?? electron.shell;
+          
+          // Calculate final shell based on drag physics - where the electron actually is
+          const rect = canvasRef.current?.getBoundingClientRect();
+          let targetShell = originalShell; // Default to no change
+          
+          if (rect && atomicState.dragState.currentMousePos) {
+            const mouseX = (atomicState.dragState.currentMousePos.x - rect.left - panZoomState.x) / panZoomState.scale;
+            const mouseY = (atomicState.dragState.currentMousePos.y - rect.top - panZoomState.y) / panZoomState.scale;
+            
+            // Find the closest molecule to determine final shell
+            let minDistance = Infinity;
+            let closestMolecule = null;
+            
+            for (const mol of atomicState.molecules) {
+              const distance = Math.sqrt((mouseX - mol.x) ** 2 + (mouseY - mol.y) ** 2);
+              if (distance < minDistance) {
+                minDistance = distance;
+                closestMolecule = mol;
+              }
+            }
+            
+            if (closestMolecule) {
+              // Use distance to determine shell - pure physics
+              if (minDistance <= 80) {
+                targetShell = 0; // Today shell
+              } else if (minDistance <= 120) {
+                targetShell = 1; // Week shell  
+              } else {
+                targetShell = 2; // Later shell
+              }
+            }
+          }
           const originalHorizon = ringIndexToHorizon(originalShell);
           const targetHorizon = ringIndexToHorizon(targetShell);
           
