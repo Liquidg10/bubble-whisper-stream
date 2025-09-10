@@ -254,23 +254,15 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         moleculeMap.set(domain, molecule);
       }
 
-      // Add electron with preserved animation state when possible
+      // Add electron with horizon-based shell assignment
       const existingElectron = existingMolecules.get(`mol-${domain}`)?.electrons.find(e => e.id === `elec-${bubble.id}`);
-      const electronsInMolecule = molecule.electrons.length;
-      
-      const MAX_ELECTRONS_PER_SHELL = 6;
-      const adjustedShellIndex = Math.min(
-        Math.floor(electronsInMolecule / MAX_ELECTRONS_PER_SHELL) + shellIndex,
-        2
-      );
-      
-      const electronsInShell = molecule.electrons.filter(e => e.shell === adjustedShellIndex).length;
-      const angleStep = (2 * Math.PI) / Math.max(MAX_ELECTRONS_PER_SHELL, electronsInShell + 1);
+      const electronsInShell = molecule.electrons.filter(e => e.shell === shellIndex).length;
+      const angleStep = (2 * Math.PI) / Math.max(6, electronsInShell + 1);
       
       const electron: Electron = {
         id: `elec-${bubble.id}`,
         moleculeId: molecule.id,
-        shell: existingElectron?.shell ?? adjustedShellIndex,
+        shell: existingElectron?.shell ?? shellIndex, // Use horizon-based shell, not adjusted
         angle: existingElectron?.angle ?? (electronsInShell * angleStep + Math.random() * 0.1),
         phase: existingElectron?.phase ?? Math.random() * 2 * Math.PI,
         content: bubble.content || '',
@@ -399,6 +391,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         
         setAtomicState(prev => {
           let nearestShell = 0;
+          let minShellDist = Infinity;
           
           return {
             ...prev,
@@ -411,9 +404,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
               const molCenterY = mol.y;
               const distToMouse = Math.sqrt((mouseX - molCenterX) ** 2 + (mouseY - molCenterY) ** 2);
               
-              // Find nearest shell
-              let minShellDist = Infinity;
-              
+              // Find nearest shell with improved detection
               SHELL_CONFIG.forEach((shell, shellIndex) => {
                 const shellDist = Math.abs(distToMouse - shell.radius);
                 if (shellDist < minShellDist) {
@@ -422,10 +413,23 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                 }
               });
 
+              // Only snap if within reasonable distance (30px tolerance)
+              const shouldSnap = minShellDist < 30;
+              const targetShell = shouldSnap ? nearestShell : electron.shell;
+
+              console.log('Electron drag move:', {
+                electronId,
+                distToMouse,
+                minShellDist,
+                nearestShell,
+                targetShell,
+                shouldSnap
+              });
+
               return {
                 ...mol,
                 electrons: mol.electrons.map(e => 
-                  e.id === electronId ? { ...e, shell: nearestShell } : e
+                  e.id === electronId ? { ...e, shell: targetShell } : e
                 )
               };
             }),
@@ -476,6 +480,15 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           const originalShell = originalHorizon ? ['today', 'week', 'later'].indexOf(originalHorizon) : 0;
           const targetShell = atomicState.dragState.hoveredShell ?? electron.shell;
           const targetHorizon = ringIndexToHorizon(targetShell);
+          
+          console.log('Electron drop:', {
+            bubbleId: electron.originalBubble.id,
+            originalHorizon,
+            originalShell,
+            targetShell,
+            targetHorizon,
+            willUpdate: originalShell !== targetShell
+          });
           
           if (originalShell !== targetShell) {
             // Call the horizon update callback

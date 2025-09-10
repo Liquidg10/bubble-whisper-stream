@@ -15,6 +15,12 @@ export function AtomicView({ onBubbleSelect, onBubbleEdit, className }: AtomicVi
 
   const handleTimeHorizonUpdate = (bubbleId: string, fromRing: number, toRing: number) => {
     const horizon = ringIndexToHorizon(toRing);
+    console.log('AtomicView handling time horizon update:', {
+      bubbleId,
+      fromRing,
+      toRing,
+      horizon
+    });
     moveBubbleToHorizon(bubbleId, horizon);
   };
 
