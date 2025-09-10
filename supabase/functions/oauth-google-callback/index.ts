@@ -268,11 +268,11 @@ function determineProvider(scope: string, service?: string): string {
 
 function getRedirectUri(origin: string): string {
   if (origin.includes('localhost')) {
-    return `${origin}/oauth-callback.html`;
+    return `${origin}/oauth-callback`;
   } else if (origin.includes('sandbox.lovable.dev')) {
-    return `${origin}/oauth-callback.html`;
+    return `${origin}/oauth-callback`;
   } else {
-    return `${origin}/oauth-callback.html`;
+    return `${origin}/oauth-callback`;
   }
 }
 

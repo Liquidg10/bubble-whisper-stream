@@ -124,12 +124,12 @@ async function generateCodeChallenge(codeVerifier: string): Promise<string> {
 function getRedirectUri(origin: string): string {
   // Handle different environments
   if (origin.includes('localhost')) {
-    return `${origin}/oauth-callback.html`;
+    return `${origin}/oauth-callback`;
   } else if (origin.includes('sandbox.lovable.dev')) {
-    return `${origin}/oauth-callback.html`;
+    return `${origin}/oauth-callback`;
   } else {
     // Production or custom domain
-    return `${origin}/oauth-callback.html`;
+    return `${origin}/oauth-callback`;
   }
 }
 

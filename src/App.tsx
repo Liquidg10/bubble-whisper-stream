@@ -155,6 +155,7 @@ const App = () => {
                       <Route path="privacy" element={<Privacy />} />
                     </Route>
                      <Route path="auth/callback" element={<AuthCallback />} />
+                     <Route path="oauth-callback" element={<AuthCallback />} />
                      <Route path="*" element={<NotFound />} />
                    </Routes>
                     <DevMenu isOpen={isDevMenuOpen} onClose={closeDevMenu} />
