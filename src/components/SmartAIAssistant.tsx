@@ -92,10 +92,19 @@ export const SmartAIAssistant: React.FC = () => {
         if (modifiedPlan) {
           setCurrentPlan(modifiedPlan);
           
+          // Determine if this was a comprehensive revision
+          const isComprehensive = userMessage.content.toLowerCase().includes('rethink') || 
+                                 userMessage.content.toLowerCase().includes('completely') ||
+                                 userMessage.content.toLowerCase().includes('different');
+          
+          const responseContent = isComprehensive 
+            ? 'I\'ve completely rethought your plan based on your feedback. Here\'s the new approach:'
+            : 'I\'ve updated your plan based on your request. Here\'s the modified version:';
+          
           assistantMessage = {
             id: `assistant-${Date.now()}`,
             role: 'assistant',
-            content: 'I\'ve updated your plan based on your request. Here\'s the modified version:',
+            content: responseContent,
             timestamp: Date.now(),
             plan: modifiedPlan,
             actions: [{
@@ -108,7 +117,7 @@ export const SmartAIAssistant: React.FC = () => {
           assistantMessage = {
             id: `assistant-${Date.now()}`,
             role: 'assistant',
-            content: 'I had trouble understanding how to modify the plan. Could you be more specific about what you\'d like to change?',
+            content: 'I had trouble understanding how to modify the plan. Could you try being more specific? For example: "add supplements after hydrate" or "make the morning routine shorter" or "completely rethink this approach".',
             timestamp: Date.now()
           };
         }

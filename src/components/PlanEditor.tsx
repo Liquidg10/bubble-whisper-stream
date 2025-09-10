@@ -6,6 +6,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { PlanVersionIndicator } from './PlanVersionIndicator';
 import { 
   Clock, 
   Plus, 
@@ -138,31 +139,36 @@ export const PlanEditor: React.FC<PlanEditorProps> = ({
               </div>
             </div>
           ) : (
-            <div className="flex-1">
-              <div className="flex items-center gap-2">
-                <CardTitle className="text-lg">{plan.title}</CardTitle>
-                <Button 
-                  variant="ghost" 
-                  size="sm"
-                  onClick={() => setEditingPlan(true)}
-                >
-                  <Edit3 className="h-3 w-3" />
-                </Button>
+            <>
+              <div className="flex-1">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-lg">{plan.title}</CardTitle>
+                    <Button 
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setEditingPlan(true)}
+                    >
+                      <Edit3 className="h-3 w-3" />
+                    </Button>
+                  </div>
+                  <PlanVersionIndicator plan={plan} />
+                </div>
+                <p className="text-sm text-muted-foreground mt-1">{plan.description}</p>
+                <div className="flex items-center gap-4 mt-2">
+                  <Badge variant="secondary" className="text-xs">
+                    <Clock className="h-3 w-3 mr-1" />
+                    {Math.round(plan.totalEstimatedMinutes)} min total
+                  </Badge>
+                  <Badge variant="outline" className="text-xs">
+                    {plan.steps.length} steps
+                  </Badge>
+                  <Badge variant="outline" className="text-xs capitalize">
+                    {plan.category}
+                  </Badge>
+                </div>
               </div>
-              <p className="text-sm text-muted-foreground mt-1">{plan.description}</p>
-              <div className="flex items-center gap-4 mt-2">
-                <Badge variant="secondary" className="text-xs">
-                  <Clock className="h-3 w-3 mr-1" />
-                  {Math.round(plan.totalEstimatedMinutes)} min total
-                </Badge>
-                <Badge variant="outline" className="text-xs">
-                  {plan.steps.length} steps
-                </Badge>
-                <Badge variant="outline" className="text-xs capitalize">
-                  {plan.category}
-                </Badge>
-              </div>
-            </div>
+            </>
           )}
           
           <Button onClick={onImplement} className="ml-4">

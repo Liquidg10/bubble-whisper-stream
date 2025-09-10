@@ -167,13 +167,25 @@ export class VoiceHotkeyManager {
     const isContentEditable = target.contentEditable === 'true';
     const hasRole = target.getAttribute('role') === 'textbox';
     
-    // Check if the target is inside the AI Assistant chat area (textarea specifically)
-    const isInAIAssistant = target.closest('[data-ai-assistant]') !== null;
-    const isAITextarea = isInAIAssistant && tagName === 'textarea';
+    // Enhanced detection for AI Assistant chat area
+    let element: HTMLElement | null = target;
+    while (element) {
+      // Check if we're in the AI Assistant container
+      if (element.getAttribute('data-ai-assistant') !== null) {
+        devLog(`Voice hotkey blocked - inside AI Assistant, tagName: ${tagName}`);
+        return true;
+      }
+      element = element.parentElement;
+    }
     
-    devLog(`Voice hotkey typing check - tagName: ${tagName}, isInput: ${isInput}, isInAIAssistant: ${isInAIAssistant}, isAITextarea: ${isAITextarea}`);
+    // Check for specific textarea attributes used by shadcn components
+    const isTextArea = tagName === 'textarea';
+    const hasAriaDescriptor = target.hasAttribute('aria-describedby');
+    const hasAutoComplete = target.hasAttribute('autocomplete');
     
-    return isInput || isContentEditable || hasRole || isAITextarea;
+    devLog(`Voice hotkey typing check - tagName: ${tagName}, isInput: ${isInput}, isTextArea: ${isTextArea}, hasAriaDescriptor: ${hasAriaDescriptor}`);
+    
+    return isInput || isContentEditable || hasRole;
   }
 }
 

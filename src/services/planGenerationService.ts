@@ -29,6 +29,7 @@ export interface GeneratedPlan {
   createdAt: Date;
   isActive: boolean;
   personalizationConfidence: number;
+  version?: number;
 }
 
 class PlanGenerationService {

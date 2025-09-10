@@ -78,6 +78,57 @@ class ConversationPlanService {
     const context = this.contexts.get(conversationId);
     if (!context?.activePlan) return null;
 
+    try {
+      // Use enhanced plan revision service for better modifications
+      const { enhancedPlanRevisionService } = await import('./enhancedPlanRevisionService');
+      
+      const revisionRequest = {
+        originalPlan: context.activePlan,
+        userFeedback: modification,
+        conversationHistory: context.planModifications,
+        revisionType: this.determineRevisionType(modification) as 'incremental' | 'comprehensive'
+      };
+
+      const result = await enhancedPlanRevisionService.revisePlan(revisionRequest);
+      
+      // Update context
+      context.activePlan = result.revisedPlan;
+      context.planModifications.push(modification);
+      this.contexts.set(conversationId, context);
+
+      devLog(`Plan revised: ${result.changesSummary}`);
+      return result.revisedPlan;
+
+    } catch (error) {
+      devLog(`Plan modification error: ${error}`);
+      
+      // Fallback to original simple modification
+      return await this.fallbackModifyPlan(conversationId, modification);
+    }
+  }
+
+  /**
+   * Determine if modification needs comprehensive revision
+   */
+  private determineRevisionType(modification: string): 'incremental' | 'comprehensive' {
+    const comprehensiveKeywords = [
+      'rethink', 'completely', 'different', 'better way', 'wrong',
+      'not what i need', 'simplify', 'change everything', 'start over'
+    ];
+
+    const lowerMod = modification.toLowerCase();
+    return comprehensiveKeywords.some(keyword => lowerMod.includes(keyword)) 
+      ? 'comprehensive' 
+      : 'incremental';
+  }
+
+  /**
+   * Fallback to original modification logic
+   */
+  private async fallbackModifyPlan(conversationId: string, modification: string): Promise<GeneratedPlan | null> {
+    const context = this.contexts.get(conversationId);
+    if (!context?.activePlan) return null;
+
     const plan = context.activePlan;
     const lowerModification = modification.toLowerCase();
 
@@ -106,11 +157,11 @@ class ConversationPlanService {
       context.planModifications.push(modification);
       this.contexts.set(conversationId, context);
 
-      devLog(`Modified plan: ${modification}`);
+      devLog(`Modified plan (fallback): ${modification}`);
       return modifiedPlan;
 
     } catch (error) {
-      devLog(`Plan modification error: ${error}`);
+      devLog(`Fallback plan modification error: ${error}`);
       return null;
     }
   }
