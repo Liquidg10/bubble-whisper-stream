@@ -351,10 +351,12 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       shellName: SHELL_CONFIG[electron.shell]?.name
     });
     
-    // Get initial electron position relative to molecule center
-    const rect = canvasRef.current?.getBoundingClientRect();
-    const startMouseX = rect ? (event.clientX - rect.left - panZoomState.x) / panZoomState.scale : event.clientX;
-    const startMouseY = rect ? (event.clientY - rect.top - panZoomState.y) / panZoomState.scale : event.clientY;
+    // Calculate the electron's current orbital position to use as drag start reference
+    const shell = SHELL_CONFIG[electron.shell];
+    const electronMotion = reducedMotion ? 0 : electron.phase + (animationStep * 0.3);
+    const angle = electron.angle + electronMotion;
+    const electronOrbitalX = Math.cos(angle) * shell.radius;
+    const electronOrbitalY = Math.sin(angle) * shell.radius;
     
     setAtomicState(prev => ({
       ...prev,
@@ -365,8 +367,8 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         lastMousePos: { x: event.clientX, y: event.clientY },
         currentMousePos: { x: event.clientX, y: event.clientY },
         originalShell: electron.shell,
-        dragStartPos: { x: startMouseX, y: startMouseY }, // Store initial position
-        dragOffset: { x: 0, y: 0 }
+        dragStartPos: { x: electronOrbitalX, y: electronOrbitalY }, // Store electron's orbital position
+        dragOffset: { x: electronOrbitalX, y: electronOrbitalY } // Start with current orbital position
       }
     }));
   }, []);
@@ -755,7 +757,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                 y = atomicState.dragState.dragOffset.y;
               } else {
                 // Normal orbital positioning
-                const electronMotion = reducedMotion ? 0 : electron.phase + (animationStep * shellSpeedMultiplier);
+                const electronMotion = reducedMotion ? 0 : electron.phase + (animationStep * 0.3);
                 const angle = electron.angle + electronMotion;
                 x = Math.cos(angle) * shell.radius;
                 y = Math.sin(angle) * shell.radius;
