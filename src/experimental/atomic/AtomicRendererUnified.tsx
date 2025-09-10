@@ -51,12 +51,14 @@ interface AtomicState {
   selectedMolecules: string[];
   dragState: {
     isDragging: boolean;
-    type: 'electron' | 'molecule' | null;
+    type?: 'electron' | 'molecule';
     electronId?: string;
     moleculeId?: string;
     lastMousePos?: { x: number; y: number };
     hoveredShell?: number;
     originalShell?: number; // Store the electron's starting shell
+    dragOffset?: { x: number; y: number }; // Visual drag offset
+    currentMousePos?: { x: number; y: number }; // Real-time mouse position
   };
   undoStack: AtomicState[];
 }
@@ -355,7 +357,9 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         type: 'electron',
         electronId: electron.id,
         lastMousePos: { x: event.clientX, y: event.clientY },
-        originalShell: electron.shell // Capture current visual shell position
+        currentMousePos: { x: event.clientX, y: event.clientY },
+        originalShell: electron.shell, // Capture current visual shell position
+        dragOffset: { x: 0, y: 0 }
       }
     }));
   }, []);
@@ -397,6 +401,12 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         const mouseX = (event.clientX - rect.left - panZoomState.x) / panZoomState.scale;
         const mouseY = (event.clientY - rect.top - panZoomState.y) / panZoomState.scale;
         
+        // Calculate drag offset for visual feedback
+        const startMouseX = ((atomicState.dragState.lastMousePos?.x || 0) - rect.left - panZoomState.x) / panZoomState.scale;
+        const startMouseY = ((atomicState.dragState.lastMousePos?.y || 0) - rect.top - panZoomState.y) / panZoomState.scale;
+        const dragOffsetX = mouseX - startMouseX;
+        const dragOffsetY = mouseY - startMouseY;
+        
         setAtomicState(prev => {
           let targetShell = 0; // Move to outer scope for dragState access
           
@@ -420,20 +430,17 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
 
             console.log('Electron drag move (zone-based):', {
               electronId,
-              mouseCoords: { mouseX, mouseY },
-              molCenter: { molCenterX, molCenterY },
+              mouseCoords: { mouseX: Math.round(mouseX), mouseY: Math.round(mouseY) },
+              molCenter: { molCenterX: Math.round(molCenterX), molCenterY: Math.round(molCenterY) },
               distToMouse: Math.round(distToMouse),
+              dragOffset: { x: Math.round(dragOffsetX), y: Math.round(dragOffsetY) },
               targetShell,
               shellName: SHELL_CONFIG[targetShell]?.name,
-              thresholds: { today: '≤80px', week: '≤120px', later: '>120px' }
+              thresholds: { today: '≤80px', week: '≤120px', later: '>120px' },
+              panZoom: { x: panZoomState.x, y: panZoomState.y, scale: panZoomState.scale }
             });
 
-            return {
-              ...mol,
-              electrons: mol.electrons.map(e => 
-                e.id === electronId ? { ...e, shell: targetShell } : e
-              )
-            };
+            return mol; // Don't update shell until drop - just for visual feedback
           });
           
           return {
@@ -442,6 +449,8 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
             dragState: {
               ...prev.dragState,
               lastMousePos: { x: event.clientX, y: event.clientY },
+              currentMousePos: { x: event.clientX, y: event.clientY },
+              dragOffset: { x: dragOffsetX, y: dragOffsetY },
               hoveredShell: targetShell
             }
           };
@@ -497,6 +506,17 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           });
           
           if (originalShell !== targetShell) {
+            // Update the electron's shell in the atomic state
+            setAtomicState(prevState => ({
+              ...prevState,
+              molecules: prevState.molecules.map(mol => ({
+                ...mol,
+                electrons: mol.electrons.map(e => 
+                  e.id === electronId ? { ...e, shell: targetShell } : e
+                )
+              }))
+            }));
+            
             // Call the horizon update callback
             onTimeHorizonUpdate(electron.originalBubble.id, originalShell, targetShell);
             
@@ -509,6 +529,17 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                   variant="outline"
                   size="sm"
                   onClick={() => {
+                    // Revert shell change in atomic state
+                    setAtomicState(prevState => ({
+                      ...prevState,
+                      molecules: prevState.molecules.map(mol => ({
+                        ...mol,
+                        electrons: mol.electrons.map(e => 
+                          e.id === electronId ? { ...e, shell: originalShell } : e
+                        )
+                      }))
+                    }));
+                    // Call the horizon update callback for undo
                     onTimeHorizonUpdate(electron.originalBubble!.id, targetShell, originalShell);
                   }}
                 >
@@ -711,19 +742,34 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
               const shellSpeedMultiplier = ANIMATION_CONFIG.SHELL_SPEED_MULTIPLIERS[electron.shell] || 1.0;
               const electronMotion = reducedMotion ? 0 : electron.phase + (animationStep * shellSpeedMultiplier);
               const angle = electron.angle + electronMotion;
-              const x = Math.cos(angle) * shell.radius;
-              const y = Math.sin(angle) * shell.radius;
+              
+              // Calculate base position
+              let x = Math.cos(angle) * shell.radius;
+              let y = Math.sin(angle) * shell.radius;
+              
+              // Apply drag offset if this electron is being dragged
+              const isDragging = atomicState.dragState.isDragging && 
+                               atomicState.dragState.type === 'electron' && 
+                               atomicState.dragState.electronId === electron.id;
+              
+              if (isDragging && atomicState.dragState.dragOffset) {
+                x += atomicState.dragState.dragOffset.x;
+                y += atomicState.dragState.dragOffset.y;
+              }
 
               return (
                 <div
                   key={electron.id}
                   data-electron="true"
-                  className="absolute w-6 h-6 rounded-full bg-red-500 border-2 border-white cursor-move
-                    hover:scale-125 transition-transform duration-150 group-hover:shadow-lg"
+                  className={`absolute w-6 h-6 rounded-full border-2 border-white cursor-move
+                    hover:scale-125 transition-transform duration-150 group-hover:shadow-lg
+                    ${isDragging ? 'scale-125 shadow-lg shadow-yellow-400/50 z-50' : ''}`}
                   style={{
                     left: x - 12,
                     top: y - 12,
-                    backgroundColor: shell.color
+                    backgroundColor: shell.color,
+                    transform: isDragging ? 'scale(1.25)' : undefined,
+                    zIndex: isDragging ? 1000 : undefined
                   }}
                   onMouseDown={(e) => handleElectronDragStart(electron, e)}
                   onClick={(e) => {
