@@ -59,6 +59,7 @@ interface AtomicState {
     originalShell?: number; // Store the electron's starting shell
     dragOffset?: { x: number; y: number }; // Visual drag offset
     currentMousePos?: { x: number; y: number }; // Real-time mouse position
+    dragStartPos?: { x: number; y: number }; // Initial drag position for absolute positioning
   };
   undoStack: AtomicState[];
 }
@@ -350,6 +351,11 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       shellName: SHELL_CONFIG[electron.shell]?.name
     });
     
+    // Get initial electron position relative to molecule center
+    const rect = canvasRef.current?.getBoundingClientRect();
+    const startMouseX = rect ? (event.clientX - rect.left - panZoomState.x) / panZoomState.scale : event.clientX;
+    const startMouseY = rect ? (event.clientY - rect.top - panZoomState.y) / panZoomState.scale : event.clientY;
+    
     setAtomicState(prev => ({
       ...prev,
       dragState: {
@@ -358,7 +364,8 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         electronId: electron.id,
         lastMousePos: { x: event.clientX, y: event.clientY },
         currentMousePos: { x: event.clientX, y: event.clientY },
-        originalShell: electron.shell, // Capture current visual shell position
+        originalShell: electron.shell,
+        dragStartPos: { x: startMouseX, y: startMouseY }, // Store initial position
         dragOffset: { x: 0, y: 0 }
       }
     }));
@@ -736,18 +743,22 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
               const electronMotion = reducedMotion ? 0 : electron.phase + (animationStep * shellSpeedMultiplier);
               const angle = electron.angle + electronMotion;
               
-              // Calculate base position
-              let x = Math.cos(angle) * shell.radius;
-              let y = Math.sin(angle) * shell.radius;
-              
-              // Apply drag offset if this electron is being dragged
               const isDragging = atomicState.dragState.isDragging && 
                                atomicState.dragState.type === 'electron' && 
                                atomicState.dragState.electronId === electron.id;
               
+              let x, y;
+              
               if (isDragging && atomicState.dragState.dragOffset) {
-                x += atomicState.dragState.dragOffset.x;
-                y += atomicState.dragState.dragOffset.y;
+                // During drag: use absolute positioning - completely override orbital calculations
+                x = atomicState.dragState.dragOffset.x;
+                y = atomicState.dragState.dragOffset.y;
+              } else {
+                // Normal orbital positioning
+                const electronMotion = reducedMotion ? 0 : electron.phase + (animationStep * shellSpeedMultiplier);
+                const angle = electron.angle + electronMotion;
+                x = Math.cos(angle) * shell.radius;
+                y = Math.sin(angle) * shell.radius;
               }
 
               return (
