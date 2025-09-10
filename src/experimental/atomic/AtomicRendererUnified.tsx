@@ -413,17 +413,15 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                 }
               });
 
-              // Only snap if within reasonable distance (30px tolerance)
-              const shouldSnap = minShellDist < 30;
-              const targetShell = shouldSnap ? nearestShell : electron.shell;
+              // Use the nearest shell as target (no tolerance restriction)
+              const targetShell = nearestShell;
 
               console.log('Electron drag move:', {
                 electronId,
                 distToMouse,
                 minShellDist,
                 nearestShell,
-                targetShell,
-                shouldSnap
+                targetShell
               });
 
               return {
