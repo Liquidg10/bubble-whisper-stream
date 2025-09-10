@@ -56,6 +56,7 @@ interface AtomicState {
     moleculeId?: string;
     lastMousePos?: { x: number; y: number };
     hoveredShell?: number;
+    originalShell?: number; // Store the electron's starting shell
   };
   undoStack: AtomicState[];
 }
@@ -341,13 +342,20 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     event.stopPropagation();
     event.preventDefault();
     
+    console.log('Electron drag start:', {
+      electronId: electron.id,
+      currentShell: electron.shell,
+      shellName: SHELL_CONFIG[electron.shell]?.name
+    });
+    
     setAtomicState(prev => ({
       ...prev,
       dragState: {
         isDragging: true,
         type: 'electron',
         electronId: electron.id,
-        lastMousePos: { x: event.clientX, y: event.clientY }
+        lastMousePos: { x: event.clientX, y: event.clientY },
+        originalShell: electron.shell // Capture current visual shell position
       }
     }));
   }, []);
@@ -474,17 +482,17 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           .find(e => e.id === electronId);
         
         if (electron?.originalBubble && onTimeHorizonUpdate) {
-          const originalHorizon = getHorizon(electron.originalBubble);
-          const originalShell = originalHorizon ? ['today', 'week', 'later'].indexOf(originalHorizon) : 0;
+          const originalShell = atomicState.dragState.originalShell ?? electron.shell;
           const targetShell = atomicState.dragState.hoveredShell ?? electron.shell;
+          const originalHorizon = ringIndexToHorizon(originalShell);
           const targetHorizon = ringIndexToHorizon(targetShell);
           
           console.log('Electron drop:', {
             bubbleId: electron.originalBubble.id,
-            originalHorizon,
             originalShell,
+            originalShellName: SHELL_CONFIG[originalShell]?.name,
             targetShell,
-            targetHorizon,
+            targetShellName: SHELL_CONFIG[targetShell]?.name,
             willUpdate: originalShell !== targetShell
           });
           
@@ -495,7 +503,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
             // Show toast with undo
             toast({
               title: `Moved to ${getHorizonDisplayName(targetHorizon)}`,
-              description: `Bubble moved from ${originalHorizon ? getHorizonDisplayName(originalHorizon) : 'unassigned'} to ${getHorizonDisplayName(targetHorizon)}`,
+              description: `Bubble moved from ${SHELL_CONFIG[originalShell]?.name || 'unassigned'} to ${SHELL_CONFIG[targetShell]?.name}`,
               action: (
                 <Button 
                   variant="outline"
