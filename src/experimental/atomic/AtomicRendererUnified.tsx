@@ -390,8 +390,6 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         const mouseY = (event.clientY - rect.top - panZoomState.y) / panZoomState.scale;
         
         setAtomicState(prev => {
-          let nearestShell = 0;
-          let minShellDist = Infinity;
           let targetShell = 0; // Move to outer scope for dragState access
           
           const updatedMolecules = prev.molecules.map(mol => {
@@ -403,35 +401,23 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
             const molCenterY = mol.y;
             const distToMouse = Math.sqrt((mouseX - molCenterX) ** 2 + (mouseY - molCenterY) ** 2);
             
-            // Determine target shell based on which shell boundary the mouse is closest to
-            let minBoundaryDist = Infinity;
-            
-            SHELL_CONFIG.forEach((shell, shellIndex) => {
-              const boundaryDist = Math.abs(distToMouse - shell.radius);
-              if (boundaryDist < minBoundaryDist) {
-                minBoundaryDist = boundaryDist;
-                targetShell = shellIndex;
-              }
-            });
-            
-            // Calculate nearest shell for debugging
-            SHELL_CONFIG.forEach((shell, shellIndex) => {
-              const shellDist = Math.abs(distToMouse - shell.radius);
-              if (shellDist < minShellDist) {
-                minShellDist = shellDist;
-                nearestShell = shellIndex;
-              }
-            });
+            // Zone-based shell assignment using distance thresholds
+            if (distToMouse <= 80) {
+              targetShell = 0; // Today shell (0-80px)
+            } else if (distToMouse <= 120) {
+              targetShell = 1; // Week shell (80-120px)
+            } else {
+              targetShell = 2; // Later shell (>120px)
+            }
 
-            console.log('Electron drag move:', {
+            console.log('Electron drag move (zone-based):', {
               electronId,
               mouseCoords: { mouseX, mouseY },
               molCenter: { molCenterX, molCenterY },
-              distToMouse,
-              minBoundaryDist,
+              distToMouse: Math.round(distToMouse),
               targetShell,
-              nearestShell,
-              shellRadii: SHELL_CONFIG.map(s => s.radius)
+              shellName: SHELL_CONFIG[targetShell]?.name,
+              thresholds: { today: '≤80px', week: '≤120px', later: '>120px' }
             });
 
             return {
