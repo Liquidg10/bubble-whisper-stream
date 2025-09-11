@@ -26,7 +26,8 @@ const TONE_CONFIG = {
     description: 'Wise perspective from your future self',
     bgColor: 'bg-purple-50 dark:bg-purple-950/20',
     borderColor: 'border-purple-200 dark:border-purple-800',
-    badgeColor: 'bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300'
+    badgeColor: 'bg-purple-100 text-purple-800 dark:bg-purple-900/50 dark:text-purple-300',
+    textColor: 'text-purple-900 dark:text-purple-100'
   },
   Friend: {
     icon: Heart,
@@ -34,7 +35,8 @@ const TONE_CONFIG = {
     description: 'Warm, supportive friendship',
     bgColor: 'bg-pink-50 dark:bg-pink-950/20',
     borderColor: 'border-pink-200 dark:border-pink-800',
-    badgeColor: 'bg-pink-100 text-pink-800 dark:bg-pink-900/50 dark:text-pink-300'
+    badgeColor: 'bg-pink-100 text-pink-800 dark:bg-pink-900/50 dark:text-pink-300',
+    textColor: 'text-pink-900 dark:text-pink-100'
   },
   Coach: {
     icon: Target,
@@ -42,7 +44,8 @@ const TONE_CONFIG = {
     description: 'Encouraging performance mindset',
     bgColor: 'bg-blue-50 dark:bg-blue-950/20',
     borderColor: 'border-blue-200 dark:border-blue-800',
-    badgeColor: 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300'
+    badgeColor: 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300',
+    textColor: 'text-blue-900 dark:text-blue-100'
   },
   Scientist: {
     icon: FlaskConical,
@@ -50,7 +53,8 @@ const TONE_CONFIG = {
     description: 'Data-driven, objective perspective',
     bgColor: 'bg-green-50 dark:bg-green-950/20',
     borderColor: 'border-green-200 dark:border-green-800',
-    badgeColor: 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300'
+    badgeColor: 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300',
+    textColor: 'text-green-900 dark:text-green-100'
   }
 };
 
@@ -118,7 +122,7 @@ export const GlimmerCard: React.FC<GlimmerCardProps> = ({
 
   return (
     <Card className={`${toneConfig.bgColor} ${toneConfig.borderColor} ${className}`}>
-      <CardContent className="p-4">
+      <CardContent className={`p-4 ${toneConfig.textColor}`}>
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 space-y-3">
             {/* Header */}
@@ -127,13 +131,13 @@ export const GlimmerCard: React.FC<GlimmerCardProps> = ({
               <Badge variant="secondary" className={toneConfig.badgeColor}>
                 {toneConfig.label}
               </Badge>
-              <span className="text-xs text-muted-foreground">
+              <span className="text-xs opacity-70">
                 {formatTimestamp(glimmer.createdAt)}
               </span>
             </div>
 
             {/* Message */}
-            <p className="text-sm leading-relaxed">{glimmer.message}</p>
+            <p className="text-sm leading-relaxed font-medium">{glimmer.message}</p>
 
             {/* Actions */}
             <div className="flex items-center gap-2 flex-wrap">
