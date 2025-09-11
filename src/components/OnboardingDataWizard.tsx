@@ -122,7 +122,7 @@ export const OnboardingDataWizard: React.FC<OnboardingDataWizardProps> = ({
   const updateFormData = (section: keyof OnboardingData, data: any) => {
     setFormData(prev => ({
       ...prev,
-      [section]: typeof prev[section] === 'object' && prev[section] !== null
+      [section]: section === 'preferences' && typeof prev[section] === 'object' && prev[section] !== null
         ? { ...prev[section], ...data }
         : data
     }));
