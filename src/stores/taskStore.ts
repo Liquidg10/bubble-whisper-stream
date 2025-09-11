@@ -121,7 +121,7 @@ export const useTaskStore = create<TaskStoreState>()(
         const bubble = taskToBubble(updatedTask);
         
         const bubbleStore = useBubbleStore.getState();
-        bubbleStore.updateBubble(id, bubble);
+        await bubbleStore.updateBubble(bubble);
         
         // Refresh task list
         get().refreshFromBubbleStore();
@@ -256,7 +256,6 @@ export const useTaskStore = create<TaskStoreState>()(
 
 // Subscribe to BubbleStore changes to keep TaskStore in sync
 useBubbleStore.subscribe(
-  (state) => state.bubbles,
   () => {
     useTaskStore.getState().refreshFromBubbleStore();
   }
