@@ -138,6 +138,26 @@ const devRoutes: DevRoute[] = [
     path: '/dev/health-dashboard',
     name: 'Developer Health Dashboard',
     description: 'Comprehensive system health monitoring and bug detection'
+  },
+  {
+    path: '/dev/a11y-gate',
+    name: 'A11y Gate',
+    description: 'Accessibility compliance scanner (WCAG 2.2)'
+  },
+  {
+    path: '/dev/context-drift',
+    name: 'Context Drift',
+    description: 'Context Engine weight monitoring & rollback'
+  },
+  {
+    path: '/dev/fatigue-budgets',
+    name: 'Fatigue Budgets',
+    description: 'Nudge budget & cooldown tracking'
+  },
+  {
+    path: '/dev/watch-health',
+    name: 'Watch Health',
+    description: 'Calendar/Gmail watcher status & renewal (Extended)'
   }
 ];
 

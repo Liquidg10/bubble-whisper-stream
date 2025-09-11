@@ -59,6 +59,10 @@ import { DevVoiceFirst } from "./pages/DevVoiceFirst";
 import DevHealthDashboard from "./pages/DevHealthDashboard";
 import DevPlaidRecur from "./pages/DevPlaidRecur";
 import DevMetricsAlerts from "./pages/DevMetricsAlerts";
+import DevA11yGate from "./pages/DevA11yGate";
+import DevContextDrift from "./pages/DevContextDrift";
+import DevFatigueBudgets from "./pages/DevFatigueBudgets";
+import DevWatchHealth from "./pages/DevWatchHealth";
 import { DevMenu } from "./components/DevMenu";
 import { useDevMenu } from "./hooks/useDevMenu";
 import { AuthCallback } from "./pages/AuthCallback";
@@ -153,6 +157,10 @@ const App = () => {
                          <Route path="dev/recurring-finance" element={<DevRecurringFinance />} />
                          <Route path="dev/voice-first" element={<DevVoiceFirst />} />
                          <Route path="dev/health-dashboard" element={<DevHealthDashboard />} />
+                         <Route path="dev/a11y-gate" element={<DevA11yGate />} />
+                         <Route path="dev/context-drift" element={<DevContextDrift />} />
+                         <Route path="dev/fatigue-budgets" element={<DevFatigueBudgets />} />
+                         <Route path="dev/watch-health" element={<DevWatchHealth />} />
                       <Route path="privacy" element={<Privacy />} />
                     </Route>
                      <Route path="auth/callback" element={<AuthCallback />} />
