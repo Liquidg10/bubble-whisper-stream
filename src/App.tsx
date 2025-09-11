@@ -126,7 +126,8 @@ const App = () => {
                       <Route path="dev/atomic-unified" element={<DevAtomicUnified />} />
                       <Route path="dev/bubbles-basic" element={<DevBubblesBasic />} />
                       <Route path="dev/bubbles-stress" element={<DevBubblesStress />} />
-                      <Route path="dev/voice" element={<DevRealtimeVoice />} />
+                       <Route path="dev/voice" element={<DevRealtimeVoice />} />
+                       <Route path="dev/realtime-voice" element={<DevRealtimeVoice />} />
                       <Route path="dev/vision" element={<DevVision />} />
                       <Route path="dev/focus" element={<DevFocus />} />
                       <Route path="dev/prioritizer" element={<DevPrioritizer />} />
