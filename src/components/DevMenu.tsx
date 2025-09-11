@@ -158,6 +158,11 @@ const devRoutes: DevRoute[] = [
     path: '/dev/watch-health',
     name: 'Watch Health',
     description: 'Calendar/Gmail watcher status & renewal (Extended)'
+  },
+  {
+    path: '/dev/task-adapter',
+    name: 'Task Adapter',
+    description: 'Task ↔ Bubble round-trip testing & data integrity'
   }
 ];
 

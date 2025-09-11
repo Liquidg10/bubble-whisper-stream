@@ -158,9 +158,10 @@ const App = () => {
                          <Route path="dev/voice-first" element={<DevVoiceFirst />} />
                          <Route path="dev/health-dashboard" element={<DevHealthDashboard />} />
                          <Route path="dev/a11y-gate" element={<DevA11yGate />} />
-                         <Route path="dev/context-drift" element={<DevContextDrift />} />
-                         <Route path="dev/fatigue-budgets" element={<DevFatigueBudgets />} />
-                         <Route path="dev/watch-health" element={<DevWatchHealth />} />
+                          <Route path="dev/context-drift" element={<DevContextDrift />} />
+                          <Route path="dev/fatigue-budgets" element={<DevFatigueBudgets />} />
+                          <Route path="dev/watch-health" element={<DevWatchHealth />} />
+                          <Route path="dev/task-adapter" element={<DevTaskAdapter />} />
                       <Route path="privacy" element={<Privacy />} />
                     </Route>
                      <Route path="auth/callback" element={<AuthCallback />} />

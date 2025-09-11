@@ -19,6 +19,9 @@ export const flags = {
   searchV2: true,
   ambientModes: true,
   budget: true,
+  
+  // Task System (P1 - Non-destructive)
+  taskAdapter: process.env.NODE_ENV === 'development',
   // CBT Assistant Feature Flags
   cbtAssist: false, // Main CBT assistant feature (default OFF)
   cbtSilentObserve: true, // Silent observation for testing (default ON)
