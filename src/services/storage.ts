@@ -6,7 +6,7 @@ import { Bubble, Reminder, Tag, SelfModel, Settings } from '@/types/bubble';
 class StorageService {
   private db: IDBDatabase | null = null;
   private readonly dbName = 'BubbleUniverse';
-  private readonly dbVersion = 3;
+  private readonly dbVersion = 4;
 
   isInitialized(): boolean {
     return this.db !== null;
@@ -14,7 +14,7 @@ class StorageService {
 
   async initialize(): Promise<void> {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open(this.dbName, 3); // Upgrade to v3 for Phase 2
+      const request = indexedDB.open(this.dbName, 4); // Upgrade to v4 for SelfModelV2
 
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
@@ -73,6 +73,22 @@ class StorageService {
           glimmerStore.createIndex('createdAt', 'createdAt', { unique: false });
         }
 
+        // SelfModelV2 stores
+        if (!db.objectStoreNames.contains('self_model_v2')) {
+          db.createObjectStore('self_model_v2', { keyPath: 'id' });
+        }
+
+        if (!db.objectStoreNames.contains('self_model_audits')) {
+          const auditStore = db.createObjectStore('self_model_audits', { keyPath: 'id' });
+          auditStore.createIndex('at', 'at', { unique: false });
+          auditStore.createIndex('layer', 'layer', { unique: false });
+        }
+
+        if (!db.objectStoreNames.contains('monthly_reviews')) {
+          db.createObjectStore('monthly_reviews', { keyPath: 'id' });
+        }
+
+        // Legacy store (keep for migration)
         if (!db.objectStoreNames.contains('self_model_audit')) {
           const auditStore = db.createObjectStore('self_model_audit', { keyPath: 'id' });
           auditStore.createIndex('at', 'at', { unique: false });
