@@ -27,3 +27,6 @@ verify_jwt = false
 
 [functions.ai-tts-generate]
 verify_jwt = false
+
+[functions.ai-realtime-voice]
+verify_jwt = false

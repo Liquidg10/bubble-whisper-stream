@@ -168,6 +168,7 @@ class VoiceRealtimeService {
 
       // Connect to Supabase edge function for realtime voice
       const wsUrl = `wss://ekekeywoxvdbfbmqyhjy.functions.supabase.co/ai-realtime-voice`;
+      console.log('🔗 Attempting WebSocket connection to:', wsUrl);
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
