@@ -166,8 +166,8 @@ class VoiceRealtimeService {
         reject(new Error('WebSocket connection timeout'));
       }, 10000);
 
-      // Note: In production, replace with your actual Supabase project ref
-      const wsUrl = `wss://your-project-ref.functions.supabase.co/ai-realtime-voice`;
+      // Connect to Supabase edge function for realtime voice
+      const wsUrl = `wss://ekekeywoxvdbfbmqyhjy.functions.supabase.co/ai-realtime-voice`;
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
