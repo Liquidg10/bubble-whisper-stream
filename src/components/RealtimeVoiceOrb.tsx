@@ -281,6 +281,9 @@ export const RealtimeVoiceOrb: React.FC<RealtimeVoiceOrbProps> = ({
   const vuMeterHeight = Math.min(audioMetrics.inputLevel * 100, 100);
   const outputMeterHeight = Math.min(audioMetrics.outputLevel * 100, 100);
 
+  // Debug: Log feature flag state
+  console.log('RealtimeVoiceOrb - realtimeVoice flag enabled:', isEnabled);
+  
   if (!isEnabled) {
     return null;
   }
