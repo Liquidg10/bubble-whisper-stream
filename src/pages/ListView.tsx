@@ -9,7 +9,7 @@ import { ListViewFilters } from '@/components/ListViewFilters';
 import { BulkActions } from '@/components/BulkActions';
 import { isFeatureEnabled } from '@/config/flags';
 import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
+
 import { Badge } from '@/components/ui/badge';
 import { motion, AnimatePresence } from 'framer-motion';
 import { List, Keyboard, Eye } from 'lucide-react';
@@ -333,7 +333,7 @@ export const ListView: React.FC = () => {
 
         {/* Task List */}
         <div className="flex-1 relative">
-          <ScrollArea className="h-full">
+          <div className="h-full overflow-auto">
             <div className="p-4 space-y-2">
               <AnimatePresence mode="popLayout">
                 {filteredAndSortedTasks.map((task, index) => (
@@ -379,7 +379,7 @@ export const ListView: React.FC = () => {
                 </motion.div>
               )}
             </div>
-          </ScrollArea>
+          </div>
 
           {/* Bulk Actions */}
           <BulkActions
