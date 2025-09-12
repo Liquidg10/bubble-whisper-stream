@@ -29,6 +29,9 @@ export const flags = {
   // List View (P3 - First missing view)
   listView: true,
   
+  // Matrix View (P5 - Eisenhower Matrix)
+  matrixView: true,
+  
   // CBT Assistant Feature Flags
   cbtAssist: false, // Main CBT assistant feature (default OFF)
   cbtSilentObserve: true, // Silent observation for testing (default ON)

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Settings, Calendar, Bell, Home, Flower, Brain, Search, Heart, Inbox, Wrench, Bot, MapPin, List } from 'lucide-react';
+import { Settings, Calendar, Bell, Home, Flower, Brain, Search, Heart, Inbox, Wrench, Bot, MapPin, List, Grid3x3 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { CompactThemeToggle } from '@/components/ThemeToggle';
 import { useBubbleStore } from '@/stores/bubbleStore';
@@ -31,6 +31,7 @@ export const AppShell: React.FC = () => {
   const navItems = [
     { path: '/', icon: Home, label: 'Canvas' },
     { path: '/list', icon: List, label: 'List' },
+    { path: '/matrix', icon: Grid3x3, label: 'Matrix' },
     { path: '/timeline', icon: Calendar, label: 'Timeline' },
     { path: '/reminders', icon: Bell, label: 'Reminders' },
     { path: '/joy', icon: Heart, label: 'Joy' },
