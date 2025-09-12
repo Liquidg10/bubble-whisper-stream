@@ -95,6 +95,11 @@ export const flags = {
   VOICE_DEV_ROUTE_ENABLED: true,
   VOICE_TELEMETRY_ENABLED: true,
   VOICE_DEBUG_LOGGING: true,
+  
+  // P19 Telemetry & Canary
+  telemetryDashboard: process.env.NODE_ENV === 'development',
+  taskCanary: process.env.NODE_ENV === 'development',
+  privacyConsentV1: true,
 } as const;
 
 export type FeatureFlag = keyof typeof flags;

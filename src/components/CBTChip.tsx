@@ -16,6 +16,7 @@ import { cbtMetricsService } from '@/services/cbtMetricsService';
 import { cbtABTestingService } from '@/services/cbtABTestingService';
 import { getChipCopy, getContextualEncouragement } from '@/services/cbtCopyService';
 import { polishCopy } from '@/utils/copyPolish';
+import { metricsService } from '@/services/metricsService';
 
 interface CBTChipProps {
   action: CBTAction;
@@ -49,9 +50,21 @@ export function CBTChip({
   // Reduced motion support
   const shouldAnimate = !settings.reducedMotion;
   
-  // Focus management
+  // Focus management and impression tracking
   useEffect(() => {
     if (isVisible && chipRef.current) {
+      // Store shown timestamp for tracking
+      chipRef.current.dataset.shownAt = Date.now().toString();
+      
+      // P19: Track suggestion impression
+      if (userId) {
+        metricsService.emitSuggestionImpression(
+          action.type,
+          'cbt_chip',
+          0.8 // Default confidence for CBT suggestions
+        );
+      }
+      
       // Announce to screen readers without stealing focus
       const announcement = `Gentle check-in available: ${action.text}`;
       const ariaLive = document.createElement('div');
@@ -65,7 +78,7 @@ export function CBTChip({
         document.body.removeChild(ariaLive);
       }, 1000);
     }
-  }, [isVisible, action.text]);
+  }, [isVisible, action.text, action.type, userId]);
 
   const handleKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === 'Escape') {
@@ -82,6 +95,12 @@ export function CBTChip({
     // Track engagement metrics
     if (userId) {
       cbtMetricsService.recordAcceptance([]);
+      // P19: Track suggestion accept
+      metricsService.emitSuggestionAccept(
+        action.type,
+        'cbt_chip',
+        Date.now() - (chipRef.current?.dataset.shownAt ? parseInt(chipRef.current.dataset.shownAt) : Date.now())
+      );
     }
     
     toast({
@@ -98,6 +117,12 @@ export function CBTChip({
     // Track dismissal metrics  
     if (userId) {
       cbtMetricsService.recordDecline([]);
+      // P19: Track suggestion dismiss
+      metricsService.emitSuggestionDismiss(
+        action.type,
+        'cbt_chip',
+        Date.now() - (chipRef.current?.dataset.shownAt ? parseInt(chipRef.current.dataset.shownAt) : Date.now())
+      );
     }
     
     // Announce dismissal to screen readers

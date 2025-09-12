@@ -22,7 +22,25 @@ export type MetricType =
   | 'webhook_error'
   | 'scope_decay_action'
   | 'channel_expiry'
-  | 'webhook_retry';
+  | 'webhook_retry'
+  // P19 Suggestion System Metrics
+  | 'suggestion_impression'
+  | 'suggestion_accept'
+  | 'suggestion_dismiss'
+  | 'suggestion_undo'
+  | 'over_nudge_rate'
+  // P19 Planning Mode Metrics
+  | 'planning_mode_start'
+  | 'planning_mode_complete'
+  | 'planning_mode_abandon'
+  // P19 Calendar Conversion Metrics
+  | 'calendar_draft_created'
+  | 'calendar_draft_to_send'
+  | 'calendar_send_manual'
+  // P19 Task System Canary Metrics
+  | 'task_attempted'
+  | 'task_completed'
+  | 'task_system_stability';
 
 export interface MetricSummary {
   type: MetricType;
@@ -185,6 +203,181 @@ class MetricsService {
       channelId,
       service,
       autoRenewed
+    });
+  }
+
+  // ============= P19 SUGGESTION METRICS =============
+
+  /**
+   * Track suggestion impression (when suggestion is shown)
+   */
+  emitSuggestionImpression(suggestionType: string, context: string, confidence: number): void {
+    this.emit('suggestion_impression', 1, {
+      suggestionType,
+      context,
+      confidence,
+      timestamp: Date.now()
+    });
+  }
+
+  /**
+   * Track suggestion acceptance (user applied suggestion)
+   */
+  emitSuggestionAccept(suggestionType: string, context: string, timeToAccept: number): void {
+    this.emit('suggestion_accept', 1, {
+      suggestionType,
+      context,
+      timeToAccept,
+      timestamp: Date.now()
+    });
+  }
+
+  /**
+   * Track suggestion dismissal (user explicitly dismissed)
+   */
+  emitSuggestionDismiss(suggestionType: string, context: string, timeToReject: number): void {
+    this.emit('suggestion_dismiss', 1, {
+      suggestionType,
+      context,
+      timeToReject,
+      timestamp: Date.now()
+    });
+  }
+
+  /**
+   * Track suggestion undo (user undid suggestion application)
+   */
+  emitSuggestionUndo(suggestionType: string, context: string, timeAfterAccept: number): void {
+    this.emit('suggestion_undo', 1, {
+      suggestionType,
+      context,
+      timeAfterAccept,
+      timestamp: Date.now()
+    });
+  }
+
+  /**
+   * Track over-nudge rate (too many suggestions in short period)
+   */
+  emitOverNudge(suggestionCount: number, timeWindow: number, userFatigue: boolean): void {
+    this.emit('over_nudge_rate', 1, {
+      suggestionCount,
+      timeWindow,
+      userFatigue,
+      timestamp: Date.now()
+    });
+  }
+
+  // ============= P19 PLANNING MODE METRICS =============
+
+  /**
+   * Track planning mode session start
+   */
+  emitPlanningModeStart(context: string, trigger: string): void {
+    this.emit('planning_mode_start', 1, {
+      context,
+      trigger,
+      sessionId: this.generateSessionId(),
+      timestamp: Date.now()
+    });
+  }
+
+  /**
+   * Track planning mode completion
+   */
+  emitPlanningModeComplete(sessionId: string, duration: number, tasksCreated: number): void {
+    this.emit('planning_mode_complete', 1, {
+      sessionId,
+      duration,
+      tasksCreated,
+      timestamp: Date.now()
+    });
+  }
+
+  /**
+   * Track planning mode abandonment
+   */
+  emitPlanningModeAbandon(sessionId: string, duration: number, reason: string): void {
+    this.emit('planning_mode_abandon', 1, {
+      sessionId,
+      duration,
+      reason,
+      timestamp: Date.now()
+    });
+  }
+
+  // ============= P19 CALENDAR CONVERSION METRICS =============
+
+  /**
+   * Track calendar draft creation
+   */
+  emitCalendarDraftCreated(confidence: number, source: string): void {
+    this.emit('calendar_draft_created', 1, {
+      confidence,
+      source,
+      timestamp: Date.now()
+    });
+  }
+
+  /**
+   * Track calendar draft to send conversion
+   */
+  emitCalendarDraftToSend(draftId: string, timeToSend: number, editsCount: number): void {
+    this.emit('calendar_draft_to_send', 1, {
+      draftId,
+      timeToSend,
+      editsCount,
+      conversion: true,
+      timestamp: Date.now()
+    });
+  }
+
+  /**
+   * Track manual calendar send (bypassing draft)
+   */
+  emitCalendarSendManual(source: string, confidence: number): void {
+    this.emit('calendar_send_manual', 1, {
+      source,
+      confidence,
+      timestamp: Date.now()
+    });
+  }
+
+  // ============= P19 TASK SYSTEM CANARY METRICS =============
+
+  /**
+   * Track task attempt (user tries to create/modify task)
+   */
+  emitTaskAttempted(taskType: string, complexity: number, canaryGroup: string): void {
+    this.emit('task_attempted', 1, {
+      taskType,
+      complexity,
+      canaryGroup,
+      timestamp: Date.now()
+    });
+  }
+
+  /**
+   * Track task completion (task successfully saved/processed)
+   */
+  emitTaskCompleted(taskType: string, complexity: number, canaryGroup: string, processingTime: number): void {
+    this.emit('task_completed', 1, {
+      taskType,
+      complexity,
+      canaryGroup,
+      processingTime,
+      timestamp: Date.now()
+    });
+  }
+
+  /**
+   * Track task system stability (attempted vs completed delta)
+   */
+  emitTaskSystemStability(canaryGroup: string, stabilityScore: number, errors: string[]): void {
+    this.emit('task_system_stability', stabilityScore, {
+      canaryGroup,
+      errors,
+      timestamp: Date.now()
     });
   }
 
