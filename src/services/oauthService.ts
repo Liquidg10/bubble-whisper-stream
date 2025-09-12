@@ -54,6 +54,7 @@ export interface ScopeRequest {
   service: 'calendar' | 'email';
   requiredScopes?: string[];
   reason: string;
+  accountId?: string;
 }
 
 class OAuthService {

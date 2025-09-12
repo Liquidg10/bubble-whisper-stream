@@ -89,16 +89,19 @@ export function ScopeConsentModal({
   onDeny 
 }: ScopeConsentModalProps) {
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
   const showEnhancedUI = isFeatureEnabled('incrementalOAuth');
 
   const handleApprove = async () => {
     setIsLoading(true);
+    setError(null);
     try {
       const authUrl = await oauthService.requestScopeEscalation(request);
       onApprove(authUrl);
     } catch (error) {
       console.error('Failed to generate auth URL:', error);
+      setError('Failed to generate authorization URL. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -256,6 +259,14 @@ export function ScopeConsentModal({
               </AlertDescription>
             </Alert>
           </div>
+        )}
+
+        {/* Error Display */}
+        {error && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
 
         {/* Action Buttons */}

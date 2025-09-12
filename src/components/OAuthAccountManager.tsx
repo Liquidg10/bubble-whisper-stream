@@ -20,6 +20,8 @@ import { oauthService, OAuthAccount, ScopeRequest } from '@/services/oauthServic
 import { plaidService } from '@/services/plaidService';
 import { useToast } from '@/hooks/use-toast';
 import { ScopeConsentModal } from './ScopeConsentModal';
+import { ScopeDowngradeModal } from './ScopeDowngradeModal';
+import { ScopeStatusIndicator } from './ScopeStatusIndicator';
 import { isFeatureEnabled } from '@/config/flags';
 
 interface ConnectedService {
@@ -32,7 +34,10 @@ export function OAuthAccountManager() {
   const [services, setServices] = useState<ConnectedService[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showScopeModal, setShowScopeModal] = useState(false);
+  const [showDowngradeModal, setShowDowngradeModal] = useState(false);
   const [pendingScopeRequest, setPendingScopeRequest] = useState<any>(null);
+  const [isUpdatingScopes, setIsUpdatingScopes] = useState(false);
+  const [scopeUpdateStatus, setScopeUpdateStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const { toast } = useToast();
 
   useEffect(() => {
@@ -182,6 +187,7 @@ export function OAuthAccountManager() {
   };
 
   const handleScopeUpgrade = async (account: OAuthAccount) => {
+    setScopeUpdateStatus('loading');
     try {
       const service = account.scopes.some(s => s.includes('calendar')) ? 'calendar' : 'gmail';
       
@@ -212,13 +218,16 @@ export function OAuthAccountManager() {
         provider: 'google',
         service: service === 'gmail' ? 'email' : service,
         reason: `unlock additional ${service} features`,
-        requiredScopes
+        requiredScopes,
+        accountId: account.id
       };
       
       setPendingScopeRequest(scopeRequest);
       setShowScopeModal(true);
+      setScopeUpdateStatus('idle');
     } catch (error) {
       console.error('Failed to upgrade scope:', error);
+      setScopeUpdateStatus('error');
       toast({
         title: "Upgrade Failed",
         description: "Unable to upgrade permissions",
@@ -243,11 +252,12 @@ export function OAuthAccountManager() {
         provider: 'google',
         service: service === 'gmail' ? 'email' : service,
         reason: `reduce to minimal ${service} permissions`,
-        requiredScopes
+        requiredScopes,
+        accountId: account.id
       };
       
       setPendingScopeRequest(scopeRequest);
-      setShowScopeModal(true);
+      setShowDowngradeModal(true);
     } catch (error) {
       console.error('Failed to downgrade scope:', error);
       toast({
@@ -255,6 +265,48 @@ export function OAuthAccountManager() {
         description: "Unable to reduce permissions",
         variant: "destructive"
       });
+    }
+  };
+
+  const handleConfirmDowngrade = async () => {
+    if (!pendingScopeRequest) return;
+    
+    setIsUpdatingScopes(true);
+    setScopeUpdateStatus('loading');
+    try {
+      // For downgrades, we update the scopes directly in the database
+      // Since we're reducing permissions, no OAuth flow is needed
+      const account = services.find(s => s.account?.id === pendingScopeRequest.accountId)?.account;
+      if (account) {
+        // Update the account with reduced scopes
+        await oauthService.storeTokens({
+          ...account,
+          scopes: pendingScopeRequest.requiredScopes
+        });
+        
+        setScopeUpdateStatus('success');
+        toast({
+          title: "Permissions Reduced",
+          description: `${pendingScopeRequest.service} permissions successfully reduced`,
+        });
+        
+        await loadConnectedServices();
+        
+        // Reset status after a short delay
+        setTimeout(() => setScopeUpdateStatus('idle'), 2000);
+      }
+    } catch (error) {
+      console.error('Failed to reduce permissions:', error);
+      setScopeUpdateStatus('error');
+      toast({
+        title: "Update Failed",
+        description: "Unable to reduce permissions",
+        variant: "destructive"
+      });
+    } finally {
+      setIsUpdatingScopes(false);
+      setShowDowngradeModal(false);
+      setPendingScopeRequest(null);
     }
   };
 
@@ -321,9 +373,19 @@ export function OAuthAccountManager() {
                                   const { level, color, canUpgrade, canDowngrade } = getScopeLevel(service.account.scopes);
                                   return (
                                     <>
-                                      <Badge className={color} variant="secondary">
-                                        {level}
-                                      </Badge>
+                                       <Badge className={color} variant="secondary">
+                                         {level}
+                                       </Badge>
+                                       {scopeUpdateStatus !== 'idle' && (
+                                         <ScopeStatusIndicator 
+                                           status={scopeUpdateStatus} 
+                                           message={
+                                             scopeUpdateStatus === 'loading' ? 'Updating...' :
+                                             scopeUpdateStatus === 'success' ? 'Updated!' :
+                                             'Failed'
+                                           }
+                                         />
+                                       )}
                                       {isFeatureEnabled('incrementalOAuth') && (
                                         <div className="flex items-center gap-1">
                                           {canUpgrade && (
@@ -338,15 +400,16 @@ export function OAuthAccountManager() {
                                             </Button>
                                           )}
                                           {canDowngrade && (
-                                            <Button
-                                              size="sm"
-                                              variant="ghost"
-                                              className="h-6 px-2 text-xs"
-                                              onClick={() => handleScopeDowngrade(service.account!)}
-                                            >
-                                              <ArrowDown className="h-3 w-3 mr-1" />
-                                              Reduce
-                                            </Button>
+                                           <Button
+                                             size="sm"
+                                             variant="ghost"
+                                             className="h-6 px-2 text-xs"
+                                             onClick={() => handleScopeDowngrade(service.account!)}
+                                             disabled={isUpdatingScopes}
+                                           >
+                                             <ArrowDown className="h-3 w-3 mr-1" />
+                                             {isUpdatingScopes ? 'Updating...' : 'Reduce'}
+                                           </Button>
                                           )}
                                         </div>
                                       )}
@@ -425,7 +488,7 @@ export function OAuthAccountManager() {
       </Card>
 
       {/* Scope Consent Modal */}
-      {pendingScopeRequest && (
+      {pendingScopeRequest && showScopeModal && (
         <ScopeConsentModal
           open={showScopeModal}
           onOpenChange={setShowScopeModal}
@@ -437,6 +500,21 @@ export function OAuthAccountManager() {
           }}
           onDeny={() => {
             setShowScopeModal(false);
+            setPendingScopeRequest(null);
+          }}
+        />
+      )}
+
+      {/* Scope Downgrade Modal */}
+      {pendingScopeRequest && showDowngradeModal && (
+        <ScopeDowngradeModal
+          open={showDowngradeModal}
+          onOpenChange={setShowDowngradeModal}
+          request={pendingScopeRequest}
+          currentScopes={services.find(s => s.account?.id === pendingScopeRequest.accountId)?.account?.scopes || []}
+          onConfirm={handleConfirmDowngrade}
+          onCancel={() => {
+            setShowDowngradeModal(false);
             setPendingScopeRequest(null);
           }}
         />
