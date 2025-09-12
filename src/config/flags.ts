@@ -35,6 +35,9 @@ export const flags = {
   // Smart Defaults (P6 - Context-aware creation)
   smartDefaults: true,
   
+  // Planning Mode (P7 - MCII-Lite planning)
+  planningMode: true,
+  
   // CBT Assistant Feature Flags
   cbtAssist: false, // Main CBT assistant feature (default OFF)
   cbtSilentObserve: true, // Silent observation for testing (default ON)

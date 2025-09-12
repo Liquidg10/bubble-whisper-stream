@@ -4,9 +4,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
-import { Trash2, Calendar, Clock, Flag } from 'lucide-react';
+import { Trash2, Calendar, Clock, Flag, Target } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
+import { TaskCardPlanning } from '@/components/TaskCardPlanning';
+import { isFeatureEnabled } from '@/config/flags';
 
 interface TaskListItemProps {
   task: Task;
@@ -33,6 +35,7 @@ export const TaskListItem: React.FC<TaskListItemProps> = ({
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(task.title);
+  const [showPlanning, setShowPlanning] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const itemRef = useRef<HTMLDivElement>(null);
 
@@ -98,6 +101,13 @@ export const TaskListItem: React.FC<TaskListItemProps> = ({
         if (!e.ctrlKey && !e.metaKey) {
           e.preventDefault();
           handleStartEdit();
+        }
+        break;
+      case 'p':
+      case 'P':
+        if (!e.ctrlKey && !e.metaKey && isFeatureEnabled('planningMode')) {
+          e.preventDefault();
+          setShowPlanning(true);
         }
         break;
       case 'Delete':
@@ -244,6 +254,40 @@ export const TaskListItem: React.FC<TaskListItemProps> = ({
 
       {/* Action Buttons */}
       <div className="flex-shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        {/* Planning Button */}
+        {isFeatureEnabled('planningMode') && !task.metadata?.planning && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowPlanning(true);
+            }}
+            className="h-8 w-8 p-0 text-muted-foreground hover:text-accent-flow"
+            aria-label="Plan this task"
+            title="Quick planning (P)"
+          >
+            <Target className="w-3 h-3" />
+          </Button>
+        )}
+
+        {/* Planning Indicator */}
+        {task.metadata?.planning && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowPlanning(true);
+            }}
+            className="h-8 w-8 p-0 text-accent-flow"
+            aria-label="View planning"
+            title="Planned task"
+          >
+            <span className="text-xs">🎯</span>
+          </Button>
+        )}
+        
         <Button
           variant="ghost"
           size="sm"
@@ -270,6 +314,17 @@ export const TaskListItem: React.FC<TaskListItemProps> = ({
           <Trash2 className="w-3 h-3" />
         </Button>
       </div>
+
+      {/* Planning Modal */}
+      <AnimatePresence>
+        {showPlanning && (
+          <TaskCardPlanning
+            task={task}
+            onUpdate={onUpdate}
+            onClose={() => setShowPlanning(false)}
+          />
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 };
