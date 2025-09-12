@@ -66,6 +66,7 @@ import DevWatchHealth from "@/pages/DevWatchHealth";
 import DevTaskAdapter from "@/pages/DevTaskAdapter";
 import DevViewSDK from "@/pages/DevViewSDK";
 import { ListView } from "./pages/ListView";
+import MatrixView from "./pages/MatrixView";
 import { DevMenu } from "./components/DevMenu";
 import { useDevMenu } from "./hooks/useDevMenu";
 import { AuthCallback } from "./pages/AuthCallback";
@@ -114,6 +115,7 @@ const App = () => {
                     <Route path="/" element={<AppShell />}>
                       <Route index element={<Index />} />
                       <Route path="list" element={<ListView />} />
+                      <Route path="matrix" element={<MatrixView />} />
                       <Route path="timeline" element={<Timeline />} />
                       <Route path="reminders" element={<Reminders />} />
                       <Route path="reflection" element={<Reflection />} />
