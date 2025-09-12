@@ -19,7 +19,11 @@ const FORBIDDEN_PERSONA_NAMES = [
   'Friend', // tone names (when used as persona labels)
   'Coach',
   'Scientist', 
-  'FutureYou'
+  'FutureYou',
+  'Future You',
+  'Glimmer', // service names
+  'CBT',
+  'Persona'
 ];
 
 // Files that are allowed to use persona names
@@ -53,16 +57,28 @@ function scanFile(filePath) {
   
   lines.forEach((line, lineIndex) => {
     FORBIDDEN_PERSONA_NAMES.forEach(personaName => {
-      // Look for persona names in UI strings (quotes/backticks)
+      // Look for persona names in UI strings (quotes/backticks and JSX attributes)
       const quotedRegex = new RegExp(`['"\`][^'"\`]*\\b${personaName}\\b[^'"\`]*['"\`]`, 'gi');
+      const jsxAttrRegex = new RegExp(`\\b${personaName}\\b(?=\\s*[})]|\\s*$)`, 'gi');
       
-      if (quotedRegex.test(line)) {
+      if (quotedRegex.test(line) || jsxAttrRegex.test(line)) {
         // Skip comments and logging
         if (line.trim().startsWith('//') || 
             line.trim().startsWith('*') ||
             line.includes('console.') ||
             line.includes('logger.') ||
-            line.includes('trace')) {
+            line.includes('trace') ||
+            line.includes('test') ||
+            line.includes('spec')) {
+          return;
+        }
+        
+        // Skip if it's in a variable name, function name, or type definition
+        if (line.includes('const ') || 
+            line.includes('interface ') ||
+            line.includes('type ') ||
+            line.includes('function ') ||
+            line.includes('export ')) {
           return;
         }
         

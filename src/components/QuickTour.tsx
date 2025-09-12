@@ -46,7 +46,7 @@ const TOUR_STEPS: TourStep[] = [
     description: "Receive timely, gentle nudges in your preferred tone when patterns suggest you need support.",
     icon: Zap,
     features: [
-      "Future-You, Friend, Coach, or Scientist tones",
+      "Supportive, motivational, analytical, or inspiring tones",
       "Frequency caps and quiet hours",
       "Context-aware timing",
       "Because... explanations for transparency"

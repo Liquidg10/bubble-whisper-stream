@@ -10,10 +10,10 @@ import type { GlimmerTone } from '@/types/glimmer';
 import { Sparkles, Heart, Brain, Rocket } from 'lucide-react';
 
 const TONE_CONFIG = {
-  Friend: { icon: Heart, label: 'Friend', description: 'Warm and supportive' },
-  Coach: { icon: Rocket, label: 'Coach', description: 'Motivational and energizing' },
-  Scientist: { icon: Brain, label: 'Scientist', description: 'Data-driven and analytical' },
-  'Future You': { icon: Sparkles, label: 'Future You', description: 'Wise and inspiring' }
+  Friend: { icon: Heart, label: 'Supportive', description: 'Warm and supportive' },
+  Coach: { icon: Rocket, label: 'Motivational', description: 'Energizing and encouraging' },
+  Scientist: { icon: Brain, label: 'Analytical', description: 'Data-driven and precise' },
+  'Future You': { icon: Sparkles, label: 'Inspiring', description: 'Wise and aspirational' }
 } as const;
 
 export function CelebrationSettings() {

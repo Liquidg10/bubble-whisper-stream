@@ -51,14 +51,8 @@ export const PersonaResponseCard: React.FC<PersonaResponseCardProps> = ({
   };
 
   const getPersonaDisplayName = (personaId: string) => {
-    const names: Record<string, string> = {
-      'coach_autonomy': 'Coach Autonomy',
-      'dr_seligman': 'Dr. Seligman',
-      'dr_anila': 'Dr. Anila',
-      'sous_chef': 'Sous-Chef',
-      'dr_rhea': 'Dr. Rhea'
-    };
-    return names[personaId] || personaId;
+    // Always show unified "Assistant" voice to users
+    return 'Assistant';
   };
 
   const getPersonaColor = (personaId: string) => {

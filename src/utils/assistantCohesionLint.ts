@@ -10,10 +10,11 @@ const FORBIDDEN_PERSONA_NAMES = [
   'Dr. Anila',
   'Sous-Chef',
   'Dr. Rhea',
-  'Friend', // tone names
+  'Friend', // tone names (when used as persona labels)
   'Coach',
   'Scientist',
   'FutureYou',
+  'Future You',
   'Glimmer', // service names
   'CBT',
   'Persona'
@@ -27,7 +28,8 @@ const ALLOWED_FILES = [
   'src/components/dev/', // dev tools
   'src/components/settings/', // settings panels
   'src/components/PersonaSettingsPanel.tsx',
-  'src/components/CRDTDevelopmentPanel.tsx'
+  'src/components/CRDTDevelopmentPanel.tsx',
+  'scripts/lint-assistant-cohesion.js'
 ];
 
 interface LintResult {

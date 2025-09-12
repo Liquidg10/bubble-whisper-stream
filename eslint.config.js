@@ -24,6 +24,7 @@ export default tseslint.config(
         { allowConstantExport: true },
       ],
       "@typescript-eslint/no-unused-vars": "off",
+      // Custom rule for assistant cohesion would go here if using ESLint plugin
     },
   }
 );
