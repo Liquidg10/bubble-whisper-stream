@@ -10,6 +10,8 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Clock, RefreshCw, AlertTriangle, CheckCircle, Calendar, Mail } from 'lucide-react';
 import { calendarHealthService, type CalendarHealthStatus } from '@/services/calendarHealthService';
+import { gmailHealthService, type GmailHealthStatus } from '@/services/gmailHealthService';
+import { isFeatureEnabled } from '@/config/flags';
 import { toast } from 'sonner';
 
 interface WatchStatus {
@@ -33,10 +35,18 @@ export function WatchHealthPanel() {
     try {
       setLoading(true);
       
+      const statuses: WatchStatus[] = [];
+
+      // Check if watch health feature is enabled
+      if (!isFeatureEnabled('watchHealth')) {
+        setWatchStatuses([]);
+        return;
+      }
+      
       // Get calendar account statuses
       const calendarStatuses = await calendarHealthService.getAccountHealthStatus();
       
-      const statuses: WatchStatus[] = calendarStatuses.map(account => {
+      const calendarWatches: WatchStatus[] = calendarStatuses.map(account => {
         const expiresAt = account.watchExpiresAt;
         let status: WatchStatus['status'] = 'inactive';
         let hoursUntilExpiry: number | undefined;
@@ -67,8 +77,47 @@ export function WatchHealthPanel() {
         };
       });
 
-      // TODO: Add Gmail watch statuses when Gmail integration is implemented
-      // Gmail watches should renew at ≤7 days (168 hours)
+      statuses.push(...calendarWatches);
+
+      // Get Gmail watch statuses
+      try {
+        const gmailStatuses = await gmailHealthService.getAccountHealthStatus();
+        
+        const gmailWatches: WatchStatus[] = gmailStatuses.map(account => {
+          const expiresAt = account.watchExpiresAt;
+          let status: WatchStatus['status'] = 'inactive';
+          let hoursUntilExpiry: number | undefined;
+          
+          if (expiresAt && account.watchStatus === 'active') {
+            const expiryTime = new Date(expiresAt).getTime();
+            const now = Date.now();
+            hoursUntilExpiry = (expiryTime - now) / (1000 * 60 * 60);
+            
+            if (hoursUntilExpiry <= 0) {
+              status = 'expired';
+            } else if (hoursUntilExpiry <= 168) { // Gmail: ≤7 days
+              status = 'expiring';
+            } else {
+              status = 'active';
+            }
+          }
+          
+          return {
+            id: account.id,
+            type: 'gmail',
+            accountEmail: account.accountEmail,
+            serviceName: `Gmail (${account.labelFilters?.join(', ') || 'All labels'})`,
+            status,
+            expiresAt,
+            hoursUntilExpiry,
+            renewalThreshold: 168, // Gmail renewal at ≤7 days
+          };
+        });
+
+        statuses.push(...gmailWatches);
+      } catch (error) {
+        console.warn('Gmail health service not available:', error);
+      }
       
       setWatchStatuses(statuses);
     } catch (error) {
@@ -86,8 +135,10 @@ export function WatchHealthPanel() {
       if (watchStatus.type === 'calendar') {
         await calendarHealthService.renewWatchChannel(watchStatus.id);
         toast.success(`Calendar watch renewed for ${watchStatus.accountEmail}`);
+      } else if (watchStatus.type === 'gmail') {
+        await gmailHealthService.renewWatchChannel(watchStatus.id);
+        toast.success(`Gmail watch renewed for ${watchStatus.accountEmail}`);
       }
-      // TODO: Add Gmail watch renewal
       
       await loadWatchStatuses();
     } catch (error) {

@@ -41,6 +41,9 @@ export const flags = {
   // Context Drift Guard (P8 - Drift detection & rollback)
   contextDriftGuard: false,
   
+  // Watch Health (P9 - Calendar/Gmail watch renewal)
+  watchHealth: true,
+  
   // CBT Assistant Feature Flags
   cbtAssist: false, // Main CBT assistant feature (default OFF)
   cbtSilentObserve: true, // Silent observation for testing (default ON)
