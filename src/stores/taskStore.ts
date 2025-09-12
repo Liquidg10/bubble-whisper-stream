@@ -268,8 +268,20 @@ export const useTaskStore = create<TaskStoreState>()(
 );
 
 // Subscribe to BubbleStore changes to keep TaskStore in sync
+// Add performance optimization: skip refresh during active drag operations
+let lastRefreshTime = 0;
+const REFRESH_DEBOUNCE_MS = 16; // ~60fps
+
 useBubbleStore.subscribe(
   () => {
+    const now = performance.now();
+    
+    // Skip if we're in a high-frequency drag operation
+    if (now - lastRefreshTime < REFRESH_DEBOUNCE_MS) {
+      return;
+    }
+    
+    lastRefreshTime = now;
     useTaskStore.getState().refreshFromBubbleStore();
   }
 );
@@ -279,15 +291,15 @@ useTaskStore.getState().refreshFromBubbleStore();
 
 /**
  * Hook to get task store with automatic bubble store sync
+ * Now relies solely on the global subscription for performance
  */
 export function useTaskStoreSync() {
   const taskStore = useTaskStore();
-  const bubbles = useBubbleStore((state) => state.bubbles);
   
-  // Ensure sync on mount and when bubbles change
+  // Only sync on mount - global subscription handles updates
   React.useEffect(() => {
     taskStore.refreshFromBubbleStore();
-  }, [bubbles]); // Remove taskStore dependency to prevent infinite loop
+  }, []); // Empty dependency array - no redundant subscriptions
   
   return taskStore;
 }
