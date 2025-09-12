@@ -61,6 +61,18 @@ class PrivacyEnforcementService {
   canPerformAction(context: PrivacyContext, userSettings?: Partial<ConnectorPrivacySettings>): boolean {
     const settings = { ...this.defaultSettings, ...userSettings };
     
+    // Check if layer is paused
+    if (this.isLayerPaused(context.requiredLayer)) {
+      console.log(`🛡️ Privacy policy blocked action: ${context.requiredLayer} layer is paused`);
+      this.recordPrivacyAction(
+        'blocked_action_paused_layer',
+        context.requiredLayer,
+        [`Action blocked: ${context.purpose}`, `Layer ${context.requiredLayer} is currently paused`],
+        context.connectorType
+      );
+      return false;
+    }
+    
     // Build the settings key for this connector and layer
     const connectorPrefix = context.connectorType;
     const layerSuffix = `${context.requiredLayer.charAt(0).toUpperCase() + context.requiredLayer.slice(1)}Access`;
@@ -70,8 +82,22 @@ class PrivacyEnforcementService {
     
     if (!isAllowed) {
       console.log(`🛡️ Privacy policy blocked action: ${context.connectorType} ${context.requiredLayer} access denied`);
+      this.recordPrivacyAction(
+        'blocked_action_no_consent',
+        context.requiredLayer,
+        [`Action blocked: ${context.purpose}`, `${context.connectorType} ${context.requiredLayer} access is disabled`],
+        context.connectorType
+      );
       return false;
     }
+    
+    // Record successful privacy check
+    this.recordPrivacyAction(
+      'privacy_check_passed',
+      context.requiredLayer,
+      [`Action allowed: ${context.purpose}`, `Privacy settings permit ${context.connectorType} access`],
+      context.connectorType
+    );
     
     return true;
   }

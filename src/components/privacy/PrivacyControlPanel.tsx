@@ -8,6 +8,8 @@ import { Badge } from '@/components/ui/badge';
 import { Pause, RotateCcw, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { PrivacyZoneToggle } from '@/components/PrivacyZoneToggle';
 import { ConnectorPrivacyMatrix } from './ConnectorPrivacyMatrix';
+import { DataRedactionDialog } from './DataRedactionDialog';
+import { MoveToDeepDialog } from './MoveToDeepDialog';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { useToast } from '@/hooks/use-toast';
 
@@ -38,26 +40,20 @@ export function PrivacyControlPanel() {
     }
   };
 
-  const openRedactionTool = (layer: string) => {
-    toast({
-      title: "Redaction tool",
-      description: `Opening redaction tool for ${layer} layer data`,
-      duration: 2000,
-    });
-    // TODO: Implement redaction tool dialog
+  const [redactionDialogOpen, setRedactionDialogOpen] = useState(false);
+  const [redactionLayer, setRedactionLayer] = useState<'surface' | 'context' | 'deep'>('surface');
+  const [moveToDeepOpen, setMoveToDeepOpen] = useState(false);
+
+  const openRedactionTool = (layer: 'surface' | 'context' | 'deep') => {
+    setRedactionLayer(layer);
+    setRedactionDialogOpen(true);
   };
 
   const openMoveToDeepDialog = () => {
-    toast({
-      title: "Move to Deep layer",
-      description: "Opening dialog to move sensitive data to Deep layer",
-      duration: 2000,
-    });
-    // TODO: Implement move-to-deep dialog
+    setMoveToDeepOpen(true);
   };
 
   const handleDataRedaction = async (layer: string) => {
-    // TODO: Implement actual redaction logic
     toast({
       title: "Data redacted",
       description: `Sensitive data has been removed from ${layer} layer`,
@@ -142,51 +138,27 @@ export function PrivacyControlPanel() {
               Data Redaction
             </h4>
             <div className="flex flex-wrap gap-2">
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    Redact Surface Data
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Redact Surface Layer Data?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will remove sensitive data from the Surface layer while preserving 
-                      the overall structure. This action cannot be undone.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => handleDataRedaction('surface')}>
-                      Redact Data
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    Redact Context Data
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Redact Context Layer Data?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This will remove pattern learning data from the Context layer. 
-                      This action cannot be undone.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => handleDataRedaction('context')}>
-                      Redact Data
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => openRedactionTool('surface')}
+              >
+                Redact Surface Data
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => openRedactionTool('context')}
+              >
+                Redact Context Data
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => openRedactionTool('deep')}
+              >
+                Redact Deep Data
+              </Button>
             </div>
           </div>
           
@@ -196,28 +168,13 @@ export function PrivacyControlPanel() {
               <ShieldCheck className="h-4 w-4" />
               Enhance Protection
             </h4>
-            <Dialog>
-              <DialogTrigger asChild>
-                <Button variant="outline" size="sm">
-                  Move Sensitive Data to Deep Layer
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Move Data to Deep Layer</DialogTitle>
-                  <DialogDescription>
-                    Select which data should be moved to the encrypted Deep layer 
-                    for enhanced protection.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4 py-4">
-                  <p className="text-sm text-muted-foreground">
-                    This feature is coming soon. It will allow you to selectively 
-                    move sensitive data to the most secure privacy layer.
-                  </p>
-                </div>
-              </DialogContent>
-            </Dialog>
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={openMoveToDeepDialog}
+            >
+              Move Sensitive Data to Deep Layer
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -244,6 +201,19 @@ export function PrivacyControlPanel() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Data Redaction Dialog */}
+      <DataRedactionDialog
+        open={redactionDialogOpen}
+        onOpenChange={setRedactionDialogOpen}
+        layer={redactionLayer}
+      />
+
+      {/* Move to Deep Dialog */}
+      <MoveToDeepDialog
+        open={moveToDeepOpen}
+        onOpenChange={setMoveToDeepOpen}
+      />
     </div>
   );
 }
