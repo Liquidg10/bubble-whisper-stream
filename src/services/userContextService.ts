@@ -14,6 +14,10 @@ export interface UserContext {
     timeZone?: string;
     primaryGoals?: string[];
     onboardingCompleted?: boolean;
+    // P18 Persona preferences
+    privacyLayer?: 'surface' | 'context' | 'deep';
+    nudgeFrequency?: 'minimal' | 'occasional' | 'regular';
+    interventionStyle?: 'suggest' | 'draft' | 'auto_gentle';
   };
   patterns: PatternHint[];
   recentActivity: {

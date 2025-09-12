@@ -58,6 +58,10 @@ export const flags = {
   
   // CRDT Pilot (P17 - Local-first multi-device)
   crdtPilot: false, // OFF by default - development/testing only
+  
+  // Persona Cast System (P18 - Evidence-based guidance)
+  personaOrchestration: false, // OFF by default - development/testing only
+  
   // Auto-Write Feature Flags (Safety Shell)
   autoWriteCalendar: false, // Auto-write to calendar (default OFF)
   autoWriteEmail: false, // Auto-write email drafts (default OFF)
