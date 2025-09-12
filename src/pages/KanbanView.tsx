@@ -39,22 +39,18 @@ import { createViewContext, createViewData, type ViewSDK } from '@/views/sdk';
 import { SmartTaskQuickAdd } from '@/components/SmartTaskQuickAdd';
 import { KanbanTaskCard } from '@/components/KanbanTaskCard';
 import { KanbanColumn } from '@/components/KanbanColumn';
+import { KanbanColumnSettings } from '@/components/KanbanColumnSettings';
+import { useKanbanColumns, type KanbanColumn as KanbanColumnType } from '@/hooks/useKanbanColumns';
 import { isFeatureEnabled } from '@/config/flags';
 import { cn } from '@/lib/utils';
 import type { Task, TaskId } from '@/types/task';
 
-const DEFAULT_COLUMNS = [
-  { id: 'backlog', title: 'Backlog', color: 'hsl(var(--muted))' },
-  { id: 'next', title: 'Next', color: 'hsl(var(--primary-accent))' },
-  { id: 'doing', title: 'Doing', color: 'hsl(var(--accent-flow))' },
-  { id: 'done', title: 'Done', color: 'hsl(var(--success))' }
-];
-
 export default function KanbanView() {
   const taskStore = useTaskStoreSync();
+  const { columns, updateColumn } = useKanbanColumns();
   const [draggedTask, setDraggedTask] = useState<TaskId | null>(null);
-  const [columns, setColumns] = useState(DEFAULT_COLUMNS);
   const [selectedTaskId, setSelectedTaskId] = useState<TaskId | null>(null);
+  const [settingsColumn, setSettingsColumn] = useState<KanbanColumnType | null>(null);
 
   // Check if Kanban feature is enabled
   if (!isFeatureEnabled('kanbanView')) {
@@ -239,6 +235,49 @@ export default function KanbanView() {
     }
   }, [taskStore, columns, tasksByColumn, viewSDK.actions]);
 
+  // Column action handlers
+  const handleAddTask = useCallback(async (columnId: string) => {
+    const newTask: Task = {
+      id: Date.now().toString(),
+      type: 'task',
+      title: 'New task',
+      completed: false,
+      priority: 50,
+      tags: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      view: {
+        kanban: {
+          boardId: 'main',
+          columnId,
+          pos: (tasksByColumn[columnId] || []).length
+        }
+      }
+    };
+    
+    await viewSDK.actions.upsert(newTask);
+    setSelectedTaskId(newTask.id);
+  }, [tasksByColumn, viewSDK.actions]);
+
+  const handleClearCompleted = useCallback(async (columnId: string) => {
+    const completedTasks = (tasksByColumn[columnId] || []).filter(task => task.completed);
+    for (const task of completedTasks) {
+      await viewSDK.actions.remove(task.id);
+    }
+  }, [tasksByColumn, viewSDK.actions]);
+
+  const handleColumnSettings = useCallback((columnId: string) => {
+    const column = columns.find(col => col.id === columnId);
+    if (column) {
+      setSettingsColumn(column);
+    }
+  }, [columns]);
+
+  const handleSaveColumnSettings = useCallback((updatedColumn: KanbanColumnType) => {
+    updateColumn(updatedColumn.id, updatedColumn);
+    setSettingsColumn(null);
+  }, [updateColumn]);
+
   return (
     <div className="min-h-screen bg-background">
       <div className="p-6">
@@ -250,7 +289,7 @@ export default function KanbanView() {
           </div>
           
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="gap-2">
+            <Button variant="outline" size="sm" className="gap-2 h-11">
               <Settings className="w-4 h-4" />
               Configure Columns
             </Button>
@@ -280,6 +319,9 @@ export default function KanbanView() {
                 onTaskKeyboardMove={handleKeyboardMove}
                 onTaskSelect={setSelectedTaskId}
                 selectedTaskId={selectedTaskId}
+                onAddTask={handleAddTask}
+                onClearCompleted={handleClearCompleted}
+                onColumnSettings={handleColumnSettings}
               />
             ))}
           </div>
@@ -293,6 +335,16 @@ export default function KanbanView() {
             <kbd className="px-1 py-0.5 bg-muted rounded text-xs ml-1">Enter</kbd> to activate
           </p>
         </div>
+
+        {/* Column Settings Dialog */}
+        {settingsColumn && (
+          <KanbanColumnSettings
+            column={settingsColumn}
+            isOpen={!!settingsColumn}
+            onClose={() => setSettingsColumn(null)}
+            onSave={handleSaveColumnSettings}
+          />
+        )}
       </div>
     </div>
   );

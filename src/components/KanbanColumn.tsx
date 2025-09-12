@@ -26,6 +26,9 @@ interface KanbanColumnProps {
   onTaskKeyboardMove: (taskId: TaskId, direction: 'up' | 'down' | 'left' | 'right') => void;
   onTaskSelect: (taskId: TaskId) => void;
   selectedTaskId: TaskId | null;
+  onAddTask?: (columnId: string) => void;
+  onClearCompleted?: (columnId: string) => void;
+  onColumnSettings?: (columnId: string) => void;
 }
 
 export function KanbanColumn({ 
@@ -34,7 +37,10 @@ export function KanbanColumn({
   isDraggedOver, 
   onTaskKeyboardMove,
   onTaskSelect,
-  selectedTaskId 
+  selectedTaskId,
+  onAddTask,
+  onClearCompleted,
+  onColumnSettings
 }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: `column-${column.id}`,
@@ -65,22 +71,32 @@ export function KanbanColumn({
               <DropdownMenuTrigger asChild>
                 <Button 
                   variant="ghost" 
-                  size="sm" 
-                  className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                  size="xs" 
+                  className="opacity-0 group-hover:opacity-100 transition-opacity"
                   aria-label={`Column ${column.title} options`}
                 >
-                  <MoreVertical className="w-3 h-3" />
+                  <MoreVertical className="w-4 h-4" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                <DropdownMenuItem className="gap-2">
-                  <Plus className="w-3 h-3" />
+              <DropdownMenuContent align="end" className="w-48 bg-background border shadow-lg">
+                <DropdownMenuItem 
+                  className="gap-2 h-11 cursor-pointer" 
+                  onClick={() => onAddTask?.(column.id)}
+                >
+                  <Plus className="w-4 h-4" />
                   Add task here
                 </DropdownMenuItem>
-                <DropdownMenuItem className="gap-2">
+                <DropdownMenuItem 
+                  className="gap-2 h-11 cursor-pointer" 
+                  onClick={() => onClearCompleted?.(column.id)}
+                  disabled={!tasks.some(t => t.completed)}
+                >
                   Clear completed
                 </DropdownMenuItem>
-                <DropdownMenuItem className="gap-2">
+                <DropdownMenuItem 
+                  className="gap-2 h-11 cursor-pointer" 
+                  onClick={() => onColumnSettings?.(column.id)}
+                >
                   Column settings
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -108,9 +124,10 @@ export function KanbanColumn({
                   <Button 
                     variant="ghost" 
                     size="sm" 
-                    className="mt-2 gap-2 text-xs"
+                    className="mt-2 gap-2"
+                    onClick={() => onAddTask?.(column.id)}
                   >
-                    <Plus className="w-3 h-3" />
+                    <Plus className="w-4 h-4" />
                     Add first task
                   </Button>
                 </div>
