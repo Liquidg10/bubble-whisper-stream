@@ -18,6 +18,7 @@ import { storageService } from '@/services/storage';
 import { hapticsService } from '@/services/haptics';
 import { PrivacyZoneToggle } from '@/components/PrivacyZoneToggle';
 import { CBTTraceSettings } from './CBTTraceSettings';
+import { PrivacyControlPanel } from '@/components/privacy/PrivacyControlPanel';
 
 export const PrivacySecuritySettings: React.FC = () => {
   const { settings, updateSettings, bubbles, reminders } = useBubbleStore();
@@ -57,38 +58,8 @@ export const PrivacySecuritySettings: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Privacy Zones */}
-      <div className="space-y-4">
-        <div>
-          <h2 className="text-lg font-semibold mb-2">Privacy Zones</h2>
-          <p className="text-sm text-muted-foreground mb-4">
-            Control what data layers are active for personalization
-          </p>
-        </div>
-        
-        <PrivacyZoneToggle
-          layer="surface"
-          title="Surface Layer"
-          description="Basic preferences, theme settings, and UI customizations"
-          icon={<Eye className="h-5 w-5" />}
-        />
-        
-        <PrivacyZoneToggle
-          layer="context"
-          title="Context Layer"
-          description="Time patterns, routine detection, and adaptive reminders"
-          icon={<Shield className="h-5 w-5" />}
-          requiresBiometric={false}
-        />
-        
-        <PrivacyZoneToggle
-          layer="deep"
-          title="Deep Layer"
-          description="Emotional patterns, CBT insights, and personal triggers"
-          icon={<Lock className="h-5 w-5" />}
-          requiresBiometric={true}
-        />
-      </div>
+      {/* Enhanced Privacy Control Panel */}
+      <PrivacyControlPanel />
 
       {/* Security Settings */}
       <Card>
