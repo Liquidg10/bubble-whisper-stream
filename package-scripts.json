@@ -1,0 +1,9 @@
+{
+  "scripts": {
+    "test:a11y": "playwright test --grep=\"@a11y\"",
+    "test:a11y:ui": "playwright test --grep=\"@a11y\" --ui",
+    "test:a11y:debug": "playwright test --grep=\"@a11y\" --debug",
+    "test:a11y:headed": "playwright test --grep=\"@a11y\" --headed",
+    "test:performance:a11y": "playwright test tests/a11y/performance-accessibility.spec.ts"
+  }
+}

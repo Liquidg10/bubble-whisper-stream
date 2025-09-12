@@ -19,6 +19,7 @@ import { cn } from '@/lib/utils';
 import { Task, updateTask } from '@/types/task';
 import { calendarWriteService } from '@/services/calendarWriteService';
 import { usePrecisionGateUndo } from '@/hooks/usePrecisionGateUndo';
+import { planningModeStatsService } from '@/services/planningModeStats';
 
 interface PlanningMetadata {
   wish?: string;
@@ -83,6 +84,7 @@ export const TaskCardPlanning: React.FC<TaskCardPlanningProps> = ({
   );
   const [customInput, setCustomInput] = useState('');
   const [showCustomInput, setShowCustomInput] = useState(false);
+  const [sessionId] = useState(() => planningModeStatsService.startPlanningSession(task));
   const inputRef = useRef<HTMLInputElement>(null);
   const { showUndoToast } = usePrecisionGateUndo();
 
@@ -133,6 +135,9 @@ export const TaskCardPlanning: React.FC<TaskCardPlanningProps> = ({
   const currentStepData = steps[currentStepIndex];
 
   const handleChipSelect = (value: string) => {
+    planningModeStatsService.recordTap(sessionId);
+    planningModeStatsService.recordStepCompletion(sessionId, currentStep, value);
+    
     const newPlanning = { ...planning, [currentStep]: value };
     setPlanningData(newPlanning);
     advanceToNextStep();
@@ -157,6 +162,8 @@ export const TaskCardPlanning: React.FC<TaskCardPlanningProps> = ({
   };
 
   const handleComplete = () => {
+    planningModeStatsService.completePlanningSession(sessionId, 'none', false);
+    
     const updatedTask = updateTask(task, {
       metadata: {
         ...task.metadata,
@@ -188,6 +195,8 @@ export const TaskCardPlanning: React.FC<TaskCardPlanningProps> = ({
   };
 
   const handleSkip = () => {
+    planningModeStatsService.skipPlanningSession(sessionId, 'user_declined');
+    
     const skippedTask = updateTask(task, {
       metadata: {
         ...task.metadata,
@@ -201,6 +210,8 @@ export const TaskCardPlanning: React.FC<TaskCardPlanningProps> = ({
   };
 
   const handleCreateStarterBlock = async () => {
+    planningModeStatsService.recordTap(sessionId);
+    
     try {
       const startTime = new Date();
       startTime.setMinutes(startTime.getMinutes() + 5); // 5 minutes from now
@@ -215,6 +226,9 @@ export const TaskCardPlanning: React.FC<TaskCardPlanningProps> = ({
         endTime: endTime.toISOString(),
         confidence: 0.8
       });
+
+      // Record calendar conversion
+      planningModeStatsService.completePlanningSession(sessionId, 'calendar', true);
 
       showUndoToast({
         traceId: `calendar-starter-${task.id}`,
@@ -310,14 +324,17 @@ export const TaskCardPlanning: React.FC<TaskCardPlanningProps> = ({
               <div className="space-y-3">
                 <div className="grid grid-cols-1 gap-2">
                   {currentStepData.chips.map((chip, index) => (
-                    <Button
-                      key={index}
-                      variant="outline"
-                      className="h-auto p-3 text-left justify-start text-wrap"
-                      onClick={() => handleChipSelect(chip)}
-                    >
-                      {chip}
-                    </Button>
+                  <Button
+                    key={index}
+                    variant="outline"
+                    className="h-auto p-3 text-left justify-start text-wrap"
+                    onClick={() => {
+                      planningModeStatsService.recordTap(sessionId);
+                      handleChipSelect(chip);
+                    }}
+                  >
+                    {chip}
+                  </Button>
                   ))}
                 </div>
                 <Button

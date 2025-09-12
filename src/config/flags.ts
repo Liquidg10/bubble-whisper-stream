@@ -31,6 +31,7 @@ export const flags = {
   
   // Kanban View (P4 - Column-based organization)
   kanbanView: true,
+  contextEngine: true,
   
   // Matrix View (P5 - Eisenhower Matrix)
   matrixView: true,
@@ -70,7 +71,6 @@ export const flags = {
   autoWriteEmail: false, // Auto-write email drafts (default OFF)
   autoFinanceRead: false, // Read financial data (default OFF)
   autoFinanceInsights: false, // Generate financial insights (default OFF)
-  contextEngine: false, // Context-aware suggestions (default OFF)
   autoWriteKillSwitch: false, // Global kill switch for all auto-write features (default OFF)
   
   // Voice System Consolidation (Phase 1)

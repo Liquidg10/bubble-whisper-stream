@@ -15,7 +15,7 @@ export function SmartTaskQuickAdd() {
   const [smartDefaults, setSmartDefaults] = useState<null | ReturnType<typeof deriveTaskDefaults>>(null);
   const taskStore = useTaskStoreSync();
 
-  const handleInputChange = useCallback((value: string) => {
+  const handleInputChange = useCallback(async (value: string) => {
     setInput(value);
     
     // Generate smart defaults as user types (debounced)
@@ -27,7 +27,7 @@ export function SmartTaskQuickAdd() {
         currentTime: Date.now()
       };
       
-      const defaults = deriveTaskDefaults(context);
+      const defaults = await deriveTaskDefaults(context);
       setSmartDefaults(defaults);
     } else {
       setSmartDefaults(null);
@@ -49,7 +49,7 @@ export function SmartTaskQuickAdd() {
         currentTime: Date.now()
       };
       
-      const defaults = deriveTaskDefaults(context);
+      const defaults = await deriveTaskDefaults(context);
       
       const newTask = createTask(input.trim(), defaults.type || 'task', {
         priority: defaults.priority || 50,
