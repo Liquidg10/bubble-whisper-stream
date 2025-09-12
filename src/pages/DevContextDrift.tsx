@@ -60,7 +60,7 @@ export default function DevContextDrift() {
   const loadCurrentWeights = async () => {
     try {
       const weights = await contextEngineService.getSignalWeights();
-      setCurrentWeights(weights);
+      setCurrentWeights(Object.fromEntries(weights));
     } catch (error) {
       console.error('Failed to load current weights:', error);
     }
@@ -92,7 +92,7 @@ export default function DevContextDrift() {
       
       const snapshot: WeightSnapshot = {
         timestamp: Date.now(),
-        weights,
+        weights: Object.fromEntries(weights),
         acceptanceRate: calculateAcceptanceRate(decisions),
         totalDecisions: decisions.length
       };
@@ -182,7 +182,7 @@ export default function DevContextDrift() {
       
       setLoading(true);
       try {
-        await contextEngineService.updateSignalWeights(lastStableSnapshot.weights);
+        await contextEngineService.updateSignalWeights(new Map(Object.entries(lastStableSnapshot.weights)));
         await loadCurrentWeights();
         await saveSnapshot(true); // Mark as new stable point
       } catch (error) {

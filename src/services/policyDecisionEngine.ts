@@ -4,8 +4,6 @@ import { contextPatternService } from './contextPatternService';
 
 export interface PolicyDecisionInput extends ContextInput {
   feature?: string;
-  content?: string;
-  sender?: string;
   location?: string;
   recipient?: {
     email?: string;

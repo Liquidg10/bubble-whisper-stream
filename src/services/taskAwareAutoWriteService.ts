@@ -66,17 +66,49 @@ class TaskAwareAutoWriteService {
   }
 
   private async executeCalendarAutoWrite(task: Task): Promise<void> {
-    // Implementation would create calendar event with undo capability
-    const mapping: TaskCalendarMapping = {
-      taskId: task.id,
-      eventId: `cal_${Date.now()}`,
-      traceId: `trace_${Date.now()}`,
-      createdAt: Date.now(),
-      confidence: 0.85
-    };
-    
-    this.taskCalendarMappings.set(task.id, mapping);
-    logger.info('Calendar auto-write executed', { taskId: task.id });
+    try {
+      const calendarData = task.view?.calendar;
+      if (!calendarData?.startTime || !calendarData?.durationMin) {
+        throw new Error('Missing required calendar data');
+      }
+
+      // Create calendar event via existing calendar service
+      const eventData = {
+        title: task.title,
+        description: task.description || '',
+        startTime: new Date(calendarData.startTime),
+        durationMin: calendarData.durationMin,
+        location: calendarData.location,
+        attendees: calendarData.attendees || []
+      };
+
+      // Generate trace for undo capability
+      const traceId = `trace_${Date.now()}`;
+      const eventId = `cal_${Date.now()}`;
+
+      const mapping: TaskCalendarMapping = {
+        taskId: task.id,
+        eventId,
+        traceId,
+        createdAt: Date.now(),
+        confidence: this.calculateCalendarConfidence(task),
+        calendarAccountId: calendarData.calendarId
+      };
+      
+      this.taskCalendarMappings.set(task.id, mapping);
+      
+      // Note: In a real implementation, this would call the calendar API
+      // For now, we create the mapping and log the action
+      logger.info('Calendar auto-write executed', { 
+        taskId: task.id,
+        eventId,
+        traceId,
+        confidence: mapping.confidence
+      });
+    } catch (error) {
+      logger.error('Calendar auto-write failed', error, { taskId: task.id });
+      throw error;
+    }
   }
 
   /**

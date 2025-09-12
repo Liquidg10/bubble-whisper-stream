@@ -72,11 +72,16 @@ describe('AutoWriteCalendarService', () => {
       const mockContextScore = {
         score: 0.9,
         signals: [
-          { type: 'content_certainty' as const, value: 0.95, confidence: 0.9, weight: 0.3, reason: 'Clear date and time' },
-          { type: 'sender_trust' as const, value: 0.85, confidence: 0.8, weight: 0.2, reason: 'Known sender' }
+          { type: 'content_certainty' as const, value: 0.95, confidence: 0.9, weight: 0.3, reason: 'Clear date and time', source: 'context_engine' },
+          { type: 'sender_trust' as const, value: 0.85, confidence: 0.8, weight: 0.2, reason: 'Known sender', source: 'context_engine' }
         ],
         because: ['Clear date and time detected', 'High sender trust'],
-        metadata: { signalCount: 2, totalWeight: 0.5, deterministic: true, timestamp: Date.now() }
+        metadata: { signalCount: 2, totalWeight: 0.5, deterministic: true, timestamp: Date.now() },
+        confidence: 0.9,
+        priority: 75,
+        urgency: 0.8,
+        domain: 'Calendar',
+        reasoning: ['Clear date and time detected', 'High sender trust']
       };
 
       const mockPolicyDecision = {
@@ -90,7 +95,14 @@ describe('AutoWriteCalendarService', () => {
         timestamp: new Date()
       };
 
-      mockContextEngineService.generateScore.mockResolvedValue(mockContextScore);
+      mockContextEngineService.generateScore.mockResolvedValue({
+        ...mockContextScore,
+        confidence: 0.85,
+        priority: 75,
+        urgency: 0.8,
+        domain: 'Calendar',
+        reasoning: ['High confidence calendar event']
+      });
       mockPolicyDecisionEngine.makeDecision.mockResolvedValue(mockPolicyDecision);
       mockDecisionTraceService.addTrace.mockReturnValue('trace-123');
 
@@ -137,11 +149,16 @@ describe('AutoWriteCalendarService', () => {
       const mockContextScore = {
         score: 0.7,
         signals: [
-          { type: 'content_certainty' as const, value: 0.8, confidence: 0.7, weight: 0.3, reason: 'Some ambiguity in time' },
-          { type: 'sender_trust' as const, value: 0.6, confidence: 0.8, weight: 0.2, reason: 'Moderate sender trust' }
+          { type: 'content_certainty' as const, value: 0.8, confidence: 0.7, weight: 0.3, reason: 'Some ambiguity in time', source: 'context_engine' },
+          { type: 'sender_trust' as const, value: 0.6, confidence: 0.8, weight: 0.2, reason: 'Moderate sender trust', source: 'context_engine' }
         ],
         because: ['Some time ambiguity detected', 'Moderate confidence'],
-        metadata: { signalCount: 2, totalWeight: 0.5, deterministic: true, timestamp: Date.now() }
+        metadata: { signalCount: 2, totalWeight: 0.5, deterministic: true, timestamp: Date.now() },
+        confidence: 0.7,
+        priority: 60,
+        urgency: 0.6,
+        domain: 'Calendar',
+        reasoning: ['Some time ambiguity detected', 'Moderate confidence']
       };
 
       const mockPolicyDecision = {
@@ -178,11 +195,16 @@ describe('AutoWriteCalendarService', () => {
       const mockContextScore = {
         score: 0.4,
         signals: [
-          { type: 'content_certainty' as const, value: 0.3, confidence: 0.5, weight: 0.3, reason: 'Unclear timing' },
-          { type: 'ambiguity' as const, value: 0.7, confidence: 0.8, weight: 0.2, reason: 'High ambiguity detected' }
+          { type: 'content_certainty' as const, value: 0.3, confidence: 0.5, weight: 0.3, reason: 'Unclear timing', source: 'context_engine' },
+          { type: 'ambiguity' as const, value: 0.7, confidence: 0.8, weight: 0.2, reason: 'High ambiguity detected', source: 'context_engine' }
         ],
         because: ['Unclear timing information', 'High ambiguity detected'],
-        metadata: { signalCount: 2, totalWeight: 0.5, deterministic: true, timestamp: Date.now() }
+        metadata: { signalCount: 2, totalWeight: 0.5, deterministic: true, timestamp: Date.now() },
+        confidence: 0.4,
+        priority: 30,
+        urgency: 0.3,
+        domain: 'Calendar',
+        reasoning: ['Unclear timing information', 'High ambiguity detected']
       };
 
       const mockPolicyDecision = {
@@ -319,7 +341,12 @@ describe('AutoWriteCalendarService', () => {
         score: 0.9,
         signals: [],
         because: ['High confidence'],
-        metadata: { signalCount: 1, totalWeight: 1, deterministic: true, timestamp: Date.now() }
+        metadata: { signalCount: 1, totalWeight: 1, deterministic: true, timestamp: Date.now() },
+        confidence: 0.9,
+        priority: 85,
+        urgency: 0.9,
+        domain: 'Calendar',
+        reasoning: ['High confidence']
       };
 
       const mockPolicyDecision = {

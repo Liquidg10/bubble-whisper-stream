@@ -221,11 +221,11 @@ describe('ContextEngineService', () => {
       
       // Modify weights to emphasize time pressure
       const originalWeights = contextEngineService.getSignalWeights();
-      contextEngineService.updateSignalWeights({
-        time_pressure: 0.8,
-        sender_trust: 0.1,
-        content_certainty: 0.1
-      });
+      contextEngineService.updateSignalWeights(new Map([
+        ['time_pressure', 0.8],
+        ['sender_trust', 0.1],
+        ['content_certainty', 0.1]
+      ]));
       
       const modifiedScore = await contextEngineService.generateScore(HIGH_CONFIDENCE_FIXTURE);
       
@@ -258,7 +258,7 @@ describe('ContextEngineService', () => {
 
   describe('Edge Cases', () => {
     it('should handle empty input gracefully', async () => {
-      const emptyInput: ContextInput = { eventType: 'email' };
+      const emptyInput: ContextInput = { content: '', eventType: 'email' };
       const score = await contextEngineService.generateScore(emptyInput);
       
       expect(score.score).toBeGreaterThanOrEqual(0);

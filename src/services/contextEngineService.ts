@@ -11,8 +11,8 @@ import { classifyDomain } from '@/lib/classifyDomain';
 
 // Legacy interfaces for backward compatibility
 export interface ContextInput {
-  text: string;
-  content?: string;
+  text?: string;
+  content: string;
   sender?: string;
   eventType?: string;
   deadline?: Date;
@@ -20,6 +20,8 @@ export interface ContextInput {
   domain?: string;
   timeContext?: string;
   urgency?: number;
+  currentTime?: Date;
+  location?: string;
   metadata?: Record<string, any>;
 }
 
@@ -40,6 +42,8 @@ export interface ContextSignal {
   weight: number;
   value: number;
   source: string;
+  confidence: number;
+  reason: string;
 }
 
 export interface ContextInsight {
@@ -380,8 +384,8 @@ class ContextEngineService {
 
     try {
       const context: DerivationContext = {
-        inputText: input.text || input.content || '',
-        viewContext: { mode: 'default', source: 'legacy' },
+        inputText: input.content || input.text || '',
+        viewContext: { viewId: 'legacy', mode: 'bubble', now: Date.now() },
         currentTime: Date.now()
       };
 
@@ -475,7 +479,9 @@ class ContextEngineService {
       type: insight.type,
       weight: insight.confidence,
       value: insight.confidence,
-      source: 'context_engine'
+      source: 'context_engine',
+      confidence: insight.confidence,
+      reason: insight.explanation
     }));
   }
 }

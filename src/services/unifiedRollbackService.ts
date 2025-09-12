@@ -50,7 +50,7 @@ class UnifiedRollbackService {
     const overallHealth = (contextHealth + precisionHealth) / 2;
     
     // Determine combined drift severity
-    const contextDrift = this.calculateContextDrift(weights);
+    const contextDrift = this.calculateContextDrift(Object.fromEntries(weights));
     const precisionDrift = this.calculatePrecisionDrift(precisionSnapshot);
     const maxDrift = Math.max(contextDrift, precisionDrift);
     
@@ -64,7 +64,7 @@ class UnifiedRollbackService {
     const snapshot: UnifiedSnapshot = {
       timestamp: Date.now(),
       context: {
-        weights,
+        weights: Object.fromEntries(weights),
         acceptanceRate,
         totalDecisions: recentDecisions.length
       },
@@ -136,7 +136,7 @@ class UnifiedRollbackService {
 
       // Restore context weights if requested
       if (options.restoreContext) {
-        await contextEngineService.updateSignalWeights(stableSnapshot.context.weights);
+        await contextEngineService.updateSignalWeights(new Map(Object.entries(stableSnapshot.context.weights)));
         restored = true;
       }
 

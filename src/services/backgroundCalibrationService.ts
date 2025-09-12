@@ -307,7 +307,7 @@ class BackgroundCalibrationService {
 
   private async applyWeightAdjustments(newWeights: Record<string, number>) {
     // Apply weights gradually to avoid sudden changes
-    await contextEngineService.updateSignalWeights(newWeights);
+    await contextEngineService.updateSignalWeights(new Map(Object.entries(newWeights)));
   }
 
   private async analyzeFeaturePerformance() {

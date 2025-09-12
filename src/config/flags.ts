@@ -43,7 +43,7 @@ export const flags = {
   planningMode: true,
   
   // Context Drift Guard (P8 - Drift detection & rollback)
-  contextDriftGuard: false,
+  contextDriftGuard: true,
   
   // Watch Health (P9 - Calendar/Gmail watch renewal)
   watchHealth: true,

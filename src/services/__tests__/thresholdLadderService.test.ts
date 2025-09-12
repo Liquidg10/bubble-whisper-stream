@@ -14,20 +14,27 @@ describe('ThresholdLadderService', () => {
   const mockContextScore: ContextScore = {
     score: 0.75,
     because: ['High urgency due to approaching deadline', 'Trusted sender'],
+    confidence: 0.75,
+    priority: 80,
+    urgency: 0.8,
+    domain: 'General',
+    reasoning: ['High urgency due to approaching deadline', 'Trusted sender'],
     signals: [
       {
         type: 'time_pressure',
         value: 0.8,
         confidence: 0.8,
         weight: 0.3,
-        reason: 'deadline in 2 hours'
+        reason: 'deadline in 2 hours',
+        source: 'context_engine'
       },
       {
         type: 'sender_trust',
         value: 0.9,
         confidence: 0.9,
         weight: 0.2,
-        reason: 'frequent positive interactions'
+        reason: 'frequent positive interactions',
+        source: 'context_engine'
       }
     ],
     metadata: {
