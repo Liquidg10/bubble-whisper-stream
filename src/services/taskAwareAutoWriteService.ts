@@ -8,7 +8,25 @@ import { calendarWriteService } from '@/services/calendarWriteService';
 import { logger } from '@/utils/logger';
 import { isFeatureEnabled } from '@/config/flags';
 
+export interface TaskCalendarMapping {
+  taskId: string;
+  eventId: string;
+  traceId: string;
+  createdAt: number;
+  calendarAccountId?: string;
+  confidence: number;
+}
+
 class TaskAwareAutoWriteService {
+  private taskCalendarMappings = new Map<string, TaskCalendarMapping>();
+
+  /**
+   * Get all task-calendar mappings
+   */
+  getAllMappings(): Map<string, TaskCalendarMapping> {
+    return this.taskCalendarMappings;
+  }
+
   /**
    * Evaluate a task for auto-write opportunities
    */
@@ -49,7 +67,30 @@ class TaskAwareAutoWriteService {
 
   private async executeCalendarAutoWrite(task: Task): Promise<void> {
     // Implementation would create calendar event with undo capability
+    const mapping: TaskCalendarMapping = {
+      taskId: task.id,
+      eventId: `cal_${Date.now()}`,
+      traceId: `trace_${Date.now()}`,
+      createdAt: Date.now(),
+      confidence: 0.85
+    };
+    
+    this.taskCalendarMappings.set(task.id, mapping);
     logger.info('Calendar auto-write executed', { taskId: task.id });
+  }
+
+  /**
+   * Undo a task calendar write
+   */
+  async undoTaskCalendarWrite(taskId: string, traceId: string): Promise<boolean> {
+    try {
+      this.taskCalendarMappings.delete(taskId);
+      logger.info('Task calendar write undone', { taskId, traceId });
+      return true;
+    } catch (error) {
+      logger.error('Failed to undo task calendar write', error);
+      return false;
+    }
   }
 }
 
