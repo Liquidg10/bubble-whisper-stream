@@ -66,9 +66,12 @@ import DevFatigueBudgets from "@/pages/DevFatigueBudgets";
 import DevWatchHealth from "@/pages/DevWatchHealth";
 import DevTaskAdapter from "@/pages/DevTaskAdapter";
 import DevViewSDK from "@/pages/DevViewSDK";
+import DevE2EGate from "@/pages/DevE2EGate";
+import DevE2EGate from "@/pages/DevE2EGate";
 import { ListView } from "./pages/ListView";
 import MatrixView from "./pages/MatrixView";
 import { DevMenu } from "./components/DevMenu";
+import { ReducedMotionEnforcer } from "./components/ReducedMotionEnforcer";
 import { useDevMenu } from "./hooks/useDevMenu";
 import { AuthCallback } from "./pages/AuthCallback";
 import Privacy from "./pages/Privacy";
@@ -169,7 +172,8 @@ const App = () => {
                           <Route path="dev/fatigue-budgets" element={<DevFatigueBudgets />} />
                           <Route path="dev/watch-health" element={<DevWatchHealth />} />
                             <Route path="dev/task-adapter" element={<DevTaskAdapter />} />
-                            <Route path="dev/view-sdk" element={<DevViewSDK />} />
+                        <Route path="dev/view-sdk" element={<DevViewSDK />} />
+                        <Route path="dev/e2e-gate" element={<DevE2EGate />} />
                             <Route path="dev/task-auto-write" element={<TaskAutoWriteDemo />} />
                       <Route path="privacy" element={<Privacy />} />
                     </Route>

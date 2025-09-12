@@ -7,6 +7,8 @@ import { TaskListItem } from '@/components/TaskListItem';
 import { TaskQuickAdd } from '@/components/TaskQuickAdd';
 import { ListViewFilters } from '@/components/ListViewFilters';
 import { BulkActions } from '@/components/BulkActions';
+import { KeyboardCRUDHandler } from '@/components/KeyboardCRUDHandler';
+import { PlanningModeStats } from '@/components/PlanningModeStats';
 import { isFeatureEnabled } from '@/config/flags';
 import { Button } from '@/components/ui/button';
 
@@ -27,6 +29,8 @@ export const ListView: React.FC = () => {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [shouldFocusSearch, setShouldFocusSearch] = useState(false);
   const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
+  const [showPlanningStats, setShowPlanningStats] = useState(false);
+  const [editingTaskId, setEditingTaskId] = useState<TaskId | null>(null);
 
   // Create ViewSDK context
   const viewContext = useMemo(() => createViewContext('main-list', 'list'), []);
@@ -260,6 +264,18 @@ export const ListView: React.FC = () => {
     setSelectedTaskIds(new Set());
   }, []);
 
+  const handleEditTask = useCallback((id: TaskId) => {
+    setEditingTaskId(id);
+    // Focus on the task item to enable inline editing
+    setTimeout(() => {
+      const taskElement = document.querySelector(`[data-task-id="${id}"]`);
+      if (taskElement) {
+        const editButton = taskElement.querySelector('button[aria-label*="Edit"]') as HTMLElement;
+        editButton?.click();
+      }
+    }, 0);
+  }, []);
+
   if (!isFeatureEnabled('listView')) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -299,6 +315,19 @@ export const ListView: React.FC = () => {
                 <Keyboard className="w-4 h-4 mr-1" />
                 Shortcuts
               </Button>
+              
+              {isFeatureEnabled('planningMode') && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowPlanningStats(!showPlanningStats)}
+                  className="h-8 px-2 text-xs"
+                  aria-label="Show planning statistics"
+                >
+                  <Eye className="w-4 h-4 mr-1" />
+                  Stats
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -389,6 +418,25 @@ export const ListView: React.FC = () => {
             onClearSelection={clearSelection}
           />
         </div>
+
+        {/* Keyboard CRUD Handler */}
+        <KeyboardCRUDHandler
+          tasks={filteredAndSortedTasks}
+          focusedTaskId={focusedTaskId}
+          selectedTaskIds={selectedTaskIds}
+          onUpdate={handleUpdateTask}
+          onDelete={handleDeleteTask}
+          onAdd={handleAddTask}
+          onFocus={handleFocusTask}
+          onToggleSelect={handleToggleSelect}
+          onEdit={handleEditTask}
+        />
+
+        {/* Planning Mode Stats */}
+        <PlanningModeStats
+          show={showPlanningStats}
+          onClose={() => setShowPlanningStats(false)}
+        />
 
         {/* Keyboard Help Overlay */}
         <AnimatePresence>
