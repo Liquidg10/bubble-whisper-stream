@@ -78,7 +78,7 @@ export const PersonaResponseCard: React.FC<PersonaResponseCardProps> = ({
         <div className="flex items-start justify-between mb-3">
           <div className="flex items-center gap-2">
             <Badge variant="secondary" className="text-xs">
-              {getPersonaDisplayName(response.personaId)}
+              Assistant
             </Badge>
             {response.cooldownMinutes && (
               <div className="flex items-center gap-1 text-xs text-muted-foreground">

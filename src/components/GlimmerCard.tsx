@@ -31,8 +31,8 @@ const TONE_CONFIG = {
   },
   Friend: {
     icon: Heart,
-    label: 'Trusted Friend', 
-    description: 'Warm, supportive friendship',
+    label: 'Assistant', 
+    description: 'Warm, supportive guidance',
     bgColor: 'bg-pink-50 dark:bg-pink-950/20',
     borderColor: 'border-pink-200 dark:border-pink-800',
     badgeColor: 'bg-pink-100 text-pink-800 dark:bg-pink-900/50 dark:text-pink-300',
@@ -40,7 +40,7 @@ const TONE_CONFIG = {
   },
   Coach: {
     icon: Target,
-    label: 'Gentle Coach',
+    label: 'Assistant',
     description: 'Encouraging performance mindset',
     bgColor: 'bg-blue-50 dark:bg-blue-950/20',
     borderColor: 'border-blue-200 dark:border-blue-800',
@@ -49,7 +49,7 @@ const TONE_CONFIG = {
   },
   Scientist: {
     icon: FlaskConical,
-    label: 'Neutral Scientist',
+    label: 'Assistant',
     description: 'Data-driven, objective perspective',
     bgColor: 'bg-green-50 dark:bg-green-950/20',
     borderColor: 'border-green-200 dark:border-green-800',

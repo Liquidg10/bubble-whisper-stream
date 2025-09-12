@@ -270,8 +270,8 @@ export const OnboardingDataWizard: React.FC<OnboardingDataWizardProps> = ({
                 <Label>How do you prefer encouragement and reminders?</Label>
                 <div className="grid grid-cols-2 gap-2 mt-2">
                   {[
-                    { key: 'friend', label: 'Like a supportive friend' },
-                    { key: 'coach', label: 'Like a motivating coach' },
+                    { key: 'friend', label: 'Warm and supportive' },
+                    { key: 'coach', label: 'Motivating and encouraging' },
                     { key: 'scientist', label: 'Curious and analytical' },
                     { key: 'future-you', label: 'Like wise future you' }
                   ].map(style => (
