@@ -266,6 +266,21 @@ export function usePrecisionGateUndo() {
       }
     };
   }, []);
+
+  const createTaskEmailUndo = useCallback((emailData: {
+    traceId: string;
+    taskId: string;
+    draftId: string;
+    subject: string;
+  }): UndoAction => ({
+    traceId: emailData.traceId,
+    feature: 'task-email',
+    action: `Auto-created email draft from task: ${emailData.subject}`,
+    undoHandler: async () => {
+      const { taskAwareAutoWriteService } = await import('@/services/taskAwareAutoWriteService');
+      await taskAwareAutoWriteService.undoTaskEmailWrite(emailData.taskId, emailData.traceId);
+    }
+  }), []);
   
   /**
    * Get recent undoable actions
@@ -282,6 +297,7 @@ export function usePrecisionGateUndo() {
     createFinanceUndo,
     createReminderUndo,
     createTaskCalendarUndo,
+    createTaskEmailUndo,
     getRecentUndoableActions,
     pendingUndos: Array.from(pendingUndos.values())
   };

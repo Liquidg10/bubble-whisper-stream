@@ -29,6 +29,8 @@ interface EmailDraft {
   created_at: string;
   account_id: string;
   threadId?: string;
+  taskId?: string;
+  taskTitle?: string;
 }
 
 interface EmailAutoWriteWidgetProps {
@@ -127,12 +129,24 @@ export function EmailAutoWriteWidget({ className }: EmailAutoWriteWidgetProps) {
       <CardContent className="space-y-4">
         {drafts.map((draft) => (
           <div key={draft.id} className="border border-border rounded-lg p-4 space-y-3">
+            {/* Task Source Badge */}
+            {draft.taskId && (
+              <div className="flex items-center gap-2 mb-2">
+                <Badge variant="outline" className="text-xs">
+                  Task → Email
+                </Badge>
+                <span className="text-xs text-muted-foreground">
+                  Generated from task: {draft.taskTitle || 'Untitled'}
+                </span>
+              </div>
+            )}
+            
             {/* Gmail Thread Preview */}
             <GmailEmbed
               thread={{
                 id: draft.threadId || draft.id,
                 subject: draft.subject,
-                from: "Auto-compose",
+                from: draft.taskId ? "Auto-compose (Task)" : "Auto-compose",
                 snippet: draft.body.substring(0, 150) + "...",
                 date: draft.created_at,
                 labels: draft.autoSendEligible ? ["Auto-eligible"] : ["Draft"],
@@ -167,7 +181,7 @@ export function EmailAutoWriteWidget({ className }: EmailAutoWriteWidgetProps) {
           <Eye className="h-4 w-4" />
           <AlertDescription>
             Email drafts are created when the system has medium to high confidence in the content. 
-            Review and send when ready.
+            Task-generated emails include source attribution and maintain decision traces for undo capability.
           </AlertDescription>
         </Alert>
       </CardContent>

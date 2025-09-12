@@ -53,6 +53,14 @@ export interface TaskViewMetadata {
     attendees?: string[];
     calendarId?: string;
   };
+  email?: {
+    to?: string[];
+    cc?: string[];
+    subject?: string;
+    body?: string;
+    accountId?: string;
+    threadId?: string;
+  };
 }
 
 export interface Task {

@@ -18,6 +18,9 @@ import { taskCalendarAdapter } from '@/services/taskCalendarAdapter';
 import { createTask } from '@/types/task';
 import { toast } from '@/hooks/use-toast';
 import { TaskCalendarAutoWriteWidget } from '@/components/TaskCalendarAutoWriteWidget';
+import { TaskEmailAutoWriteWidget } from '@/components/TaskEmailAutoWriteWidget';
+import { EmailAutoWriteWidget } from '@/components/EmailAutoWriteWidget';
+import { TaskEmailDemoCard } from '@/components/TaskEmailDemoCard';
 
 export function TaskAutoWriteDemo() {
   const [taskTitle, setTaskTitle] = useState('');
@@ -261,8 +264,14 @@ export function TaskAutoWriteDemo() {
         </Card>
       </div>
 
-      {/* Recent Auto-Writes Widget */}
-      <TaskCalendarAutoWriteWidget />
+      {/* Recent Auto-Write Events */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <TaskCalendarAutoWriteWidget />
+        <TaskEmailAutoWriteWidget />
+      </div>
+      
+      {/* Email Drafts Widget */}
+      <EmailAutoWriteWidget />
     </div>
   );
 }
