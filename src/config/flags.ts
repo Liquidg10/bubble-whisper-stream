@@ -22,6 +22,10 @@ export const flags = {
   
   // Task System (P1 - Non-destructive)
   taskAdapter: process.env.NODE_ENV === 'development',
+  
+  // ViewSDK (P2 - View contracts and event bus)
+  viewSdk: process.env.NODE_ENV === 'development',
+  
   // CBT Assistant Feature Flags
   cbtAssist: false, // Main CBT assistant feature (default OFF)
   cbtSilentObserve: true, // Silent observation for testing (default ON)

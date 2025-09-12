@@ -64,6 +64,7 @@ import DevContextDrift from "@/pages/DevContextDrift";
 import DevFatigueBudgets from "@/pages/DevFatigueBudgets";
 import DevWatchHealth from "@/pages/DevWatchHealth";
 import DevTaskAdapter from "@/pages/DevTaskAdapter";
+import DevViewSDK from "@/pages/DevViewSDK";
 import { DevMenu } from "./components/DevMenu";
 import { useDevMenu } from "./hooks/useDevMenu";
 import { AuthCallback } from "./pages/AuthCallback";
@@ -162,7 +163,8 @@ const App = () => {
                           <Route path="dev/context-drift" element={<DevContextDrift />} />
                           <Route path="dev/fatigue-budgets" element={<DevFatigueBudgets />} />
                           <Route path="dev/watch-health" element={<DevWatchHealth />} />
-                          <Route path="dev/task-adapter" element={<DevTaskAdapter />} />
+                           <Route path="dev/task-adapter" element={<DevTaskAdapter />} />
+                           <Route path="dev/view-sdk" element={<DevViewSDK />} />
                       <Route path="privacy" element={<Privacy />} />
                     </Route>
                      <Route path="auth/callback" element={<AuthCallback />} />

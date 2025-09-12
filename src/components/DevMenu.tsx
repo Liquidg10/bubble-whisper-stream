@@ -163,6 +163,11 @@ const devRoutes: DevRoute[] = [
     path: '/dev/task-adapter',
     name: 'Task Adapter',
     description: 'Task ↔ Bubble round-trip testing & data integrity'
+  },
+  {
+    path: '/dev/view-sdk',
+    name: 'ViewSDK & Bus',
+    description: 'ViewSDK contracts and event bus testing'
   }
 ];
 
