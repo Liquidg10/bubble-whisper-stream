@@ -29,6 +29,9 @@ export const flags = {
   // List View (P3 - First missing view)
   listView: true,
   
+  // Kanban View (P4 - Column-based organization)
+  kanbanView: true,
+  
   // Matrix View (P5 - Eisenhower Matrix)
   matrixView: true,
   

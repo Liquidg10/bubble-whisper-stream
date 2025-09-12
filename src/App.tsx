@@ -68,6 +68,7 @@ import DevTaskAdapter from "@/pages/DevTaskAdapter";
 import DevViewSDK from "@/pages/DevViewSDK";
 import DevE2EGate from "@/pages/DevE2EGate";
 import { ListView } from "./pages/ListView";
+import KanbanView from "./pages/KanbanView";
 import MatrixView from "./pages/MatrixView";
 import { DevMenu } from "./components/DevMenu";
 import { ReducedMotionEnforcer } from "./components/ReducedMotionEnforcer";
@@ -118,6 +119,7 @@ const App = () => {
                     <Route path="/" element={<AppShell />}>
                       <Route index element={<Index />} />
                       <Route path="list" element={<ListView />} />
+                      <Route path="kanban" element={<KanbanView />} />
                       <Route path="matrix" element={<MatrixView />} />
                       <Route path="timeline" element={<Timeline />} />
                       <Route path="reminders" element={<Reminders />} />
