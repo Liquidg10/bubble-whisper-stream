@@ -55,6 +55,9 @@ export const flags = {
   cbtSilentObserve: true, // Silent observation for testing (default ON)
   cbtCrisisEnabled: true, // Crisis intervention features (default ON)
   cbtDevRoutes: process.env.NODE_ENV === 'development', // Dev routes (default ON in dev)
+  
+  // CRDT Pilot (P17 - Local-first multi-device)
+  crdtPilot: false, // OFF by default - development/testing only
   // Auto-Write Feature Flags (Safety Shell)
   autoWriteCalendar: false, // Auto-write to calendar (default OFF)
   autoWriteEmail: false, // Auto-write email drafts (default OFF)
