@@ -5,14 +5,14 @@ import { Badge } from '@/components/ui/badge';
 import { Plus, Loader2 } from 'lucide-react';
 import { createTask } from '@/types/task';
 import { useTaskStoreSync } from '@/stores/taskStore';
-import { deriveTaskDefaults, type DerivationContext } from '@/services/smartDefaultsService';
+import { deriveTaskDefaults, type DerivationContext, type SmartDefaults } from '@/services/smartDefaultsService';
 import { createViewContext } from '@/views/sdk';
 import { BecausePill } from '@/components/SmartBecausePill';
 
 export function SmartTaskQuickAdd() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [smartDefaults, setSmartDefaults] = useState<null | ReturnType<typeof deriveTaskDefaults>>(null);
+  const [smartDefaults, setSmartDefaults] = useState<null | SmartDefaults>(null);
   const taskStore = useTaskStoreSync();
 
   const handleInputChange = useCallback(async (value: string) => {
@@ -20,15 +20,20 @@ export function SmartTaskQuickAdd() {
     
     // Generate smart defaults as user types (debounced)
     if (value.trim().length > 3) {
-      const context: DerivationContext = {
-        inputText: value,
-        viewContext: createViewContext('task-quick-add', 'list'),
-        existingTasks: taskStore.tasks,
-        currentTime: Date.now()
-      };
-      
-      const defaults = await deriveTaskDefaults(context);
-      setSmartDefaults(defaults);
+      try {
+        const context: DerivationContext = {
+          inputText: value,
+          viewContext: createViewContext('task-quick-add', 'list'),
+          existingTasks: taskStore.tasks,
+          currentTime: Date.now()
+        };
+        
+        const defaults = await deriveTaskDefaults(context);
+        setSmartDefaults(defaults);
+      } catch (error) {
+        console.error('Failed to derive smart defaults:', error);
+        setSmartDefaults(null);
+      }
     } else {
       setSmartDefaults(null);
     }

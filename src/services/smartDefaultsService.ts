@@ -9,6 +9,8 @@ import type { Task, TaskType, TaskTag } from '@/types/task';
 import type { ViewContext } from '@/views/sdk';
 import type { Domain } from '@/lib/classifyDomain';
 import { isFeatureEnabled } from '@/config/flags';
+import { generateId } from '@/utils/atomicHelpers';
+import { contextEngineService } from './contextEngineService';
 
 export interface SmartDefaults {
   title?: string;
@@ -31,68 +33,76 @@ export interface DerivationContext {
 /**
  * Derive smart defaults for task creation
  */
-export function deriveTaskDefaults(context: DerivationContext): SmartDefaults {
+export async function deriveTaskDefaults(context: DerivationContext): Promise<SmartDefaults> {
   if (!isFeatureEnabled('smartDefaults')) {
     return {
-      priority: 50,
       explanation: ['Smart defaults disabled']
     };
   }
 
-  const { inputText, viewContext, existingTasks = [], currentTime = Date.now(), bubblePosition } = context;
-  const explanation: string[] = [];
-  let priority = 50; // Default medium priority
-  let type: TaskType = 'task';
-  let tags: TaskTag[] = [];
-  let due: number | undefined;
-  let viewData: Partial<Task['view']> = {};
-
-  // 1. Domain Classification
-  const domain = classifyDomainFromText(inputText);
-  if (domain && domain !== 'General') {
+  const explanationDrivers: string[] = [];
+  
+  // Enhanced context analysis
+  const contextAnalysis = await contextEngineService.analyzeContext(context);
+  
+  // Classify domain and time context
+  const domain = classifyDomainFromText(context.inputText);
+  const timeCategory = categorizeTimeFromText(context.inputText);
+  
+  // Derive core properties with context insights
+  const priority = derivePriorityScore(context, domain, timeCategory);
+  const type = deriveTaskType(context.inputText);
+  const viewDefaults = deriveViewDefaults(context, priority);
+  
+  // Generate tags with domain and time info
+  const tags: Array<{id: string, name: string, emoji?: string, colorHex?: string}> = [];
+  
+  if (domain !== 'General') {
     tags.push({
-      id: `domain-${domain.toLowerCase()}`,
+      id: generateId(),
       name: domain,
-      emoji: getDomainEmoji(domain.toLowerCase()),
-      colorHex: getDomainColor(domain.toLowerCase())
+      emoji: getDomainEmoji(domain),
+      colorHex: getDomainColor(domain)
     });
-    explanation.push(`Categorized as ${domain} based on content`);
+    explanationDrivers.push(`categorized as ${domain}`);
   }
-
-  // 2. Horizon/Time Classification
-  const horizon = categorizeTimeFromText(inputText, currentTime);
-  if (horizon.dueDate) {
-    due = horizon.dueDate;
-    explanation.push(`Due ${horizon.label} based on time indicators`);
+  
+  if (timeCategory.urgency > 0.7) {
+    tags.push({
+      id: generateId(),
+      name: 'urgent',
+      emoji: '🔥'
+    });
+    explanationDrivers.push('detected urgency');
   }
-
-  // 3. Priority Derivation
-  priority = derivePriorityScore(inputText, domain?.toLowerCase() || null, horizon.urgency, existingTasks);
-  explanation.push(`Priority ${priority}/100 from urgency and context patterns`);
-
-  // 4. Type Detection
-  type = deriveTaskType(inputText);
-  if (type !== 'task') {
-    explanation.push(`Detected as ${type} from content patterns`);
+  
+  // Set due date if time context suggests it
+  let due: number | undefined;
+  if (timeCategory.dueDate) {
+    due = timeCategory.dueDate;
+    explanationDrivers.push(`due ${new Date(due).toLocaleDateString()}`);
   }
-
-  // 5. View-specific Defaults
-  viewData = deriveViewDefaults(viewContext, bubblePosition, priority);
-
+  
+  // Add context-driven explanations
+  explanationDrivers.push(contextAnalysis.primaryReason);
+  
+  const explanation = createBecauseExplanation(explanationDrivers);
+  
   return {
-    priority,
+    title: context.inputText,
     type,
+    priority,
     tags,
     due,
-    view: viewData,
+    view: viewDefaults,
     explanation
   };
 }
 
 /**
- * Classify domain from text input
+ * Classify domain from text content
  */
-function classifyDomainFromText(text: string): Domain | null {
+function classifyDomainFromText(text: string): Domain {
   const content = text.toLowerCase();
   
   // Work-related keywords
@@ -103,36 +113,32 @@ function classifyDomainFromText(text: string): Domain | null {
   }
   
   // Health-related keywords
-  if (content.includes('doctor') || content.includes('appointment') || content.includes('exercise') ||
-      content.includes('medication') || content.includes('health') || content.includes('gym') ||
-      content.includes('diet') || content.includes('hospital')) {
+  if (content.includes('doctor') || content.includes('appointment') || content.includes('health') ||
+      content.includes('exercise') || content.includes('therapy') || content.includes('medical')) {
     return 'Health';
-  }
-  
-  // Finance-related keywords
-  if (content.includes('pay') || content.includes('bill') || content.includes('budget') ||
-      content.includes('money') || content.includes('bank') || content.includes('invest') ||
-      content.includes('expense') || content.includes('financial')) {
-    return 'Finance';
   }
   
   // Learning-related keywords
   if (content.includes('study') || content.includes('learn') || content.includes('course') ||
-      content.includes('book') || content.includes('education') || content.includes('research') ||
-      content.includes('homework') || content.includes('practice')) {
+      content.includes('tutorial') || content.includes('research') || content.includes('book')) {
     return 'Learning';
   }
   
+  // Finance-related keywords
+  if (content.includes('budget') || content.includes('money') || content.includes('pay') ||
+      content.includes('bank') || content.includes('invest') || content.includes('expense')) {
+    return 'Finance';
+  }
+  
   // Relationship-related keywords
-  if (content.includes('family') || content.includes('friend') || content.includes('social') ||
-      content.includes('relationship') || content.includes('partner') || content.includes('date') ||
-      content.includes('anniversary') || content.includes('birthday')) {
+  if (content.includes('friend') || content.includes('family') || content.includes('date') ||
+      content.includes('relationship') || content.includes('social') || content.includes('partner')) {
     return 'Relationships';
   }
   
-  // Personal-related keywords
+  // Personal-related keywords (catch-all for personal activities)
   if (content.includes('home') || content.includes('personal') || content.includes('hobby') ||
-      content.includes('relax') || content.includes('vacation') || content.includes('entertainment')) {
+      content.includes('travel') || content.includes('shopping') || content.includes('cook')) {
     return 'Personal';
   }
   
@@ -140,304 +146,219 @@ function classifyDomainFromText(text: string): Domain | null {
 }
 
 /**
- * Categorize time horizon from text
+ * Categorize time context from text
  */
-function categorizeTimeFromText(text: string, currentTime: number) {
+function categorizeTimeFromText(text: string): { urgency: number; dueDate?: number } {
   const content = text.toLowerCase();
-  const now = new Date(currentTime);
-  
-  // Immediate indicators
-  if (content.includes('now') || content.includes('asap') || content.includes('immediately') ||
-      content.includes('urgent') || content.includes('emergency')) {
-    return {
-      urgency: 'immediate' as const,
-      label: 'immediately',
-      dueDate: currentTime + 60 * 60 * 1000 // 1 hour from now
-    };
+  const now = Date.now();
+  let urgency = 0.3; // Default low urgency
+  let dueDate: number | undefined;
+
+  // High urgency indicators
+  if (content.includes('urgent') || content.includes('asap') || content.includes('immediately') ||
+      content.includes('emergency') || content.includes('critical')) {
+    urgency = 0.9;
   }
-  
+  // Medium urgency indicators
+  else if (content.includes('soon') || content.includes('important') || content.includes('priority')) {
+    urgency = 0.7;
+  }
   // Today indicators
-  if (content.includes('today') || content.includes('this morning') || content.includes('this afternoon') ||
-      content.includes('this evening') || content.includes('tonight')) {
-    const endOfDay = new Date(now);
-    endOfDay.setHours(23, 59, 59, 999);
-    return {
-      urgency: 'today' as const,
-      label: 'today',
-      dueDate: endOfDay.getTime()
-    };
+  else if (content.includes('today') || content.includes('now')) {
+    urgency = 0.8;
+    dueDate = now + (24 * 60 * 60 * 1000); // End of today
   }
-  
   // Tomorrow indicators
-  if (content.includes('tomorrow') || content.includes('next day')) {
-    const tomorrow = new Date(now);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(23, 59, 59, 999);
-    return {
-      urgency: 'today' as const,
-      label: 'tomorrow',
-      dueDate: tomorrow.getTime()
-    };
+  else if (content.includes('tomorrow')) {
+    urgency = 0.6;
+    dueDate = now + (2 * 24 * 60 * 60 * 1000); // End of tomorrow
   }
-  
   // This week indicators
-  if (content.includes('this week') || content.includes('by friday') || content.includes('end of week')) {
-    const endOfWeek = new Date(now);
-    const daysToFriday = (5 - endOfWeek.getDay() + 7) % 7;
-    endOfWeek.setDate(endOfWeek.getDate() + daysToFriday);
-    endOfWeek.setHours(23, 59, 59, 999);
-    return {
-      urgency: 'week' as const,
-      label: 'this week',
-      dueDate: endOfWeek.getTime()
-    };
+  else if (content.includes('week') && !content.includes('next week')) {
+    urgency = 0.5;
+    dueDate = now + (7 * 24 * 60 * 60 * 1000); // End of this week
   }
-  
-  // Next week indicators
-  if (content.includes('next week') || content.includes('monday') || content.includes('tuesday') ||
-      content.includes('wednesday') || content.includes('thursday') || content.includes('friday')) {
-    const nextWeek = new Date(now);
-    nextWeek.setDate(nextWeek.getDate() + 7);
-    return {
-      urgency: 'week' as const,
-      label: 'next week',
-      dueDate: nextWeek.getTime()
-    };
-  }
-  
-  // Later/someday indicators
-  if (content.includes('someday') || content.includes('eventually') || content.includes('maybe') ||
-      content.includes('when i have time') || content.includes('later')) {
-    return {
-      urgency: 'later' as const,
-      label: 'someday',
-      dueDate: undefined
-    };
-  }
-  
-  // Default to week
-  return {
-    urgency: 'week' as const,
-    label: 'this week',
-    dueDate: undefined
-  };
+
+  return { urgency, dueDate };
 }
 
 /**
- * Derive priority score (0-100) using lightweight heuristics
+ * Derive priority score from context
  */
 function derivePriorityScore(
-  inputText: string, 
-  domain: string | null, 
-  urgency: 'immediate' | 'today' | 'week' | 'later',
-  existingTasks: Task[]
+  context: DerivationContext, 
+  domain: Domain, 
+  timeCategory: { urgency: number }
 ): number {
-  let score = 0.5; // Base 50/100
+  let priority = 50; // Base priority
 
-  // Urgency indicators
-  const urgentWords = ['urgent', 'asap', 'immediately', 'critical', 'emergency', 'deadline'];
-  const highWords = ['important', 'priority', 'must', 'need', 'required'];
-  const lowWords = ['maybe', 'someday', 'eventually', 'if time', 'nice to have'];
+  // Adjust based on time urgency
+  priority += timeCategory.urgency * 40; // 0-40 point boost for urgency
 
-  const text = inputText.toLowerCase();
+  // Adjust based on domain importance
+  const domainBoosts: Record<Domain, number> = {
+    'Work': 10,
+    'Health': 15,
+    'Finance': 8,
+    'Learning': 5,
+    'Relationships': 3,
+    'Personal': 0,
+    'General': 0
+  };
   
-  if (urgentWords.some(word => text.includes(word))) {
-    score += 0.3;
-  } else if (highWords.some(word => text.includes(word))) {
-    score += 0.2;
-  } else if (lowWords.some(word => text.includes(word))) {
-    score -= 0.2;
-  }
+  priority += domainBoosts[domain] || 0;
 
-  // Time-based urgency
-  switch (urgency) {
-    case 'immediate':
-      score += 0.3;
-      break;
-    case 'today':
-      score += 0.2;
-      break;
-    case 'week':
-      score += 0.1;
-      break;
-    case 'later':
-      score -= 0.1;
-      break;
-  }
+  // Adjust based on existing task load
+  const existingTasks = context.existingTasks || [];
+  const todayTasks = existingTasks.filter(task => {
+    const taskDate = new Date(task.createdAt);
+    const today = new Date();
+    return taskDate.toDateString() === today.toDateString();
+  });
 
-  // Domain-based adjustments
-  if (domain === 'work') {
-    score += 0.1;
-  } else if (domain === 'health') {
-    score += 0.15;
-  } else if (domain === 'personal') {
-    score -= 0.05;
-  }
-
-  // Context from existing tasks (workload pressure)
-  const todayTasks = existingTasks.filter(task => 
-    !task.completed && 
-    task.due && 
-    task.due < Date.now() + 24 * 60 * 60 * 1000
-  );
-  
   if (todayTasks.length > 5) {
-    score -= 0.1; // Lower priority when overwhelmed
+    priority -= 10; // Lower priority when user has many tasks today
   }
 
-  // Clamp and convert to 0-100
-  return Math.round(Math.max(0, Math.min(1, score)) * 100);
+  // Keep priority in valid range
+  return Math.max(0, Math.min(100, Math.round(priority)));
 }
 
 /**
- * Derive task type from content patterns
+ * Derive task type from content
  */
-function deriveTaskType(inputText: string): TaskType {
-  const text = inputText.toLowerCase();
+function deriveTaskType(text: string): TaskType {
+  const content = text.toLowerCase();
   
-  if (text.includes('remind') || text.includes('don\'t forget')) {
+  if (content.includes('remind') || content.includes('remember') || 
+      content.includes('don\'t forget') || content.includes('alert')) {
     return 'reminder';
   }
   
-  if (text.includes('meeting') || text.includes('call') || text.includes('appointment')) {
+  if (content.includes('meeting') || content.includes('appointment') || 
+      content.includes('call') || content.includes('event')) {
     return 'event';
   }
   
-  if (text.includes('photo') || text.includes('picture') || text.includes('snapshot')) {
-    return 'photo';
-  }
-  
-  if (text.includes('remember') || text.includes('note') || text.includes('jot down')) {
-    return 'memory';
-  }
-  
-  if (text.includes('feeling') || text.includes('mood') || text.includes('emotion')) {
-    return 'mood';
-  }
-  
-  if (text.includes('think') || text.includes('idea') || text.includes('wonder')) {
+  if (content.includes('note') || content.includes('remember') || 
+      content.includes('thought') || content.includes('idea')) {
     return 'thought';
   }
   
-  return 'task';
+  if (content.includes('memory') || content.includes('recall') || 
+      content.includes('happened') || content.includes('did')) {
+    return 'memory';
+  }
+  
+  return 'task'; // Default to task
 }
 
 /**
- * Derive view-specific metadata
+ * Derive view-specific defaults
  */
-function deriveViewDefaults(
-  viewContext: ViewContext,
-  bubblePosition?: { x: number; y: number },
-  priority: number = 50
-): Partial<Task['view']> {
+function deriveViewDefaults(context: DerivationContext, priority: number): Partial<Task['view']> {
   const viewData: Partial<Task['view']> = {};
-
-  switch (viewContext.mode) {
-    case 'bubble':
-      if (bubblePosition) {
-        // Use bubble position to influence priority if available
-        const normalizedY = Math.max(0, Math.min(1, bubblePosition.y / 600));
-        const positionPriority = Math.round((1 - normalizedY) * 100);
-        viewData.bubble = {
-          x: bubblePosition.x,
-          y: bubblePosition.y,
-          size: Math.max(60, Math.min(120, priority + 20)),
-          colorHex: getPriorityColor(positionPriority)
-        };
-      } else {
-        viewData.bubble = {
-          x: 400 + Math.random() * 200,
-          y: 300 + Math.random() * 200,
-          size: Math.max(60, Math.min(120, priority + 20)),
-          colorHex: getPriorityColor(priority)
-        };
-      }
-      break;
-
-    case 'matrix':
-      // Map priority to urgency/importance
-      const urgency = priority > 70 ? 2 : priority > 40 ? 1 : 0;
-      const importance = priority > 60 ? 2 : priority > 30 ? 1 : 0;
-      viewData.matrix = {
-        urgency: urgency as 0|1|2|3,
-        importance: importance as 0|1|2|3,
-        quadrant: calculateMatrixQuadrant(urgency, importance)
-      };
-      break;
-
-    case 'list':
-      viewData.list = {
-        order: Date.now(), // Put at top by default
-        group: priority > 70 ? 'high' : priority > 30 ? 'medium' : 'low'
-      };
-      break;
-
-    case 'atomic':
-      const atomicDomain = priority > 70 ? 'work' : 'personal';
-      const shell = priority > 60 ? 'today' : priority > 30 ? 'week' : 'later';
-      viewData.atomic = {
-        domain: atomicDomain,
-        shell: shell as 'today'|'week'|'later',
-        angle: Math.random() * 360
-      };
-      break;
+  
+  // Bubble view defaults
+  if (context.bubblePosition) {
+    viewData.bubble = {
+      x: context.bubblePosition.x,
+      y: context.bubblePosition.y,
+      size: priority / 100, // Convert priority to size (0-1)
+      colorHex: getPriorityColor(priority)
+    };
   }
-
+  
+  // Matrix view defaults
+  const urgency = priority > 70 ? 3 : priority > 50 ? 2 : priority > 30 ? 1 : 0;
+  const importance = priority > 60 ? 3 : priority > 40 ? 2 : priority > 20 ? 1 : 0;
+  
+  viewData.matrix = {
+    urgency: urgency as 0 | 1 | 2 | 3,
+    importance: importance as 0 | 1 | 2 | 3,
+    quadrant: calculateMatrixQuadrant(urgency, importance)
+  };
+  
+  // Atomic view defaults
+  const shell = priority > 70 ? 'today' : priority > 40 ? 'week' : 'later';
+  viewData.atomic = {
+    shell: shell as 'today' | 'week' | 'later'
+  };
+  
   return viewData;
 }
 
 /**
- * Helper functions
+ * Get domain emoji
  */
-function getDomainEmoji(domain: string): string {
-  const emojiMap: Record<string, string> = {
-    work: '💼',
-    personal: '🏠',
-    health: '🏥',
-    finance: '💰',
-    education: '📚',
-    social: '👥',
-    creative: '🎨',
-    maintenance: '🔧'
+function getDomainEmoji(domain: Domain): string {
+  const emojiMap: Record<Domain, string> = {
+    'Work': '💼',
+    'Health': '🧠',
+    'Learning': '📚',
+    'Finance': '💰',
+    'Relationships': '❤️',
+    'Personal': '🏠',
+    'General': '💭'
   };
-  return emojiMap[domain] || '📝';
-}
-
-function getDomainColor(domain: string): string {
-  const colorMap: Record<string, string> = {
-    work: '#3b82f6',      // Blue
-    personal: '#10b981',   // Green
-    health: '#ef4444',     // Red
-    finance: '#f59e0b',    // Amber
-    education: '#8b5cf6',  // Violet
-    social: '#ec4899',     // Pink
-    creative: '#f97316',   // Orange
-    maintenance: '#6b7280' // Gray
-  };
-  return colorMap[domain] || '#6b7280';
-}
-
-function getPriorityColor(priority: number): string {
-  if (priority > 80) return '#ef4444'; // Red - high priority
-  if (priority > 60) return '#f59e0b'; // Amber - medium-high
-  if (priority > 40) return '#3b82f6'; // Blue - medium
-  if (priority > 20) return '#10b981'; // Green - medium-low
-  return '#6b7280'; // Gray - low priority
-}
-
-function calculateMatrixQuadrant(urgency: number, importance: number): 1|2|3|4 {
-  if (urgency >= 2 && importance >= 2) return 1; // Do
-  if (urgency < 2 && importance >= 2) return 2;  // Schedule  
-  if (urgency >= 2 && importance < 2) return 3;  // Delegate
-  return 4; // Drop
+  
+  return emojiMap[domain];
 }
 
 /**
- * Create explanation text from drivers
+ * Get domain color
  */
-export function createBecauseExplanation(drivers: string[]): string {
-  if (drivers.length === 0) return "Based on basic defaults";
-  if (drivers.length === 1) return `Because ${drivers[0]}`;
-  if (drivers.length === 2) return `Because ${drivers[0]} and ${drivers[1]}`;
-  return `Because ${drivers[0]}, ${drivers[1]}, and ${drivers[2]}`;
+function getDomainColor(domain: Domain): string {
+  const colorMap: Record<Domain, string> = {
+    'Work': '#3B82F6',
+    'Health': '#10B981',
+    'Learning': '#8B5CF6',
+    'Finance': '#F59E0B',
+    'Relationships': '#EF4444',
+    'Personal': '#6B7280',
+    'General': '#9CA3AF'
+  };
+  
+  return colorMap[domain];
+}
+
+/**
+ * Get priority color
+ */
+function getPriorityColor(priority: number): string {
+  if (priority >= 80) return '#EF4444'; // Red for high priority
+  if (priority >= 60) return '#F59E0B'; // Orange for medium-high
+  if (priority >= 40) return '#10B981'; // Green for medium
+  return '#6B7280'; // Gray for low priority
+}
+
+/**
+ * Calculate matrix quadrant
+ */
+function calculateMatrixQuadrant(urgency: number, importance: number): 1 | 2 | 3 | 4 {
+  if (urgency >= 2 && importance >= 2) return 1; // Do First
+  if (urgency < 2 && importance >= 2) return 2;  // Schedule
+  if (urgency >= 2 && importance < 2) return 3;  // Delegate
+  return 4; // Don't Do
+}
+
+/**
+ * Create "Because..." explanation
+ */
+function createBecauseExplanation(drivers: string[]): string[] {
+  if (drivers.length === 0) {
+    return ['Applied default settings'];
+  }
+  
+  if (drivers.length === 1) {
+    return [`Because ${drivers[0]}`];
+  }
+  
+  const mainReason = drivers[0];
+  const additionalReasons = drivers.slice(1);
+  
+  return [
+    `Because ${mainReason}`,
+    ...additionalReasons.map(reason => `Also ${reason}`)
+  ];
 }

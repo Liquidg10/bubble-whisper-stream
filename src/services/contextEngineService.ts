@@ -9,6 +9,39 @@ import type { Task } from '@/types/task';
 import type { DerivationContext } from './smartDefaultsService';
 import { classifyDomain } from '@/lib/classifyDomain';
 
+// Legacy interfaces for backward compatibility
+export interface ContextInput {
+  text: string;
+  content?: string;
+  sender?: string;
+  eventType?: string;
+  deadline?: Date;
+  recipientCount?: number;
+  domain?: string;
+  timeContext?: string;
+  urgency?: number;
+  metadata?: Record<string, any>;
+}
+
+export interface ContextScore {
+  confidence: number;
+  priority: number;
+  urgency: number;
+  domain: string;
+  reasoning: string[];
+  score?: number;
+  signals?: ContextSignal[];
+  because?: string[];
+  metadata?: Record<string, any>;
+}
+
+export interface ContextSignal {
+  type: string;
+  weight: number;
+  value: number;
+  source: string;
+}
+
 export interface ContextInsight {
   type: 'pattern' | 'time' | 'domain' | 'urgency' | 'habit' | 'optimization';
   confidence: number;
@@ -26,6 +59,12 @@ export interface ContextAnalysis {
 class ContextEngineService {
   private patternCache = new Map<string, ContextAnalysis>();
   private readonly CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+  private signalWeights = new Map<string, number>();
+
+  constructor() {
+    // Initialize default signal weights
+    this.resetSignalWeights();
+  }
 
   /**
    * Generate comprehensive "Because..." explanation for smart defaults
@@ -318,6 +357,126 @@ class ContextEngineService {
 
     const explainer = fieldExplanations[field];
     return explainer ? explainer(value, context) : `set automatically`;
+  }
+
+  // Legacy methods for backward compatibility
+  /**
+   * Generate context score (legacy compatibility)
+   */
+  async generateScore(input: ContextInput): Promise<ContextScore> {
+    if (!isFeatureEnabled('contextEngine')) {
+      return {
+        confidence: 0.5,
+        priority: 50,
+        urgency: 0.5,
+        domain: 'General',
+        reasoning: ['Context engine disabled'],
+        score: 0.5,
+        signals: [],
+        because: ['Context engine disabled'],
+        metadata: {}
+      };
+    }
+
+    try {
+      const context: DerivationContext = {
+        inputText: input.text || input.content || '',
+        viewContext: { mode: 'default', source: 'legacy' },
+        currentTime: Date.now()
+      };
+
+      const analysis = await this.analyzeContext(context);
+      
+      // Map new analysis to legacy format
+      const urgencyInsight = analysis.insights.find(i => i.type === 'urgency');
+      const domainInsight = analysis.insights.find(i => i.type === 'domain');
+      
+      return {
+        confidence: analysis.confidenceScore,
+        priority: this.calculateLegacyPriority(analysis.insights),
+        urgency: urgencyInsight?.confidence || 0.5,
+        domain: domainInsight?.data?.domain || 'General',
+        reasoning: analysis.insights.map(i => i.explanation),
+        score: analysis.confidenceScore,
+        signals: this.convertInsightsToSignals(analysis.insights),
+        because: analysis.insights.map(i => i.explanation),
+        metadata: analysis.metadata
+      };
+    } catch (error) {
+      logger.error('Legacy generateScore failed', error);
+      return {
+        confidence: 0.5,
+        priority: 50,
+        urgency: 0.5,
+        domain: 'General',
+        reasoning: ['Analysis failed'],
+        score: 0.5,
+        signals: [],
+        because: ['Analysis failed'],
+        metadata: {}
+      };
+    }
+  }
+
+  /**
+   * Get signal weights (legacy compatibility)
+   */
+  getSignalWeights(): Map<string, number> {
+    return new Map(this.signalWeights);
+  }
+
+  /**
+   * Update signal weights (legacy compatibility)
+   */
+  updateSignalWeights(weights: Map<string, number>): void {
+    weights.forEach((weight, signal) => {
+      this.signalWeights.set(signal, weight);
+    });
+  }
+
+  /**
+   * Reset signal weights to defaults (legacy compatibility)
+   */
+  resetSignalWeights(): void {
+    this.signalWeights.clear();
+    this.signalWeights.set('urgency_keywords', 0.8);
+    this.signalWeights.set('time_references', 0.7);
+    this.signalWeights.set('domain_patterns', 0.6);
+    this.signalWeights.set('habit_similarity', 0.5);
+    this.signalWeights.set('task_load', 0.4);
+  }
+
+  private calculateLegacyPriority(insights: ContextInsight[]): number {
+    let priority = 50; // default
+    
+    insights.forEach(insight => {
+      switch (insight.type) {
+        case 'urgency':
+          priority += insight.confidence * 30;
+          break;
+        case 'time':
+          if (insight.data?.timeReference === 'immediate') {
+            priority += 20;
+          }
+          break;
+        case 'optimization':
+          if (insight.data?.recommendation === 'lower_priority') {
+            priority -= 15;
+          }
+          break;
+      }
+    });
+
+    return Math.max(0, Math.min(100, priority));
+  }
+
+  private convertInsightsToSignals(insights: ContextInsight[]): ContextSignal[] {
+    return insights.map(insight => ({
+      type: insight.type,
+      weight: insight.confidence,
+      value: insight.confidence,
+      source: 'context_engine'
+    }));
   }
 }
 
