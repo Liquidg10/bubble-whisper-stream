@@ -1,0 +1,126 @@
+name: Accessibility Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  accessibility-tests:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Build application
+        run: npm run build
+        env:
+          CI: true
+          
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium firefox webkit
+        
+      - name: Run accessibility tests
+        run: npx playwright test --grep="@a11y" --reporter=html
+        env:
+          PLAYWRIGHT_TEST_BASE_URL: http://localhost:4173
+          
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: accessibility-test-results
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 7
+          
+      - name: Upload accessibility report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: accessibility-report
+          path: playwright-report/
+          retention-days: 30
+          
+      - name: Comment PR with accessibility results
+        if: github.event_name == 'pull_request' && failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            // Read test results if they exist
+            let comment = '## ❌ Accessibility Tests Failed\n\n';
+            comment += 'The accessibility tests have failed. Please review the uploaded test results and fix the following issues:\n\n';
+            comment += '### Common Issues to Check:\n';
+            comment += '- ✅ All interactive elements meet 44×44px minimum target size (WCAG 2.5.8)\n';
+            comment += '- ✅ All drag operations have keyboard alternatives (WCAG 2.5.7)\n';
+            comment += '- ✅ Animations respect `prefers-reduced-motion` preference\n';
+            comment += '- ✅ Proper color contrast ratios (WCAG AA)\n';
+            comment += '- ✅ Keyboard navigation works throughout the application\n';
+            comment += '- ✅ Screen reader compatibility with proper ARIA labels\n\n';
+            comment += '📊 [View detailed test results in the artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\n\n';
+            comment += '💡 Run `npm run test:a11y` locally to debug accessibility issues.';
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+  # Separate job for performance testing of a11y features
+  accessibility-performance:
+    runs-on: ubuntu-latest
+    needs: accessibility-tests
+    if: success()
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Build application
+        run: npm run build
+        
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+        
+      - name: Run performance tests for accessibility features
+        run: |
+          npx playwright test tests/a11y/reduced-motion.spec.ts --reporter=json > a11y-performance.json
+        continue-on-error: true
+        
+      - name: Analyze performance impact
+        run: |
+          echo "Analyzing performance impact of accessibility features..."
+          # Add performance analysis script here if needed
+          
+      - name: Upload performance results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: accessibility-performance-results
+          path: a11y-performance.json
+          retention-days: 7
