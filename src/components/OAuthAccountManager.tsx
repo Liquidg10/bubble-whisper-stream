@@ -12,12 +12,15 @@ import {
   Shield, 
   Clock,
   ExternalLink,
-  AlertTriangle
+  AlertTriangle,
+  ArrowUp,
+  ArrowDown
 } from 'lucide-react';
-import { oauthService, OAuthAccount } from '@/services/oauthService';
+import { oauthService, OAuthAccount, ScopeRequest } from '@/services/oauthService';
 import { plaidService } from '@/services/plaidService';
 import { useToast } from '@/hooks/use-toast';
 import { ScopeConsentModal } from './ScopeConsentModal';
+import { isFeatureEnabled } from '@/config/flags';
 
 interface ConnectedService {
   type: 'oauth' | 'plaid';
@@ -110,23 +113,57 @@ export function OAuthAccountManager() {
     return service.account?.provider || 'Unknown';
   };
 
-  const getScopeLevel = (scopes: string[]): { level: string; color: string } => {
-    const hasWrite = scopes.some(s => 
-      s.includes('calendar') && !s.includes('readonly') || 
-      s.includes('compose') || 
-      s.includes('modify')
-    );
+  const getScopeLevel = (scopes: string[]): { level: string; color: string; canUpgrade: boolean; canDowngrade: boolean } => {
+    const hasCalendarWrite = scopes.some(s => s.includes('calendar.events'));
+    const hasCalendarRead = scopes.some(s => s.includes('calendar.readonly'));
+    const hasGmailSend = scopes.some(s => s.includes('gmail.send'));
+    const hasGmailModify = scopes.some(s => s.includes('gmail.modify'));
+    const hasGmailRead = scopes.some(s => s.includes('gmail.readonly'));
+    const hasGmailMetadata = scopes.some(s => s.includes('gmail.metadata'));
     
-    if (hasWrite) {
-      return { level: 'Write Access', color: 'bg-red-100 text-red-700' };
+    // Determine highest permission level
+    if (hasGmailSend) {
+      return { 
+        level: 'Full Access', 
+        color: 'bg-red-100 text-red-700',
+        canUpgrade: false,
+        canDowngrade: true
+      };
     }
     
-    const hasRead = scopes.some(s => s.includes('readonly') || s.includes('metadata'));
-    if (hasRead) {
-      return { level: 'Read Access', color: 'bg-blue-100 text-blue-700' };
+    if (hasCalendarWrite || hasGmailModify) {
+      return { 
+        level: 'Write Access', 
+        color: 'bg-orange-100 text-orange-700',
+        canUpgrade: hasGmailModify && !hasGmailSend,
+        canDowngrade: true
+      };
     }
     
-    return { level: 'Limited', color: 'bg-gray-100 text-gray-700' };
+    if (hasCalendarRead || hasGmailRead) {
+      return { 
+        level: 'Read Access', 
+        color: 'bg-blue-100 text-blue-700',
+        canUpgrade: true,
+        canDowngrade: hasGmailRead || hasCalendarRead
+      };
+    }
+    
+    if (hasGmailMetadata) {
+      return { 
+        level: 'Metadata Only', 
+        color: 'bg-green-100 text-green-700',
+        canUpgrade: true,
+        canDowngrade: false
+      };
+    }
+    
+    return { 
+      level: 'Limited', 
+      color: 'bg-gray-100 text-gray-700',
+      canUpgrade: true,
+      canDowngrade: false
+    };
   };
 
   const formatLastUsed = (date?: string) => {
@@ -142,6 +179,83 @@ export function OAuthAccountManager() {
     if (diffDays < 30) return `${diffDays} days ago`;
     
     return lastUsed.toLocaleDateString();
+  };
+
+  const handleScopeUpgrade = async (account: OAuthAccount) => {
+    try {
+      const service = account.scopes.some(s => s.includes('calendar')) ? 'calendar' : 'gmail';
+      
+      // Determine next level scopes
+      let requiredScopes: string[] = [];
+      if (service === 'calendar') {
+        requiredScopes = [
+          'https://www.googleapis.com/auth/calendar.readonly',
+          'https://www.googleapis.com/auth/calendar.events'
+        ];
+      } else {
+        const hasRead = account.scopes.some(s => s.includes('gmail.readonly'));
+        if (!hasRead) {
+          requiredScopes = [
+            'https://www.googleapis.com/auth/gmail.metadata',
+            'https://www.googleapis.com/auth/gmail.readonly'
+          ];
+        } else {
+          requiredScopes = [
+            'https://www.googleapis.com/auth/gmail.metadata',
+            'https://www.googleapis.com/auth/gmail.readonly',
+            'https://www.googleapis.com/auth/gmail.modify'
+          ];
+        }
+      }
+      
+      const scopeRequest: ScopeRequest = {
+        provider: 'google',
+        service: service === 'gmail' ? 'email' : service,
+        reason: `unlock additional ${service} features`,
+        requiredScopes
+      };
+      
+      setPendingScopeRequest(scopeRequest);
+      setShowScopeModal(true);
+    } catch (error) {
+      console.error('Failed to upgrade scope:', error);
+      toast({
+        title: "Upgrade Failed",
+        description: "Unable to upgrade permissions",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleScopeDowngrade = async (account: OAuthAccount) => {
+    try {
+      const service = account.scopes.some(s => s.includes('calendar')) ? 'calendar' : 'gmail';
+      
+      // Determine minimal scopes
+      let requiredScopes: string[] = [];
+      if (service === 'calendar') {
+        requiredScopes = ['https://www.googleapis.com/auth/calendar.readonly'];
+      } else {
+        requiredScopes = ['https://www.googleapis.com/auth/gmail.metadata'];
+      }
+      
+      const scopeRequest: ScopeRequest = {
+        provider: 'google',
+        service: service === 'gmail' ? 'email' : service,
+        reason: `reduce to minimal ${service} permissions`,
+        requiredScopes
+      };
+      
+      setPendingScopeRequest(scopeRequest);
+      setShowScopeModal(true);
+    } catch (error) {
+      console.error('Failed to downgrade scope:', error);
+      toast({
+        title: "Downgrade Failed",
+        description: "Unable to reduce permissions",
+        variant: "destructive"
+      });
+    }
   };
 
   if (isLoading) {
@@ -202,13 +316,41 @@ export function OAuthAccountManager() {
                           {/* OAuth Scopes */}
                           {service.account && (
                             <div className="space-y-2">
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 {(() => {
-                                  const { level, color } = getScopeLevel(service.account.scopes);
+                                  const { level, color, canUpgrade, canDowngrade } = getScopeLevel(service.account.scopes);
                                   return (
-                                    <Badge className={color} variant="secondary">
-                                      {level}
-                                    </Badge>
+                                    <>
+                                      <Badge className={color} variant="secondary">
+                                        {level}
+                                      </Badge>
+                                      {isFeatureEnabled('incrementalOAuth') && (
+                                        <div className="flex items-center gap-1">
+                                          {canUpgrade && (
+                                            <Button
+                                              size="sm"
+                                              variant="ghost"
+                                              className="h-6 px-2 text-xs"
+                                              onClick={() => handleScopeUpgrade(service.account!)}
+                                            >
+                                              <ArrowUp className="h-3 w-3 mr-1" />
+                                              Upgrade
+                                            </Button>
+                                          )}
+                                          {canDowngrade && (
+                                            <Button
+                                              size="sm"
+                                              variant="ghost"
+                                              className="h-6 px-2 text-xs"
+                                              onClick={() => handleScopeDowngrade(service.account!)}
+                                            >
+                                              <ArrowDown className="h-3 w-3 mr-1" />
+                                              Reduce
+                                            </Button>
+                                          )}
+                                        </div>
+                                      )}
+                                    </>
                                   );
                                 })()}
                                 <div className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -288,6 +430,7 @@ export function OAuthAccountManager() {
           open={showScopeModal}
           onOpenChange={setShowScopeModal}
           request={pendingScopeRequest}
+          currentScopes={services.find(s => s.account?.id === pendingScopeRequest.accountId)?.account?.scopes || []}
           onApprove={(authUrl) => {
             window.open(authUrl, '_blank');
             setShowScopeModal(false);
