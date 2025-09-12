@@ -120,6 +120,7 @@ const App = () => {
                       <Route index element={<Index />} />
                       <Route path="list" element={<ListView />} />
                       <Route path="kanban" element={<KanbanView />} />
+                      <Route path="kankav" element={<KanbanView />} />
                       <Route path="matrix" element={<MatrixView />} />
                       <Route path="timeline" element={<Timeline />} />
                       <Route path="reminders" element={<Reminders />} />

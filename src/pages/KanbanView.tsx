@@ -110,8 +110,13 @@ export default function KanbanView() {
         }
       },
       bulkUpsert: async (tasks: Task[]) => {
-        for (const task of tasks) {
-          await viewSDK.actions.upsert(task);
+        try {
+          for (const task of tasks) {
+            await viewSDK.actions.upsert(task);
+          }
+        } catch (error) {
+          console.error('Bulk upsert failed:', error);
+          throw error;
         }
       },
       remove: async (id: TaskId) => {

@@ -282,12 +282,12 @@ useTaskStore.getState().refreshFromBubbleStore();
  */
 export function useTaskStoreSync() {
   const taskStore = useTaskStore();
-  const bubbleStore = useBubbleStore();
+  const bubbles = useBubbleStore((state) => state.bubbles);
   
-  // Ensure sync on mount
+  // Ensure sync on mount and when bubbles change
   React.useEffect(() => {
     taskStore.refreshFromBubbleStore();
-  }, [taskStore, bubbleStore.bubbles]);
+  }, [bubbles]); // Remove taskStore dependency to prevent infinite loop
   
   return taskStore;
 }
