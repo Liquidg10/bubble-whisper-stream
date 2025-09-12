@@ -15,6 +15,7 @@ import {
   Lightbulb
 } from 'lucide-react';
 import { consentService } from '@/services/consentService';
+import { CelebrationSettings } from '@/components/CelebrationSettings';
 
 export const IntelligenceSettings: React.FC = () => {
   const { 
@@ -194,6 +195,9 @@ export const IntelligenceSettings: React.FC = () => {
               )}
             </CardContent>
           </Card>
+
+          {/* Micro-Celebrations */}
+          <CelebrationSettings />
 
           {/* Privacy Notice */}
           <Card className="border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-900/20">

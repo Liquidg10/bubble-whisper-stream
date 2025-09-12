@@ -16,6 +16,7 @@ import { usePanZoom } from '@/hooks/usePanZoom';
 import { useLODSystem } from '@/hooks/useLODSystem';
 import { crossViewUndoService } from '@/services/crossViewUndoService';
 import { CBTOnboardingBanner } from './CBTOnboardingBanner';
+import { useMicroCelebrations } from '@/hooks/useMicroCelebrations';
 
 import { AtomicView } from './AtomicView';
 
@@ -53,6 +54,9 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
   const isMobile = useIsMobile();
   const { toast } = useToast();
   const { getLODConfig, setDragState, setMultiSelectState } = useLODSystem();
+  
+  // Initialize micro-celebrations
+  useMicroCelebrations();
   
   // Unified pan/zoom system
   const {
