@@ -47,6 +47,9 @@ export const flags = {
   // Incremental OAuth (P10 - Least privilege scope escalation)
   incrementalOAuth: true,
   
+  // Cognitive Load Governor (P14 - Nudge budgets & cooldowns)
+  loadGovernor: process.env.NODE_ENV === 'development',
+  
   // CBT Assistant Feature Flags
   cbtAssist: false, // Main CBT assistant feature (default OFF)
   cbtSilentObserve: true, // Silent observation for testing (default ON)
