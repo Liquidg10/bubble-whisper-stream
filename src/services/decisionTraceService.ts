@@ -8,7 +8,7 @@ interface DecisionSignal {
 interface DecisionTrace {
   id: string;
   timestamp: number;
-  feature: 'calendar' | 'email' | 'finance' | 'context' | 'system';
+  feature: 'calendar' | 'email' | 'finance' | 'context' | 'system' | 'task-calendar';
   userId?: string;
   signals: DecisionSignal[];
   confidenceThreshold: number;

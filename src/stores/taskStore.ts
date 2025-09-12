@@ -111,6 +111,9 @@ export const useTaskStore = create<TaskStoreState>()(
           throw new Error(`Task ${id} not found`);
         }
         
+        // Store previous task for change detection
+        const previousTask = { ...currentTask };
+        
         // Merge updates and convert to bubble
         const updatedTask: Task = { 
           ...currentTask, 
@@ -125,6 +128,16 @@ export const useTaskStore = create<TaskStoreState>()(
         
         // Refresh task list
         get().refreshFromBubbleStore();
+        
+        // Trigger auto-write evaluation if calendar data changed
+        // Import dynamically to avoid circular dependencies
+        if (typeof window !== 'undefined') {
+          import('../services/taskAwareAutoWriteService').then(({ taskAwareAutoWriteService }) => {
+            taskAwareAutoWriteService.evaluateTask(updatedTask, previousTask).catch(error => {
+              logger.error('Auto-write evaluation failed', error, { taskId: id });
+            });
+          });
+        }
         
         logger.debug('Updated task via BubbleStore', { taskId: id, updates });
       } catch (error) {

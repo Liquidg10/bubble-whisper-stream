@@ -49,6 +49,9 @@ export interface TaskViewMetadata {
   calendar?: {
     startTime?: string;
     durationMin?: number;
+    location?: string;
+    attendees?: string[];
+    calendarId?: string;
   };
 }
 

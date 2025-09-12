@@ -48,6 +48,7 @@ import DevCBTObserver from "./pages/DevCBTObserver";
 import DevCBTPolicy from "./pages/DevCBTPolicy";
 import DevCBTE2E from "./pages/DevCBTE2E";
 import DevCBTMetrics from "./pages/DevCBTMetrics";
+import TaskAutoWriteDemo from "./pages/TaskAutoWriteDemo";
 import DevPolicyEngine from "./pages/DevPolicyEngine";
 import DevCalendarSync from "./pages/DevCalendarSyncQA";
 import DevAutoWriteCalendar from "./pages/DevAutoWriteCalendar";
@@ -167,8 +168,9 @@ const App = () => {
                           <Route path="dev/context-drift" element={<DevContextDrift />} />
                           <Route path="dev/fatigue-budgets" element={<DevFatigueBudgets />} />
                           <Route path="dev/watch-health" element={<DevWatchHealth />} />
-                           <Route path="dev/task-adapter" element={<DevTaskAdapter />} />
-                           <Route path="dev/view-sdk" element={<DevViewSDK />} />
+                            <Route path="dev/task-adapter" element={<DevTaskAdapter />} />
+                            <Route path="dev/view-sdk" element={<DevViewSDK />} />
+                            <Route path="dev/task-auto-write" element={<TaskAutoWriteDemo />} />
                       <Route path="privacy" element={<Privacy />} />
                     </Route>
                      <Route path="auth/callback" element={<AuthCallback />} />

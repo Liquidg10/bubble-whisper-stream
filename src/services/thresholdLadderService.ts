@@ -28,6 +28,12 @@ export interface PolicyContext {
   userAutoWriteEnabled?: boolean;
   recipientDomain?: string;
   feature?: string;
+  // Task-specific context
+  taskPriority?: number;
+  taskAge?: number;
+  hasAttendees?: boolean;
+  greenConditionsValid?: boolean;
+  greenConditionsConfidence?: number;
 }
 
 class ThresholdLadderService {
@@ -108,7 +114,31 @@ class ThresholdLadderService {
     return score;
   }
 
+  /**
+   * Validate task-specific green conditions for auto-write
+   */
+  validateTaskGreenConditions(context: PolicyContext): boolean {
+    // Green conditions for task-based calendar auto-write:
+    // 1. No external attendees
+    // 2. Valid green conditions from adapter
+    // 3. Self-owned calendar (implied by greenConditionsValid)
+    
+    if (context.feature === 'task-calendar') {
+      return Boolean(
+        context.greenConditionsValid &&
+        context.greenConditionsConfidence && context.greenConditionsConfidence >= 0.7
+      );
+    }
+    
+    return true; // Non-task features use existing validation
+  }
+
   private getBaseDecision(score: number, context: PolicyContext): ThresholdDecision {
+    // Apply task-specific green conditions check
+    if (context.feature === 'task-calendar' && !this.validateTaskGreenConditions(context)) {
+      return 'suggest'; // Force to suggest if green conditions fail
+    }
+    
     if (score >= THRESHOLD_LEVELS.HIGH && context.userAutoWriteEnabled) {
       return 'auto-write';
     } else if (score >= THRESHOLD_LEVELS.MEDIUM) {
@@ -193,7 +223,8 @@ class ThresholdLadderService {
       'quiet-hours': 'quiet hours policy',
       'low-productivity-location': 'location considerations',
       'first-time-recipient': 'new recipient safety',
-      'auto-write-disabled': 'user preferences'
+      'auto-write-disabled': 'user preferences',
+      'task-green-conditions': 'task safety requirements'
     };
 
     return overrides.map(override => reasonMap[override] || override);

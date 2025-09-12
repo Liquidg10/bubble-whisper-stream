@@ -237,6 +237,35 @@ export function usePrecisionGateUndo() {
       }
     };
   }, []);
+
+  /**
+   * Create undo action for task-calendar events
+   */
+  const createTaskCalendarUndo = useCallback((taskCalendarData: {
+    traceId: string;
+    taskId: string;
+    eventId?: string;
+    title: string;
+  }) => {
+    return {
+      traceId: taskCalendarData.traceId,
+      feature: 'task-calendar',
+      action: `Auto-created calendar event from task "${taskCalendarData.title}"`,
+      undoHandler: async () => {
+        // Import dynamically to avoid circular dependencies
+        const { taskAwareAutoWriteService } = await import('@/services/taskAwareAutoWriteService');
+        
+        const success = await taskAwareAutoWriteService.undoTaskCalendarWrite(
+          taskCalendarData.taskId, 
+          taskCalendarData.traceId
+        );
+        
+        if (!success) {
+          throw new Error('Failed to undo task calendar auto-write');
+        }
+      }
+    };
+  }, []);
   
   /**
    * Get recent undoable actions
@@ -252,6 +281,7 @@ export function usePrecisionGateUndo() {
     createEmailUndo,
     createFinanceUndo,
     createReminderUndo,
+    createTaskCalendarUndo,
     getRecentUndoableActions,
     pendingUndos: Array.from(pendingUndos.values())
   };
