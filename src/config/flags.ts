@@ -32,6 +32,9 @@ export const flags = {
   // Matrix View (P5 - Eisenhower Matrix)
   matrixView: true,
   
+  // Smart Defaults (P6 - Context-aware creation)
+  smartDefaults: true,
+  
   // CBT Assistant Feature Flags
   cbtAssist: false, // Main CBT assistant feature (default OFF)
   cbtSilentObserve: true, // Silent observation for testing (default ON)

@@ -23,6 +23,7 @@ import { useProgressiveOnboarding } from '@/providers/ProgressiveOnboardingProvi
 
 import { ViewModeToggle } from '@/components/ViewModeToggle';
 import { VoiceIntentCapture } from '@/components/VoiceIntentCapture';
+import { SmartTaskQuickAdd } from '@/components/SmartTaskQuickAdd';
 import { isFeatureEnabled } from '@/config/flags';
 import { CBTOnboardingBanner } from '@/components/CBTOnboardingBanner';
 
@@ -109,6 +110,11 @@ export default function Index() {
         />
       )}
       <RadialCapture />
+      
+      {/* Smart Task Quick Add */}
+      <div className="absolute bottom-20 left-4 z-20 max-w-md">
+        <SmartTaskQuickAdd />
+      </div>
       <NotificationSystem />
       <GlimmerNotifications />
       
