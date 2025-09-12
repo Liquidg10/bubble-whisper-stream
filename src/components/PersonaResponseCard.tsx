@@ -55,19 +55,13 @@ export const PersonaResponseCard: React.FC<PersonaResponseCardProps> = ({
     return 'Assistant';
   };
 
-  const getPersonaColor = (personaId: string) => {
-    const colors: Record<string, string> = {
-      'coach_autonomy': 'bg-blue-50 border-blue-200',
-      'dr_seligman': 'bg-green-50 border-green-200',
-      'dr_anila': 'bg-purple-50 border-purple-200',
-      'sous_chef': 'bg-orange-50 border-orange-200',
-      'dr_rhea': 'bg-pink-50 border-pink-200'
-    };
-    return colors[personaId] || 'bg-muted border-border';
+  const getPersonaColor = () => {
+    // Unified assistant styling - no persona-specific colors
+    return 'bg-card border-border';
   };
 
   return (
-    <Card className={`${getPersonaColor(response.personaId)} ${className}`}>
+    <Card className={`${getPersonaColor()} ${className}`}>
       <CardContent className="p-4">
         <div className="flex items-start justify-between mb-3">
           <div className="flex items-center gap-2">

@@ -35,8 +35,8 @@ export function useMicroCelebrations() {
     if (!settings.intelligenceEnabled) return;
     
     try {
-      // Get recent bubbles (last 3 hours)
-      const recentCutoff = Date.now() - (3 * 60 * 60 * 1000);
+      // Get recent bubbles (last 2 hours for more responsive detection)
+      const recentCutoff = Date.now() - (2 * 60 * 60 * 1000);
       const recentBubbles = bubbles.filter(b => b.createdAt > recentCutoff);
       
       if (recentBubbles.length === 0) return;
@@ -47,7 +47,11 @@ export function useMicroCelebrations() {
       if (burst && burst.celebrationEligible) {
         // Use preferred glimmer tone or default to Friend
         const tone = (settings.preferredGlimmerTone || 'Friend') as GlimmerTone;
-        showMicroCelebration(burst, tone);
+        
+        // Enhanced celebration check
+        if (microCelebrationService.canShowCelebration(tone)) {
+          showMicroCelebration(burst, tone);
+        }
       }
     } catch (error) {
       console.error('Failed to check for celebrations:', error);

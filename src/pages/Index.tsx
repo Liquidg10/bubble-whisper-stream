@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { BubbleCanvas } from '@/components/BubbleCanvas';
+import { JoyMomentumIntegration } from '@/components/JoyMomentumIntegration';
 import { AtomicView } from '@/components/AtomicView';
 import { RadialCapture } from '@/components/RadialCapture';
 import { NotificationSystem } from '@/components/NotificationSystem';
@@ -117,6 +118,7 @@ export default function Index() {
       </div>
       <NotificationSystem />
       <GlimmerNotifications />
+      <JoyMomentumIntegration />
       
       {/* MiniMap */}
       {isPanelVisible('minimap') && (
