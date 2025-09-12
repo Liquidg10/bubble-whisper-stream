@@ -38,6 +38,9 @@ export const flags = {
   // Planning Mode (P7 - MCII-Lite planning)
   planningMode: true,
   
+  // Context Drift Guard (P8 - Drift detection & rollback)
+  contextDriftGuard: false,
+  
   // CBT Assistant Feature Flags
   cbtAssist: false, // Main CBT assistant feature (default OFF)
   cbtSilentObserve: true, // Silent observation for testing (default ON)

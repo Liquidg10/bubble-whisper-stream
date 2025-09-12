@@ -13,12 +13,21 @@ import { Progress } from '@/components/ui/progress';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { TrendingUp, TrendingDown, RotateCcw, AlertTriangle, RefreshCw } from 'lucide-react';
 import { contextEngineService } from '@/services/contextEngineService';
+import { precisionDriftTracker, PrecisionSnapshot, PrecisionDriftMetrics } from '@/services/precisionDriftTracker';
+import { unifiedRollbackService, UnifiedSnapshot } from '@/services/unifiedRollbackService';
+import { backgroundCalibrationService, CalibrationTask } from '@/services/backgroundCalibrationService';
+import { isFeatureEnabled } from '@/config/flags';
 
 interface WeightSnapshot {
   timestamp: number;
   weights: Record<string, number>;
   acceptanceRate: number;
   totalDecisions: number;
+}
+
+interface ExtendedDriftMetrics extends DriftMetrics {
+  precisionMetrics?: PrecisionDriftMetrics;
+  combinedHealth?: number;
 }
 
 interface DriftMetrics {
@@ -31,10 +40,16 @@ interface DriftMetrics {
 export default function DevContextDrift() {
   const [currentWeights, setCurrentWeights] = useState<Record<string, number>>({});
   const [snapshots, setSnapshots] = useState<WeightSnapshot[]>([]);
-  const [driftMetrics, setDriftMetrics] = useState<DriftMetrics | null>(null);
+  const [driftMetrics, setDriftMetrics] = useState<ExtendedDriftMetrics | null>(null);
   const [lastStableSnapshot, setLastStableSnapshot] = useState<WeightSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
   const [autoTracking, setAutoTracking] = useState(true);
+  
+  // P8 - Enhanced state for unified monitoring
+  const [unifiedSnapshots, setUnifiedSnapshots] = useState<UnifiedSnapshot[]>([]);
+  const [precisionSnapshots, setPrecisionSnapshots] = useState<PrecisionSnapshot[]>([]);
+  const [calibrationTasks, setCalibrationTasks] = useState<CalibrationTask[]>([]);
+  const [isDriftGuardEnabled] = useState(() => isFeatureEnabled('contextDriftGuard'));
 
   const DRIFT_THRESHOLDS = {
     minor: 0.05,    // 5% change
@@ -159,16 +174,39 @@ export default function DevContextDrift() {
     return accepted / decisions.length;
   };
 
-  const restoreStableWeights = async () => {
-    if (!lastStableSnapshot) return;
+  // P8 - Enhanced restore with selective options
+  const restoreStableWeights = async (options?: { context?: boolean; precision?: boolean }) => {
+    if (!isDriftGuardEnabled) {
+      // Legacy behavior for when drift guard is disabled
+      if (!lastStableSnapshot) return;
+      
+      setLoading(true);
+      try {
+        await contextEngineService.updateSignalWeights(lastStableSnapshot.weights);
+        await loadCurrentWeights();
+        await saveSnapshot(true); // Mark as new stable point
+      } catch (error) {
+        console.error('Failed to restore stable weights:', error);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
     
     setLoading(true);
     try {
-      await contextEngineService.updateSignalWeights(lastStableSnapshot.weights);
-      await loadCurrentWeights();
-      await saveSnapshot(true); // Mark as new stable point
+      const success = await unifiedRollbackService.restoreToStable({
+        restoreContext: options?.context ?? true,
+        restorePrecision: options?.precision ?? true,
+        reason: 'Manual rollback from drift dashboard'
+      });
+      
+      if (success) {
+        await loadUnifiedData();
+        await loadCurrentWeights();
+      }
     } catch (error) {
-      console.error('Failed to restore stable weights:', error);
+      console.error('Failed to restore stable configuration:', error);
     } finally {
       setLoading(false);
     }
@@ -214,9 +252,76 @@ export default function DevContextDrift() {
     }));
   };
 
+  // P8 - Load unified snapshots and precision data
+  const loadUnifiedData = async () => {
+    if (!isDriftGuardEnabled) return;
+    
+    try {
+      const unified = unifiedRollbackService.loadUnifiedSnapshots();
+      const precision = precisionDriftTracker.loadSnapshots();
+      
+      setUnifiedSnapshots(unified);
+      setPrecisionSnapshots(precision);
+    } catch (error) {
+      console.error('Failed to load unified drift data:', error);
+    }
+  };
+
+  // P8 - Enhanced snapshot with unified tracking
+  const saveUnifiedSnapshot = async (isStable = false) => {
+    if (!isDriftGuardEnabled) return saveSnapshot(isStable);
+    
+    setLoading(true);
+    try {
+      // Create and save unified snapshot
+      const unifiedSnapshot = await unifiedRollbackService.createUnifiedSnapshot();
+      unifiedRollbackService.saveUnifiedSnapshot(unifiedSnapshot, isStable);
+      
+      // Also save individual precision snapshot
+      const precisionSnapshot = await precisionDriftTracker.createSnapshot();
+      precisionDriftTracker.saveSnapshot(precisionSnapshot);
+      
+      // Reload data
+      await loadUnifiedData();
+      await loadCurrentWeights();
+      
+    } catch (error) {
+      console.error('Failed to save unified snapshot:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
+  // P8 - Background calibration controls
+  const startBackgroundCalibration = async (type: 'context' | 'precision' | 'combined') => {
+    try {
+      let taskId: string;
+      switch (type) {
+        case 'context':
+          taskId = await backgroundCalibrationService.startContextRecalibration();
+          break;
+        case 'precision':
+          taskId = await backgroundCalibrationService.startPrecisionRecalibration();
+          break;
+        case 'combined':
+          taskId = await backgroundCalibrationService.startCombinedRecalibration();
+          break;
+      }
+      console.log(`Started ${type} calibration: ${taskId}`);
+    } catch (error) {
+      console.error('Failed to start background calibration:', error);
+    }
+  };
+
   useEffect(() => {
     loadCurrentWeights();
     loadSnapshots();
+    
+    // P8 - Load unified data if feature enabled
+    if (isDriftGuardEnabled) {
+      loadUnifiedData();
+    }
     
     // Auto-track daily if enabled
     if (autoTracking) {
@@ -225,17 +330,43 @@ export default function DevContextDrift() {
       const oneDayAgo = now - (24 * 60 * 60 * 1000);
       
       if (!lastSnapshot || lastSnapshot.timestamp < oneDayAgo) {
-        saveSnapshot();
+        if (isDriftGuardEnabled) {
+          saveUnifiedSnapshot();
+        } else {
+          saveSnapshot();
+        }
       }
     }
   }, []);
 
+  // P8 - Subscribe to calibration task updates
+  useEffect(() => {
+    if (!isDriftGuardEnabled) return;
+    
+    const unsubscribe = backgroundCalibrationService.subscribe(setCalibrationTasks);
+    return unsubscribe;
+  }, [isDriftGuardEnabled]);
+
   useEffect(() => {
     if (snapshots.length > 0) {
       const metrics = calculateDriftMetrics();
-      setDriftMetrics(metrics);
+      
+      // P8 - Add precision metrics if available
+      if (isDriftGuardEnabled && precisionSnapshots.length > 0) {
+        const precisionMetrics = precisionDriftTracker.calculateDriftMetrics(precisionSnapshots);
+        const combinedHealth = unifiedSnapshots.length > 0 ? 
+          unifiedSnapshots[unifiedSnapshots.length - 1].combined.overallHealth : 0;
+        
+        setDriftMetrics({
+          ...metrics,
+          precisionMetrics,
+          combinedHealth
+        });
+      } else {
+        setDriftMetrics(metrics);
+      }
     }
-  }, [snapshots, currentWeights]);
+  }, [snapshots, currentWeights, precisionSnapshots, unifiedSnapshots, isDriftGuardEnabled]);
 
   const chartData = formatChartData();
   const weightData = formatWeightData();
@@ -245,15 +376,25 @@ export default function DevContextDrift() {
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold">Context Engine Drift Monitor</h1>
+            <h1 className="text-3xl font-bold">
+              {isDriftGuardEnabled ? 'Unified System Drift Monitor' : 'Context Engine Drift Monitor'}
+            </h1>
             <p className="text-muted-foreground">
-              Track signal weight changes and acceptance rates over time
+              {isDriftGuardEnabled 
+                ? 'Track Context Engine and Auto-Write precision with unified rollback'
+                : 'Track signal weight changes and acceptance rates over time'
+              }
             </p>
+            {isDriftGuardEnabled && (
+              <Badge variant="outline" className="mt-2">
+                Drift Guard Enabled
+              </Badge>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
-              onClick={() => saveSnapshot()}
+              onClick={() => isDriftGuardEnabled ? saveUnifiedSnapshot() : saveSnapshot()}
               disabled={loading}
               className="gap-2"
             >
@@ -262,7 +403,7 @@ export default function DevContextDrift() {
             </Button>
             <Button
               variant="outline"
-              onClick={restoreStableWeights}
+              onClick={() => restoreStableWeights()}
               disabled={loading || !lastStableSnapshot}
               className="gap-2"
             >
@@ -272,7 +413,7 @@ export default function DevContextDrift() {
           </div>
         </div>
 
-        {/* Drift Summary */}
+        {/* P8 - Enhanced Drift Summary */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Card>
             <CardContent className="p-4">
@@ -324,24 +465,67 @@ export default function DevContextDrift() {
             <CardContent className="p-4">
               <div className="flex items-center gap-2">
                 <div>
-                  <p className="text-sm font-medium">Drift Severity</p>
-                  <Badge variant={driftMetrics ? getSeverityColor(driftMetrics.driftSeverity) : 'default'}>
-                    {driftMetrics?.driftSeverity || 'stable'}
-                  </Badge>
+                  <p className="text-sm font-medium">
+                    {isDriftGuardEnabled ? 'Combined Health' : 'Drift Severity'}
+                  </p>
+                  {isDriftGuardEnabled && driftMetrics?.combinedHealth !== undefined ? (
+                    <p className="text-2xl font-bold">
+                      {Math.round(driftMetrics.combinedHealth * 100)}%
+                    </p>
+                  ) : (
+                    <Badge variant={driftMetrics ? getSeverityColor(driftMetrics.driftSeverity) : 'default'}>
+                      {driftMetrics?.driftSeverity || 'stable'}
+                    </Badge>
+                  )}
                 </div>
               </div>
             </CardContent>
           </Card>
         </div>
 
+        {/* P8 - Enhanced Alerts */}
         {driftMetrics?.driftSeverity === 'high' && (
           <Alert>
             <AlertTriangle className="h-4 w-4" />
             <AlertDescription>
               High drift detected ({Math.round(driftMetrics.weekOverWeekDelta * 100)}%). 
-              Consider restoring stable weights or reviewing recent changes.
+              Consider restoring stable configuration or starting background recalibration.
             </AlertDescription>
           </Alert>
+        )}
+
+        {/* P8 - Precision Drift Alert */}
+        {isDriftGuardEnabled && driftMetrics?.precisionMetrics?.featureDriftSeverity === 'high' && (
+          <Alert>
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>
+              Auto-Write precision drift detected in {driftMetrics.precisionMetrics.mostDriftingFeature}. 
+              Accuracy dropped by {Math.round(Math.abs(driftMetrics.precisionMetrics.weekOverWeekAccuracy) * 100)}%.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* P8 - Background Calibration Status */}
+        {isDriftGuardEnabled && calibrationTasks.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Background Calibration Status</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {calibrationTasks.map(task => (
+                <div key={task.id} className="flex items-center justify-between p-3 border rounded-lg">
+                  <div>
+                    <p className="font-medium capitalize">{task.type.replace('_', ' ')} Calibration</p>
+                    <p className="text-sm text-muted-foreground">{task.status}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Progress value={task.progress} className="w-20" />
+                    <span className="text-sm">{task.progress}%</span>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
         )}
 
         {/* Charts */}
@@ -475,6 +659,36 @@ export default function DevContextDrift() {
                 Reset to Defaults
               </Button>
             </div>
+
+            {/* P8 - Background Calibration Controls */}
+            {isDriftGuardEnabled && (
+              <div className="space-y-3 pt-3 border-t">
+                <p className="font-medium">Background Calibration</p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => startBackgroundCalibration('context')}
+                    disabled={loading}
+                  >
+                    Recalibrate Context
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => startBackgroundCalibration('precision')}
+                    disabled={loading}
+                  >
+                    Recalibrate Precision
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => startBackgroundCalibration('combined')}
+                    disabled={loading}
+                  >
+                    Combined Recalibration
+                  </Button>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

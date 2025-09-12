@@ -8,12 +8,12 @@ interface DecisionSignal {
 interface DecisionTrace {
   id: string;
   timestamp: number;
-  feature: 'calendar' | 'email' | 'finance' | 'context';
+  feature: 'calendar' | 'email' | 'finance' | 'context' | 'system';
   userId?: string;
   signals: DecisionSignal[];
   confidenceThreshold: number;
   finalConfidence: number;
-  decision: 'suggest' | 'draft' | 'auto-write' | 'skip';
+  decision: 'suggest' | 'draft' | 'auto-write' | 'skip' | 'calibrate' | 'rollback';
   action: string;
   becauseText: string;
   metadata: any;
