@@ -118,18 +118,8 @@ export default function MatrixView() {
       const importance = (task.view?.matrix?.importance ?? 1) as 0|1|2|3;
       const quadrant = calculateQuadrant(urgency, importance);
       
-      // Ensure task has correct matrix metadata
-      if (!task.view?.matrix || task.view.matrix.quadrant !== quadrant) {
-        const updatedTask = updateTask(task, {
-          view: {
-            ...task.view,
-            matrix: { urgency, importance, quadrant }
-          }
-        });
-        quadrants[quadrant].push(updatedTask);
-      } else {
-        quadrants[quadrant].push(task);
-      }
+      // Just add task to appropriate quadrant - don't update here
+      quadrants[quadrant].push(task);
     });
     
     return quadrants;
