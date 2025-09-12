@@ -149,7 +149,7 @@ export function MatrixGrid({
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-full">
       {/* Importance axis label */}
-      <div className="hidden md:block absolute -left-8 top-1/2 -translate-y-1/2 -rotate-90">
+      <div className="hidden md:block absolute left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 -rotate-90">
         <div className="text-sm font-medium text-muted-foreground whitespace-nowrap">
           ← Less Important | More Important →
         </div>
