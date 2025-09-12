@@ -372,8 +372,8 @@ class WeeklyMetricsService {
       const stored = localStorage.getItem('cognitiveLoadExtensionCounts');
       if (!stored) return 0;
       
-      const counts = JSON.parse(stored);
-      return Object.values(counts).reduce((sum: number, count: unknown) => sum + Number(count), 0);
+      const counts = JSON.parse(stored) as Record<string, number>;
+      return Object.values(counts).reduce((sum: number, count: number) => sum + count, 0);
     } catch {
       return 0;
     }
