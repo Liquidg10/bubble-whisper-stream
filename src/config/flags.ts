@@ -26,6 +26,9 @@ export const flags = {
   // ViewSDK (P2 - View contracts and event bus)
   viewSdk: process.env.NODE_ENV === 'development',
   
+  // List View (P3 - First missing view)
+  listView: true,
+  
   // CBT Assistant Feature Flags
   cbtAssist: false, // Main CBT assistant feature (default OFF)
   cbtSilentObserve: true, // Silent observation for testing (default ON)
