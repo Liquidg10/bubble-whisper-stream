@@ -110,6 +110,9 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
   const { toast } = useToast();
   const { updateDomainBubblesPosition, lockPosition, unlockPosition } = useMoleculePositionPersistence();
   
+  // Animation performance cache
+  const animationRef = useRef<{ electronCount?: number }>();
+  
   // State management
   const [atomicState, setAtomicState] = useState<AtomicState>({
     molecules: [],
@@ -279,27 +282,16 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     return Array.from(moleculeMap.values());
   }, [atomicState.molecules]);
 
-  // Debounced molecule update to prevent rapid re-conversions
+  // Optimized molecule update - immediate during idle, skip during drag
   useEffect(() => {
-    // Don't update during drag operations
+    // Skip conversion during drag operations to maintain animation smoothness
     if (atomicState.dragState.isDragging) return;
     
-    if (debouncedConvertRef.current) {
-      clearTimeout(debouncedConvertRef.current);
-    }
-    
-    debouncedConvertRef.current = setTimeout(() => {
-      setAtomicState(prev => ({
-        ...prev,
-        molecules: convertBubblesToMolecules(bubbles)
-      }));
-    }, 50); // 50ms debounce
-    
-    return () => {
-      if (debouncedConvertRef.current) {
-        clearTimeout(debouncedConvertRef.current);
-      }
-    };
+    // Remove debounce for immediate responsiveness
+    setAtomicState(prev => ({
+      ...prev,
+      molecules: convertBubblesToMolecules(bubbles)
+    }));
   }, [bubbles, convertBubblesToMolecules, atomicState.dragState.isDragging]);
 
   // Motion control
@@ -308,12 +300,22 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     return unsubscribe;
   }, []);
 
-  // Animation loop with slower electrons
+  // Optimized animation loop - cache electron count during drag
   useEffect(() => {
     if (!motionState || reducedMotion) return;
 
-    const totalElectrons = atomicState.molecules.reduce((sum, mol) => sum + mol.electrons.length, 0);
+    // Only recalculate electron count when not dragging
+    const totalElectrons = atomicState.dragState.isDragging 
+      ? (animationRef.current?.electronCount || 50) // Use cached value during drag
+      : atomicState.molecules.reduce((sum, mol) => sum + mol.electrons.length, 0);
+    
     const speedMultiplier = totalElectrons > ANIMATION_CONFIG.MAX_ELECTRONS_FOR_FAST_ANIMATION ? 0.5 : 1.0;
+
+    // Cache the electron count for drag operations
+    if (!atomicState.dragState.isDragging) {
+      if (!animationRef.current) animationRef.current = {};
+      animationRef.current.electronCount = totalElectrons;
+    }
 
     const animate = () => {
       setAnimationStep(prev => prev + (ANIMATION_CONFIG.ELECTRON_SPEED * speedMultiplier));
@@ -324,13 +326,17 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     return () => {
       stopAnimation();
     };
-  }, [motionState, reducedMotion, atomicState.molecules]);
+  }, [motionState, reducedMotion, atomicState.molecules, atomicState.dragState.isDragging]);
 
   // Auto-start animation on mount if motion is enabled
   useEffect(() => {
     if (isMotionEnabled() && !reducedMotion) {
       const totalElectrons = atomicState.molecules.reduce((sum, mol) => sum + mol.electrons.length, 0);
       const speedMultiplier = totalElectrons > ANIMATION_CONFIG.MAX_ELECTRONS_FOR_FAST_ANIMATION ? 0.5 : 1.0;
+
+      // Cache initial electron count
+      if (!animationRef.current) animationRef.current = {};
+      animationRef.current.electronCount = totalElectrons;
 
       const animate = () => {
         setAnimationStep(prev => prev + (ANIMATION_CONFIG.ELECTRON_SPEED * speedMultiplier));

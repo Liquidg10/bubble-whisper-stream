@@ -268,21 +268,27 @@ export const useTaskStore = create<TaskStoreState>()(
 );
 
 // Subscribe to BubbleStore changes to keep TaskStore in sync
-// Add performance optimization: skip refresh during active drag operations
-let lastRefreshTime = 0;
-const REFRESH_DEBOUNCE_MS = 16; // ~60fps
+// Smart refresh logic: debounce bulk operations, not individual drags
+let refreshTimeout: NodeJS.Timeout | null = null;
+let lastBulkOpTime = 0;
 
 useBubbleStore.subscribe(
   () => {
     const now = performance.now();
     
-    // Skip if we're in a high-frequency drag operation
-    if (now - lastRefreshTime < REFRESH_DEBOUNCE_MS) {
-      return;
+    // For bulk operations, use debounce to prevent excessive calls
+    if (now - lastBulkOpTime > 100) {
+      // Immediate refresh for individual operations (like drag)
+      useTaskStore.getState().refreshFromBubbleStore();
+      lastBulkOpTime = now;
+    } else {
+      // Debounce rapid successive calls (bulk operations)
+      if (refreshTimeout) clearTimeout(refreshTimeout);
+      refreshTimeout = setTimeout(() => {
+        useTaskStore.getState().refreshFromBubbleStore();
+        lastBulkOpTime = performance.now();
+      }, 50);
     }
-    
-    lastRefreshTime = now;
-    useTaskStore.getState().refreshFromBubbleStore();
   }
 );
 

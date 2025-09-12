@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
+import { useLODSystem } from '@/hooks/useLODSystem';
 import { 
   DndContext, 
   DragEndEvent, 
@@ -51,6 +52,9 @@ export default function KanbanView() {
   const [draggedTask, setDraggedTask] = useState<TaskId | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<TaskId | null>(null);
   const [settingsColumn, setSettingsColumn] = useState<KanbanColumnType | null>(null);
+  
+  // LOD system for performance management
+  const { setDragState, setMultiSelectState } = useLODSystem();
 
   // Check if Kanban feature is enabled
   if (!isFeatureEnabled('kanbanView')) {
@@ -150,7 +154,9 @@ export default function KanbanView() {
   // Drag handlers
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setDraggedTask(event.active.id as TaskId);
-  }, []);
+    // Notify LOD system that dragging started
+    setDragState(true, 1);
+  }, [setDragState]);
 
   const handleDragEnd = useCallback(async (event: DragEndEvent) => {
     const { active, over } = event;
@@ -187,7 +193,9 @@ export default function KanbanView() {
     });
 
     setDraggedTask(null);
-  }, [taskStore, tasksByColumn, viewSDK.actions]);
+    // Notify LOD system that dragging ended
+    setDragState(false, 0);
+  }, [taskStore, tasksByColumn, viewSDK.actions, setDragState]);
 
   const handleDragOver = useCallback((event: DragOverEvent) => {
     // Handle visual feedback during drag
