@@ -30,7 +30,16 @@ jobs:
         run: npx playwright install --with-deps chromium firefox webkit
         
       - name: Run accessibility tests
-        run: npx playwright test --grep="@a11y" --reporter=html
+        run: |
+          npx playwright test --grep="@a11y" --reporter=json > a11y-results.json
+          npx playwright test tests/a11y/ --reporter=html
+        env:
+          PLAYWRIGHT_TEST_BASE_URL: http://localhost:4173
+          
+      - name: Validate DevA11yGate compliance
+        run: |
+          # Test DevA11yGate page directly
+          npx playwright test -c playwright.config.ts --grep="DevA11yGate" --reporter=json > dev-a11y-gate.json
         env:
           PLAYWRIGHT_TEST_BASE_URL: http://localhost:4173
           
@@ -50,18 +59,27 @@ jobs:
           script: |
             const fs = require('fs');
             
-            // Read test results if they exist
+            // Parse a11y results
+            let results = {};
+            try {
+              results = JSON.parse(fs.readFileSync('a11y-results.json', 'utf8'));
+            } catch (e) {
+              console.log('Could not read a11y results');
+            }
+            
             let comment = '## ❌ Accessibility Tests Failed\n\n';
-            comment += 'The accessibility tests have failed. Please review the uploaded test results and fix the following issues:\n\n';
-            comment += '### Required Fixes:\n';
-            comment += '- ✅ All interactive elements must be ≥44×44px\n';
-            comment += '- ✅ Keyboard navigation must work for all features\n';
-            comment += '- ✅ WCAG AA color contrast standards must be met\n';
-            comment += '- ✅ Animations respect `prefers-reduced-motion` preference\n';
-            comment += '- ✅ Screen readers must be able to navigate content\n';
-            comment += '- ✅ Drag-and-drop features must have keyboard alternatives\n\n';
-            comment += '📊 [View detailed test results in the artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\n\n';
-            comment += '💡 Run `npm run test:a11y` locally to debug accessibility issues.';
+            comment += 'WCAG 2.2 compliance violations detected. All issues must be resolved before deployment.\n\n';
+            comment += '### Critical Requirements (P11 - A11y CI Gates):\n';
+            comment += '- 🎯 **Target Size (SC 2.5.8)**: All interactive elements ≥44×44 CSS pixels\n';
+            comment += '- ⌨️  **Keyboard Access**: Full keyboard navigation for all features\n';
+            comment += '- 🎨 **Color Contrast (SC 1.4.3)**: WCAG AA standards (4.5:1 normal, 3:1 large)\n';
+            comment += '- 🎬 **Reduced Motion (SC 2.3.3)**: Respect `prefers-reduced-motion` preference\n';
+            comment += '- 📖 **Screen Reader**: All content navigable via assistive technology\n';
+            comment += '- 🖱️ **Drag Alternatives (SC 2.5.7)**: Keyboard alternatives for all drag operations\n\n';
+            comment += '### DevA11yGate Integration:\n';
+            comment += 'This CI check enforces the same standards as `/dev/a11y-gate` - fix violations there first.\n\n';
+            comment += '📊 [View detailed test results](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\n\n';
+            comment += '🔧 **Local Debug**: `npm run test:a11y` or visit `/dev/a11y-gate`';
             
             github.rest.issues.createComment({
               issue_number: context.issue.number,
