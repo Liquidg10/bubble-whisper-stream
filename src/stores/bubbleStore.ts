@@ -39,6 +39,7 @@ interface BubbleStore {
     cleaningCuesEnabled?: boolean;
     personalVoiceEnabled?: boolean;
     biometricEnabled?: boolean;
+    locationIntelligenceEnabled?: boolean;
     calendarIntegrationEnabled?: boolean;
     emailIntegrationEnabled?: boolean;
     bankingIntegrationEnabled?: boolean;
@@ -198,6 +199,7 @@ const defaultSettings = {
   quietHours: { start: '22:00', end: '08:00' },
   intelligenceEnabled: true, // Enabled by default for Phase 2 features
   cleaningCuesEnabled: false,
+  locationIntelligenceEnabled: false, // Opt-in for location tracking
   cleanHouseTimer: {
     isActive: false,
     timeRemaining: 10 * 60, // 10 minutes in seconds
@@ -490,6 +492,20 @@ export const useBubbleStore = create<BubbleStore>()(
       updateSettings: async (newSettings) => {
         const state = get();
         const updated = { ...state.settings, ...newSettings };
+        
+        // Handle Location Intelligence service start/stop
+        if ('locationIntelligenceEnabled' in newSettings) {
+          try {
+            const { locationIntelligenceService } = await import('@/services/locationIntelligenceService');
+            if (newSettings.locationIntelligenceEnabled) {
+              locationIntelligenceService.startTracking();
+            } else {
+              locationIntelligenceService.stopTracking();
+            }
+          } catch (error) {
+            console.warn('Failed to control location intelligence service:', error);
+          }
+        }
         
         // Update state immediately for responsive UI
         set({ settings: updated });

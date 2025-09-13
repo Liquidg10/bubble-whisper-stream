@@ -48,7 +48,7 @@ class LocationIntelligenceService {
 
   constructor() {
     this.loadStoredData();
-    this.initializeTracking();
+    // Don't auto-start tracking - wait for explicit enablement
   }
 
   private loadStoredData() {
@@ -90,6 +90,27 @@ class LocationIntelligenceService {
     });
 
     this.isTracking = true;
+  }
+
+  public startTracking() {
+    if (!this.isTracking) {
+      this.initializeTracking();
+      locationService.startLocationTracking();
+    }
+  }
+
+  public stopTracking() {
+    if (this.isTracking) {
+      locationService.stopLocationTracking();
+      this.isTracking = false;
+    }
+  }
+
+  public async clearData() {
+    this.locationHistory = [];
+    this.patterns = [];
+    this.reminders = [];
+    this.saveData();
   }
 
   private recordLocationVisit(context: LocationContext) {

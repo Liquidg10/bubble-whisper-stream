@@ -11,6 +11,7 @@ import {
   LocationReminder 
 } from '@/services/locationIntelligenceService';
 import { BecausePill } from '@/components/BecausePill';
+import { useBubbleStore } from '@/stores/bubbleStore';
 
 interface LocationIntelligencePanelProps {
   onCreateReminder?: () => void;
@@ -21,6 +22,7 @@ export const LocationIntelligencePanel: React.FC<LocationIntelligencePanelProps>
   onCreateReminder,
   onViewSettings
 }) => {
+  const { settings } = useBubbleStore();
   const [patterns, setPatterns] = useState<LocationPattern[]>([]);
   const [predictions, setPredictions] = useState<LocationPrediction[]>([]);
   const [reminders, setReminders] = useState<LocationReminder[]>([]);
@@ -28,8 +30,12 @@ export const LocationIntelligencePanel: React.FC<LocationIntelligencePanelProps>
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    loadLocationData();
-  }, []);
+    if (settings.locationIntelligenceEnabled) {
+      loadLocationData();
+    } else {
+      setIsLoading(false);
+    }
+  }, [settings.locationIntelligenceEnabled]);
 
   const loadLocationData = async () => {
     setIsLoading(true);
@@ -61,6 +67,41 @@ export const LocationIntelligencePanel: React.FC<LocationIntelligencePanelProps>
     if (confidence >= 0.6) return 'text-yellow-600 bg-yellow-50';
     return 'text-orange-600 bg-orange-50';
   };
+
+  if (!settings.locationIntelligenceEnabled) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <MapPin className="h-5 w-5" />
+            Location Intelligence
+            <Badge variant="outline">Disabled</Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="text-center py-8">
+          <MapPin className="h-8 w-8 text-muted-foreground mx-auto mb-4" />
+          <div className="space-y-2">
+            <p className="text-muted-foreground">
+              Location Intelligence helps you by learning your patterns
+            </p>
+            <p className="text-xs text-muted-foreground">
+              • Suggests relevant tools based on where you are<br />
+              • Creates location-based reminders<br />
+              • All data stays on your device
+            </p>
+          </div>
+          <Button 
+            onClick={onViewSettings}
+            variant="outline"
+            size="sm"
+            className="mt-4"
+          >
+            Enable in Settings
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
 
   if (isLoading) {
     return (

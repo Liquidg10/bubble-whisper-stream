@@ -196,6 +196,64 @@ export const IntelligenceSettings: React.FC = () => {
             </CardContent>
           </Card>
 
+          {/* Location Intelligence */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Brain className="h-5 w-5" />
+                Location Intelligence
+              </CardTitle>
+              <CardDescription>
+                Learn from your location patterns to provide contextual insights
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Label htmlFor="location-intelligence">Enable Location Learning</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Analyzes location patterns for personalized suggestions
+                  </p>
+                </div>
+                <Switch
+                  id="location-intelligence"
+                  checked={settings.locationIntelligenceEnabled || false}
+                  onCheckedChange={async (checked) => {
+                    if (checked) {
+                      // Request location permission first
+                      const { locationService } = await import('@/services/locationService');
+                      const hasPermission = await locationService.requestLocationPermission();
+                      if (hasPermission) {
+                        updateSettings({ locationIntelligenceEnabled: checked });
+                        handleConsentToggle('location_intelligence', checked);
+                        
+                        // Start the location intelligence service
+                        const { locationIntelligenceService } = await import('@/services/locationIntelligenceService');
+                        locationIntelligenceService.startTracking();
+                      }
+                    } else {
+                      updateSettings({ locationIntelligenceEnabled: checked });
+                      handleConsentToggle('location_intelligence', checked);
+                      
+                      // Stop tracking and optionally clear data
+                      const { locationIntelligenceService } = await import('@/services/locationIntelligenceService');
+                      locationIntelligenceService.stopTracking();
+                    }
+                  }}
+                />
+              </div>
+              
+              {settings.locationIntelligenceEnabled && (
+                <div className="text-xs text-muted-foreground space-y-1">
+                  <p>• Learns from places you visit frequently</p>
+                  <p>• Provides location-based tool suggestions</p>
+                  <p>• All data stays on your device</p>
+                  <p>• Can be disabled anytime with data cleared</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Micro-Celebrations */}
           <CelebrationSettings />
 

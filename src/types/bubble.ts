@@ -93,6 +93,7 @@ export interface Settings {
   cleaningCuesEnabled?: boolean;
   personalVoiceEnabled?: boolean;
   biometricEnabled?: boolean;
+  locationIntelligenceEnabled?: boolean;
   // AI Voice Settings
   globalVoice?: 'alloy' | 'echo' | 'fable' | 'onyx' | 'nova' | 'shimmer';
   voiceVolume?: number;
