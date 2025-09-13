@@ -138,15 +138,15 @@ export const AppShell: React.FC = () => {
 
       {/* Bottom Navigation */}
       <nav className="border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className={`grid items-center py-2 px-2 ${settings.intelligenceEnabled ? 'grid-cols-9' : 'grid-cols-8'}`}>
+        <div className="flex items-center justify-center py-2 px-4 gap-1 overflow-x-auto">
           {navItems.map(({ path, icon: Icon, label }) => {
             const isActive = location.pathname === path;
             return (
-              <Link key={path} to={path} className="flex-1">
+              <Link key={path} to={path}>
                 <Button
                   variant="ghost"
                   size="sm"
-                  className={`w-full flex flex-col items-center gap-1 h-12 ${
+                  className={`flex flex-col items-center gap-1 h-12 px-3 min-w-[60px] ${
                     isActive 
                       ? 'text-primary bg-primary/10' 
                       : 'text-muted-foreground hover:text-foreground'
