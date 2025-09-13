@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DeploymentDashboard } from '@/components/production/DeploymentDashboard';
 import { MigrationHelper } from '@/components/migration/MigrationHelper';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { 
   TrendingUp, 
   Database, 
@@ -21,16 +22,41 @@ import {
 } from 'lucide-react';
 import { isFeatureEnabled } from '@/config/flags';
 import { telemetryService } from '@/services/telemetryService';
+import { productionActivationManager } from '@/utils/productionActivation';
+import { useToast } from '@/hooks/use-toast';
 
 export default function DevProductionDashboard() {
-  const readinessScore = telemetryService.getProductionReadinessScore();
-  const productionFlags = [
-    'taskAdapter', 'viewSdk', 'listView', 'kanbanView', 'matrixView',
-    'watchHealth', 'incrementalOAuth', 'autoWriteCalendar'
-  ];
+  const [isActivating, setIsActivating] = React.useState(false);
+  const [activationResults, setActivationResults] = React.useState<any[]>([]);
+  const { toast } = useToast();
   
-  const enabledFlags = productionFlags.filter(flag => isFeatureEnabled(flag as any));
-  const productionReady = enabledFlags.length === productionFlags.length && readinessScore > 0.8;
+  const activationStatus = productionActivationManager.getActivationStatus();
+  const { isReady, readinessScore, enabledFlags, totalFlags } = activationStatus;
+
+  const handleActivateProduction = async () => {
+    setIsActivating(true);
+    try {
+      const results = await productionActivationManager.executeActivationSequence();
+      setActivationResults(results);
+      
+      const allSuccessful = results.every(r => r.success);
+      toast({
+        title: allSuccessful ? "Production Activated" : "Activation Issues",
+        description: allSuccessful 
+          ? "All production systems are now active" 
+          : "Some activation steps failed - check results",
+        variant: allSuccessful ? "default" : "destructive"
+      });
+    } catch (error) {
+      toast({
+        title: "Activation Failed",
+        description: error.message,
+        variant: "destructive"
+      });
+    } finally {
+      setIsActivating(false);
+    }
+  };
 
   return (
     <div className="container mx-auto p-6 space-y-6">
@@ -40,19 +66,28 @@ export default function DevProductionDashboard() {
           <h1 className="text-3xl font-bold">Production Dashboard</h1>
           <p className="text-muted-foreground">P20 Phase 3 - Production Rollout Control</p>
         </div>
-        <Badge variant={productionReady ? 'default' : 'destructive'} className="px-3 py-1">
-          {productionReady ? (
-            <>
-              <CheckCircle className="h-4 w-4 mr-1" />
-              Production Ready
-            </>
-          ) : (
-            <>
-              <AlertTriangle className="h-4 w-4 mr-1" />
-              Not Ready
-            </>
-          )}
-        </Badge>
+        <div className="flex gap-2">
+          <Badge variant={isReady ? 'default' : 'destructive'} className="px-3 py-1">
+            {isReady ? (
+              <>
+                <CheckCircle className="h-4 w-4 mr-1" />
+                Production Ready
+              </>
+            ) : (
+              <>
+                <AlertTriangle className="h-4 w-4 mr-1" />
+                Not Ready
+              </>
+            )}
+          </Badge>
+          <Button 
+            onClick={handleActivateProduction} 
+            disabled={isActivating || isReady}
+            size="sm"
+          >
+            {isActivating ? 'Activating...' : isReady ? 'Activated' : 'Activate Production'}
+          </Button>
+        </div>
       </div>
 
       {/* Status Overview */}
@@ -75,7 +110,7 @@ export default function DevProductionDashboard() {
               <Shield className="h-8 w-8 text-green-500" />
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Feature Flags</p>
-                <p className="text-2xl font-bold">{enabledFlags.length}/{productionFlags.length}</p>
+                <p className="text-2xl font-bold">{enabledFlags}/{totalFlags}</p>
               </div>
             </div>
           </CardContent>
@@ -171,46 +206,55 @@ export default function DevProductionDashboard() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Shield className="h-5 w-5" />
-                P20 Validation Gates
+                Production Activation Results
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <h4 className="font-medium">Critical Gates</h4>
-                  <div className="space-y-1">
-                    {[
-                      'Task Round-Trip Invariants',
-                      'Accessibility Compliance', 
-                      'Watch Health Monitoring',
-                      'Auto-Write Safety',
-                      'Performance Budgets'
-                    ].map(gate => (
-                      <div key={gate} className="flex items-center gap-2">
-                        <CheckCircle className="h-4 w-4 text-green-500" />
-                        <span className="text-sm">{gate}</span>
-                      </div>
-                    ))}
-                  </div>
+              {activationResults.length === 0 ? (
+                <div className="text-center py-8">
+                  <p className="text-muted-foreground">
+                    Run production activation to see detailed results
+                  </p>
                 </div>
-                <div className="space-y-2">
-                  <h4 className="font-medium">Safety Gates</h4>
-                  <div className="space-y-1">
-                    {[
-                      'CBT Crisis Detection',
-                      'Privacy Controls',
-                      'CRDT Conflict Resolution',
-                      'OAuth Incremental Auth',
-                      'Assistant Voice Cohesion'
-                    ].map(gate => (
-                      <div key={gate} className="flex items-center gap-2">
-                        <CheckCircle className="h-4 w-4 text-green-500" />
-                        <span className="text-sm">{gate}</span>
+              ) : (
+                <div className="space-y-4">
+                  {activationResults.map((result, index) => (
+                    <div key={index} className="border rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-3">
+                        {result.success ? (
+                          <CheckCircle className="h-5 w-5 text-green-500" />
+                        ) : (
+                          <AlertTriangle className="h-5 w-5 text-red-500" />
+                        )}
+                        <h4 className="font-medium">{result.phase}</h4>
+                        <Badge variant={result.success ? 'default' : 'destructive'}>
+                          {result.success ? 'PASS' : 'FAIL'}
+                        </Badge>
                       </div>
-                    ))}
-                  </div>
+                      
+                      {result.details.length > 0 && (
+                        <div className="space-y-1 mb-2">
+                          {result.details.map((detail, idx) => (
+                            <p key={idx} className="text-sm text-muted-foreground">
+                              {detail}
+                            </p>
+                          ))}
+                        </div>
+                      )}
+                      
+                      {result.errors.length > 0 && (
+                        <div className="space-y-1">
+                          {result.errors.map((error, idx) => (
+                            <p key={idx} className="text-sm text-red-600">
+                              ❌ {error}
+                            </p>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
-              </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>

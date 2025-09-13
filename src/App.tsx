@@ -29,6 +29,7 @@ import DevBubblesBasic from "./pages/DevBubblesBasic";
 import DevBubblesStress from "./pages/DevBubblesStress";
 import { DevSettings } from "./components/DevSettings";
 import DevProductionDashboard from "./pages/DevProductionDashboard";
+import { DevA11yGate } from "./pages/dev/DevA11yGate";
 import DevAtomicUnified from "./pages/DevAtomicUnified";
 import { DevAI } from "./pages/DevAI";
 import { DevReceipts } from "./pages/DevReceipts";
@@ -61,7 +62,7 @@ import { DevVoiceFirst } from "./pages/DevVoiceFirst";
 import DevHealthDashboard from "./pages/DevHealthDashboard";
 import DevPlaidRecur from "./pages/DevPlaidRecur";
 import DevMetricsAlerts from "./pages/DevMetricsAlerts";
-import DevA11yGate from "./pages/DevA11yGate";
+// DevA11yGate already imported above
 import DevContextDrift from "@/pages/dev-context-drift";
 import DevFatigueBudgets from "@/pages/DevFatigueBudgets";
 import DevWatchHealth from "@/pages/DevWatchHealth";
@@ -183,6 +184,7 @@ const App = () => {
                         <Route path="dev/planning-stats" element={<DevPlanningStats />} />
                         <Route path="dev/task-auto-write" element={<TaskAutoWriteDemo />} />
                         <Route path="dev/production" element={<DevProductionDashboard />} />
+                        <Route path="dev/a11y-gate" element={<DevA11yGate />} />
                       <Route path="privacy" element={<Privacy />} />
                     </Route>
                      <Route path="auth/callback" element={<AuthCallback />} />
