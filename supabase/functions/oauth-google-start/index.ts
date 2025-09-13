@@ -18,7 +18,7 @@ const handler = async (req: Request): Promise<Response> => {
   }
 
   try {
-    const { scope, service, reason } = await req.json();
+    const { scope, service, reason, accountId, existingScopes, isEscalation } = await req.json();
     const origin = req.headers.get('origin') || 'http://localhost:3000';
 
     console.log('Starting OAuth flow:', { scope, service, reason, origin });
@@ -50,15 +50,26 @@ const handler = async (req: Request): Promise<Response> => {
     // Determine redirect URI based on environment
     const redirectUri = getRedirectUri(origin);
 
+    // For incremental auth, combine existing + new scopes
+    let finalScope = scope || 'openid email profile';
+    if (isEscalation && existingScopes) {
+      // Combine existing scopes with new ones for true incremental auth
+      const allScopes = new Set([
+        ...existingScopes.split(' ').filter(Boolean),
+        ...finalScope.split(' ').filter(Boolean)
+      ]);
+      finalScope = Array.from(allScopes).join(' ');
+    }
+
     // Build OAuth URL with proper parameters
     const params = new URLSearchParams({
       client_id: Deno.env.get('GOOGLE_CLIENT_ID') ?? '',
       redirect_uri: redirectUri,
       response_type: 'code',
-      scope: scope || 'openid email profile',
+      scope: finalScope,
       access_type: 'offline',
       include_granted_scopes: 'true', // For incremental authorization
-      prompt: 'consent', // Force consent to ensure we get refresh token
+      prompt: isEscalation ? 'consent select_account' : 'consent', // Different prompt for escalation
       state: state,
       code_challenge: codeChallenge,
       code_challenge_method: 'S256'

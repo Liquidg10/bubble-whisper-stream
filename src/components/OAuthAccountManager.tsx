@@ -219,7 +219,8 @@ export function OAuthAccountManager() {
         service: service === 'gmail' ? 'email' : service,
         reason: `unlock additional ${service} features`,
         requiredScopes,
-        accountId: account.id
+        accountId: account.id,
+        currentScopes: account.scopes // Add current scopes for comparison
       };
       
       setPendingScopeRequest(scopeRequest);
@@ -493,10 +494,11 @@ export function OAuthAccountManager() {
           open={showScopeModal}
           onOpenChange={setShowScopeModal}
           request={pendingScopeRequest}
-          currentScopes={services.find(s => s.account?.id === pendingScopeRequest.accountId)?.account?.scopes || []}
+          currentScopes={pendingScopeRequest.currentScopes || []}
           onApprove={(authUrl) => {
             window.open(authUrl, '_blank');
             setShowScopeModal(false);
+            setPendingScopeRequest(null);
           }}
           onDeny={() => {
             setShowScopeModal(false);

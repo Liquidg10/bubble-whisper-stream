@@ -55,6 +55,7 @@ export interface ScopeRequest {
   requiredScopes?: string[];
   reason: string;
   accountId?: string;
+  currentScopes?: string[]; // For before/after comparison
 }
 
 class OAuthService {
@@ -315,12 +316,25 @@ class OAuthService {
     const defaultScope = DEFAULT_SCOPES[request.service === 'calendar' ? 'google-calendar' : 'gmail'];
     const scope = list.length ? list.join(' ') : defaultScope;
 
+    // For incremental auth, get current account to include existing scopes
+    let existingScopes: string[] = [];
+    if (request.accountId) {
+      const accounts = await this.getConnectedAccounts();
+      const account = accounts.find(a => a.id === request.accountId);
+      if (account) {
+        existingScopes = account.scopes;
+      }
+    }
+
     // Use our edge function to generate OAuth URLs with proper state/PKCE
     const { data, error } = await supabase.functions.invoke('oauth-google-start', {
       body: {
         scope,
         service: request.service,
-        reason: request.reason
+        reason: request.reason,
+        accountId: request.accountId,
+        existingScopes: existingScopes.join(' '), // Include for incremental auth
+        isEscalation: true // Flag this as scope escalation, not initial auth
       }
     });
 
