@@ -28,6 +28,7 @@ import DevAtomicStress from "./pages/DevAtomicStress";
 import DevBubblesBasic from "./pages/DevBubblesBasic";
 import DevBubblesStress from "./pages/DevBubblesStress";
 import { DevSettings } from "./components/DevSettings";
+import DevProductionDashboard from "./pages/DevProductionDashboard";
 import DevAtomicUnified from "./pages/DevAtomicUnified";
 import { DevAI } from "./pages/DevAI";
 import { DevReceipts } from "./pages/DevReceipts";
@@ -181,7 +182,7 @@ const App = () => {
                         <Route path="dev/auto-write" element={<DevAutoWrite />} />
                         <Route path="dev/planning-stats" element={<DevPlanningStats />} />
                         <Route path="dev/task-auto-write" element={<TaskAutoWriteDemo />} />
-                        <Route path="dev/production" element={React.lazy(() => import('./pages/DevProductionDashboard'))} />
+                        <Route path="dev/production" element={<DevProductionDashboard />} />
                       <Route path="privacy" element={<Privacy />} />
                     </Route>
                      <Route path="auth/callback" element={<AuthCallback />} />

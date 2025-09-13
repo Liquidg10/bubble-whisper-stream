@@ -87,7 +87,7 @@ export function MigrationHelper({ className }: MigrationHelperProps) {
     }
   };
 
-  const migrateBubble = async (opportunity: MigrationOpportunity): Promise<void> {
+  const migrateBubble = async (opportunity: MigrationOpportunity): Promise<void> => {
     // In production, this would update the bubble with Task view metadata
     console.log(`Migrating bubble ${opportunity.bubbleId}:`, opportunity.strategies);
     
