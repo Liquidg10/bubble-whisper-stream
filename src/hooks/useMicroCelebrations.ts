@@ -1,8 +1,9 @@
-import { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback } from 'react';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { useToast } from '@/hooks/use-toast';
 import { momentumBurstService } from '@/services/momentumBurstService';
 import { microCelebrationService } from '@/services/microCelebrationService';
+import { CelebrationToast } from '@/components/CelebrationToast';
 import type { GlimmerTone } from '@/types/glimmer';
 import type { MomentumBurst } from '@/services/momentumBurstService';
 
@@ -20,9 +21,10 @@ export function useMicroCelebrations() {
 
     const message = microCelebrationService.selectCelebrationMessage(burst, tone);
     
-    // Show simple toast with celebration message
+    // Show enhanced celebration toast
     toast({
       title: message,
+      description: `✨ ${tone} celebration`,
       duration: 4000,
       className: `celebration-toast tone-${tone.toLowerCase().replace(' ', '-')} bg-gradient-to-r from-primary/10 to-primary/5 border-primary/20`
     });

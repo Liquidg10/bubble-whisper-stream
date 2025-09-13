@@ -11,6 +11,7 @@ import { ConnectorPrivacyMatrix } from './ConnectorPrivacyMatrix';
 import { DataRedactionDialog } from './DataRedactionDialog';
 import { MoveToDeepDialog } from './MoveToDeepDialog';
 import { BecauseExplanation } from './BecauseExplanation';
+import { IntelligenceFeatureToggle } from '@/components/IntelligenceFeatureToggle';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { useToast } from '@/hooks/use-toast';
 
@@ -177,6 +178,45 @@ export function PrivacyControlPanel() {
               Move Sensitive Data to Deep Layer
             </Button>
           </div>
+        </CardContent>
+      </Card>
+      
+      {/* Intelligence Features */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Intelligence Features</CardTitle>
+          <CardDescription>
+            Control which AI-powered features can learn from your usage patterns
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <IntelligenceFeatureToggle 
+            feature="momentumDetection"
+            title="Momentum Detection"
+            description="Pattern recognition for productivity insights"
+            explanation="Analyzes your task completion patterns to identify when you're in a productive flow state. This helps time suggestions and avoid interruptions during deep work."
+          />
+
+          <IntelligenceFeatureToggle 
+            feature="contextualNudges"
+            title="Gentle Nudges"
+            description="Smart suggestions based on your patterns"
+            explanation="Uses your historical data to suggest helpful actions like breaking down large tasks, taking breaks, or organizing similar work. All suggestions can be dismissed or disabled."
+          />
+
+          <IntelligenceFeatureToggle 
+            feature="loadGovernor"
+            title="Cognitive Load Balancing"
+            description="Prevents overwhelming you with too many suggestions"
+            explanation="Monitors your current task load and system usage to avoid showing suggestions when you're already busy or overwhelmed. Respects your focus time."
+          />
+
+          <IntelligenceFeatureToggle 
+            feature="microCelebrations"
+            title="Micro-celebrations"
+            description="Brief encouraging messages for accomplishments"
+            explanation="Shows gentle, personalized celebration messages when you complete tasks or maintain momentum. Messages are limited to 2-3 per day and respect quiet hours. You can mute specific celebration styles."
+          />
         </CardContent>
       </Card>
       
