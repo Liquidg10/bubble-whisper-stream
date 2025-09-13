@@ -103,6 +103,11 @@ export const flags = {
   telemetryDashboard: process.env.NODE_ENV === 'development',
   taskCanary: process.env.NODE_ENV === 'development',
   privacyConsentV1: true,
+  
+  // P20 Phase 3 - Production Pipeline
+  productionPipeline: true,
+  migrationHelper: true,
+  deploymentDashboard: process.env.NODE_ENV === 'development',
 } as const;
 
 export type FeatureFlag = keyof typeof flags;

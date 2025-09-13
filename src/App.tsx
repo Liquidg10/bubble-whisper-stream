@@ -181,6 +181,7 @@ const App = () => {
                         <Route path="dev/auto-write" element={<DevAutoWrite />} />
                         <Route path="dev/planning-stats" element={<DevPlanningStats />} />
                         <Route path="dev/task-auto-write" element={<TaskAutoWriteDemo />} />
+                        <Route path="dev/production" element={React.lazy(() => import('./pages/DevProductionDashboard'))} />
                       <Route path="privacy" element={<Privacy />} />
                     </Route>
                      <Route path="auth/callback" element={<AuthCallback />} />
