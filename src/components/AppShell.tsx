@@ -16,6 +16,7 @@ import { HeaderVoiceCapture } from '@/components/HeaderVoiceCapture';
 import { OnboardingProgressIndicator } from '@/components/OnboardingProgressIndicator';
 import { useProgressiveOnboarding } from '@/providers/ProgressiveOnboardingProvider';
 import { SmartAIAssistant } from '@/components/SmartAIAssistant';
+import { ViewModeToggle } from '@/components/ViewModeToggle';
 
 import NarrativeSearch from '@/components/NarrativeSearch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -30,8 +31,6 @@ export const AppShell: React.FC = () => {
 
   const navItems = [
     { path: '/', icon: Home, label: 'Canvas' },
-    { path: '/list', icon: List, label: 'List' },
-    { path: '/matrix', icon: Grid3x3, label: 'Matrix' },
     { path: '/timeline', icon: Calendar, label: 'Timeline' },
     { path: '/reminders', icon: Bell, label: 'Reminders' },
     { path: '/joy', icon: Heart, label: 'Joy' },
@@ -57,6 +56,12 @@ export const AppShell: React.FC = () => {
             onRewindToDay={rewindToDay}
           />
         </div>
+        
+        {/* View Mode Toggle - Center */}
+        <div className="absolute left-1/2 transform -translate-x-1/2">
+          <ViewModeToggle />
+        </div>
+        
         <div className="flex items-center gap-2">
             <CleanHouseHeaderTimer />
             <PomodoroHeaderTimer />
@@ -133,7 +138,7 @@ export const AppShell: React.FC = () => {
 
       {/* Bottom Navigation */}
       <nav className="border-t border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className={`grid items-center py-2 px-2 ${settings.intelligenceEnabled ? 'grid-cols-11' : 'grid-cols-10'}`}>
+        <div className={`grid items-center py-2 px-2 ${settings.intelligenceEnabled ? 'grid-cols-9' : 'grid-cols-8'}`}>
           {navItems.map(({ path, icon: Icon, label }) => {
             const isActive = location.pathname === path;
             return (
