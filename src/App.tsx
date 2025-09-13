@@ -61,12 +61,14 @@ import DevHealthDashboard from "./pages/DevHealthDashboard";
 import DevPlaidRecur from "./pages/DevPlaidRecur";
 import DevMetricsAlerts from "./pages/DevMetricsAlerts";
 import DevA11yGate from "./pages/DevA11yGate";
-import DevContextDrift from "@/pages/DevContextDrift";
+import DevContextDrift from "@/pages/dev-context-drift";
 import DevFatigueBudgets from "@/pages/DevFatigueBudgets";
 import DevWatchHealth from "@/pages/DevWatchHealth";
-import DevTaskAdapter from "@/pages/DevTaskAdapter";
+import DevTaskAdapter from "@/pages/dev-task-adapter";
 import DevViewSDK from "@/pages/DevViewSDK";
 import DevE2EGate from "@/pages/DevE2EGate";
+import DevAutoWrite from "@/pages/DevAutoWrite";
+import DevPlanningStats from "@/pages/DevPlanningStats";
 import { ListView } from "./pages/ListView";
 import KanbanView from "./pages/KanbanView";
 import MatrixView from "./pages/MatrixView";
@@ -173,10 +175,12 @@ const App = () => {
                           <Route path="dev/context-drift" element={<DevContextDrift />} />
                           <Route path="dev/fatigue-budgets" element={<DevFatigueBudgets />} />
                           <Route path="dev/watch-health" element={<DevWatchHealth />} />
-                            <Route path="dev/task-adapter" element={<DevTaskAdapter />} />
+                          <Route path="dev/task-adapter" element={<DevTaskAdapter />} />
                         <Route path="dev/view-sdk" element={<DevViewSDK />} />
                         <Route path="dev/e2e-gate" element={<DevE2EGate />} />
-                            <Route path="dev/task-auto-write" element={<TaskAutoWriteDemo />} />
+                        <Route path="dev/auto-write" element={<DevAutoWrite />} />
+                        <Route path="dev/planning-stats" element={<DevPlanningStats />} />
+                        <Route path="dev/task-auto-write" element={<TaskAutoWriteDemo />} />
                       <Route path="privacy" element={<Privacy />} />
                     </Route>
                      <Route path="auth/callback" element={<AuthCallback />} />
