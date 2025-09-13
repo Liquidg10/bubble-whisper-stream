@@ -3,7 +3,7 @@
  */
 
 import { Button } from "@/components/ui/button";
-import { Atom, Circle, List, Grid3x3 } from "lucide-react";
+import { Atom, Circle, List, Grid3x3, Columns3 } from "lucide-react";
 import { useBubbleStore } from "@/stores/bubbleStore";
 import { useLocation, useNavigate } from "react-router-dom";
 
@@ -16,10 +16,11 @@ export function ViewModeToggle() {
   
   const handleViewChange = (view: string, path: string) => {
     if (path === '/') {
-      // For bubble and atomic views, update store and stay on Index page
+      // For bubble and atomic views, update store and navigate to Index page
       setViewMode(view as 'bubble' | 'atomic');
+      navigate('/');
     } else {
-      // For list and matrix views, navigate to their respective pages
+      // For list, kanban and matrix views, navigate to their respective pages
       navigate(path);
     }
   };
@@ -27,6 +28,9 @@ export function ViewModeToggle() {
   const isActive = (path: string, viewMode?: string) => {
     if (path === '/') {
       return currentPath === '/' && (settings.viewMode || 'bubble') === viewMode;
+    }
+    if (path === '/kanban') {
+      return currentPath === '/kanban' || currentPath === '/kankav';
     }
     return currentPath === path;
   };
@@ -59,6 +63,15 @@ export function ViewModeToggle() {
         aria-label="List view mode"
       >
         <List className="h-4 w-4" />
+      </Button>
+      <Button
+        variant={isActive('/kanban') ? 'default' : 'ghost'}
+        size="sm"
+        onClick={() => handleViewChange('kanban', '/kanban')}
+        className="h-11 px-3"
+        aria-label="Kanban view mode"
+      >
+        <Columns3 className="h-4 w-4" />
       </Button>
       <Button
         variant={isActive('/matrix') ? 'default' : 'ghost'}
