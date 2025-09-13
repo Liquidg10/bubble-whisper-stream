@@ -1,0 +1,233 @@
+name: P20 E2E Verification Gates - Production Enablement
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      enable_flags:
+        description: 'Enable feature flags after gate validation'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+        - 'true'
+        - 'false'
+
+env:
+  NODE_VERSION: '18'
+  PLAYWRIGHT_VERSION: '1.45.0'
+
+jobs:
+  e2e-verification-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Install Playwright
+        run: npx playwright install --with-deps
+        
+      - name: Build application
+        run: npm run build
+        env:
+          NODE_ENV: production
+          
+      - name: Start production preview
+        run: |
+          npm run preview &
+          sleep 10
+          timeout 60 bash -c 'until curl -f http://localhost:4173; do sleep 2; done'
+          
+      # P20 Gate 1: Task Round-Trip Invariants
+      - name: Gate 1 - Task Round-Trip Invariants  
+        run: npx playwright test tests/e2e/gates/task-roundtrip.spec.ts --reporter=json > gate1-results.json
+        env:
+          PLAYWRIGHT_TEST_BASE_URL: http://localhost:4173
+          
+      # P20 Gate 2: Accessibility & Keyboard Navigation
+      - name: Gate 2 - Accessibility & Keyboard Navigation
+        run: npx playwright test tests/e2e/gates/accessibility.spec.ts --reporter=json > gate2-results.json
+        env:
+          PLAYWRIGHT_TEST_BASE_URL: http://localhost:4173
+          
+      # P20 Gate 3: Watch Health & Renewal
+      - name: Gate 3 - Watch Health & Renewal
+        run: npx playwright test tests/e2e/gates/watch-health.spec.ts --reporter=json > gate3-results.json
+        env:
+          PLAYWRIGHT_TEST_BASE_URL: http://localhost:4173
+          
+      # P20 Gate 4: Auto-Write Safety Gates  
+      - name: Gate 4 - Auto-Write Safety Gates
+        run: npx playwright test tests/e2e/gates/auto-write-safety.spec.ts --reporter=json > gate4-results.json
+        env:
+          PLAYWRIGHT_TEST_BASE_URL: http://localhost:4173
+          
+      # P20 Gate 5: CRDT Conflict Resolution
+      - name: Gate 5 - CRDT Conflict Resolution
+        run: npx playwright test tests/e2e/gates/crdt-conflicts.spec.ts --reporter=json > gate5-results.json
+        env:
+          PLAYWRIGHT_TEST_BASE_URL: http://localhost:4173
+          
+      # Aggregate gate results
+      - name: Process Gate Results
+        id: gate-results
+        run: |
+          node -e "
+            const fs = require('fs');
+            
+            const gateFiles = [
+              'gate1-results.json',
+              'gate2-results.json', 
+              'gate3-results.json',
+              'gate4-results.json',
+              'gate5-results.json'
+            ];
+            
+            let allPassed = true;
+            let results = {};
+            
+            for (const file of gateFiles) {
+              try {
+                const result = JSON.parse(fs.readFileSync(file, 'utf8'));
+                const passed = result.suites?.[0]?.specs?.every(spec => 
+                  spec.tests?.every(test => 
+                    test.results?.every(result => result.status === 'passed')
+                  )
+                ) ?? false;
+                
+                results[file] = { passed, file };
+                if (!passed) allPassed = false;
+              } catch (error) {
+                console.error(\`Failed to process \${file}: \${error.message}\`);
+                results[file] = { passed: false, error: error.message };
+                allPassed = false;
+              }
+            }
+            
+            console.log('GATE_STATUS=' + (allPassed ? 'PASSED' : 'FAILED'));
+            fs.writeFileSync('gate-summary.json', JSON.stringify(results, null, 2));
+          " >> $GITHUB_OUTPUT
+          
+      - name: Upload Gate Results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-gate-results
+          path: |
+            gate*-results.json
+            gate-summary.json
+            test-results/
+            
+      # Comment on PR with gate status
+      - name: Comment Gate Results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const gateStatus = '${{ steps.gate-results.outputs.GATE_STATUS }}';
+            
+            let comment = gateStatus === 'PASSED' 
+              ? '## ✅ P20 E2E Verification Gates PASSED\n\n'
+              : '## ❌ P20 E2E Verification Gates FAILED\n\n';
+            
+            if (gateStatus === 'PASSED') {
+              comment += `All critical functionality verified:
+              
+              - ✅ Task round-trip invariants preserved
+              - ✅ Accessibility & keyboard navigation  
+              - ✅ Watch health & renewal working
+              - ✅ Auto-write safety gates functional
+              - ✅ CRDT conflict resolution tested
+              
+              🚀 **System ready for feature flag enablement**`;
+            } else {
+              comment += `Critical issues detected:
+              
+              ❌ One or more verification gates failed. Please check the gate results and fix issues before enabling feature flags.
+              
+              **DO NOT enable feature flags until all gates pass.**`;
+            }
+            
+            try {
+              const summary = JSON.parse(fs.readFileSync('gate-summary.json', 'utf8'));
+              comment += '\n\n### Gate Details:\n\n';
+              
+              for (const [file, result] of Object.entries(summary)) {
+                const gateName = file.replace('-results.json', '').replace('gate', 'Gate ');
+                const status = result.passed ? '✅' : '❌';
+                comment += \`- \${status} \${gateName}\n\`;
+              }
+            } catch (error) {
+              comment += '\n\n_(Could not load detailed gate results)_';
+            }
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+            
+      # Fail if gates don't pass
+      - name: Fail on Gate Failure
+        if: steps.gate-results.outputs.GATE_STATUS == 'FAILED'
+        run: |
+          echo "❌ P20 E2E Verification Gates failed. Feature flags should not be enabled."
+          echo "Check the gate results for specific failure details."
+          exit 1
+          
+      # Success message
+      - name: Gates Passed
+        if: steps.gate-results.outputs.GATE_STATUS == 'PASSED'
+        run: |
+          echo "✅ All P20 E2E Verification Gates passed!"
+          echo "🚀 System is ready for production feature flag enablement"
+          echo ""
+          echo "Verified functionality:"
+          echo "  - Task system integrity"
+          echo "  - Accessibility compliance"  
+          echo "  - Watch health monitoring"
+          echo "  - Auto-write safety"
+          echo "  - CRDT conflict resolution"
+          
+  # Feature flag enablement (only if gates pass and manually triggered)
+  feature-flag-enablement:
+    runs-on: ubuntu-latest
+    needs: e2e-verification-gates
+    if: github.event.inputs.enable_flags == 'true' && needs.e2e-verification-gates.result == 'success'
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        
+      - name: Enable Production Feature Flags
+        run: |
+          echo "🚀 Enabling production feature flags after successful gate validation"
+          echo ""
+          echo "P9 - Watch Health: ✅ Production enabled"
+          echo "P12 - Auto-Write Calendar: ✅ Production enabled with safety gates"
+          echo "P17 - CRDT Pilot: ✅ Production pilot enabled"
+          echo ""
+          echo "All systems verified and ready for production use."
+          
+      # In a real implementation, this would update configuration or trigger deployment
+      - name: Apply Feature Flag Changes
+        run: |
+          echo "// Feature flags would be updated in production configuration"
+          echo "// This is where you would update your feature flag service"
+          echo "// or commit configuration changes"

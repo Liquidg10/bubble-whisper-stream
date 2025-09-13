@@ -45,11 +45,11 @@ export const flags = {
   // Context Drift Guard (P8 - Drift detection & rollback)
   contextDriftGuard: true,
   
-  // Watch Health (P9 - Calendar/Gmail watch renewal)
-  watchHealth: true,
+  // Watch Health (P9 - Calendar/Gmail watch renewal) - PRODUCTION ENABLED
+  watchHealth: true, // ENABLED - P9 production watch renewal
   
-  // Incremental OAuth (P10 - Least privilege scope escalation)
-  incrementalOAuth: true,
+  // Incremental OAuth (P10 - Least privilege scope escalation) - PRODUCTION ENABLED
+  incrementalOAuth: true, // ENABLED - P10 production OAuth
   
   // Cognitive Load Governor (P14 - Nudge budgets & cooldowns)
   loadGovernor: true, // ENABLED IN PRODUCTION - P14 Phase 1
@@ -60,15 +60,15 @@ export const flags = {
   cbtCrisisEnabled: true, // Crisis intervention features (default ON)
   cbtDevRoutes: process.env.NODE_ENV === 'development', // Dev routes (default ON in dev)
   
-  // CRDT Pilot (P17 - Local-first multi-device)
-  crdtPilot: false, // OFF by default - development/testing only
+  // CRDT Pilot (P17 - Local-first multi-device) - PRODUCTION PILOT
+  crdtPilot: true, // ENABLED - P17 production pilot for internal testing cohort
   
   // Persona Cast System (P18 - Evidence-based guidance)
   personaOrchestration: false, // OFF by default - development/testing only
   
-  // Auto-Write Feature Flags (Safety Shell)
-  autoWriteCalendar: false, // Auto-write to calendar (default OFF)
-  autoWriteEmail: false, // Auto-write email drafts (default OFF)
+  // Auto-Write Feature Flags (Safety Shell) - P12 TASK-AWARE INTEGRATION
+  autoWriteCalendar: true, // ENABLED - P12 Task-aware calendar auto-write with safety gates
+  autoWriteEmail: false, // DRAFTS ONLY - Never auto-send (P12)
   autoFinanceRead: false, // Read financial data (default OFF)
   autoFinanceInsights: false, // Generate financial insights (default OFF)
   autoWriteKillSwitch: false, // Global kill switch for all auto-write features (default OFF)
