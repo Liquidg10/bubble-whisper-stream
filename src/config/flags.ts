@@ -52,7 +52,7 @@ export const flags = {
   incrementalOAuth: true,
   
   // Cognitive Load Governor (P14 - Nudge budgets & cooldowns)
-  loadGovernor: process.env.NODE_ENV === 'development',
+  loadGovernor: true, // ENABLED IN PRODUCTION - P14 Phase 1
   
   // CBT Assistant Feature Flags
   cbtAssist: false, // Main CBT assistant feature (default OFF)

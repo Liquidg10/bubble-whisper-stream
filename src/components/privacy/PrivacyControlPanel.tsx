@@ -10,6 +10,7 @@ import { PrivacyZoneToggle } from '@/components/PrivacyZoneToggle';
 import { ConnectorPrivacyMatrix } from './ConnectorPrivacyMatrix';
 import { DataRedactionDialog } from './DataRedactionDialog';
 import { MoveToDeepDialog } from './MoveToDeepDialog';
+import { BecauseExplanation } from './BecauseExplanation';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { useToast } from '@/hooks/use-toast';
 
@@ -197,6 +198,15 @@ export function PrivacyControlPanel() {
                 <p>• You can pause, redact, or enhance protection at any time</p>
                 <p>• Granular controls let you choose what each connector can access</p>
               </div>
+              <BecauseExplanation 
+                drivers={[
+                  "You've set preferences for transparency and control",
+                  "Local processing ensures your data never leaves your device",
+                  "Privacy zones allow you to control the depth of personalization"
+                ]}
+                compact={true}
+                className="mt-3"
+              />
             </div>
           </div>
         </CardContent>
