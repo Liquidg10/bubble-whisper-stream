@@ -133,7 +133,7 @@ export const useTaskStore = create<TaskStoreState>()(
         // Import dynamically to avoid circular dependencies
         if (typeof window !== 'undefined') {
           import('../services/taskAwareAutoWriteService').then(({ taskAwareAutoWriteService }) => {
-            taskAwareAutoWriteService.evaluateTask(updatedTask, previousTask).catch(error => {
+            taskAwareAutoWriteService.evaluateTask(updatedTask).catch(error => {
               logger.error('Auto-write evaluation failed', error, { taskId: id });
             });
           });

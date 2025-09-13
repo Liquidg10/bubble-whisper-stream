@@ -124,13 +124,13 @@ class WatchHealthProductionService {
           activeWatches: gmailMetrics.activeWatches, 
           expiringIn24h: gmailExpiring,
           failed410Recovery: await this.count410RecoveryFailures('gmail'),
-          lastSyncError: gmailMetrics.lastSyncTime || 0
+          lastSyncError: typeof gmailMetrics.lastSyncAt === 'number' ? gmailMetrics.lastSyncAt : 0
         },
         renewal: {
-          scheduledRenewals: renewalStatus.scheduledRenewals,
+          scheduledRenewals: (await renewalStatus).scheduledRenewals,
           successfulRenewals24h: renewalStats.successful,
           failedRenewals24h: renewalStats.failed,
-          nextRenewalTime: renewalStatus.nextRenewal
+          nextRenewalTime: (await renewalStatus).nextRenewal?.getTime()
         }
       };
 
@@ -185,16 +185,17 @@ class WatchHealthProductionService {
       const expiringGmail = gmailAccounts.filter(account => {
         const expires = account.watchExpiresAt;
         if (!expires) return false;
-        const hoursUntilExpiry = (expires - Date.now()) / (1000 * 60 * 60);
+        const expiresTime = typeof expires === 'string' ? new Date(expires).getTime() : expires;
+        const hoursUntilExpiry = (expiresTime - Date.now()) / (1000 * 60 * 60);
         return hoursUntilExpiry <= 24 && hoursUntilExpiry > 0;
       });
 
       for (const account of expiringGmail) {
         try {
-          await gmailHealthService.renewWatchChannel(account.accountId);
-          logger.info(`Renewed Gmail watch for account ${account.accountId}`);
+          await gmailHealthService.renewWatchChannel(account.id);
+          logger.info(`Renewed Gmail watch for account ${account.id}`);
         } catch (error) {
-          logger.error(`Failed to renew Gmail watch for account ${account.accountId}`, error);
+          logger.error(`Failed to renew Gmail watch for account ${account.id}`, error);
         }
       }
 
