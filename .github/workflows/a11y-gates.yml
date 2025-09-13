@@ -1,0 +1,166 @@
+# P11 - Accessibility CI Gates
+# Fails builds on critical a11y violations
+
+name: Accessibility Gates
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  accessibility-tests:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Install Playwright browsers
+      run: npx playwright install --with-deps
+
+    - name: Build application
+      run: npm run build
+
+    - name: Run accessibility tests
+      run: npm run test:a11y
+      env:
+        CI: true
+
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: failure()
+      with:
+        name: accessibility-test-results
+        path: test-results/
+
+    - name: Comment PR with a11y results
+      if: github.event_name == 'pull_request' && failure()
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const path = require('path');
+          
+          // Read test results if they exist
+          const resultsPath = path.join(process.cwd(), 'test-results', 'a11y-summary.txt');
+          let comment = '## ❌ Accessibility Tests Failed\n\n';
+          
+          if (fs.existsSync(resultsPath)) {
+            const results = fs.readFileSync(resultsPath, 'utf8');
+            comment += '```\n' + results + '\n```\n\n';
+          }
+          
+          comment += 'Please fix the accessibility violations before merging.\n\n';
+          comment += '📚 [WCAG 2.2 Quick Reference](https://www.w3.org/WAI/WCAG22/quickref/)\n';
+          comment += '🔧 [Accessibility Testing Guide](https://docs.lovable.dev/guides/accessibility)';
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: comment
+          });
+
+  target-size-validation:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Install Playwright browsers
+      run: npx playwright install --with-deps
+
+    - name: Run target size validation
+      run: npx playwright test tests/a11y/target-size.spec.ts
+      env:
+        CI: true
+
+    - name: Upload validation results
+      uses: actions/upload-artifact@v4
+      if: failure()
+      with:
+        name: target-size-results
+        path: test-results/
+
+  keyboard-accessibility:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Install Playwright browsers
+      run: npx playwright install --with-deps
+
+    - name: Run keyboard accessibility tests
+      run: npx playwright test tests/a11y/keyboard-access.spec.ts
+      env:
+        CI: true
+
+    - name: Upload keyboard test results
+      uses: actions/upload-artifact@v4
+      if: failure()
+      with:
+        name: keyboard-access-results
+        path: test-results/
+
+  reduced-motion:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+
+    - name: Install dependencies
+      run: npm ci
+
+    - name: Install Playwright browsers
+      run: npx playwright install --with-deps
+
+    - name: Run reduced motion tests
+      run: npx playwright test tests/a11y/reduced-motion.spec.ts
+      env:
+        CI: true
+
+    - name: Upload motion test results
+      uses: actions/upload-artifact@v4
+      if: failure()
+      with:
+        name: reduced-motion-results
+        path: test-results/
