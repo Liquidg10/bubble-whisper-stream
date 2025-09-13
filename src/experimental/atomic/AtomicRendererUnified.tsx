@@ -20,6 +20,7 @@ import { classifyDomain, getAllDomains } from '@/lib/classifyDomain';
 import { getHorizon, getHorizonDisplayName, ringIndexToHorizon } from '@/lib/horizon';
 import { calculateMoleculePositions } from '@/experimental/atomic/positioning';
 import { useMoleculePositionPersistence } from '@/hooks/useMoleculePositionPersistence';
+import { hapticsService } from '@/services/haptics';
 
 // Atomic structures
 interface Electron {
@@ -346,8 +347,17 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     }
   }, [reducedMotion, atomicState.molecules]);
 
+  // Unified drag start handler for both mouse and touch
+  const getEventCoordinates = useCallback((event: React.MouseEvent | React.TouchEvent) => {
+    if ('touches' in event) {
+      const touch = event.touches[0];
+      return { x: touch.clientX, y: touch.clientY };
+    }
+    return { x: event.clientX, y: event.clientY };
+  }, []);
+
   // Drag handlers with unified event handling
-  const handleElectronDragStart = useCallback((electron: Electron, event: React.MouseEvent) => {
+  const handleElectronDragStart = useCallback((electron: Electron, event: React.MouseEvent | React.TouchEvent) => {
     event.stopPropagation();
     event.preventDefault();
     
@@ -356,6 +366,13 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       currentShell: electron.shell,
       shellName: SHELL_CONFIG[electron.shell]?.name
     });
+    
+    const coords = getEventCoordinates(event);
+    
+    // Haptic feedback for touch interactions
+    if ('touches' in event && hapticsService.isAvailable()) {
+      hapticsService.trigger('light');
+    }
     
     // Calculate the electron's current orbital position to use as drag start reference
     const shell = SHELL_CONFIG[electron.shell];
@@ -370,21 +387,28 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         isDragging: true,
         type: 'electron',
         electronId: electron.id,
-        lastMousePos: { x: event.clientX, y: event.clientY },
-        currentMousePos: { x: event.clientX, y: event.clientY },
+        lastMousePos: coords,
+        currentMousePos: coords,
         originalShell: electron.shell,
         dragStartPos: { x: electronOrbitalX, y: electronOrbitalY }, // Store electron's orbital position
         dragOffset: { x: electronOrbitalX, y: electronOrbitalY } // Start with current orbital position
       }
     }));
-  }, []);
+  }, [getEventCoordinates, reducedMotion, animationStep]);
 
-  const handleMoleculeDragStart = useCallback((molecule: Molecule, event: React.MouseEvent) => {
+  const handleMoleculeDragStart = useCallback((molecule: Molecule, event: React.MouseEvent | React.TouchEvent) => {
     event.stopPropagation();
     event.preventDefault();
     
     // Lock position during selection/drag to prevent oscillations
     lockPosition(molecule.id);
+    
+    const coords = getEventCoordinates(event);
+    
+    // Haptic feedback for touch interactions
+    if ('touches' in event && hapticsService.isAvailable()) {
+      hapticsService.trigger('light');
+    }
     
     // Prevent position updates during drag
     setAtomicState(prev => ({
@@ -393,18 +417,32 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         isDragging: true,
         type: 'molecule',
         moleculeId: molecule.id,
-        lastMousePos: { x: event.clientX, y: event.clientY }
+        lastMousePos: coords
       }
     }));
-  }, [lockPosition]);
+  }, [lockPosition, getEventCoordinates]);
 
-  // Global mouse handlers
+  // Global mouse and touch handlers
   useEffect(() => {
-    const handleMouseMove = (event: MouseEvent) => {
+    const getEventCoords = (event: MouseEvent | TouchEvent) => {
+      if ('touches' in event) {
+        const touch = event.touches[0];
+        return { x: touch.clientX, y: touch.clientY };
+      }
+      return { x: event.clientX, y: event.clientY };
+    };
+
+    const handleDragMove = (event: MouseEvent | TouchEvent) => {
       if (!atomicState.dragState.isDragging) return;
       
-      const deltaX = event.clientX - (atomicState.dragState.lastMousePos?.x || 0);
-      const deltaY = event.clientY - (atomicState.dragState.lastMousePos?.y || 0);
+      // Prevent default for touch to avoid scrolling
+      if ('touches' in event) {
+        event.preventDefault();
+      }
+      
+      const coords = getEventCoords(event);
+      const deltaX = coords.x - (atomicState.dragState.lastMousePos?.x || 0);
+      const deltaY = coords.y - (atomicState.dragState.lastMousePos?.y || 0);
       
       if (atomicState.dragState.type === 'electron') {
         // Handle electron shell snapping
@@ -412,9 +450,9 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         const rect = canvasRef.current?.getBoundingClientRect();
         if (!rect || !electronId) return;
         
-        // Transform mouse coordinates to account for pan/zoom
-        const mouseX = (event.clientX - rect.left - panZoomState.x) / panZoomState.scale;
-        const mouseY = (event.clientY - rect.top - panZoomState.y) / panZoomState.scale;
+        // Transform coordinates to account for pan/zoom
+        const mouseX = (coords.x - rect.left - panZoomState.x) / panZoomState.scale;
+        const mouseY = (coords.y - rect.top - panZoomState.y) / panZoomState.scale;
         
         // Calculate drag offset for visual feedback
         const startMouseX = ((atomicState.dragState.lastMousePos?.x || 0) - rect.left - panZoomState.x) / panZoomState.scale;
@@ -427,8 +465,8 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           ...prev,
           dragState: {
             ...prev.dragState,
-            lastMousePos: { x: event.clientX, y: event.clientY },
-            currentMousePos: { x: event.clientX, y: event.clientY },
+            lastMousePos: coords,
+            currentMousePos: coords,
             dragOffset: { x: dragOffsetX, y: dragOffsetY }
           }
         }));
@@ -451,13 +489,13 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           }),
           dragState: {
             ...prev.dragState,
-            lastMousePos: { x: event.clientX, y: event.clientY }
+            lastMousePos: coords
           }
         }));
       }
     };
 
-    const handleMouseUp = () => {
+    const handleDragEnd = () => {
       if (!atomicState.dragState.isDragging) return;
 
       // Handle electron shell snapping with undo and toast
@@ -528,6 +566,11 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
             // Call the horizon update callback
             onTimeHorizonUpdate(electron.originalBubble.id, originalShell, targetShell);
             
+            // Haptic feedback for successful shell change
+            if (hapticsService.isAvailable()) {
+              hapticsService.trigger('medium');
+            }
+            
             // Show toast with undo
             toast({
               title: `Moved to ${getHorizonDisplayName(targetHorizon)}`,
@@ -582,12 +625,18 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     };
 
     if (atomicState.dragState.isDragging) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
+      document.addEventListener('mousemove', handleDragMove);
+      document.addEventListener('mouseup', handleDragEnd);
+      document.addEventListener('touchmove', handleDragMove, { passive: false });
+      document.addEventListener('touchend', handleDragEnd);
+      document.addEventListener('touchcancel', handleDragEnd);
       
       return () => {
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUp);
+        document.removeEventListener('mousemove', handleDragMove);
+        document.removeEventListener('mouseup', handleDragEnd);
+        document.removeEventListener('touchmove', handleDragMove);
+        document.removeEventListener('touchend', handleDragEnd);
+        document.removeEventListener('touchcancel', handleDragEnd);
       };
     }
   }, [atomicState.dragState, viewport, onTimeHorizonUpdate, toast]);
@@ -784,6 +833,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                     zIndex: isDragging ? 1000 : undefined
                   }}
                   onMouseDown={(e) => handleElectronDragStart(electron, e)}
+                  onTouchStart={(e) => handleElectronDragStart(electron, e)}
                   onClick={(e) => {
                     e.stopPropagation();
                     if (electron.originalBubble) {
@@ -806,6 +856,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                 transform: 'translate(-50%, -50%)'
               }}
               onMouseDown={(e) => handleMoleculeDragStart(molecule, e)}
+              onTouchStart={(e) => handleMoleculeDragStart(molecule, e)}
               onClick={(e) => {
                 e.stopPropagation();
                 handleMoleculeSelect(molecule.id, e.shiftKey);
