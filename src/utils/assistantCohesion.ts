@@ -189,7 +189,7 @@ export function validatePersonaConsistency(
  */
 export function correctPersonaViolations(
   message: string, 
-  context: AssistantContext
+  context: 'reminder' | 'cbt' | 'notification' | 'general'
 ): string {
   let corrected = message;
   const guidelines = PERSONA_GUIDELINES.find(g => g.context === context);
@@ -206,8 +206,7 @@ export function correctPersonaViolations(
   });
 
   // Apply copy polish for anti-shame language  
-  const polishContext = ['cbt', 'notification', 'general'].includes(context) ? context : 'general';
-  corrected = polishCopy(corrected, polishContext as any);
+  corrected = polishCopy(corrected, context);
 
   return corrected;
 }
@@ -232,9 +231,19 @@ export function generateContextualResponse(
   
   response += intention;
   
-  // Ensure response matches persona guidelines
-  const polishContext = ['cbt', 'notification', 'general'].includes(context) ? context : 'general';
-  response = correctPersonaViolations(response, context);
+  // Ensure response matches persona guidelines - map context to polishCopy acceptable types
+  const mapContextToPolish = (ctx: AssistantContext): 'reminder' | 'cbt' | 'notification' | 'general' => {
+    switch (ctx) {
+      case 'cbt': return 'cbt';
+      case 'notification': return 'notification';
+      case 'planning': return 'general';
+      case 'celebration': return 'general';
+      case 'error': return 'general';
+      default: return 'general';
+    }
+  };
+  
+  response = correctPersonaViolations(response, mapContextToPolish(context));
   
   return response;
 }
