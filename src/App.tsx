@@ -73,6 +73,9 @@ import DevViewSDK from "@/pages/DevViewSDK";
 import DevE2EGate from "@/pages/DevE2EGate";
 import DevAutoWrite from "@/pages/DevAutoWrite";
 import DevPlanningStats from "@/pages/DevPlanningStats";
+import { DevPhase3Polish } from "./pages/DevPhase3Polish";
+import { DevOfflineLabPage } from "./pages/DevOfflineLabPage";
+import DevProductionComplete from "./pages/DevProductionComplete";
 import { ListView } from "./pages/ListView";
 import KanbanView from "./pages/KanbanView";
 import MatrixView from "./pages/MatrixView";
@@ -129,7 +132,7 @@ const App = () => {
                       <Route path="kanban" element={<KanbanView />} />
                       <Route path="kankav" element={<KanbanView />} />
                       <Route path="matrix" element={<MatrixView />} />
-                      <Route path="timeline" element={<Timeline />} />
+                      <Route path="timeline" element={<Timeline2 />} />
                       <Route path="reminders" element={<Reminders />} />
                       <Route path="reflection" element={<Reflection />} />
                       <Route path="joy" element={<Joy />} />
@@ -190,6 +193,9 @@ const App = () => {
                          <Route path="dev/task-auto-write" element={<TaskAutoWriteDemo />} />
                          <Route path="dev/production" element={<DevProductionDashboard />} />
                          <Route path="dev/behavioral-science" element={<div>Behavioral Science Dev (Coming Soon)</div>} />
+                         <Route path="dev/phase3-polish" element={<DevPhase3Polish />} />
+                         <Route path="dev/offline-lab" element={<DevOfflineLabPage />} />
+                         <Route path="dev/production-complete" element={<DevProductionComplete />} />
                          <Route path="dev/a11y-gate" element={<DevA11yGate />} />
                       <Route path="privacy" element={<Privacy />} />
                     </Route>
