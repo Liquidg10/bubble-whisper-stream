@@ -57,7 +57,7 @@ export const flags = {
   loadGovernor: true, // ENABLED IN PRODUCTION - P14 Phase 1
   
   // CBT Assistant Feature Flags
-  cbtAssist: false, // Main CBT assistant feature (default OFF)
+  cbtAssist: true, // ENABLED - Main CBT assistant feature (ready for testing)
   cbtSilentObserve: true, // Silent observation for testing (default ON)
   cbtCrisisEnabled: true, // Crisis intervention features (default ON)
   cbtDevRoutes: process.env.NODE_ENV === 'development', // Dev routes (default ON in dev)
@@ -133,19 +133,19 @@ export const flags = {
   completeE2ESuite: process.env.NODE_ENV === 'development',
   
   // P1 Masonry/Pinboard View (Calendar Focus)
-  pinboardView: false, // Default OFF - progressive disclosure
-  masonryAI: false, // AI suggestions for Masonry - Default OFF
+  pinboardView: true, // ENABLED - progressive disclosure ready
+  masonryAI: true, // ENABLED - AI suggestions for Masonry
   
   // P2 Calendar-AI Integration 
-  calendarAIIntegration: false, // Seasonal & Habit engine integration - Default OFF
-  calendarSuggestions: false, // AI scheduling suggestions - Default OFF
+  calendarAIIntegration: true, // ENABLED - Seasonal & Habit engine integration
+  calendarSuggestions: true, // ENABLED - AI scheduling suggestions
   
   // P3 Mobile & Performance Polish
   mobileGestures: true, // Touch gestures and mobile optimization
   performanceBudgets: process.env.NODE_ENV === 'development', // Performance monitoring
   
   // P4 Advanced Calendar Intelligence
-  calendarIntelligence: false, // Stress detection and spacing suggestions - Default OFF
+  calendarIntelligence: true, // ENABLED - Stress detection and spacing suggestions
   conflictResolver: true, // Calendar conflict resolution
   
   // P5 Dev Health Dashboard Extensions

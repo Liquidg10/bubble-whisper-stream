@@ -86,6 +86,7 @@ import KanbanView from "./pages/KanbanView";
 import MatrixView from "./pages/MatrixView";
 import { DevMenu } from "./components/DevMenu";
 import DevPerfCalendar from "./pages/DevPerfCalendar";
+import DevPerfCalendarTesting from "./pages/DevPerfCalendarTesting";
 import { MasonryView } from "./pages/MasonryView";
 import { ReducedMotionEnforcer } from "./components/ReducedMotionEnforcer";
 import { useDevMenu } from "./hooks/useDevMenu";
@@ -208,9 +209,10 @@ const App = () => {
                           <Route path="dev/crdt-conflicts" element={<DevCRDTConflicts />} />
                        <Route path="dev/task-roundtrip" element={<DevTaskRoundtrip />} />
                        <Route path="dev/a11y-gate" element={<DevA11yGate />} />
-                       <Route path="dev/foundation-audit" element={<DevFoundationAudit />} />
-                       <Route path="dev/perf-calendar" element={<DevPerfCalendar />} />
-                       <Route path="masonry" element={<MasonryView />} />
+                        <Route path="dev/foundation-audit" element={<DevFoundationAudit />} />
+                        <Route path="dev/perf-calendar" element={<DevPerfCalendar />} />
+                        <Route path="dev/perf-calendar-testing" element={<DevPerfCalendarTesting />} />
+                        <Route path="masonry" element={<MasonryView />} />
                     <Route path="privacy" element={<Privacy />} />
                     </Route>
                      <Route path="auth/callback" element={<AuthCallback />} />
