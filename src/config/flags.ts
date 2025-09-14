@@ -119,6 +119,12 @@ export const flags = {
   migrationParityDashboard: process.env.NODE_ENV === 'development',
   mergeConflictUI: process.env.NODE_ENV === 'development',
   decisionTracer: true,
+  
+  // Phase 3: End-User Polish
+  unifiedDraftsFeed: true,
+  personalEisenhower: true,
+  splitViewComposer: true,
+  diffView: true,
 } as const;
 
 export type FeatureFlag = keyof typeof flags;
