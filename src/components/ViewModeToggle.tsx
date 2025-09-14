@@ -3,7 +3,7 @@
  */
 
 import { Button } from "@/components/ui/button";
-import { Atom, Circle, List, Grid3x3, Columns3 } from "lucide-react";
+import { Atom, Circle, List, Grid3x3, Columns3, Grid } from "lucide-react";
 import { useBubbleStore } from "@/stores/bubbleStore";
 import { useLocation, useNavigate } from "react-router-dom";
 
@@ -81,6 +81,15 @@ export function ViewModeToggle() {
         aria-label="Matrix view mode"
       >
         <Grid3x3 className="h-4 w-4" />
+      </Button>
+      <Button
+        variant={isActive('/pinboard') ? 'default' : 'ghost'}
+        size="sm"
+        onClick={() => handleViewChange('pinboard', '/pinboard')}
+        className="h-11 px-3"
+        aria-label="Pinboard view mode"
+      >
+        <Grid className="h-4 w-4" />
       </Button>
     </div>
   );

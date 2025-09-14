@@ -16,12 +16,12 @@ interface RolloutConfig {
 const rolloutConfigs: Record<string, RolloutConfig> = {
   calendarAI: {
     feature: 'calendarAIIntegration',
-    percentage: 25, // Start with 25% rollout
+    percentage: 75, // Increased to 75% rollout
     cohorts: ['beta-testers', 'power-users']
   },
   masonryView: {
     feature: 'pinboardView',
-    percentage: 50, // 50% rollout for masonry
+    percentage: 100, // Full rollout for masonry
     cohorts: ['beta-testers']
   },
   performanceMonitoring: {

@@ -67,6 +67,27 @@ export function useDevRoutes() {
       description: 'Unified metrics and canary monitoring',
       icon: 'BarChart3',
       enabled: devRoutesEnabled && isFeatureEnabled('cbtDevRoutes')
+    },
+    {
+      path: '/dev/phase3-integration',
+      title: 'Phase 3 Integration',
+      description: 'Integration hub for calendar, email, and finance',
+      icon: 'Layers',
+      enabled: devRoutesEnabled
+    },
+    {
+      path: '/dev/gradual-rollout',
+      title: 'Gradual Rollout Dashboard',
+      description: 'Feature rollout monitoring and controls',
+      icon: 'GitBranch',
+      enabled: devRoutesEnabled
+    },
+    {
+      path: '/dev/comprehensive-test',
+      title: 'Comprehensive Test Suite',
+      description: 'End-to-end testing and validation tools',
+      icon: 'TestTube',
+      enabled: devRoutesEnabled
     }
   ];
 

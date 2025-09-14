@@ -88,6 +88,7 @@ import { DevMenu } from "./components/DevMenu";
 import DevPerfCalendar from "./pages/DevPerfCalendar";
 import DevPerfCalendarTesting from "./pages/DevPerfCalendarTesting";
 import { MasonryView } from "./pages/MasonryView";
+import { IntelligenceLab } from "./pages/IntelligenceLab";
 import { ReducedMotionEnforcer } from "./components/ReducedMotionEnforcer";
 import { useDevMenu } from "./hooks/useDevMenu";
 import { AuthCallback } from "./pages/AuthCallback";
@@ -140,11 +141,13 @@ const App = () => {
                       <Route path="kanban" element={<KanbanView />} />
                       <Route path="kankav" element={<KanbanView />} />
                       <Route path="matrix" element={<MatrixView />} />
+                      <Route path="pinboard" element={<MasonryView />} />
                       <Route path="timeline" element={<Timeline2 />} />
                       <Route path="reminders" element={<Reminders />} />
                       <Route path="reflection" element={<Reflection />} />
                       <Route path="joy" element={<Joy />} />
                       <Route path="intelligence" element={<Intelligence />} />
+                      <Route path="intelligence-lab" element={<IntelligenceLab />} />
                       <Route path="tools" element={<Tools />} />
                       <Route path="inbox" element={<Inbox />} />
                       <Route path="search" element={<Search />} />
@@ -211,8 +214,11 @@ const App = () => {
                        <Route path="dev/a11y-gate" element={<DevA11yGate />} />
                         <Route path="dev/foundation-audit" element={<DevFoundationAudit />} />
                         <Route path="dev/perf-calendar" element={<DevPerfCalendar />} />
-                        <Route path="dev/perf-calendar-testing" element={<DevPerfCalendarTesting />} />
-                        <Route path="masonry" element={<MasonryView />} />
+                         <Route path="dev/perf-calendar-testing" element={<DevPerfCalendarTesting />} />
+                         <Route path="dev/gradual-rollout" element={<div className="p-6"><h1>Gradual Rollout Dashboard</h1><p>Feature rollout monitoring dashboard - coming soon</p></div>} />
+                         <Route path="dev/phase3-integration" element={<div className="p-6"><h1>Phase 3 Integration</h1><p>Integration hub dashboard - coming soon</p></div>} />
+                         <Route path="dev/comprehensive-test" element={<div className="p-6"><h1>Comprehensive Test Suite</h1><p>End-to-end testing tools - coming soon</p></div>} />
+                         <Route path="masonry" element={<MasonryView />} />
                     <Route path="privacy" element={<Privacy />} />
                     </Route>
                      <Route path="auth/callback" element={<AuthCallback />} />
