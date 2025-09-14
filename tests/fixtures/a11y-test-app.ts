@@ -1,51 +1,51 @@
 /**
- * Test fixtures for accessibility testing
+ * P11 Accessibility Test Fixtures
+ * Provides configured test environment for accessibility testing
  */
 
 import { test as base, Page } from '@playwright/test';
-import { setupA11yTesting, navigateAndWaitForReady } from '../utils/a11y-helpers';
-import { applyMockPreferences, MockPreferences } from '../utils/mock-preferences';
+import { injectAxe } from 'axe-playwright';
+import { 
+  setupA11yTesting,
+  navigateAndWaitForReady,
+  mockUserPreferences
+} from '../utils/a11y-helpers';
 
-interface A11yTestFixtures {
+type A11yTestFixtures = {
   a11yPage: Page;
-  setupA11y: (preferences?: MockPreferences) => Promise<void>;
-  navigateToPage: (path: string) => Promise<void>;
-}
+  navigateToPage: (url: string) => Promise<void>;
+  setupA11y: (preferences?: {
+    reducedMotion?: boolean;
+    highContrast?: boolean;
+    screenReader?: boolean;
+  }) => Promise<void>;
+};
 
-/**
- * Accessibility test fixture that sets up axe-core and common utilities
- */
 export const test = base.extend<A11yTestFixtures>({
   a11yPage: async ({ page }, use) => {
-    // Set up accessibility testing
-    await setupA11yTesting(page);
+    // Inject axe-core for accessibility testing
+    await injectAxe(page);
     
-    // Set viewport to desktop size
-    await page.setViewportSize({ width: 1280, height: 720 });
+    // Setup default accessibility testing configuration
+    await setupA11yTesting(page);
     
     await use(page);
   },
-  
-  setupA11y: async ({ a11yPage }, use) => {
-    const setupFn = async (preferences?: MockPreferences) => {
-      if (preferences) {
-        await applyMockPreferences(a11yPage, preferences);
-      }
-      
-      // Wait for any preference changes to take effect
-      await a11yPage.waitForTimeout(100);
-    };
-    
-    await use(setupFn);
-  },
-  
+
   navigateToPage: async ({ a11yPage }, use) => {
-    const navigateFn = async (path: string) => {
-      const baseUrl = process.env.PLAYWRIGHT_TEST_BASE_URL || 'http://localhost:5173';
-      await navigateAndWaitForReady(a11yPage, `${baseUrl}${path}`);
+    const navigate = async (url: string) => {
+      await navigateAndWaitForReady(a11yPage, url);
     };
     
-    await use(navigateFn);
+    await use(navigate);
+  },
+
+  setupA11y: async ({ a11yPage }, use) => {
+    const setup = async (preferences = {}) => {
+      await mockUserPreferences(a11yPage, preferences);
+    };
+    
+    await use(setup);
   },
 });
 

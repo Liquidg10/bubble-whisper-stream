@@ -4,8 +4,13 @@
     "test:a11y:ui": "playwright test --grep=\"@a11y\" --ui",
     "test:a11y:debug": "playwright test --grep=\"@a11y\" --debug", 
     "test:a11y:headed": "playwright test --grep=\"@a11y\" --headed",
+    "test:performance": "playwright test --grep=\"@performance\"",
     "test:performance:a11y": "playwright test tests/a11y/performance-accessibility.spec.ts",
     "test:e2e:gates": "playwright test tests/e2e/gates-validation.spec.ts",
-    "test:gates:all": "npm run test:a11y && npm run test:e2e:gates"
+    "test:e2e:calendar": "playwright test tests/e2e/calendar-*.spec.ts",
+    "test:e2e:masonry": "playwright test tests/e2e/masonry-*.spec.ts",
+    "test:gates:all": "npm run test:a11y && npm run test:e2e:gates",
+    "test:p20:full": "node scripts/run-p20-gates.js",
+    "test:validate": "node validate-tests.js"
   }
 }

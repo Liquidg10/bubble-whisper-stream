@@ -1,314 +1,211 @@
 /**
- * A11Y P6: Masonry View Accessibility
- * Tests keyboard alternatives, target sizing, and ARIA patterns for Masonry
+ * P11 Masonry/Pinboard Accessibility Tests
+ * Comprehensive accessibility testing for the masonry layout view
  */
 
 import { test, expect } from '@playwright/test';
+import { injectAxe, checkA11y } from 'axe-playwright';
 
-test.describe('A11Y P6: Masonry Accessibility @a11y', () => {
+test.describe('Masonry Accessibility @a11y', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/masonry');
+    await injectAxe(page);
     await page.waitForLoadState('networkidle');
   });
 
-  test('should have proper ARIA structure for Masonry layout', async ({ page }) => {
-    await page.goto('/masonry');
-    await page.waitForSelector('[data-testid="masonry-container"]');
-    
-    // Check container has proper role
-    const container = page.locator('[data-testid="masonry-container"]');
-    await expect(container).toHaveAttribute('role', 'application');
-    await expect(container).toHaveAttribute('aria-label');
-    
-    // Check cards have proper roles
-    const cards = await page.locator('[data-testid="masonry-card"]').all();
-    expect(cards.length).toBeGreaterThan(0);
-    
-    for (const card of cards.slice(0, 5)) {
-      await expect(card).toHaveAttribute('role', 'button');
-      await expect(card).toHaveAttribute('tabindex', '0');
-      await expect(card).toHaveAttribute('aria-label');
-    }
+  test('should meet WCAG accessibility standards', async ({ page }) => {
+    // Check for accessibility violations
+    await checkA11y(page, null, {
+      detailedReport: true,
+      detailedReportOptions: { html: true }
+    });
   });
 
-  test('should support keyboard alternatives to drag operations', async ({ page }) => {
-    await page.goto('/masonry');
-    await page.waitForSelector('[data-testid="masonry-card"]');
+  test('should have proper ARIA structure for masonry grid', async ({ page }) => {
+    const masonryContainer = page.locator('[data-testid="masonry-container"]');
+    
+    // Container should have application role for complex widget
+    await expect(masonryContainer).toHaveAttribute('role', 'application');
+    await expect(masonryContainer).toHaveAttribute('aria-label', /pinboard|masonry/i);
+    
+    // Should provide instructions for interaction
+    const instructions = page.locator('[data-testid="masonry-instructions"]');
+    await expect(instructions).toBeVisible();
+    await expect(instructions).toHaveAttribute('role', 'region');
+    await expect(instructions).toHaveAttribute('aria-live', 'polite');
+  });
+
+  test('should support keyboard navigation through cards', async ({ page }) => {
+    // Add some test tasks first
+    await page.locator('[data-testid="quick-add-task"]').fill('Test Task 1');
+    await page.keyboard.press('Enter');
+    await page.locator('[data-testid="quick-add-task"]').fill('Test Task 2');
+    await page.keyboard.press('Enter');
+    
+    await page.waitForTimeout(500);
     
     // Focus first card
-    const firstCard = page.locator('[data-testid="masonry-card"]').first();
-    await firstCard.focus();
+    await page.keyboard.press('Tab');
+    let focusedCard = page.locator('[data-testid="masonry-card"]:focus');
+    await expect(focusedCard).toBeVisible();
     
-    // Test arrow key movement as drag alternative
-    const initialPosition = await firstCard.boundingBox();
-    
+    // Navigate with arrow keys
     await page.keyboard.press('ArrowRight');
-    await page.waitForTimeout(200);
+    focusedCard = page.locator('[data-testid="masonry-card"]:focus');
+    await expect(focusedCard).toBeVisible();
     
-    // Verify movement occurred or focus changed
-    const afterMove = await page.locator(':focus').boundingBox();
-    expect(afterMove).toBeDefined();
-    
-    // Test other directions
+    // Arrow down should work
     await page.keyboard.press('ArrowDown');
-    await page.waitForTimeout(100);
-    await page.keyboard.press('ArrowLeft');
-    await page.waitForTimeout(100);
-    await page.keyboard.press('ArrowUp');
-    await page.waitForTimeout(100);
-    
-    // Verify card remains accessible
-    const focusedCard = page.locator(':focus');
+    focusedCard = page.locator('[data-testid="masonry-card"]:focus');
     await expect(focusedCard).toBeVisible();
   });
 
-  test('should meet minimum target size requirements', async ({ page }) => {
-    await page.goto('/masonry');
-    await page.waitForSelector('[data-testid="masonry-card"]');
+  test('should provide keyboard alternatives to drag positioning', async ({ page }) => {
+    // Add a task
+    await page.locator('[data-testid="quick-add-task"]').fill('Moveable Task');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(500);
     
-    // Check all interactive elements meet 24×24 minimum (WCAG 2.2)
-    const interactiveElements = await page.locator('[data-testid="masonry-card"], button, [role="button"]').all();
+    // Focus the task
+    await page.keyboard.press('Tab');
+    const card = page.locator('[data-testid="masonry-card"]:focus');
     
-    for (const element of interactiveElements) {
-      const box = await element.boundingBox();
-      if (box) {
-        expect(box.width).toBeGreaterThanOrEqual(24);
-        expect(box.height).toBeGreaterThanOrEqual(24);
-      }
+    // Enter should activate move mode or open context menu
+    await page.keyboard.press('Enter');
+    
+    // Should show move controls or context menu
+    const moveControls = page.locator('[data-testid="move-controls"], [data-testid="context-menu"]');
+    await expect(moveControls.first()).toBeVisible();
+    
+    // Should be able to move with keyboard
+    if (await page.locator('[data-testid="move-controls"]').isVisible()) {
+      await page.keyboard.press('ArrowUp'); // Move up
+      await page.keyboard.press('Enter'); // Confirm position
     }
   });
 
-  test('should prefer 44×44 for primary interaction targets', async ({ page }) => {
-    await page.goto('/masonry');
-    await page.waitForSelector('[data-testid="masonry-card"]');
+  test('should have accessible focus indicators on all cards', async ({ page }) => {
+    // Add test tasks
+    for (let i = 1; i <= 3; i++) {
+      await page.locator('[data-testid="quick-add-task"]').fill(`Task ${i}`);
+      await page.keyboard.press('Enter');
+    }
     
-    // Primary cards should meet comfortable touch target size
-    const primaryCards = await page.locator('[data-testid="masonry-card"]').all();
+    await page.waitForTimeout(500);
     
-    for (const card of primaryCards.slice(0, 3)) {
+    const cards = await page.locator('[data-testid="masonry-card"]').all();
+    
+    for (const card of cards) {
+      await card.focus();
+      
+      // Check for visible focus indicator
+      const hasVisibleFocus = await card.evaluate(el => {
+        const styles = window.getComputedStyle(el);
+        return styles.outline !== 'none' || 
+               styles.boxShadow !== 'none' ||
+               styles.border !== styles.borderColor; // Border change indicates focus
+      });
+      
+      expect(hasVisibleFocus).toBe(true);
+    }
+  });
+
+  test('should support screen reader announcements for card changes', async ({ page }) => {
+    // Create announcement region for screen readers
+    const liveRegion = page.locator('[aria-live="polite"], [aria-live="assertive"]');
+    await expect(liveRegion).toBeVisible();
+    
+    // Add a task - should trigger announcement
+    await page.locator('[data-testid="quick-add-task"]').fill('Announced Task');
+    await page.keyboard.press('Enter');
+    
+    await page.waitForTimeout(200);
+    
+    // Live region should have content about the added task
+    const announcement = await liveRegion.textContent();
+    expect(announcement).toMatch(/added|created/i);
+  });
+
+  test('should handle high contrast mode properly', async ({ page }) => {
+    // Simulate high contrast mode
+    await page.emulateMedia({ forcedColors: 'active' });
+    
+    // Cards should remain visible and distinguishable
+    const cards = page.locator('[data-testid="masonry-card"]');
+    const cardCount = await cards.count();
+    
+    if (cardCount > 0) {
+      const firstCard = cards.first();
+      await expect(firstCard).toBeVisible();
+      
+      // Focus should be clearly visible in high contrast
+      await firstCard.focus();
+      const focusedCard = page.locator('[data-testid="masonry-card"]:focus');
+      await expect(focusedCard).toBeVisible();
+    }
+  });
+
+  test('should respect reduced motion preferences', async ({ page }) => {
+    // Set reduced motion preference
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    
+    // Add a task to trigger any animations
+    await page.locator('[data-testid="quick-add-task"]').fill('Motion Test');
+    await page.keyboard.press('Enter');
+    
+    // Check that masonry container respects reduced motion
+    const container = page.locator('[data-testid="masonry-container"]');
+    const styles = await container.evaluate(el => getComputedStyle(el));
+    
+    // Animations should be disabled or minimal
+    expect(styles.animationDuration).toBe('0s');
+    expect(styles.transitionDuration).toBe('0s');
+  });
+
+  test('should have appropriate target sizes for touch interaction', async ({ page }) => {
+    // Set mobile viewport
+    await page.setViewportSize({ width: 375, height: 667 });
+    
+    // Add some tasks
+    for (let i = 1; i <= 3; i++) {
+      await page.locator('[data-testid="quick-add-task"]').fill(`Mobile Task ${i}`);
+      await page.keyboard.press('Enter');
+    }
+    
+    await page.waitForTimeout(500);
+    
+    const cards = await page.locator('[data-testid="masonry-card"]').all();
+    
+    for (const card of cards) {
       const box = await card.boundingBox();
       if (box) {
-        // Prefer 44×44 for comfortable interaction
+        // Cards should meet minimum touch target size (44x44px)
         expect(box.width).toBeGreaterThanOrEqual(44);
         expect(box.height).toBeGreaterThanOrEqual(44);
       }
     }
   });
 
-  test('should have accessible card activation methods', async ({ page }) => {
-    await page.goto('/masonry');
-    await page.waitForSelector('[data-testid="masonry-card"]');
-    
-    const card = page.locator('[data-testid="masonry-card"]').first();
-    await card.focus();
-    
-    // Test Enter key activation
+  test('should provide context about card priorities and groupings', async ({ page }) => {
+    // Add tasks with different priorities
+    await page.locator('[data-testid="quick-add-task"]').fill('High Priority Task');
     await page.keyboard.press('Enter');
-    await page.waitForTimeout(300);
     
-    // Check for edit dialog or context menu
-    const dialog = page.locator('[role="dialog"], [data-testid="edit-task"]');
-    if (await dialog.isVisible()) {
-      await expect(dialog).toBeVisible();
-      
-      // Close dialog for next test
-      await page.keyboard.press('Escape');
-      await page.waitForTimeout(200);
-    }
+    // Set priority through UI or keyboard shortcut
+    await page.keyboard.press('Tab'); // Focus the card
+    await page.keyboard.press('KeyP'); // Priority shortcut
+    await page.keyboard.press('3'); // High priority
     
-    // Test Space key activation
-    await card.focus();
-    await page.keyboard.press('Space');
-    await page.waitForTimeout(300);
+    const priorityCard = page.locator('[data-testid="masonry-card"][data-priority="high"]');
     
-    // Verify some activation occurred
-    const activeDialog = page.locator('[role="dialog"], [data-testid="context-menu"]');
-    if (await activeDialog.isVisible()) {
-      await expect(activeDialog).toBeVisible();
-    }
-  });
-
-  test('should provide keyboard context menu access', async ({ page }) => {
-    await page.goto('/masonry');
-    await page.waitForSelector('[data-testid="masonry-card"]');
+    // Should have appropriate ARIA labels describing priority
+    await expect(priorityCard).toHaveAttribute('aria-label', /high.+priority/i);
     
-    const card = page.locator('[data-testid="masonry-card"]').first();
-    await card.focus();
-    
-    // Test context menu key (if supported)
-    await page.keyboard.press('ContextMenu');
-    await page.waitForTimeout(300);
-    
-    // Or test right-click equivalent
-    if (!(await page.locator('[role="menu"]').isVisible())) {
-      await page.keyboard.press('Shift+F10');
-      await page.waitForTimeout(300);
-    }
-    
-    // Check for context menu
-    const contextMenu = page.locator('[role="menu"], [data-testid="context-menu"]');
-    if (await contextMenu.isVisible()) {
-      await expect(contextMenu).toBeVisible();
-      
-      // Test menu navigation
-      await page.keyboard.press('ArrowDown');
-      const focusedMenuItem = page.locator('[role="menuitem"]:focus');
-      await expect(focusedMenuItem).toBeVisible();
-    }
-  });
-
-  test('should support screen reader navigation patterns', async ({ page }) => {
-    await page.goto('/masonry');
-    await page.waitForSelector('[data-testid="masonry-container"]');
-    
-    // Check for proper heading structure
-    const headings = await page.locator('h1, h2, h3, h4, h5, h6').all();
-    if (headings.length > 0) {
-      // Verify heading hierarchy
-      for (const heading of headings) {
-        const tagName = await heading.evaluate(el => el.tagName);
-        expect(['H1', 'H2', 'H3', 'H4', 'H5', 'H6']).toContain(tagName);
-      }
-    }
-    
-    // Check for landmarks
-    const landmarks = page.locator('[role="main"], [role="navigation"], [role="banner"]');
-    if (await landmarks.first().isVisible()) {
-      await expect(landmarks.first()).toBeVisible();
-    }
-    
-    // Verify cards have descriptive labels
-    const cards = await page.locator('[data-testid="masonry-card"]').all();
-    for (const card of cards.slice(0, 3)) {
-      const ariaLabel = await card.getAttribute('aria-label');
-      expect(ariaLabel).toBeTruthy();
-      expect(ariaLabel?.length).toBeGreaterThan(5); // Should be descriptive
-    }
-  });
-
-  test('should handle focus management during layout changes', async ({ page }) => {
-    await page.goto('/masonry');
-    await page.waitForSelector('[data-testid="masonry-card"]');
-    
-    // Focus a card
-    const card = page.locator('[data-testid="masonry-card"]').first();
-    await card.focus();
-    
-    const cardId = await card.getAttribute('data-task-id');
-    
-    // Trigger layout change (add new task)
-    const quickAdd = page.locator('[data-testid="quick-add"]');
-    if (await quickAdd.isVisible()) {
-      await quickAdd.fill('Focus management test');
-      await quickAdd.press('Enter');
-      await page.waitForTimeout(500);
-    }
-    
-    // Verify focus is maintained or properly managed
-    const focusedElement = page.locator(':focus');
-    await expect(focusedElement).toBeVisible();
-    
-    // If original card still exists, it should be focusable
-    if (cardId) {
-      const originalCard = page.locator(`[data-task-id="${cardId}"]`);
-      if (await originalCard.isVisible()) {
-        await originalCard.focus();
-        await expect(originalCard).toBeFocused();
-      }
-    }
-  });
-
-  test('should provide alternative text for visual indicators', async ({ page }) => {
-    await page.goto('/masonry');
-    await page.waitForSelector('[data-testid="masonry-card"]');
-    
-    // Check for images with alt text
-    const images = await page.locator('img').all();
-    for (const img of images) {
-      const alt = await img.getAttribute('alt');
-      expect(alt).toBeDefined(); // Should have alt attribute (can be empty for decorative)
-    }
-    
-    // Check for icons with proper labels
-    const icons = page.locator('[class*="icon"], [data-testid*="icon"]');
-    if (await icons.first().isVisible()) {
-      const iconLabels = await icons.all();
-      for (const icon of iconLabels.slice(0, 3)) {
-        const ariaLabel = await icon.getAttribute('aria-label');
-        const ariaHidden = await icon.getAttribute('aria-hidden');
-        
-        // Icon should either have label or be hidden from screen readers
-        expect(ariaLabel || ariaHidden === 'true').toBeTruthy();
-      }
-    }
-  });
-
-  test('should support zoom and magnification', async ({ page }) => {
-    await page.goto('/masonry');
-    await page.waitForSelector('[data-testid="masonry-container"]');
-    
-    // Simulate 200% zoom
-    await page.evaluate(() => {
-      document.body.style.zoom = '2';
-    });
-    
-    await page.waitForTimeout(500);
-    
-    // Verify layout still works at higher zoom
-    const cards = await page.locator('[data-testid="masonry-card"]').all();
-    for (const card of cards.slice(0, 3)) {
-      await expect(card).toBeVisible();
-      
-      // Should still be interactive
-      const box = await card.boundingBox();
-      expect(box?.width).toBeGreaterThan(0);
-      expect(box?.height).toBeGreaterThan(0);
-    }
-    
-    // Reset zoom
-    await page.evaluate(() => {
-      document.body.style.zoom = '1';
-    });
-  });
-
-  test('should work with keyboard-only navigation', async ({ page }) => {
-    await page.goto('/masonry');
-    await page.waitForSelector('[data-testid="masonry-container"]');
-    
-    // Navigate entire interface using only keyboard
-    let tabCount = 0;
-    const maxTabs = 20;
-    
-    while (tabCount < maxTabs) {
-      await page.keyboard.press('Tab');
-      tabCount++;
-      
-      const focusedElement = page.locator(':focus');
-      if (await focusedElement.isVisible()) {
-        // Try activating the focused element
-        const tagName = await focusedElement.evaluate(el => el.tagName);
-        const role = await focusedElement.getAttribute('role');
-        
-        if (tagName === 'BUTTON' || role === 'button') {
-          // Test that button can be activated
-          await page.keyboard.press('Enter');
-          await page.waitForTimeout(100);
-          
-          // If dialog opened, close it
-          const dialog = page.locator('[role="dialog"]');
-          if (await dialog.isVisible()) {
-            await page.keyboard.press('Escape');
-            await page.waitForTimeout(100);
-          }
-        }
-      }
-    }
-    
-    // Should be able to navigate back
-    for (let i = 0; i < 5; i++) {
-      await page.keyboard.press('Shift+Tab');
-      const focusedElement = page.locator(':focus');
-      await expect(focusedElement).toBeVisible();
+    // Should be grouped or announced appropriately
+    const cardDescription = await priorityCard.getAttribute('aria-describedby');
+    if (cardDescription) {
+      const description = page.locator(`#${cardDescription}`);
+      await expect(description).toContainText(/priority/i);
     }
   });
 });

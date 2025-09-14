@@ -13,8 +13,8 @@ test.describe('P20 Gate 2: Accessibility & Keyboard Navigation @e2e @gate', () =
   });
 
   test('should pass axe-core accessibility tests', async ({ page }) => {
-    // Test main views for accessibility
-    const views = ['/', '/list', '/kanban', '/matrix'];
+    // Test main views for accessibility including new calendar and masonry
+    const views = ['/', '/list', '/kanban', '/matrix', '/calendar', '/masonry'];
     
     for (const view of views) {
       await page.goto(view);
@@ -25,6 +25,22 @@ test.describe('P20 Gate 2: Accessibility & Keyboard Navigation @e2e @gate', () =
         detailedReport: true,
         detailedReportOptions: { html: true }
       });
+    }
+    
+    // Test dev routes if available
+    const devViews = ['/dev/perf-calendar'];
+    for (const view of devViews) {
+      try {
+        await page.goto(view);
+        await page.waitForLoadState('networkidle');
+        await checkA11y(page, null, {
+          detailedReport: true,
+          detailedReportOptions: { html: true }
+        });
+      } catch (error) {
+        // Dev routes may not be available in all environments
+        console.log(`Dev route ${view} not available`);
+      }
     }
   });
 

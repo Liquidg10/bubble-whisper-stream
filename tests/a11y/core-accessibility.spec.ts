@@ -95,6 +95,64 @@ test.describe('Core Accessibility Compliance @a11y', () => {
     await expectNoA11yViolations(a11yPage);
   });
 
+  test('Calendar view meets accessibility standards', async ({ a11yPage, navigateToPage }) => {
+    await navigateToPage('/calendar');
+    
+    // Wait for calendar to load
+    await a11yPage.waitForSelector('[data-testid="calendar-view"]', { timeout: 5000 });
+    
+    // Check calendar grid accessibility
+    await expectNoA11yViolations(a11yPage);
+    
+    // Verify calendar keyboard navigation
+    await a11yPage.keyboard.press('Tab'); // Focus calendar
+    await a11yPage.keyboard.press('ArrowRight'); // Navigate days
+    await a11yPage.keyboard.press('ArrowDown'); // Navigate weeks
+    
+    // Test AI scheduling suggestions accessibility
+    if (await a11yPage.locator('[data-testid="ai-scheduling-suggestions"]').isVisible()) {
+      await checkTargetSizes(a11yPage);
+    }
+  });
+
+  test('Masonry view accessibility compliance', async ({ a11yPage, navigateToPage }) => {
+    await navigateToPage('/masonry');
+    
+    // Wait for masonry container to load
+    await a11yPage.waitForSelector('[data-testid="masonry-container"]', { timeout: 5000 });
+    
+    // Check accessibility compliance
+    await expectNoA11yViolations(a11yPage);
+    
+    // Verify masonry cards are properly sized and accessible
+    await checkTargetSizes(a11yPage);
+    
+    // Test keyboard navigation alternatives for pinboard
+    await a11yPage.keyboard.press('Tab'); // Focus first card
+    await a11yPage.keyboard.press('Enter'); // Activate card
+    
+    // Verify focus management
+    await checkFocusManagement(a11yPage);
+  });
+
+  test('Dev performance calendar accessibility', async ({ a11yPage, navigateToPage }) => {
+    await navigateToPage('/dev/perf-calendar');
+    
+    // Wait for dev interface to load
+    await a11yPage.waitForSelector('[data-testid="perf-calendar-dashboard"]', { timeout: 5000 });
+    
+    // Check dev interface accessibility
+    await expectNoA11yViolations(a11yPage);
+    
+    // Verify decision traces are accessible
+    const traces = a11yPage.locator('[data-testid="decision-trace"]');
+    if (await traces.count() > 0) {
+      // Check that trace debugging info is accessible
+      await expect(traces.first()).toHaveAttribute('role', 'region');
+      await expect(traces.first()).toHaveAttribute('aria-label');
+    }
+  });
+
   test('Matrix view keyboard navigation works', async ({ a11yPage, navigateToPage }) => {
     await navigateToPage('/matrix');
     

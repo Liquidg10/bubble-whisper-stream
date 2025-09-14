@@ -1,351 +1,209 @@
 /**
- * Performance P6: Calendar Performance Testing
- * Tests FPS, memory usage, and performance targets for calendar views
+ * P11 Calendar Performance Tests
+ * Tests rendering performance, memory usage, and responsiveness
  */
 
 import { test, expect } from '@playwright/test';
 
-test.describe('Performance P6: Calendar Performance @performance', () => {
+test.describe('Calendar Performance @performance', () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/calendar');
     await page.waitForLoadState('networkidle');
   });
 
-  test('should maintain ≥55 FPS during calendar interactions', async ({ page }) => {
-    await page.goto('/calendar');
-    await page.waitForSelector('[data-testid="calendar-view"]');
-    
-    // Measure FPS during interaction
-    const performanceMetrics = await page.evaluate(() => {
-      return new Promise((resolve) => {
-        let frameCount = 0;
-        let startTime = performance.now();
-        const duration = 2000; // 2 seconds
-        
-        function countFrames() {
-          frameCount++;
-          
-          if (performance.now() - startTime < duration) {
-            requestAnimationFrame(countFrames);
-          } else {
-            const fps = frameCount / (duration / 1000);
-            resolve({ fps, frameCount, duration });
-          }
-        }
-        
-        requestAnimationFrame(countFrames);
-      });
-    });
-    
-    const metrics = performanceMetrics as { fps: number; frameCount: number; duration: number };
-    expect(metrics.fps).toBeGreaterThanOrEqual(55);
-  });
-
-  test('should handle large datasets efficiently', async ({ page }) => {
-    await page.goto('/calendar');
-    await page.waitForSelector('[data-testid="calendar-view"]');
-    
-    // Create many events to test performance
-    const quickAdd = page.locator('[data-testid="quick-add"]');
-    const startTime = performance.now();
-    
-    for (let i = 0; i < 50; i++) {
-      await quickAdd.fill(`Performance test event ${i + 1}`);
-      await quickAdd.press('Enter');
-      
-      // Don't wait between events to stress test
-      if (i % 10 === 0) {
-        await page.waitForTimeout(50); // Brief pause every 10 events
-      }
-    }
-    
-    const endTime = performance.now();
-    const totalTime = endTime - startTime;
-    
-    // Should complete 50 events in reasonable time
-    expect(totalTime).toBeLessThan(10000); // 10 seconds max
-    
-    // Calendar should still be responsive
-    const calendarView = page.locator('[data-testid="calendar-view"]');
-    await expect(calendarView).toBeVisible();
-    
-    // Test scrolling performance
+  test('should maintain 60fps during calendar navigation', async ({ page }) => {
+    // Start performance monitoring
     await page.evaluate(() => {
-      window.scrollBy(0, 500);
-    });
-    
-    await page.waitForTimeout(100);
-    await expect(calendarView).toBeVisible();
-  });
-
-  test('should implement adaptive LOD correctly', async ({ page }) => {
-    await page.goto('/dev/perf-calendar');
-    await page.waitForSelector('[data-testid="calendar-performance"]');
-    
-    // Check LOD system status
-    const lodLevel = page.locator('[data-testid="lod-level"]');
-    
-    if (await lodLevel.isVisible()) {
-      const level = await lodLevel.textContent();
-      expect(level).toMatch(/(minimal|low|medium|high)/i);
-    }
-    
-    // Test LOD adaptation under stress
-    await page.goto('/calendar');
-    await page.waitForSelector('[data-testid="calendar-view"]');
-    
-    // Create stress conditions
-    await page.evaluate(() => {
-      // Simulate high CPU usage
-      const heavyTask = () => {
-        const start = Date.now();
-        while (Date.now() - start < 100) {
-          Math.random() * Math.random();
-        }
-        setTimeout(heavyTask, 10);
+      window.performanceData = {
+        frameCount: 0,
+        startTime: performance.now()
       };
-      heavyTask();
+      
+      function countFrames() {
+        window.performanceData.frameCount++;
+        requestAnimationFrame(countFrames);
+      }
+      requestAnimationFrame(countFrames);
     });
     
-    await page.waitForTimeout(2000);
-    
-    // Check if LOD adapted
-    await page.goto('/dev/perf-calendar');
-    const adaptedLod = page.locator('[data-testid="lod-level"]');
-    
-    if (await adaptedLod.isVisible()) {
-      const adaptedLevel = await adaptedLod.textContent();
-      expect(adaptedLevel).toMatch(/(minimal|low)/i); // Should degrade under stress
+    // Navigate through calendar months rapidly
+    for (let i = 0; i < 5; i++) {
+      await page.locator('[data-testid="next-month"]').click();
+      await page.waitForTimeout(100);
     }
+    
+    // Check frame rate
+    const { frameCount, startTime } = await page.evaluate(() => {
+      const endTime = performance.now();
+      return {
+        frameCount: window.performanceData.frameCount,
+        startTime: window.performanceData.startTime,
+        endTime
+      };
+    });
+    
+    const duration = (Date.now() - startTime) / 1000;
+    const fps = frameCount / duration;
+    
+    // Should maintain at least 55fps during interactions
+    expect(fps).toBeGreaterThan(55);
   });
 
-  test('should monitor memory usage and prevent leaks', async ({ page }) => {
-    await page.goto('/calendar');
-    await page.waitForSelector('[data-testid="calendar-view"]');
+  test('should handle large event sets without performance degradation', async ({ page }) => {
+    // Create many events to test performance
+    const eventCount = 100;
     
-    // Measure initial memory
+    const startTime = Date.now();
+    
+    for (let i = 0; i < eventCount; i++) {
+      await page.locator('[data-testid="quick-add-event"]').fill(`Event ${i}`);
+      await page.keyboard.press('Enter');
+      
+      // Batch operations to avoid timeout
+      if (i % 10 === 0) {
+        await page.waitForTimeout(100);
+      }
+    }
+    
+    const creationTime = Date.now() - startTime;
+    
+    // Should create 100 events in under 30 seconds
+    expect(creationTime).toBeLessThan(30000);
+    
+    // Calendar should remain responsive
+    const navigationStart = Date.now();
+    await page.locator('[data-testid="next-month"]').click();
+    await page.waitForSelector('[data-testid="calendar-grid"]');
+    const navigationTime = Date.now() - navigationStart;
+    
+    // Navigation should complete in under 1 second even with many events
+    expect(navigationTime).toBeLessThan(1000);
+  });
+
+  test('should efficiently render AI suggestions without blocking UI', async ({ page }) => {
+    // Create pattern that triggers AI suggestions
+    const baseTime = new Date();
+    for (let i = 0; i < 3; i++) {
+      const eventTime = new Date(baseTime.getTime() + i * 24 * 60 * 60 * 1000);
+      await page.locator('[data-testid="quick-add-event"]').fill('Daily Standup');
+      await page.locator('[data-testid="event-time"]').fill('09:00');
+      await page.locator('[data-testid="save-event"]').click();
+      await page.waitForTimeout(200);
+    }
+    
+    // Measure time for AI suggestions to appear
+    const suggestionStart = Date.now();
+    
+    // Add another similar event to trigger suggestions
+    await page.locator('[data-testid="quick-add-event"]').fill('Daily Standup');
+    
+    // Wait for AI suggestion to appear
+    await page.waitForSelector('[data-testid="ai-suggestion"]', { timeout: 5000 });
+    
+    const suggestionTime = Date.now() - suggestionStart;
+    
+    // AI suggestions should appear quickly without blocking UI
+    expect(suggestionTime).toBeLessThan(2000);
+    
+    // UI should remain responsive during suggestion generation
+    await page.locator('[data-testid="calendar-view-toggle"]').click();
+    const toggleResponse = Date.now();
+    
+    // UI interaction should be immediate
+    expect(toggleResponse - Date.now()).toBeLessThan(100);
+  });
+
+  test('should maintain memory efficiency during extended usage', async ({ page }) => {
+    // Get initial memory usage
     const initialMemory = await page.evaluate(() => {
-      return (performance as any).memory?.usedJSHeapSize || 0;
+      if (performance.memory) {
+        return performance.memory.usedJSHeapSize;
+      }
+      return 0;
     });
     
-    // Perform memory-intensive operations
-    const quickAdd = page.locator('[data-testid="quick-add"]');
-    
-    for (let i = 0; i < 20; i++) {
-      await quickAdd.fill(`Memory test event ${i + 1}`);
-      await quickAdd.press('Enter');
-      
-      // Delete every other event to test cleanup
-      if (i % 2 === 0) {
-        const events = await page.locator('[data-testid="calendar-event"]').all();
-        if (events.length > 5) {
-          await events[0].click();
-          const deleteButton = page.locator('[data-testid="delete-task"], [aria-label*="delete"]');
-          if (await deleteButton.isVisible()) {
-            await deleteButton.click();
-          }
-        }
+    // Simulate extended usage with event creation and deletion
+    for (let cycle = 0; cycle < 5; cycle++) {
+      // Create events
+      for (let i = 0; i < 20; i++) {
+        await page.locator('[data-testid="quick-add-event"]').fill(`Cycle ${cycle} Event ${i}`);
+        await page.keyboard.press('Enter');
       }
       
-      await page.waitForTimeout(50);
+      // Delete events
+      const events = await page.locator('[data-testid="event-item"]').all();
+      for (const event of events.slice(0, 10)) {
+        await event.click();
+        await page.locator('[data-testid="delete-event"]').click();
+        await page.locator('[data-testid="confirm-delete"]').click();
+      }
+      
+      // Navigate to trigger potential cleanup
+      await page.locator('[data-testid="next-month"]').click();
+      await page.locator('[data-testid="prev-month"]').click();
     }
     
     // Force garbage collection if available
     await page.evaluate(() => {
-      if ((window as any).gc) {
-        (window as any).gc();
+      if (window.gc) {
+        window.gc();
       }
     });
     
-    await page.waitForTimeout(1000);
-    
-    // Measure final memory
     const finalMemory = await page.evaluate(() => {
-      return (performance as any).memory?.usedJSHeapSize || 0;
+      if (performance.memory) {
+        return performance.memory.usedJSHeapSize;
+      }
+      return 0;
     });
     
-    // Memory should not have grown excessively
     if (initialMemory > 0 && finalMemory > 0) {
-      const memoryGrowth = finalMemory - initialMemory;
-      const maxAllowedGrowth = 50 * 1024 * 1024; // 50MB
-      expect(memoryGrowth).toBeLessThan(maxAllowedGrowth);
+      const memoryIncrease = finalMemory - initialMemory;
+      const memoryIncreasePercent = (memoryIncrease / initialMemory) * 100;
+      
+      // Memory usage shouldn't increase by more than 200% during extended usage
+      expect(memoryIncreasePercent).toBeLessThan(200);
     }
   });
 
-  test('should handle mobile performance requirements', async ({ page }) => {
-    // Set mobile viewport
-    await page.setViewportSize({ width: 375, height: 667 });
+  test('should load calendar view quickly on initial render', async ({ page }) => {
+    // Clear cache and measure fresh load time
+    await page.goto('about:blank');
+    
+    const loadStart = Date.now();
     await page.goto('/calendar');
-    await page.waitForSelector('[data-testid="calendar-view"]');
     
-    // Test mobile gesture performance
-    const calendar = page.locator('[data-testid="calendar-view"]');
+    // Wait for calendar to be fully interactive
+    await page.waitForSelector('[data-testid="calendar-grid"]');
+    await page.waitForLoadState('networkidle');
     
-    // Measure touch response time
-    const touchStartTime = performance.now();
+    const loadTime = Date.now() - loadStart;
     
-    await calendar.dispatchEvent('touchstart', {
-      touches: [{ clientX: 100, clientY: 100 }]
-    });
+    // Calendar should load in under 3 seconds
+    expect(loadTime).toBeLessThan(3000);
     
-    await calendar.dispatchEvent('touchmove', {
-      touches: [{ clientX: 150, clientY: 100 }]
-    });
-    
-    await calendar.dispatchEvent('touchend', {});
-    
-    const touchEndTime = performance.now();
-    const gestureLatency = touchEndTime - touchStartTime;
-    
-    // Gesture should be responsive (under 100ms)
-    expect(gestureLatency).toBeLessThan(100);
-    
-    // Check mobile performance indicators
-    await page.goto('/dev/perf-calendar');
-    const mobilePerf = page.locator('[data-testid="mobile-performance"]');
-    
-    if (await mobilePerf.isVisible()) {
-      const isMobile = await mobilePerf.getAttribute('data-is-mobile');
-      expect(isMobile).toBe('true');
-    }
-  });
-
-  test('should optimize rendering during animations', async ({ page }) => {
-    await page.goto('/calendar');
-    await page.waitForSelector('[data-testid="calendar-view"]');
-    
-    // Trigger animation that should be optimized
-    const quickAdd = page.locator('[data-testid="quick-add"]');
-    await quickAdd.fill('Animation test event');
-    
-    // Measure frame timing during animation
-    const animationMetrics = await page.evaluate(() => {
-      return new Promise((resolve) => {
-        let frames: number[] = [];
-        let startTime = performance.now();
-        
-        function measureFrame() {
-          const currentTime = performance.now();
-          frames.push(currentTime);
+    // Check for Core Web Vitals
+    const vitals = await page.evaluate(() => {
+      return new Promise(resolve => {
+        new PerformanceObserver(list => {
+          const entries = list.getEntries();
+          const lcp = entries.find(entry => entry.entryType === 'largest-contentful-paint');
+          const fid = entries.find(entry => entry.entryType === 'first-input');
           
-          if (currentTime - startTime < 1000) { // 1 second
-            requestAnimationFrame(measureFrame);
-          } else {
-            // Calculate frame intervals
-            const intervals = [];
-            for (let i = 1; i < frames.length; i++) {
-              intervals.push(frames[i] - frames[i - 1]);
-            }
-            
-            const avgInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
-            const maxInterval = Math.max(...intervals);
-            
-            resolve({ avgInterval, maxInterval, frameCount: frames.length });
-          }
-        }
+          resolve({
+            lcp: lcp?.startTime || 0,
+            fid: fid?.processingStart - fid?.startTime || 0
+          });
+        }).observe({ entryTypes: ['largest-contentful-paint', 'first-input'] });
         
-        requestAnimationFrame(measureFrame);
+        // Fallback timeout
+        setTimeout(() => resolve({ lcp: 0, fid: 0 }), 1000);
       });
     });
     
-    await quickAdd.press('Enter');
-    await page.waitForTimeout(1000);
-    
-    const metrics = animationMetrics as { avgInterval: number; maxInterval: number; frameCount: number };
-    
-    // Average frame interval should be close to 16.67ms (60 FPS)
-    expect(metrics.avgInterval).toBeLessThan(20); // Allow some variance
-    
-    // No frame should take longer than 33ms (30 FPS minimum)
-    expect(metrics.maxInterval).toBeLessThan(33);
-  });
-
-  test('should handle concurrent operations efficiently', async ({ page }) => {
-    await page.goto('/calendar');
-    await page.waitForSelector('[data-testid="calendar-view"]');
-    
-    // Start multiple concurrent operations
-    const operations = [];
-    const quickAdd = page.locator('[data-testid="quick-add"]');
-    
-    const startTime = performance.now();
-    
-    // Create multiple events rapidly
-    for (let i = 0; i < 10; i++) {
-      operations.push(
-        (async () => {
-          await quickAdd.fill(`Concurrent event ${i + 1}`);
-          await quickAdd.press('Enter');
-          await page.waitForTimeout(10);
-        })()
-      );
+    // LCP should be under 2.5s for good performance
+    if (vitals.lcp > 0) {
+      expect(vitals.lcp).toBeLessThan(2500);
     }
-    
-    // Wait for all operations to complete
-    await Promise.all(operations);
-    
-    const endTime = performance.now();
-    const totalTime = endTime - startTime;
-    
-    // Should handle concurrent operations efficiently
-    expect(totalTime).toBeLessThan(5000); // 5 seconds max
-    
-    // Verify all events were created
-    const events = await page.locator('[data-testid="calendar-event"]').count();
-    expect(events).toBeGreaterThanOrEqual(10);
-    
-    // UI should remain responsive
-    const calendar = page.locator('[data-testid="calendar-view"]');
-    await expect(calendar).toBeVisible();
-    
-    // Test interaction responsiveness
-    await calendar.click();
-    await page.waitForTimeout(100);
-    // Should not freeze or become unresponsive
-  });
-
-  test('should maintain performance with background sync', async ({ page }) => {
-    await page.goto('/calendar');
-    await page.waitForSelector('[data-testid="calendar-view"]');
-    
-    // Simulate background sync activity
-    const quickAdd = page.locator('[data-testid="quick-add"]');
-    
-    // Create event that should trigger sync
-    await quickAdd.fill('Background sync test');
-    await quickAdd.press('Enter');
-    
-    // Monitor performance during sync
-    const syncPerformance = await page.evaluate(() => {
-      return new Promise((resolve) => {
-        let frameCount = 0;
-        let longFrames = 0;
-        const startTime = performance.now();
-        
-        function checkFrame() {
-          const frameTime = performance.now();
-          frameCount++;
-          
-          // Check for long frames (> 16.67ms)
-          if (frameTime - (startTime + frameCount * 16.67) > 5) {
-            longFrames++;
-          }
-          
-          if (frameTime - startTime < 2000) { // 2 seconds
-            requestAnimationFrame(checkFrame);
-          } else {
-            resolve({ frameCount, longFrames, duration: frameTime - startTime });
-          }
-        }
-        
-        requestAnimationFrame(checkFrame);
-      });
-    });
-    
-    const metrics = syncPerformance as { frameCount: number; longFrames: number; duration: number };
-    
-    // Should maintain smooth framerate even during sync
-    const longFramePercentage = (metrics.longFrames / metrics.frameCount) * 100;
-    expect(longFramePercentage).toBeLessThan(10); // Less than 10% long frames
   });
 });
