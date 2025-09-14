@@ -113,6 +113,12 @@ export const flags = {
   productionPipeline: true,
   migrationHelper: true,
   deploymentDashboard: process.env.NODE_ENV === 'development',
+  
+  // Phase 2: Architecture Completion
+  dualWriteMigration: process.env.NODE_ENV === 'development',
+  migrationParityDashboard: process.env.NODE_ENV === 'development',
+  mergeConflictUI: process.env.NODE_ENV === 'development',
+  decisionTracer: true,
 } as const;
 
 export type FeatureFlag = keyof typeof flags;
