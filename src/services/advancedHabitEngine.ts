@@ -248,8 +248,10 @@ class AdvancedHabitEngine {
 
     // Determine trend
     const recentStrengthPoints = history.slice(-5).map((success, i) => success ? 1 : 0);
+    const firstHalf = recentStrengthPoints.slice(0, 2).reduce((a, b) => a + b, 0);
+    const secondHalf = recentStrengthPoints.slice(-2).reduce((a, b) => a + b, 0);
     const trend = recentStrengthPoints.length > 2 ? 
-      (recentStrengthPoints.slice(-2).reduce((a, b) => a + b) > recentStrengthPoints.slice(0, 2).reduce((a, b) => a + b) ? 'increasing' : 'decreasing') : 'stable';
+      (secondHalf > firstHalf ? 'increasing' : 'decreasing') : 'stable';
 
     const recommendations = this.generateHabitRecommendations(stage, consistency, trend);
 

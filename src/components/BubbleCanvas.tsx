@@ -19,6 +19,7 @@ import { CBTOnboardingBanner } from './CBTOnboardingBanner';
 import { useMicroCelebrations } from '@/hooks/useMicroCelebrations';
 
 import { AtomicView } from './AtomicView';
+import { MobileExperienceIntegration } from './MobileExperienceIntegration';
 
 import { ZoomIn, ZoomOut, RotateCcw, Map, Filter, Focus, Layers } from 'lucide-react';
 import { viewportMemoryService } from '@/services/viewportMemoryService';
@@ -457,6 +458,8 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
 
   return (
     <div className={`relative w-full h-full overflow-hidden bg-gradient-canvas ${className}`}>
+      {/* Mobile Experience Integration */}
+      <MobileExperienceIntegration />
       {/* CBT Onboarding Banner */}
       <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-4xl px-4">
         <CBTOnboardingBanner />

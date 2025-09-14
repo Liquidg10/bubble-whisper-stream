@@ -41,7 +41,7 @@ export interface SeasonalSuggestion {
   title: string;
   content: string;
   confidence: number;
-  reasoning: string;
+  reasoning: string[];
   timeContext: TimeContext;
   patterns: SeasonalPattern[];
   priority: 'low' | 'medium' | 'high';
@@ -436,7 +436,7 @@ class SeasonalPatternService {
       title: `${pattern.type.charAt(0).toUpperCase() + pattern.type.slice(1)} Suggestion`,
       content: suggestion,
       confidence: pattern.confidence,
-      reasoning: `Based on your ${pattern.pattern}`,
+      reasoning: [`Based on your ${pattern.pattern}`],
       timeContext,
       patterns: [pattern],
       priority: pattern.confidence > 0.7 ? 'high' : pattern.confidence > 0.4 ? 'medium' : 'low',
@@ -454,7 +454,7 @@ class SeasonalPatternService {
         title: 'Morning Energy Peak',
         content: 'Tackle your most challenging task while your energy is high',
         confidence: 0.8,
-        reasoning: 'Morning hours are typically associated with peak cognitive performance',
+        reasoning: ['Morning hours are typically associated with peak cognitive performance'],
         timeContext,
         patterns: [],
         priority: 'high',
@@ -471,7 +471,7 @@ class SeasonalPatternService {
         title: `${timeContext.season.charAt(0).toUpperCase() + timeContext.season.slice(1)} Activity`,
         content: `Consider working on: ${activity}`,
         confidence: 0.6,
-        reasoning: `${timeContext.season} is a great time for this type of activity`,
+        reasoning: [`${timeContext.season} is a great time for this type of activity`],
         timeContext,
         patterns: [],
         priority: 'medium',

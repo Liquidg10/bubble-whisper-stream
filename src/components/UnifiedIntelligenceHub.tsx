@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { IntelligenceHubExtension } from '@/components/intelligence/IntelligenceHubExtension';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
@@ -266,8 +267,11 @@ export const UnifiedIntelligenceHub: React.FC<UnifiedIntelligenceHubProps> = ({ 
           <SmartFinancialInsights />
         </TabsContent>
 
-        <TabsContent value="suggestions">
+        <TabsContent value="suggestions" className="space-y-6">
           {renderCrossDomainSuggestions()}
+          
+          {/* Phase 2: Advanced Intelligence */}
+          <IntelligenceHubExtension />
         </TabsContent>
       </Tabs>
     </div>
