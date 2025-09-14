@@ -150,6 +150,12 @@ export const flags = {
   
   // P5 Dev Health Dashboard Extensions
   calendarDevMetrics: process.env.NODE_ENV === 'development', // Calendar-specific dev metrics
+  
+  // Phase 3: Final Integration - Gradual Rollout Controls
+  gradualRolloutEnabled: true, // Enable gradual feature rollout
+  calendarAIBeta: false, // Beta testing cohort for calendar AI (default OFF)
+  performanceMonitoring: true, // Real-time performance monitoring
+  confidenceThresholds: true, // Dynamic confidence threshold adjustment
 } as const;
 
 export type FeatureFlag = keyof typeof flags;

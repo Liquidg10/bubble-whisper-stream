@@ -116,6 +116,40 @@ export default function Calendar() {
   const adaptiveStyles = getAdaptiveStyles();
   const performanceStatus = getPerformanceStatus();
 
+  // Get real calendar events for AI components
+  const getEventsForSelectedDate = (date: Date) => {
+    const { tasks } = useTaskStore.getState();
+    return tasks
+      .filter(task => {
+        if (task.view?.calendar?.startTime) {
+          const startTime = new Date(task.view.calendar.startTime);
+          return startTime.toDateString() === date.toDateString();
+        }
+        if (task.due) {
+          const dueDate = new Date(task.due);
+          return dueDate.toDateString() === date.toDateString();
+        }
+        return false;
+      })
+      .map(task => {
+        const startTime = task.view?.calendar?.startTime 
+          ? new Date(task.view.calendar.startTime)
+          : new Date(task.due!);
+        const endTime = task.view?.calendar?.durationMin
+          ? new Date(startTime.getTime() + (task.view.calendar.durationMin * 60 * 1000))
+          : new Date(startTime.getTime() + 60 * 60 * 1000);
+        
+        return {
+          id: task.id,
+          title: task.title,
+          start: startTime,
+          end: endTime,
+          priority: task.priority,
+          isFlexible: false // Calendar view doesn't have isFlexible property yet
+        };
+      });
+  };
+
   return (
     <div 
       className="container mx-auto p-6 space-y-6"
@@ -165,17 +199,17 @@ export default function Calendar() {
             <>
               <CalendarDensityMonitor
                 date={selectedDate}
-                events={[]} // TODO: Get actual events for selected date
+                events={getEventsForSelectedDate(selectedDate)}
               />
               
               <SpacingSuggestionPanel
                 date={selectedDate}
-                events={[]} // TODO: Get actual events for selected date
+                events={getEventsForSelectedDate(selectedDate)}
                 onApplySuggestion={(suggestion) => {
-                  console.log('Applying spacing suggestion:', suggestion);
+                  if (isMobile) triggerHaptic('medium');
                   toast({
                     title: "Spacing Applied",
-                    description: suggestion.reason,
+                    description: `${suggestion.reason} - ${Math.round(suggestion.stressReduction * 100)}% stress reduction`,
                   });
                 }}
               />
