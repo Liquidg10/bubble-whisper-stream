@@ -136,6 +136,12 @@ export function isFeatureEnabled(flag: FeatureFlag): boolean {
   return flags[flag];
 }
 
+export function updateFlag(flag: keyof typeof flags, value: boolean): void {
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(`flags.${flag}`, value.toString());
+  }
+}
+
 /**
  * Check if a feature is an auto-write feature
  */
