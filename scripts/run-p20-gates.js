@@ -59,6 +59,47 @@ const gates = [
     name: 'Assistant Voice Cohesion',
     test: 'tests/e2e/gates-validation.spec.ts:.*Assistant voice',
     critical: true
+  },
+  // P6 Comprehensive Calendar & Masonry Tests
+  {
+    name: 'Masonry View E2E',
+    test: 'tests/e2e/masonry-view.spec.ts',
+    critical: true
+  },
+  {
+    name: 'Masonry Gestures',
+    test: 'tests/e2e/masonry-gestures.spec.ts',
+    critical: true
+  },
+  {
+    name: 'Calendar AI Suggestions',
+    test: 'tests/e2e/calendar-ai-suggestions.spec.ts',
+    critical: false
+  },
+  {
+    name: 'Calendar Density & Stress',
+    test: 'tests/e2e/calendar-density.spec.ts',
+    critical: true
+  },
+  {
+    name: 'Calendar Offline Sync',
+    test: 'tests/e2e/calendar-offline-sync.spec.ts',
+    critical: true
+  },
+  {
+    name: 'Calendar Accessibility',
+    test: 'tests/a11y/calendar-accessibility.spec.ts',
+    critical: true
+  },
+  {
+    name: 'Masonry Accessibility',
+    test: 'tests/a11y/masonry-accessibility.spec.ts',
+    critical: true
+  },
+  {
+    name: 'Calendar Performance',
+    test: 'tests/performance/calendar-performance.spec.ts',
+    critical: true
   }
 ];
 

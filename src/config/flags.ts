@@ -131,6 +131,25 @@ export const flags = {
   perfOverlay: process.env.NODE_ENV === 'development',
   activationRitualIntegration: true,
   completeE2ESuite: process.env.NODE_ENV === 'development',
+  
+  // P1 Masonry/Pinboard View (Calendar Focus)
+  pinboardView: false, // Default OFF - progressive disclosure
+  masonryAI: false, // AI suggestions for Masonry - Default OFF
+  
+  // P2 Calendar-AI Integration 
+  calendarAIIntegration: false, // Seasonal & Habit engine integration - Default OFF
+  calendarSuggestions: false, // AI scheduling suggestions - Default OFF
+  
+  // P3 Mobile & Performance Polish
+  mobileGestures: true, // Touch gestures and mobile optimization
+  performanceBudgets: process.env.NODE_ENV === 'development', // Performance monitoring
+  
+  // P4 Advanced Calendar Intelligence
+  calendarIntelligence: false, // Stress detection and spacing suggestions - Default OFF
+  conflictResolver: true, // Calendar conflict resolution
+  
+  // P5 Dev Health Dashboard Extensions
+  calendarDevMetrics: process.env.NODE_ENV === 'development', // Calendar-specific dev metrics
 } as const;
 
 export type FeatureFlag = keyof typeof flags;

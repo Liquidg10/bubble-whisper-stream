@@ -12,7 +12,7 @@ import { useTaskStore } from '@/stores/taskStore';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { decisionTraceService } from '@/services/decisionTraceService';
 import { usePinboardCalendarIntegration } from '@/hooks/usePinboardCalendarIntegration';
-import MasonryView from '@/pages/MasonryView';
+import { MasonryView as MasonryViewComponent } from '@/components/MasonryView';
 import { useToast } from '@/hooks/use-toast';
 
 interface MasonryViewAdapterProps {
@@ -167,9 +167,34 @@ export function MasonryViewAdapter({
     console.log('Masonry view data changed:', sdk.data.tasks.length, 'tasks');
   }, [sdk.data.tasks.length]);
 
+  const handleTaskComplete = (taskId: string) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (task) {
+      sdk.actions.upsert({ ...task, completed: !task.completed });
+    }
+  };
+
+  const handleTaskEdit = (task: Task) => {
+    if (onTaskEdit) {
+      onTaskEdit(task);
+    }
+  };
+
+  const handleTaskSchedule = (task: Task) => {
+    // Future: integrate with calendar scheduling
+    toast({
+      title: "Schedule task",
+      description: `Scheduling "${task.title}" - feature coming soon`,
+    });
+  };
+
   return (
-    <MasonryView 
-      viewId={viewId}
+    <MasonryViewComponent 
+      tasks={sdk.data.tasks}
+      onTaskUpdate={sdk.actions.upsert}
+      onTaskComplete={handleTaskComplete}
+      onTaskEdit={handleTaskEdit}
+      onTaskSchedule={handleTaskSchedule}
       className={className}
     />
   );
