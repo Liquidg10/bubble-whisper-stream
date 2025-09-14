@@ -33,7 +33,7 @@ const CELEBRATION_PATTERNS: CelebrationPattern[] = [
     trigger: 'streak',
     threshold: 3,
     message: "Three in a row - you're finding your rhythm! ✨",
-    tone: 'Friend',
+    tone: 'supportive',
     cooldown: 60
   },
   {
@@ -41,7 +41,7 @@ const CELEBRATION_PATTERNS: CelebrationPattern[] = [
     trigger: 'milestone',
     threshold: 1,
     message: "First task of the day done - you're off to a great start",
-    tone: 'Coach',
+    tone: 'motivational',
     cooldown: 480 // Once per day
   },
   {
@@ -49,7 +49,7 @@ const CELEBRATION_PATTERNS: CelebrationPattern[] = [
     trigger: 'difficult_complete',
     threshold: 1,
     message: "That was a tough one, and you handled it beautifully",
-    tone: 'Future You',
+    tone: 'inspiring',
     cooldown: 30
   },
   {
@@ -57,7 +57,7 @@ const CELEBRATION_PATTERNS: CelebrationPattern[] = [
     trigger: 'comeback',
     threshold: 1,
     message: "Welcome back - picking up where you left off shows real strength",
-    tone: 'Friend',
+    tone: 'supportive',
     cooldown: 180
   },
   {
@@ -65,7 +65,7 @@ const CELEBRATION_PATTERNS: CelebrationPattern[] = [
     trigger: 'focus_session',
     threshold: 5,
     message: "Five tasks in focused flow - you're in the zone",
-    tone: 'Scientist',
+    tone: 'analytical',
     cooldown: 90
   }
 ];
@@ -73,14 +73,10 @@ const CELEBRATION_PATTERNS: CelebrationPattern[] = [
 const DEFAULT_SETTINGS: CelebrationSettings = {
   enabled: true,
   tones: {
-    'Friend': true,
-    'Coach': true,
-    'Scientist': true,
-    'Future You': true,
-    'friend': true,
-    'coach': true,
-    'scientist': true,
-    'future-you': true
+    'supportive': true,
+    'motivational': true,
+    'analytical': true,
+    'inspiring': true
   },
   frequency: 'balanced',
   quietHours: null,

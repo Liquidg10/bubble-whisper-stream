@@ -32,25 +32,25 @@ const DEFAULT_SETTINGS: CelebrationSettings = {
 
 // Brief celebration messages (<90 chars, never saccharine)
 const CELEBRATION_MESSAGES = {
-  'Friend': [
+  'supportive': [
     'Nice momentum! ✨',
     'You\'re on a roll 🎯',
     'Steady progress 👏',
     'Great focus today 🌟'
   ],
-  'Coach': [
+  'motivational': [
     'Strong execution ⚡',
     'Consistent progress 📈',
     'Focused effort 🎯',
     'Building momentum 💪'
   ],
-  'Scientist': [
+  'analytical': [
     'Pattern detected: productivity burst 📊',
     'Completion rate optimized ⚡',
     'Efficiency pattern identified 🔬',
     'Flow state achieved 🧠'
   ],
-  'Future You': [
+  'inspiring': [
     'Tomorrow thanks you 🌅',
     'Progress compounds daily 📈',
     'Small wins, big impact ✨',
@@ -184,7 +184,7 @@ export const EnhancedMicroCelebrations: React.FC = () => {
       const burst = await momentumBurstService.checkForMomentumBurst(recentBubbles);
       
       if (burst && burst.celebrationEligible) {
-        const tone = (settings.preferredGlimmerTone || 'Friend') as GlimmerTone;
+        const tone = (settings.preferredGlimmerTone || 'supportive') as GlimmerTone;
         await showCelebration(burst, tone);
       }
     } catch (error) {

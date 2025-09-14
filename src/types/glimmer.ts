@@ -11,7 +11,7 @@ export interface Glimmer {
   deliveredVia?: string;
 }
 
-export type GlimmerTone = 'Friend' | 'Coach' | 'Scientist' | 'Future You' | 'friend' | 'coach' | 'scientist' | 'future-you';
+export type GlimmerTone = 'supportive' | 'motivational' | 'analytical' | 'inspiring';
 
 export interface PatternHint {
   id: string;

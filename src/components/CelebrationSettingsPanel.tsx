@@ -48,7 +48,7 @@ export function CelebrationSettingsPanel() {
     }
   };
 
-  const tones: GlimmerTone[] = ['Friend', 'Coach', 'Scientist', 'Future You'];
+  const tones: GlimmerTone[] = ['supportive', 'motivational', 'analytical', 'inspiring'];
 
   return (
     <Card>

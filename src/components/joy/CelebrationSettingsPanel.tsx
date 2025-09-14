@@ -14,14 +14,10 @@ import { useCelebrationSettings } from './MicroCelebrationEngine';
 import type { GlimmerTone } from '@/types/glimmer';
 
 const TONE_DESCRIPTIONS: Record<GlimmerTone, string> = {
-  'Friend': 'Warm, personal encouragement',
-  'Coach': 'Motivating, progress-focused',
-  'Scientist': 'Analytical, pattern-based',
-  'Future You': 'Aspirational, vision-focused',
-  'friend': 'Warm, personal encouragement',
-  'coach': 'Motivating, progress-focused', 
-  'scientist': 'Analytical, pattern-based',
-  'future-you': 'Aspirational, vision-focused'
+  'supportive': 'Warm, personal encouragement',
+  'motivational': 'Motivating, progress-focused',
+  'analytical': 'Analytical, pattern-based',
+  'inspiring': 'Aspirational, vision-focused'
 };
 
 const FREQUENCY_DESCRIPTIONS = {
