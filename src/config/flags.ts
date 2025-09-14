@@ -62,6 +62,9 @@ export const flags = {
   cbtCrisisEnabled: true, // Crisis intervention features (default ON)
   cbtDevRoutes: process.env.NODE_ENV === 'development', // Dev routes (default ON in dev)
   
+  // Micro-Prompt Policy Engine
+  adaptiveRemindersEnabled: true, // Micro-prompt policy and throttling
+  
   // CRDT Pilot (P17 - Local-first multi-device) - PRODUCTION PILOT
   crdtPilot: true, // ENABLED - P17 production pilot for internal testing cohort
   
