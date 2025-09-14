@@ -207,10 +207,16 @@ class RecurringTransactionService {
    */
   async getRecurringTransactions(userId: string): Promise<RecurringTransaction[]> {
     try {
+      // Check if user is authenticated before making the query
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || userId === 'user-id') {
+        return [];
+      }
+
       const { data, error } = await supabase
         .from('recurring_transactions')
         .select('*')
-        .eq('user_id', userId)
+        .eq('user_id', user.id)
         .eq('is_active', true)
         .order('confidence_score', { ascending: false });
 
@@ -230,7 +236,13 @@ class RecurringTransactionService {
    */
   async getUpcomingRecurringInsights(userId: string): Promise<RecurringInsight[]> {
     try {
-      const recurringTransactions = await this.getRecurringTransactions(userId);
+      // Check if user is authenticated before proceeding
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || userId === 'user-id') {
+        return [];
+      }
+
+      const recurringTransactions = await this.getRecurringTransactions(user.id);
       const insights: RecurringInsight[] = [];
       const today = new Date();
 

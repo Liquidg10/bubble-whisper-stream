@@ -27,6 +27,7 @@ import { financialContextService } from '@/services/financialContextService';
 import { budgetService } from '@/services/budgetService';
 import type { Task } from '@/types/task';
 import type { FinancialContext } from '@/services/financialContextService';
+import { supabase } from '@/integrations/supabase/client';
 
 interface SmartRecommendation {
   id: string;
@@ -60,7 +61,14 @@ export function SmartFinancialInsights({ className }: SmartFinancialInsightsProp
   const loadFinancialInsights = async () => {
     setIsLoading(true);
     try {
-      const context = await financialContextService.generateFinancialContext('user-id');
+      // Only load if user is authenticated
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        setIsLoading(false);
+        return;
+      }
+
+      const context = await financialContextService.generateFinancialContext(user.id);
       setFinancialContext(context);
       
       const smartRecommendations = await generateSmartRecommendations(context);

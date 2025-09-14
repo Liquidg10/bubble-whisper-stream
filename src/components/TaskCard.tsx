@@ -284,9 +284,9 @@ export function TaskCard({
           onUpdate?.(updatedTask);
           setHasUnsavedChanges(false);
           
-          // Add to undo stack (if service available)
+          // Add to undo stack (if service available) - but only for actual changes
           try {
-            if (crossViewUndoService && typeof crossViewUndoService.addEntry === 'function') {
+            if (crossViewUndoService && typeof crossViewUndoService.addEntry === 'function' && hasUnsavedChanges) {
               crossViewUndoService.addEntry({
                 view: 'bubble',
                 type: 'edit',
@@ -419,14 +419,14 @@ export function TaskCard({
       onUpdate?.(updatedTask);
       onComplete?.(task.id, !task.completed);
       
-      // Add to undo stack (if service available)
+      // Add to undo stack (if service available) - only for completion state changes
       try {
-        if (crossViewUndoService && typeof crossViewUndoService.addEntry === 'function') {
+        if (crossViewUndoService && typeof crossViewUndoService.addEntry === 'function' && task.completed !== updatedTask.completed) {
           crossViewUndoService.addEntry({
             view: 'bubble',
             type: 'edit',
             data: { task: updatedTask },
-            description: `Completed task: ${task.title}`
+            description: `${updatedTask.completed ? 'Completed' : 'Uncompleted'} task: ${task.title}`
           });
         }
       } catch (error) {
