@@ -11,6 +11,7 @@ import { Task, TaskId } from '@/types/task';
 import { useTaskStore } from '@/stores/taskStore';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { decisionTraceService } from '@/services/decisionTraceService';
+import { usePinboardCalendarIntegration } from '@/hooks/usePinboardCalendarIntegration';
 import MasonryView from '@/pages/MasonryView';
 import { useToast } from '@/hooks/use-toast';
 
@@ -29,6 +30,7 @@ export function MasonryViewAdapter({
 }: MasonryViewAdapterProps) {
   const { tasks, addTask, updateTask, deleteTask } = useTaskStore();
   const { settings } = useBubbleStore();
+  const pinboardIntegration = usePinboardCalendarIntegration();
   const { toast } = useToast();
 
   // Create ViewSDK instance

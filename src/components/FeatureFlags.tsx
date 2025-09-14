@@ -8,6 +8,7 @@ interface FeatureFlags {
   debugMode: boolean;
   pinboardView: boolean;
   devRoutes: boolean;
+  calendarAIIntegration: boolean;
 }
 
 interface FeatureFlagsContextValue {
@@ -38,6 +39,7 @@ const DEFAULT_FLAGS: FeatureFlags = {
   debugMode: process.env.NODE_ENV === 'development',
   pinboardView: false, // Off by default - progressive disclosure
   devRoutes: process.env.NODE_ENV === 'development',
+  calendarAIIntegration: false, // Off by default - requires pinboard stable
 };
 
 export function FeatureFlagsProvider({ children }: FeatureFlagsProviderProps) {

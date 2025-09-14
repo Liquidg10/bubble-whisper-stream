@@ -27,6 +27,7 @@ import { CalendarAutoWritePanel } from '@/components/CalendarAutoWritePanel';
 import { CalendarHealthPanel } from '@/components/CalendarHealthPanel';
 import { TaskCalendarAutoWriteWidget } from '@/components/TaskCalendarAutoWriteWidget';
 import { MasonryViewAdapter } from '@/views/MasonryViewAdapter';
+import { AISchedulingSuggestions } from '@/components/AISchedulingSuggestions';
 import { WithFeatureFlag } from '@/components/FeatureFlags';
 import { Task } from '@/types/task';
 import { useTaskStore } from '@/stores/taskStore';
@@ -120,6 +121,20 @@ export default function Calendar() {
           {/* Auto-Write Widget */}
           <TaskCalendarAutoWriteWidget />
           
+          {/* AI Scheduling Suggestions */}
+          <WithFeatureFlag feature="calendarAIIntegration" fallback={null}>
+            <AISchedulingSuggestions 
+              maxSuggestions={3}
+              onSuggestionAccepted={(suggestion, task) => {
+                handleTaskSelect(task);
+                toast({
+                  title: "AI Suggestion Accepted",
+                  description: `Scheduled "${task.title}" based on ${suggestion.type} patterns`,
+                });
+              }}
+            />
+          </WithFeatureFlag>
+          
           {/* Quick Stats */}
           <Card>
             <CardHeader className="pb-3">
@@ -133,6 +148,10 @@ export default function Calendar() {
               <div className="flex items-center justify-between">
                 <span className="text-xs text-muted-foreground">Auto-written</span>
                 <Badge variant="secondary">3</Badge>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">AI Suggestions</span>
+                <Badge variant="default">2</Badge>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-muted-foreground">Sync Conflicts</span>
