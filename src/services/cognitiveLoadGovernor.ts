@@ -41,6 +41,7 @@ class CognitiveLoadGovernor {
       return { 
         allowed: false, 
         reason: 'user_overwhelmed',
+        becauseText: 'We\'ve paused suggestions to give you space during this time.',
         metadata: { crisisMode: true }
       };
     }
@@ -216,14 +217,21 @@ class CognitiveLoadGovernor {
     const domainCooldown = cooldowns[context.domain];
     
     if (domainCooldown && domainCooldown.until > Date.now()) {
+      const remainingTime = domainCooldown.until - Date.now();
       return {
         allowed: false,
         reason: 'cooldown_active',
-        cooldownUntil: domainCooldown.until
+        cooldownUntil: domainCooldown.until,
+        suggestedDelay: remainingTime,
+        becauseText: `Taking a break from ${context.domain} suggestions for ${Math.round(remainingTime / 60000)} more minutes.`
       };
     }
     
-    return { allowed: true, reason: 'budget_available' };
+    return { 
+      allowed: true, 
+      reason: 'budget_available',
+      becauseText: 'Good timing for a suggestion.'
+    };
   }
 
   private isUserOverwhelmed(context: CognitiveLoadContext): boolean {

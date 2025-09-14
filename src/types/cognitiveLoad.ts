@@ -20,6 +20,9 @@ export interface BudgetResult {
   reason: 'budget_available' | 'budget_exceeded' | 'cooldown_active' | 'user_overwhelmed' | 'feature_disabled';
   cooldownUntil?: number;
   suggestRecap?: boolean;
+  suggestedDelay?: number;
+  becauseText?: string;
+  remainingBudget?: number;
   metadata?: Record<string, any>;
 }
 
