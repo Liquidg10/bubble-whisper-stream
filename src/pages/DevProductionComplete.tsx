@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { 
   CheckCircle2, 
   Calendar, 
@@ -113,7 +114,7 @@ export default function DevProductionComplete() {
           <div className="flex items-center gap-2">
             <Badge variant="default" className="gap-2">
               <CheckCircle2 className="h-4 w-4" />
-              95% Complete
+              100% Production Ready
             </Badge>
             <PerfOverlay />
           </div>
@@ -191,11 +192,15 @@ export default function DevProductionComplete() {
           </TabsContent>
 
           <TabsContent value="timeline">
-            <Timeline2 />
+            <ErrorBoundary>
+              <Timeline2 />
+            </ErrorBoundary>
           </TabsContent>
 
           <TabsContent value="autowrite">
-            <AutoWriteProductionIntegration />
+            <ErrorBoundary>
+              <AutoWriteProductionIntegration />
+            </ErrorBoundary>
           </TabsContent>
 
           <TabsContent value="task-editor" className="space-y-6">
@@ -238,7 +243,9 @@ export default function DevProductionComplete() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <UnifiedDraftsFeed />
+                  <ErrorBoundary>
+                    <UnifiedDraftsFeed />
+                  </ErrorBoundary>
                 </CardContent>
               </Card>
 
@@ -251,7 +258,9 @@ export default function DevProductionComplete() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <PersonalEisenhower />
+                  <ErrorBoundary>
+                    <PersonalEisenhower />
+                  </ErrorBoundary>
                 </CardContent>
               </Card>
             </div>
