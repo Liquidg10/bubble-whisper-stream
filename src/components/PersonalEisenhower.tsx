@@ -378,8 +378,8 @@ export function PersonalEisenhower({
       {/* Matrix Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {Object.entries(quadrants).map(([quadrantKey, quadrant]) => (
-          <Card key={quadrantKey} className={`min-h-[300px] ${quadrant.color}`}>
-            <CardHeader className={`${quadrant.headerColor} rounded-t-lg`}>
+          <Card key={quadrantKey} className={`min-h-[300px] ${quadrant.color} bg-card/90 dark:bg-card/95 border-2`}>
+            <CardHeader className={`${quadrant.headerColor} rounded-t-lg backdrop-blur-sm`}>
               <CardTitle className="flex items-center justify-between text-base">
                 <div className="flex items-center gap-2">
                   {quadrant.icon}
@@ -397,7 +397,7 @@ export function PersonalEisenhower({
             <CardContent className="p-4">
               <div className="space-y-3">
                 {quadrant.tasks.map((task) => (
-                  <Card key={task.id} className="p-3 bg-white/60 dark:bg-gray-800/60 hover:bg-white/80 dark:hover:bg-gray-800/80 transition-colors cursor-pointer">
+                  <Card key={task.id} className="p-3 bg-card dark:bg-card/95 hover:bg-accent dark:hover:bg-accent/90 transition-colors cursor-pointer border border-border/50">
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <h4 className="font-medium text-sm">{task.title}</h4>

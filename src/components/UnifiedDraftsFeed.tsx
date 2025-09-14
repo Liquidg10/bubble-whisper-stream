@@ -325,7 +325,7 @@ export function UnifiedDraftsFeed({
 
                 <CardContent className="space-y-4">
                   {/* Content Preview */}
-                  <div className="text-sm bg-muted/50 p-3 rounded-lg">
+                  <div className="text-sm bg-muted dark:bg-muted/90 p-3 rounded-lg border border-border/50">
                     <p className="line-clamp-3">{draft.content}</p>
                   </div>
 
@@ -421,7 +421,7 @@ export function UnifiedDraftsFeed({
                   {/* Expanded Content */}
                   {selectedDraft === draft.id && (
                     <div className="pt-4 border-t animate-fade-in">
-                      <div className="bg-muted/30 p-4 rounded-lg">
+                      <div className="bg-muted dark:bg-muted/90 p-4 rounded-lg border border-border/50">
                         <h4 className="font-medium mb-2">Full Content:</h4>
                         <pre className="text-sm whitespace-pre-wrap">{draft.content}</pre>
                       </div>
