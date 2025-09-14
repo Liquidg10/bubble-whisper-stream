@@ -53,7 +53,6 @@ export default function Calendar() {
     const newTask: Partial<Task> = {
       id: crypto.randomUUID(),
       title: `New task for ${date.toLocaleDateString()}`,
-      content: '',
       type: 'task',
       priority: 50,
       completed: false,

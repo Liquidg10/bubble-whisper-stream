@@ -383,7 +383,7 @@ class CalendarTaskSyncManager {
       }
     };
 
-    await taskStore.upsertTask(newTask as Task);
+    await taskStore.addTask(newTask as Task);
 
     // Create mapping
     const mapping: CalendarTaskMapping = {
@@ -433,7 +433,7 @@ class CalendarTaskSyncManager {
       }
     };
 
-    await taskStore.upsertTask(updatedTask);
+    await taskStore.updateTask(updatedTask.id, updatedTask);
 
     // Update mapping timestamp
     mapping.lastSyncedAt = Date.now();
@@ -559,7 +559,7 @@ class CalendarTaskSyncManager {
         }
       };
 
-      await taskStore.upsertTask(updatedTask);
+      await taskStore.updateTask(updatedTask.id, updatedTask);
     }
   }
 

@@ -14,11 +14,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { 
   RotateCw, 
   Calendar, 
@@ -63,7 +61,7 @@ export function CalendarSyncPanel() {
     const pendingConflicts = calendarTaskSyncManager.getPendingConflicts();
     setConflicts(pendingConflicts);
     
-    // Load mappings (this would be extended to get from the sync manager)
+    // Load mappings
     const taskMappings: CalendarTaskMapping[] = [];
     tasks.forEach(task => {
       const mapping = calendarTaskSyncManager.getMappingByTaskId(task.id);
@@ -94,7 +92,6 @@ export function CalendarSyncPanel() {
         description: `Processed ${result.tasksProcessed} tasks and ${result.eventsProcessed} events`,
       });
       
-      // Reload data after sync
       setTimeout(() => {
         loadSyncData();
         setSyncStatus('idle');
@@ -113,14 +110,12 @@ export function CalendarSyncPanel() {
 
   const handleResolveConflict = async (
     conflict: SyncConflict, 
-    resolution: 'prefer-task' | 'prefer-calendar' | 'merge',
-    manualValues?: any
+    resolution: 'prefer-task' | 'prefer-calendar' | 'merge'
   ) => {
     try {
       const success = await calendarTaskSyncManager.resolveConflict(
         conflict.id, 
-        resolution, 
-        manualValues
+        resolution
       );
       
       if (success) {
@@ -159,127 +154,6 @@ export function CalendarSyncPanel() {
       case 'bidirectional': return <GitMerge className="h-4 w-4" />;
       default: return <RotateCw className="h-4 w-4" />;
     }
-  };
-
-  const renderConflictResolutionDialog = (conflict: SyncConflict) => {
-    const [resolution, setResolution] = useState<'prefer-task' | 'prefer-calendar' | 'merge'>('prefer-task');
-    const [manualTitle, setManualTitle] = useState('');
-    const [manualTime, setManualTime] = useState('');
-    const [manualLocation, setManualLocation] = useState('');
-
-    return (
-      <Dialog open={selectedConflict?.id === conflict.id} onOpenChange={() => setSelectedConflict(null)}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              {getConflictIcon(conflict.conflictType)}
-              Resolve {conflict.conflictType} Conflict
-            </DialogTitle>
-            <DialogDescription>
-              Choose how to resolve the conflict between task and calendar data
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-6">
-            {/* Conflict Details */}
-            <div className="grid grid-cols-2 gap-4">
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Calendar className="h-4 w-4" />
-                    Task Value
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="pt-0">
-                  <div className="text-sm font-mono bg-muted p-2 rounded">
-                    {conflict.taskValue}
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Calendar className="h-4 w-4" />
-                    Calendar Value
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="pt-0">
-                  <div className="text-sm font-mono bg-muted p-2 rounded">
-                    {conflict.calendarValue}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Resolution Options */}
-            <div className="space-y-4">
-              <Label>Resolution Strategy</Label>
-              <Select value={resolution} onValueChange={(value: any) => setResolution(value)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="prefer-task">Prefer Task Value</SelectItem>
-                  <SelectItem value="prefer-calendar">Prefer Calendar Value</SelectItem>
-                  <SelectItem value="merge">Merge Intelligently</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Manual Resolution Fields */}
-            {resolution === 'merge' && (
-              <div className="space-y-4 border p-4 rounded-lg">
-                <Label>Merge Strategy</Label>
-                <p className="text-sm text-muted-foreground">
-                  The system will intelligently combine values from both sources.
-                </p>
-              </div>
-            )}
-
-                {conflict.conflictType === 'time' && (
-                  <div className="space-y-2">
-                    <Label htmlFor="manual-time">Start Time</Label>
-                    <Input
-                      id="manual-time"
-                      type="datetime-local"
-                      value={manualTime}
-                      onChange={(e) => setManualTime(e.target.value)}
-                    />
-                  </div>
-                )}
-
-                {conflict.conflictType === 'location' && (
-                  <div className="space-y-2">
-                    <Label htmlFor="manual-location">Location</Label>
-                    <Input
-                      id="manual-location"
-                      value={manualLocation}
-                      onChange={(e) => setManualLocation(e.target.value)}
-                      placeholder="Enter merged location"
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Action Buttons */}
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setSelectedConflict(null)}>
-                Cancel
-              </Button>
-              <Button 
-                onClick={() => {
-                  handleResolveConflict(conflict, resolution);
-                }}
-              >
-                Resolve Conflict
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-    );
   };
 
   return (
@@ -438,8 +312,79 @@ export function CalendarSyncPanel() {
               </ScrollArea>
             )}
 
-            {/* Render conflict resolution dialogs */}
-            {conflicts.map(conflict => renderConflictResolutionDialog(conflict))}
+            {/* Conflict Resolution Dialog */}
+            {selectedConflict && (
+              <Dialog open={!!selectedConflict} onOpenChange={() => setSelectedConflict(null)}>
+                <DialogContent className="max-w-2xl">
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2">
+                      {getConflictIcon(selectedConflict.conflictType)}
+                      Resolve {selectedConflict.conflictType} Conflict
+                    </DialogTitle>
+                    <DialogDescription>
+                      Choose how to resolve the conflict between task and calendar data
+                    </DialogDescription>
+                  </DialogHeader>
+
+                  <div className="space-y-6">
+                    {/* Conflict Details */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm flex items-center gap-2">
+                            <Calendar className="h-4 w-4" />
+                            Task Value
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="pt-0">
+                          <div className="text-sm font-mono bg-muted p-2 rounded">
+                            {selectedConflict.taskValue}
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      <Card>
+                        <CardHeader className="pb-2">
+                          <CardTitle className="text-sm flex items-center gap-2">
+                            <Calendar className="h-4 w-4" />
+                            Calendar Value
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="pt-0">
+                          <div className="text-sm font-mono bg-muted p-2 rounded">
+                            {selectedConflict.calendarValue}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+
+                    {/* Resolution Buttons */}
+                    <div className="flex justify-end gap-2">
+                      <Button variant="outline" onClick={() => setSelectedConflict(null)}>
+                        Cancel
+                      </Button>
+                      <Button 
+                        variant="outline"
+                        onClick={() => handleResolveConflict(selectedConflict, 'prefer-task')}
+                      >
+                        Use Task Value
+                      </Button>
+                      <Button 
+                        variant="outline"
+                        onClick={() => handleResolveConflict(selectedConflict, 'prefer-calendar')}
+                      >
+                        Use Calendar Value
+                      </Button>
+                      <Button 
+                        onClick={() => handleResolveConflict(selectedConflict, 'merge')}
+                      >
+                        Merge Intelligently
+                      </Button>
+                    </div>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            )}
           </TabsContent>
 
           <TabsContent value="mappings" className="space-y-4">
