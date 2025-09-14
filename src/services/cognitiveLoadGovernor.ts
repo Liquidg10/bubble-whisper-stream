@@ -35,6 +35,16 @@ class CognitiveLoadGovernor {
   };
 
   checkBudget(context: CognitiveLoadContext): BudgetResult {
+    // Enhanced crisis integration
+    const { crisisDetectionService } = require('./crisisDetectionService');
+    if (crisisDetectionService.shouldSuppressNudges()) {
+      return { 
+        allowed: false, 
+        reason: 'user_overwhelmed',
+        metadata: { crisisMode: true }
+      };
+    }
+    
     return this.checkNudgeBudget(context);
   }
 

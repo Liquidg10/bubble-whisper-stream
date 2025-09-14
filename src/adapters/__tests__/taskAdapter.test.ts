@@ -193,8 +193,12 @@ describe('TaskAdapter', () => {
     it('preserves metadata when converting', () => {
       const originalMetadata = {
         outliner: {
-          parentTaskId: 'parent-1',
-          stepId: 'step-1'
+          parentId: 'parent-1',
+          steps: [{
+            id: 'step-1',
+            title: 'Test step',
+            completed: false
+          }]
         }
       };
 

@@ -138,7 +138,24 @@ export function bubbleToTask(bubble: Bubble): Task {
       start: bubble.metadata?.calendar?.start,
       end: bubble.metadata?.calendar?.end,
       view,
-      metadata: bubble.metadata // Preserve all existing metadata
+      metadata: {
+        ...bubble.metadata,
+        // Map legacy bubble metadata to new Task metadata structure
+        outliner: bubble.metadata?.outliner ? {
+          parentId: bubble.metadata.outliner.parentTaskId,
+          estimateMin: bubble.metadata.outliner.estimatedMinutes,
+          steps: bubble.metadata.outliner.stepId ? [{
+            id: bubble.metadata.outliner.stepId,
+            title: 'Legacy step',
+            completed: false
+          }] : undefined
+        } : undefined,
+        focusSession: bubble.metadata?.focusSession ? {
+          targetMin: bubble.metadata.focusSession.duration,
+          actualMin: bubble.metadata.focusSession.duration,
+          notes: bubble.metadata.focusSession.log?.join('; ')
+        } : undefined
+      }
     };
 
     logger.debug('Converted Bubble to Task', { bubbleId: bubble.id, taskId: task.id, priority });
@@ -192,7 +209,20 @@ export function taskToBubble(task: Task): Bubble {
       y: task.view?.bubble?.y || 0,
       size,
       moodColor: task.view?.bubble?.colorHex,
-      metadata: { ...task.metadata } // Preserve existing metadata
+      metadata: {
+        ...task.metadata,
+        // Map new Task metadata back to legacy bubble format for compatibility
+        outliner: task.metadata?.outliner ? {
+          parentTaskId: task.metadata.outliner.parentId,
+          estimatedMinutes: task.metadata.outliner.estimateMin,
+          stepId: task.metadata.outliner.steps?.[0]?.id
+        } : undefined,
+        focusSession: task.metadata?.focusSession ? {
+          duration: task.metadata.focusSession.actualMin || task.metadata.focusSession.targetMin || 0,
+          stepsCompleted: 0,
+          log: task.metadata.focusSession.notes ? [task.metadata.focusSession.notes] : []
+        } : undefined
+      }
     };
 
     // Set reminder if due date exists - will be handled by reminder system

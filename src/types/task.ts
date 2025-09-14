@@ -88,7 +88,48 @@ export interface Task {
   view?: TaskViewMetadata;
   
   // Preserve: carry Bubble.metadata forward intact
-  metadata?: Bubble['metadata'];
+  // Enhanced metadata structure from Implementation Bible
+  metadata?: {
+    outliner?: {
+      parentId?: string;
+      steps?: Array<{
+        id: string;
+        title: string;
+        completed: boolean;
+        estimateMin?: number;
+        dependencies?: string[];
+      }>;
+      estimateMin?: number;
+      progressPercent?: number;
+    };
+    finance?: {
+      accountId?: string;
+      transactionId?: string;
+      amount?: number;
+      merchant?: string;
+      category?: string;
+      itemLines?: Array<{
+        name: string;
+        price: number;
+        category?: string;
+        confidence?: number;
+      }>;
+    };
+    focusSession?: {
+      targetMin?: number;
+      actualMin?: number;
+      startedAt?: number;
+      completedAt?: number;
+      notes?: string;
+      breaks?: Array<{
+        startAt: number;
+        endAt: number;
+        type: 'micro' | 'planned';
+      }>;
+    };
+    // Preserve Bubble compatibility
+    [key: string]: any;
+  };
 }
 
 /**

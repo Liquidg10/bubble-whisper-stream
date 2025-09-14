@@ -12,6 +12,8 @@ export const flags = {
   joyPage: true,
   emailIngest: true,
   receiptsOCR: true,
+  emailIntegrationEnabled: true,
+  receiptProcessing: true,
   outliner: true,
   focusMode: true,
   prioritizer: true,

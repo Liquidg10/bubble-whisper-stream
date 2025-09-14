@@ -67,7 +67,7 @@ const COMPASSIONATE_STATUS = {
   }
 };
 
-// Context-aware encouragement
+// Enhanced Bible-aligned encouragement phrases
 const ENCOURAGEMENT_PHRASES = [
   'You\'re doing your best',
   'Every small step counts',
@@ -76,7 +76,37 @@ const ENCOURAGEMENT_PHRASES = [
   'You\'re learning and growing',
   'Tomorrow is a fresh start',
   'You have everything you need',
-  'Trust your process'
+  'Trust your process',
+  'You took a timely break. That helps future-you.',
+  'What would you say to yourself on a good day?',
+  'You\'re meeting yourself where you are',
+  'This is practice, not perfection',
+  'You\'re being gentle with yourself',
+  'Small steps are still progress'
+];
+
+// Self-compassion reframes (from Implementation Bible)
+const SELF_COMPASSION_REFRAMES = [
+  'How would you comfort a friend having this thought?',
+  'What would you tell someone you care about?',
+  'You\'re being harder on yourself than you need to be',
+  'This feeling is temporary and understandable',
+  'You\'re human, and humans have tough moments',
+  'What\'s one small act of kindness you can give yourself?',
+  'It\'s okay to not be okay right now',
+  'You\'re doing the best you can with what you have'
+];
+
+// Autonomy-supportive language patterns (SDT-aligned)
+const AUTONOMY_PHRASES = [
+  'Pick: 10-min start or tomorrow morning?',
+  'Want a 5-min tidy or skip for later?',
+  'Ready when you are',
+  'You choose what feels right',
+  'What feels manageable for you?',
+  'Trust your instincts on this',
+  'You know what works for you',
+  'Take your time with this'
 ];
 
 /**
@@ -115,6 +145,22 @@ export function getCompassionateStatus(
 export function getEncouragement(): string {
   const randomIndex = Math.floor(Math.random() * ENCOURAGEMENT_PHRASES.length);
   return ENCOURAGEMENT_PHRASES[randomIndex];
+}
+
+/**
+ * Gets self-compassion reframe (Bible enhancement)
+ */
+export function getSelfCompassionReframe(): string {
+  const randomIndex = Math.floor(Math.random() * SELF_COMPASSION_REFRAMES.length);
+  return SELF_COMPASSION_REFRAMES[randomIndex];
+}
+
+/**
+ * Gets autonomy-supportive phrase (SDT-aligned)
+ */
+export function getAutonomySupportivePhrase(): string {
+  const randomIndex = Math.floor(Math.random() * AUTONOMY_PHRASES.length);
+  return AUTONOMY_PHRASES[randomIndex];
 }
 
 /**

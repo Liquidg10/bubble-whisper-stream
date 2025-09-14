@@ -171,8 +171,22 @@ class CBTService {
     return suggestions;
   }
 
-  // Generate supportive reframe suggestions with AI enhancement
+  // Enhanced: Check for crisis before generating reframes
   async generateReframeSuggestions(thought: string, distortions: DistortionKey[]): Promise<string[]> {
+    // Crisis safety check
+    const { crisisDetectionService } = await import('./crisisDetectionService');
+    const crisisSignals = crisisDetectionService.analyzeText(thought, { source: 'cbt_reframe' });
+    
+    if (crisisSignals.length > 0) {
+      crisisDetectionService.processSignals(crisisSignals);
+      
+      // Return supportive, non-directive responses for crisis
+      return [
+        'This sounds really difficult. You don\'t have to handle this alone.',
+        'Your feelings are valid and understandable.',
+        'Would it help to talk to someone you trust?'
+      ];
+    }
     // Try AI first for personalized reframes
     try {
       const { aiService } = await import('./aiService');
