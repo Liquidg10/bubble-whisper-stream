@@ -165,9 +165,14 @@ const devRoutes: DevRoute[] = [
     description: 'Nudge budget & cooldown tracking'
   },
   {
+    path: '/dev/foundation-audit',
+    name: 'Foundation Audit',
+    description: 'P0 infrastructure confirmation & health guardrails'
+  },
+  {
     path: '/dev/watch-health',
     name: 'Watch Health',
-    description: 'Calendar/Gmail watcher status & renewal (Extended)'
+    description: 'Calendar/Gmail watcher status & renewal (Enhanced)'
   },
   {
     path: '/dev/task-adapter',

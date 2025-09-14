@@ -85,7 +85,8 @@ export default function DevA11yGate() {
     const actionableSelectors = [
       'button', 'a[href]', 'input', 'select', 'textarea', 
       '[role="button"]', '[role="link"]', '[tabindex]',
-      '[draggable="true"]', '.bubble-card', '.atom-node'
+      '[draggable="true"]', '.bubble-card', '.atom-node',
+      '.calendar-event', '.task-card', '.kanban-card', '.matrix-task'
     ];
 
     const violations: TargetSizeViolation[] = [];
@@ -123,9 +124,23 @@ export default function DevA11yGate() {
         element.querySelector('[tabindex]') ||
         element.closest('[role="listbox"]') ||
         element.closest('[role="grid"]') ||
+        element.querySelector('[aria-label*="move"]') ||
+        element.querySelector('[aria-label*="keyboard"]') ||
         hasAriaDescribedby(element);
 
       if (!hasKeyboardAlternative) {
+        violations.push(element);
+      }
+    });
+
+    // Calendar-specific drag alternative checks
+    document.querySelectorAll('.calendar-event[draggable="true"]').forEach(element => {
+      const hasCalendarKeyboard = 
+        element.querySelector('button[aria-label*="reschedule"]') ||
+        element.querySelector('[data-testid*="keyboard-move"]') ||
+        element.getAttribute('role') === 'button';
+
+      if (!hasCalendarKeyboard) {
         violations.push(element);
       }
     });

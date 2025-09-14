@@ -62,6 +62,7 @@ import Calendar from "./pages/Calendar";
 import DevRecurringFinance from "./pages/DevRecurringFinance";
 import { DevVoiceFirst } from "./pages/DevVoiceFirst";
 import DevHealthDashboard from "./pages/DevHealthDashboard";
+import DevFoundationAudit from "./pages/DevFoundationAudit";
 import DevPlaidRecur from "./pages/DevPlaidRecur";
 import DevMetricsAlerts from "./pages/DevMetricsAlerts";
 import CastIntegrationDemo from "./components/CastIntegrationDemo";
@@ -203,9 +204,10 @@ const App = () => {
                          <Route path="dev/offline-lab" element={<DevOfflineLabPage />} />
                           <Route path="dev/production-complete" element={<DevProductionComplete />} />
                           <Route path="dev/crdt-conflicts" element={<DevCRDTConflicts />} />
-                          <Route path="dev/task-roundtrip" element={<DevTaskRoundtrip />} />
-                          <Route path="dev/a11y-gate" element={<DevA11yGate />} />
-                      <Route path="privacy" element={<Privacy />} />
+                      <Route path="dev/task-roundtrip" element={<DevTaskRoundtrip />} />
+                      <Route path="dev/a11y-gate" element={<DevA11yGate />} />
+                      <Route path="dev/foundation-audit" element={<DevFoundationAudit />} />
+                    <Route path="privacy" element={<Privacy />} />
                     </Route>
                      <Route path="auth/callback" element={<AuthCallback />} />
                      <Route path="oauth-callback" element={<AuthCallback />} />

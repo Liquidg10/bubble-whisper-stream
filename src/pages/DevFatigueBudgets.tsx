@@ -47,7 +47,7 @@ export default function DevFatigueBudgets() {
   const [loading, setLoading] = useState(false);
   const [globalPause, setGlobalPause] = useState(false);
 
-  // Default budget configuration
+  // Default budget configuration (Enhanced for P0 with calendar)
   const DEFAULT_BUDGETS: Record<string, number> = {
     'cbt-assist': 3,
     'auto-write': 5,
@@ -56,7 +56,10 @@ export default function DevFatigueBudgets() {
     'context-nudge': 4,
     'productivity-coach': 3,
     'glimmer': 6,
-    'reminder-adjust': 4
+    'reminder-adjust': 4,
+    'calendar-suggestions': 4,
+    'masonry-reorder': 3,
+    'auto-reschedule': 2
   };
 
   const loadBudgets = () => {
@@ -273,7 +276,7 @@ export default function DevFatigueBudgets() {
           <div>
             <h1 className="text-3xl font-bold">Fatigue Budget Monitor</h1>
             <p className="text-muted-foreground">
-              Per-domain nudge budgets and cooldown tracking
+              Per-domain nudge budgets and cooldown tracking (includes calendar suggestions)
             </p>
           </div>
           <div className="flex items-center gap-2">
