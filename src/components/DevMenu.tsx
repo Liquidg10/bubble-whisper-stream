@@ -140,6 +140,16 @@ const devRoutes: DevRoute[] = [
     description: 'Comprehensive system health monitoring and bug detection'
   },
   {
+    path: '/dev/cast-demo',
+    name: 'Cast Integration Demo',
+    description: 'Interactive demo of unified AI with multi-expert Cast synthesis'
+  },
+  {
+    path: '/dev/cast-status',
+    name: 'Cast Status Dashboard',
+    description: 'Monitor active Cast members and contextual bandit learning'
+  },
+  {
     path: '/dev/a11y-gate',
     name: 'A11y Gate',
     description: 'Accessibility compliance scanner (WCAG 2.2)'
@@ -153,7 +163,6 @@ const devRoutes: DevRoute[] = [
     path: '/dev/fatigue-budgets',
     name: 'Fatigue Budgets',
     description: 'Nudge budget & cooldown tracking'
-  },
   {
     path: '/dev/watch-health',
     name: 'Watch Health',

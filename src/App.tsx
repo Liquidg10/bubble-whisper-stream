@@ -62,6 +62,8 @@ import { DevVoiceFirst } from "./pages/DevVoiceFirst";
 import DevHealthDashboard from "./pages/DevHealthDashboard";
 import DevPlaidRecur from "./pages/DevPlaidRecur";
 import DevMetricsAlerts from "./pages/DevMetricsAlerts";
+import CastIntegrationDemo from "./components/CastIntegrationDemo";
+import CastStatusDashboard from "./components/CastStatusDashboard";
 // DevA11yGate already imported above
 import DevContextDrift from "@/pages/dev-context-drift";
 import DevFatigueBudgets from "@/pages/DevFatigueBudgets";
@@ -171,9 +173,11 @@ const App = () => {
                          <Route path="dev/plaid-recur" element={<DevPlaidRecur />} />
                          <Route path="dev/metrics-alerts" element={<DevMetricsAlerts />} />
                          <Route path="dev/recurring-finance" element={<DevRecurringFinance />} />
-                         <Route path="dev/voice-first" element={<DevVoiceFirst />} />
-                         <Route path="dev/health-dashboard" element={<DevHealthDashboard />} />
-                         <Route path="dev/a11y-gate" element={<DevA11yGate />} />
+                          <Route path="dev/voice-first" element={<DevVoiceFirst />} />
+                          <Route path="dev/health-dashboard" element={<DevHealthDashboard />} />
+                          <Route path="dev/cast-demo" element={<CastIntegrationDemo />} />
+                          <Route path="dev/cast-status" element={<CastStatusDashboard />} />
+                          <Route path="dev/a11y-gate" element={<DevA11yGate />} />
                           <Route path="dev/context-drift" element={<DevContextDrift />} />
                           <Route path="dev/fatigue-budgets" element={<DevFatigueBudgets />} />
                           <Route path="dev/watch-health" element={<DevWatchHealth />} />
