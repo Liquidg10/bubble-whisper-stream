@@ -70,17 +70,7 @@ export const OnboardingDataWizard: React.FC<OnboardingDataWizardProps> = ({
 
   const handleComplete = async () => {
     try {
-      // Save to self model
-      await selfModelV2Service.updateSelfModel({
-        preferences: {
-          ...formData.preferences,
-          onboardingCompleted: true,
-          completedAt: Date.now()
-        },
-        routines: formData.routines
-      }, 'surface');
-
-      // Create welcome bubbles
+      // Create welcome bubbles first (in-memory storage as fallback)
       if (formData.preferences.name) {
         addBubble({
           id: `welcome-${Date.now()}`,
@@ -112,10 +102,29 @@ export const OnboardingDataWizard: React.FC<OnboardingDataWizardProps> = ({
         });
       });
 
+      // Try to save to self model (gracefully handle failures)
+      try {
+        await selfModelV2Service.updateSelfModel({
+          preferences: {
+            ...formData.preferences,
+            onboardingCompleted: true,
+            completedAt: Date.now()
+          },
+          routines: formData.routines
+        }, 'surface');
+        console.log('Onboarding data saved to self model');
+      } catch (modelError) {
+        console.warn('Failed to save to self model, continuing with onboarding:', modelError);
+        // Continue without failing - the bubbles are already created
+      }
+
+      // Complete onboarding regardless of storage issues
       onComplete(formData);
       onClose();
     } catch (error) {
       console.error('Failed to complete onboarding:', error);
+      // Still close the dialog to prevent user being stuck
+      onClose();
     }
   };
 
