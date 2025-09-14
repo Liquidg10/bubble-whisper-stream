@@ -77,6 +77,8 @@ import DevPlanningStats from "@/pages/DevPlanningStats";
 import { DevPhase3Polish } from "./pages/DevPhase3Polish";
 import { DevOfflineLabPage } from "./pages/DevOfflineLabPage";
 import DevProductionComplete from "./pages/DevProductionComplete";
+import DevCRDTConflicts from "./pages/DevCRDTConflicts";
+import DevTaskRoundtrip from "./pages/DevTaskRoundtrip";
 import { ListView } from "./pages/ListView";
 import KanbanView from "./pages/KanbanView";
 import MatrixView from "./pages/MatrixView";
@@ -196,8 +198,10 @@ const App = () => {
                          <Route path="dev/behavioral-science" element={<div>Behavioral Science Dev (Coming Soon)</div>} />
                          <Route path="dev/phase3-polish" element={<DevPhase3Polish />} />
                          <Route path="dev/offline-lab" element={<DevOfflineLabPage />} />
-                         <Route path="dev/production-complete" element={<DevProductionComplete />} />
-                         <Route path="dev/a11y-gate" element={<DevA11yGate />} />
+                          <Route path="dev/production-complete" element={<DevProductionComplete />} />
+                          <Route path="dev/crdt-conflicts" element={<DevCRDTConflicts />} />
+                          <Route path="dev/task-roundtrip" element={<DevTaskRoundtrip />} />
+                          <Route path="dev/a11y-gate" element={<DevA11yGate />} />
                       <Route path="privacy" element={<Privacy />} />
                     </Route>
                      <Route path="auth/callback" element={<AuthCallback />} />

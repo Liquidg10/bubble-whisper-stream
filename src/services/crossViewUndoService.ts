@@ -13,6 +13,8 @@ class CrossViewUndoService {
   private stack: UndoEntry[] = [];
   private maxEntries = 20;
   private listeners: ((stack: UndoEntry[]) => void)[] = [];
+  private lastLogTime = 0;
+  private logThrottleMs = 1000; // Throttle logs to max 1 per second
 
   addEntry(entry: Omit<UndoEntry, 'id' | 'timestamp'>) {
     const undoEntry: UndoEntry = {
@@ -31,7 +33,10 @@ class CrossViewUndoService {
 
     this.notifyListeners();
     
-    console.log(`🔄 Undo entry added: ${entry.description} (${entry.view} view)`);
+    // Rate-limit console logs to prevent spam
+    if (this.shouldLogEntry(entry)) {
+      console.log(`🔄 Undo entry added: ${entry.description} (${entry.view} view)`);
+    }
   }
 
   async undo(): Promise<UndoEntry | null> {
@@ -84,6 +89,15 @@ class CrossViewUndoService {
 
   private notifyListeners() {
     this.listeners.forEach(listener => listener([...this.stack]));
+  }
+
+  private shouldLogEntry(entry: Omit<UndoEntry, 'id' | 'timestamp'>): boolean {
+    const now = Date.now();
+    if (now - this.lastLogTime > this.logThrottleMs) {
+      this.lastLogTime = now;
+      return true;
+    }
+    return false;
   }
 }
 
