@@ -63,10 +63,9 @@ export function PredictiveIntelligencePanel({ className }: PredictiveIntelligenc
             size: 120,
             type: 'Task',
             completed: false,
-            priority: 50,
             createdAt: Date.now(),
             updatedAt: Date.now(),
-            due: action.scheduledFor || undefined
+            tags: []
           });
         }
       }
