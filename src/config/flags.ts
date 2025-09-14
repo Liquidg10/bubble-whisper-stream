@@ -125,6 +125,12 @@ export const flags = {
   personalEisenhower: true,
   splitViewComposer: true,
   diffView: true,
+
+  // Phase 4: Activation Ritual + Dev Tools (WEEK 2-3)
+  offlineLab: process.env.NODE_ENV === 'development',
+  perfOverlay: process.env.NODE_ENV === 'development',
+  activationRitualIntegration: true,
+  completeE2ESuite: process.env.NODE_ENV === 'development',
 } as const;
 
 export type FeatureFlag = keyof typeof flags;
