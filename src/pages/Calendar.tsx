@@ -29,19 +29,40 @@ import { TaskCalendarAutoWriteWidget } from '@/components/TaskCalendarAutoWriteW
 import { MasonryViewAdapter } from '@/views/MasonryViewAdapter';
 import { AISchedulingSuggestions } from '@/components/AISchedulingSuggestions';
 import { WithFeatureFlag } from '@/components/FeatureFlags';
+import { MobileConflictResolver } from '@/components/mobile/MobileConflictResolver';
 import { Task } from '@/types/task';
 import { useTaskStore } from '@/stores/taskStore';
 import { useToast } from '@/hooks/use-toast';
+import { useMobileCalendarPerformance } from '@/hooks/useMobileCalendarPerformance';
+import { calendarOfflineExtensions } from '@/services/calendarOfflineExtensions';
 
 export default function Calendar() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [conflicts, setConflicts] = useState<any[]>([]);
   
   const { addTask } = useTaskStore();
   const { toast } = useToast();
+  
+  // Mobile performance integration
+  const {
+    getAdaptiveStyles,
+    getPerformanceStatus,
+    isMobile,
+    currentFPS,
+    lodLevel,
+    triggerHaptic,
+  } = useMobileCalendarPerformance();
+
+  // Initialize conflict monitoring
+  React.useEffect(() => {
+    const unsubscribe = calendarOfflineExtensions.onConflictsChange(setConflicts);
+    return unsubscribe;
+  }, []);
 
   const handleTaskSelect = (task: Task) => {
     setSelectedTask(task);
+    if (isMobile) triggerHaptic('light');
     toast({
       title: "Task Selected",
       description: `Selected: ${task.title}`,
@@ -72,6 +93,7 @@ export default function Calendar() {
     };
 
     addTask(newTask as Task);
+    if (isMobile) triggerHaptic('medium');
     
     toast({
       title: "Task Created",
@@ -79,8 +101,25 @@ export default function Calendar() {
     });
   };
 
+  const handleConflictResolve = async (actionId: string, resolution: 'local' | 'remote' | 'merge') => {
+    await calendarOfflineExtensions.resolveConflict(actionId, resolution);
+    if (isMobile) triggerHaptic('medium');
+    toast({
+      title: "Conflict Resolved",
+      description: `Used ${resolution} version`,
+    });
+  };
+
+  const adaptiveStyles = getAdaptiveStyles();
+  const performanceStatus = getPerformanceStatus();
+
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div 
+      className="container mx-auto p-6 space-y-6"
+      style={adaptiveStyles}
+      data-mobile={isMobile}
+      data-lod={lodLevel}
+    >
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -118,6 +157,31 @@ export default function Calendar() {
 
         {/* Sidebar Widgets */}
         <div className="space-y-4">
+          {/* Mobile Conflict Resolver */}
+          {conflicts.length > 0 && (
+            <MobileConflictResolver 
+              conflicts={conflicts}
+              onResolve={handleConflictResolve}
+              onDismiss={() => setConflicts([])}
+            />
+          )}
+          
+          {/* Performance Monitor for Debug */}
+          {process.env.NODE_ENV === 'development' && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Performance</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-xs space-y-1">
+                  <div>FPS: {currentFPS}</div>
+                  <div>LOD: {lodLevel}</div>
+                  <div>Mobile: {isMobile ? 'Yes' : 'No'}</div>
+                  <div>{performanceStatus.recommendation}</div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
           {/* Auto-Write Widget */}
           <TaskCalendarAutoWriteWidget />
           

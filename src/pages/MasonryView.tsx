@@ -5,7 +5,7 @@
  * with keyboard alternatives and crisis mode support.
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -27,6 +27,8 @@ import { useTaskStore } from '@/stores/taskStore';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { classifyDomain, getDomainEmoji, type Domain } from '@/lib/classifyDomain';
 import { useToast } from '@/hooks/use-toast';
+import { useMasonryGestures } from '@/hooks/useMasonryGestures';
+import { useMobileCalendarPerformance } from '@/hooks/useMobileCalendarPerformance';
 import { cn } from '@/lib/utils';
 
 interface MasonryCardProps {
@@ -262,6 +264,37 @@ export default function MasonryView({ viewId = 'masonry-main', className }: Maso
   const { tasks, updateTask } = useTaskStore();
   const { toast } = useToast();
   const [selectedTaskId, setSelectedTaskId] = useState<TaskId | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  
+  // Mobile performance and gesture support
+  const {
+    getAdaptiveStyles,
+    isMobile,
+    lodLevel,
+    triggerHaptic,
+    adaptiveConfig,
+  } = useMobileCalendarPerformance();
+  
+  const masonryGestures = useMasonryGestures({
+    onCardSelect: setSelectedTaskId,
+    onCardMove: handleCardMove,
+    onCardLongPress: (taskId) => {
+      setSelectedTaskId(taskId);
+      // Open context menu or edit mode
+    },
+    onZoom: (scale, center) => {
+      setZoom(scale);
+    },
+    onPan: (delta) => {
+      setPan(prev => ({
+        x: prev.x + delta.x,
+        y: prev.y + delta.y,
+      }));
+    },
+    minZoom: 0.5,
+    maxZoom: 2.0,
+  });
 
   // Filter unscheduled tasks (no calendar.startTime or future due date)
   const unscheduledTasks = useMemo(() => {
@@ -306,7 +339,8 @@ export default function MasonryView({ viewId = 'masonry-main', className }: Maso
     });
   }, [unscheduledTasks]);
 
-  const handleCardMove = useCallback((taskId: TaskId, direction: 'left' | 'right' | 'up' | 'down') => {
+  // Move the handleCardMove function before the gesture hook initialization
+  function handleCardMove(taskId: TaskId, direction: 'left' | 'right' | 'up' | 'down') {
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
 
@@ -348,11 +382,12 @@ export default function MasonryView({ viewId = 'masonry-main', className }: Maso
 
     updateTask(task.id, updatedTask);
     
+    if (isMobile) triggerHaptic('light');
     toast({
       title: "Card moved",
       description: `Moved "${task.title}" ${direction}`,
     });
-  }, [tasks, updateTask, toast]);
+  }
 
   const handleEdit = useCallback((task: Task) => {
     setSelectedTaskId(task.id);
@@ -404,8 +439,20 @@ export default function MasonryView({ viewId = 'masonry-main', className }: Maso
     );
   }
 
+  const adaptiveStyles = getAdaptiveStyles();
+  
   return (
-    <div className={cn('p-6 space-y-6', className)}>
+    <div 
+      {...masonryGestures.getContainerProps()}
+      className={cn('p-6 space-y-6', className)}
+      style={{
+        ...adaptiveStyles,
+        transform: `scale(${zoom}) translate(${pan.x}px, ${pan.y}px)`,
+        transformOrigin: 'center',
+      }}
+      data-mobile={isMobile}
+      data-lod={lodLevel}
+    >
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -417,20 +464,46 @@ export default function MasonryView({ viewId = 'masonry-main', className }: Maso
       </div>
 
       {/* Masonry Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 auto-rows-min">
-        {sortedTasks.map(task => (
-          <MasonryCard
-            key={task.id}
-            task={task}
-            size={getCardSize(task)}
-            onMove={handleCardMove}
-            onEdit={handleEdit}
-            onSchedule={handleSchedule}
-            onComplete={handleComplete}
-            className={selectedTaskId === task.id ? 'ring-2 ring-primary' : ''}
-          />
-        ))}
+      <div 
+        className={cn(
+          'grid gap-4 auto-rows-min',
+          // Adaptive column count based on performance
+          adaptiveConfig.maxVisibleItems < 50 
+            ? 'grid-cols-1 sm:grid-cols-2' 
+            : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
+        )}
+      >
+        {sortedTasks
+          .slice(0, adaptiveConfig.maxVisibleItems)
+          .map(task => (
+            <div
+              key={task.id}
+              {...masonryGestures.getCardProps(task.id)}
+              {...masonryGestures.getAccessibilityProps()}
+            >
+              <MasonryCard
+                task={task}
+                size={getCardSize(task)}
+                onMove={handleCardMove}
+                onEdit={handleEdit}
+                onSchedule={handleSchedule}
+                onComplete={handleComplete}
+                className={cn(
+                  selectedTaskId === task.id ? 'ring-2 ring-primary' : '',
+                  masonryGestures.focusedTaskId === task.id ? 'ring-1 ring-accent' : ''
+                )}
+              />
+            </div>
+          ))}
       </div>
+
+      {/* Performance info for large lists */}
+      {sortedTasks.length > adaptiveConfig.maxVisibleItems && (
+        <div className="text-center text-sm text-muted-foreground">
+          Showing {adaptiveConfig.maxVisibleItems} of {sortedTasks.length} tasks
+          {lodLevel === 'low' && ' (performance mode)'}
+        </div>
+      )}
 
       {/* Keyboard Navigation Hint */}
       <div className="text-xs text-muted-foreground text-center">
