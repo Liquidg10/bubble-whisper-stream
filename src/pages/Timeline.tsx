@@ -23,6 +23,9 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import TemporalNavigation from '@/components/TemporalNavigation';
 import { IntelligenceDashboard } from '@/components/IntelligenceDashboard';
+import { IntelligentMoodRibbon } from '@/components/IntelligentMoodRibbon';
+import { CastDecisionDisplay } from '@/components/CastDecisionDisplay';
+import { decisionTraceService } from '@/services/decisionTraceService';
 import { ttsService } from '@/services/tts';
 import { hapticsService } from '@/services/haptics';
 
@@ -33,6 +36,7 @@ export const Timeline: React.FC = () => {
   const [filterType, setFilterType] = useState<string>('all');
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [activeTab, setActiveTab] = useState('list');
+  const [recentDecisions, setRecentDecisions] = useState<any[]>([]);
 
   const filteredBubbles = useMemo(() => {
     let filtered = [...bubbles];
@@ -247,12 +251,23 @@ export const Timeline: React.FC = () => {
                 : 'No bubbles yet. Start capturing your thoughts!'}
             </div>
           ) : (
-            <div className="space-y-6">
-              {Object.entries(groupedBubbles).map(([date, dayBubbles]) => (
-                <div key={date} className="space-y-3">
-                  <h2 className="text-lg font-medium text-foreground sticky top-0 bg-background/95 backdrop-blur py-2">
-                    {formatDateHeader(date)}
-                  </h2>
+                 <div className="space-y-6">
+                {Object.entries(groupedBubbles).map(([date, dayBubbles]) => (
+                  <div key={date} className="space-y-3">
+                    <h2 className="text-lg font-medium text-foreground sticky top-0 bg-background/95 backdrop-blur py-2">
+                      {formatDateHeader(date)}
+                    </h2>
+                    
+                    {/* Intelligent Mood Ribbon for the day */}
+                    <IntelligentMoodRibbon date={date} />
+                    
+                    {/* Cast Decisions for the day */}
+                    <CastDecisionDisplay 
+                      decisions={recentDecisions.filter(d => 
+                        new Date(d.timestamp).toDateString() === date
+                      )}
+                      compact={true}
+                    />
                   <div className="space-y-3">
                     {dayBubbles.map((bubble) => (
                       <Card 

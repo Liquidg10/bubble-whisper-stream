@@ -31,6 +31,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { crossViewUndoService } from '@/services/crossViewUndoService';
+import { IntelligentTaskIntegration } from '@/components/IntelligentTaskIntegration';
 import type { Task, TaskId, TaskType } from '@/types/task';
 
 // Error boundary for individual task cards
@@ -780,6 +781,17 @@ export function TaskCard({
         {/* Corruption indicator */}
         {errorState.corrupted && (
           <div className="absolute -top-1 -left-1 w-3 h-3 bg-destructive rounded-full animate-pulse" />
+        )}
+
+        {/* Intelligent Task Integration */}
+        {!viewConfig.compact && (
+          <div className="mt-3 pt-3 border-t border-border/50">
+            <IntelligentTaskIntegration 
+              task={task}
+              onTaskUpdate={onUpdate}
+              compact={viewConfig.compact}
+            />
+          </div>
         )}
       </CardContent>
     </Card>

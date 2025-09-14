@@ -83,6 +83,7 @@ import { AuthCallback } from "./pages/AuthCallback";
 import Privacy from "./pages/Privacy";
 import { oauthService } from '@/services/oauthService';
 import { OnboardingManager } from '@/components/OnboardingManager';
+import { BehavioralScienceIntegration } from '@/components/BehavioralScienceIntegration';
 
 const queryClient = new QueryClient();
 
@@ -197,8 +198,8 @@ const App = () => {
                      <Route path="*" element={<NotFound />} />
                    </Routes>
                      <DevMenu isOpen={isDevMenuOpen} onClose={closeDevMenu} />
-                     <OnboardingManager />
-                     {/* <BehavioralScienceIntegration /> */}
+                      <OnboardingManager />
+                      <BehavioralScienceIntegration />
                   </BrowserRouter>
                  </TooltipProvider>
                </QueryClientProvider>

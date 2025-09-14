@@ -233,7 +233,7 @@ class PERMAIntegration {
     return null;
   }
 
-  private recordStrengthUse(strength: string): void {
+  recordStrengthUse(strength: string): void {
     const existing = this.strengths.get(strength) || {
       strength,
       frequency: 0,
