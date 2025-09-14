@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Plus, MoreVertical } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
-import { KanbanTaskCard } from './KanbanTaskCard';
+import { TaskCard, TaskCardConfigs } from './TaskCard';
 import { cn } from '@/lib/utils';
 import type { Task, TaskId } from '@/types/task';
 
@@ -108,13 +108,17 @@ export function KanbanColumn({
           <SortableContext items={taskIds} strategy={verticalListSortingStrategy}>
             <div className="space-y-2">
               {tasks.map((task, index) => (
-                <KanbanTaskCard
+                <TaskCard
                   key={task.id}
                   task={task}
+                  viewConfig={TaskCardConfigs.kanban}
                   isSelected={selectedTaskId === task.id}
+                  position={index}
+                  onUpdate={(updatedTask) => {
+                    // Handle task updates through parent view
+                  }}
                   onKeyboardMove={onTaskKeyboardMove}
                   onSelect={onTaskSelect}
-                  position={index}
                 />
               ))}
               

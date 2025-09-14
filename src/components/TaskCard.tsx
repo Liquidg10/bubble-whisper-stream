@@ -102,13 +102,12 @@ export function validateTask(task: Task): { isValid: boolean; sanitized: Task; i
       due: typeof task?.due === 'number' ? task.due : undefined,
       start: typeof task?.start === 'number' ? task.start : undefined,
       end: typeof task?.end === 'number' ? task.end : undefined,
-      view: task?.view || {},
-      metadata: task?.metadata
+      view: task?.view || {}
     };
 
-    // Check for issues
-    if (!task?.id) issues.push('Missing or invalid ID');
-    if (!task?.title || typeof task.title !== 'string') issues.push('Missing or invalid title');
+    // Check for corruption indicators
+    if (!task?.id) issues.push('Missing task ID');
+    if (typeof task?.title !== 'string') issues.push('Invalid title');
     if (task?.priority !== undefined && (typeof task.priority !== 'number' || task.priority < 0 || task.priority > 100)) {
       issues.push('Invalid priority value');
     }
@@ -130,16 +129,80 @@ export function validateTask(task: Task): { isValid: boolean; sanitized: Task; i
         priority: 50,
         tags: [],
         createdAt: Date.now(),
-        updatedAt: Date.now()
+        updatedAt: Date.now(),
+        view: {}
       },
       issues: [`Critical error: ${error instanceof Error ? error.message : 'Unknown error'}`]
     };
   }
 }
 
-export function TaskCard({
-  task: rawTask,
-  viewConfig = { view: 'universal' },
+/**
+ * Predefined view configurations for different contexts
+ */
+export const TaskCardConfigs: Record<string, TaskCardViewConfig> = {
+  bubble: {
+    view: 'bubble',
+    compact: true,
+    draggable: false,
+    selectable: true,
+    showDragHandle: false,
+    showActions: false,
+    showMetadata: false
+  },
+  atomic: {
+    view: 'atomic',
+    compact: true,
+    draggable: false,
+    selectable: true,
+    showDragHandle: false,
+    showActions: false,
+    showMetadata: false
+  },
+  list: {
+    view: 'list',
+    compact: false,
+    draggable: false,
+    selectable: true,
+    showDragHandle: false,
+    showActions: true,
+    showMetadata: true
+  },
+  kanban: {
+    view: 'kanban',
+    compact: false,
+    draggable: true,
+    selectable: true,
+    showDragHandle: true,
+    showActions: true,
+    showMetadata: true
+  },
+  matrix: {
+    view: 'matrix',
+    compact: false,
+    draggable: false,
+    selectable: true,
+    showDragHandle: false,
+    showActions: true,
+    showMetadata: true
+  },
+  universal: {
+    view: 'universal',
+    compact: false,
+    draggable: true,
+    selectable: true,
+    showDragHandle: true,
+    showActions: true,
+    showMetadata: true
+  }
+};
+
+/**
+ * Universal Bulletproof Task Card Component
+ */
+export function TaskCard({ 
+  task: rawTask, 
+  viewConfig = TaskCardConfigs.universal,
   isSelected = false,
   isFocused = false,
   onUpdate,
@@ -149,267 +212,421 @@ export function TaskCard({
   onEdit,
   onComplete,
   onPriorityChange,
-  position,
+  position = 0,
   className,
   style
 }: TaskCardProps) {
   const { toast } = useToast();
-  const [errorState, setErrorState] = useState<TaskCardErrorState>({ hasError: false });
-  const [isEditing, setIsEditing] = useState(false);
-  const [editData, setEditData] = useState<Partial<Task>>({});
-  const [autoSaveTimer, setAutoSaveTimer] = useState<NodeJS.Timeout | null>(null);
   
-  const titleInputRef = useRef<HTMLInputElement>(null);
-  const descriptionRef = useRef<HTMLTextAreaElement>(null);
-
   // Validate and sanitize task data
   const { isValid, sanitized: task, issues } = validateTask(rawTask);
   
+  // Error state management
+  const [errorState, setErrorState] = useState<TaskCardErrorState>({ hasError: false });
+  
+  // Editing state
+  const [isEditing, setIsEditing] = useState(false);
+  const [editTitle, setEditTitle] = useState(task.title);
+  const [editDescription, setEditDescription] = useState(task.description || '');
+  
+  // Auto-save state
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const autoSaveTimeoutRef = useRef<NodeJS.Timeout>();
+  
+  // Refs for focus management
+  const cardRef = useRef<HTMLDivElement>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  
+  // Drag and drop setup (conditional)
+  const sortableProps = viewConfig.draggable ? useSortable({
+    id: `task-${task.id}`,
+    data: { type: 'task', task }
+  }) : null;
+  
+  const dragStyle = sortableProps ? {
+    transform: CSS.Transform.toString(sortableProps.transform),
+    transition: sortableProps.transition,
+  } : {};
+
+  // Show validation warnings for corrupted data
   useEffect(() => {
     if (!isValid && issues.length > 0) {
-      console.warn('TaskCard validation issues:', issues);
+      toast({
+        title: "Task Data Issues",
+        description: `Problems detected: ${issues.join(', ')}`,
+        variant: "destructive",
+        duration: 5000
+      });
       setErrorState({ hasError: true, corrupted: true });
     }
-  }, [isValid, issues]);
+  }, [isValid, issues, toast]);
 
-  // Drag and drop setup (only if draggable)
-  const sortable = useSortable({
-    id: `task-${task.id}`,
-    data: { type: 'task', task },
-    disabled: !viewConfig.draggable
-  });
-
-  const {
-    attributes,
-    listeners,
-    setNodeRef,
-    transform,
-    transition,
-    isDragging,
-  } = sortable;
-
-  // Auto-save with debouncing
-  const scheduleAutoSave = useCallback((updates: Partial<Task>) => {
-    if (autoSaveTimer) {
-      clearTimeout(autoSaveTimer);
+  // Auto-save mechanism with debouncing
+  const debouncedSave = useCallback(() => {
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
     }
-
-    const timer = setTimeout(() => {
-      try {
-        const updatedTask = { ...task, ...updates, updatedAt: Date.now() };
-        onUpdate?.(updatedTask);
-        
-        // Add to undo stack
-        crossViewUndoService.addEntry({
-          view: viewConfig.view as any,
-          type: 'edit',
-          description: `Edit task: ${task.title}`,
-          data: { before: task, after: updatedTask },
-          compensationFn: async () => {
-            onUpdate?.(task);
+    
+    autoSaveTimeoutRef.current = setTimeout(() => {
+      if (hasUnsavedChanges && (editTitle !== task.title || editDescription !== task.description)) {
+        try {
+          const updatedTask: Task = {
+            ...task,
+            title: editTitle.trim() || '[Untitled]',
+            description: editDescription.trim() || undefined,
+            updatedAt: Date.now()
+          };
+          
+          onUpdate?.(updatedTask);
+          setHasUnsavedChanges(false);
+          
+          // Add to undo stack (if service available)
+          try {
+            if (crossViewUndoService && typeof crossViewUndoService.addEntry === 'function') {
+              crossViewUndoService.addEntry({
+                view: 'bubble',
+                type: 'edit',
+                data: { task: updatedTask },
+                description: `Updated task: ${task.title}`
+              });
+            }
+          } catch (error) {
+            console.warn('Undo service not available:', error);
           }
-        });
-      } catch (error) {
-        console.error('Auto-save failed:', error);
-        toast({
-          title: "Save Failed",
-          description: "Failed to save changes. Please try again.",
-          variant: "destructive"
-        });
-      }
-    }, 1000);
-
-    setAutoSaveTimer(timer);
-  }, [task, onUpdate, autoSaveTimer, viewConfig.view, toast]);
-
-  // Handle editing state
-  const startEditing = useCallback(() => {
-    setIsEditing(true);
-    setEditData({ title: task.title, description: task.description });
-    setTimeout(() => titleInputRef.current?.focus(), 0);
-  }, [task.title, task.description]);
-
-  const cancelEditing = useCallback(() => {
-    setIsEditing(false);
-    setEditData({});
-    if (autoSaveTimer) {
-      clearTimeout(autoSaveTimer);
-      setAutoSaveTimer(null);
-    }
-  }, [autoSaveTimer]);
-
-  const saveEditing = useCallback(() => {
-    try {
-      const updates = {
-        title: editData.title?.trim() || task.title,
-        description: editData.description?.trim() || task.description
-      };
-      
-      const updatedTask = { ...task, ...updates, updatedAt: Date.now() };
-      onUpdate?.(updatedTask);
-      
-      setIsEditing(false);
-      setEditData({});
-      
-      toast({
-        title: "Task Updated",
-        description: "Changes saved successfully."
-      });
-    } catch (error) {
-      console.error('Save failed:', error);
-      toast({
-        title: "Save Failed",
-        description: "Failed to save changes. Please try again.",
-        variant: "destructive"
-      });
-    }
-  }, [editData, task, onUpdate, toast]);
-
-  // Keyboard navigation
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (isEditing) {
-      switch (e.key) {
-        case 'Enter':
-          if (e.ctrlKey || e.metaKey) {
-            e.preventDefault();
-            saveEditing();
-          }
-          break;
-        case 'Escape':
-          e.preventDefault();
-          cancelEditing();
-          break;
-      }
-      return;
-    }
-
-    switch (e.key) {
-      case 'ArrowUp':
-        e.preventDefault();
-        onKeyboardMove?.(task.id, 'up');
-        break;
-      case 'ArrowDown':
-        e.preventDefault();
-        onKeyboardMove?.(task.id, 'down');
-        break;
-      case 'ArrowLeft':
-        e.preventDefault();
-        onKeyboardMove?.(task.id, 'left');
-        break;
-      case 'ArrowRight':
-        e.preventDefault();
-        onKeyboardMove?.(task.id, 'right');
-        break;
-      case ' ':
-      case 'Enter':
-        e.preventDefault();
-        onSelect?.(task.id);
-        break;
-      case 'e':
-      case 'E':
-        e.preventDefault();
-        startEditing();
-        break;
-      case 'Delete':
-      case 'Backspace':
-        if (e.ctrlKey || e.metaKey) {
-          e.preventDefault();
-          onDelete?.(task.id);
+          
+        } catch (error) {
+          console.error('Auto-save failed:', error);
+          toast({
+            title: "Save Failed",
+            description: "Failed to save changes automatically",
+            variant: "destructive"
+          });
         }
-        break;
-    }
-  }, [isEditing, task.id, onKeyboardMove, onSelect, startEditing, saveEditing, cancelEditing, onDelete]);
+      }
+    }, 1000); // 1 second debounce
+  }, [hasUnsavedChanges, editTitle, editDescription, task, onUpdate, toast]);
 
-  // Handle completion toggle
-  const handleCompletionToggle = useCallback((checked: boolean) => {
-    try {
-      onComplete?.(task.id, checked);
-      const updatedTask = { ...task, completed: checked, updatedAt: Date.now() };
-      onUpdate?.(updatedTask);
-    } catch (error) {
-      console.error('Failed to toggle completion:', error);
-      toast({
-        title: "Update Failed",
-        description: "Failed to update task completion.",
-        variant: "destructive"
-      });
+  // Trigger auto-save when content changes
+  useEffect(() => {
+    if (editTitle !== task.title || editDescription !== task.description) {
+      setHasUnsavedChanges(true);
+      debouncedSave();
     }
-  }, [task, onComplete, onUpdate, toast]);
+  }, [editTitle, editDescription, debouncedSave, task.title, task.description]);
 
-  // Calculate priority styling
-  const priorityVariant = task.priority >= 75 ? 'destructive' : 
-                         task.priority >= 50 ? 'default' : 
-                         task.priority >= 25 ? 'secondary' : 'outline';
-
-  // Format dates safely
-  const formatDate = useCallback((timestamp?: number) => {
-    if (!timestamp) return null;
-    try {
-      return new Date(timestamp).toLocaleDateString();
-    } catch {
-      return '[Invalid Date]';
+  // Focus management
+  useEffect(() => {
+    if (isFocused && cardRef.current) {
+      cardRef.current.focus();
     }
+  }, [isFocused]);
+
+  useEffect(() => {
+    if (isEditing && titleInputRef.current) {
+      titleInputRef.current.focus();
+      titleInputRef.current.select();
+    }
+  }, [isEditing]);
+
+  // Cleanup auto-save timeout
+  useEffect(() => {
+    return () => {
+      if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
+      }
+    };
   }, []);
 
-  // Error state rendering
-  if (errorState.hasError) {
+  // Event handlers
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    try {
+      if (isEditing) {
+        switch (e.key) {
+          case 'Enter':
+            if (e.ctrlKey || e.metaKey) {
+              e.preventDefault();
+              setIsEditing(false);
+            }
+            break;
+          case 'Escape':
+            e.preventDefault();
+            setEditTitle(task.title);
+            setEditDescription(task.description || '');
+            setIsEditing(false);
+            setHasUnsavedChanges(false);
+            break;
+        }
+      } else {
+        switch (e.key) {
+          case 'Enter':
+          case ' ':
+            e.preventDefault();
+            onSelect?.(task.id);
+            break;
+          case 'e':
+          case 'E':
+            e.preventDefault();
+            setIsEditing(true);
+            break;
+          case 'Delete':
+          case 'Backspace':
+            if (e.ctrlKey || e.metaKey) {
+              e.preventDefault();
+              handleDelete();
+            }
+            break;
+          case 'ArrowUp':
+          case 'ArrowDown':
+          case 'ArrowLeft':
+          case 'ArrowRight':
+            if (onKeyboardMove) {
+              e.preventDefault();
+              const direction = e.key.replace('Arrow', '').toLowerCase() as 'up' | 'down' | 'left' | 'right';
+              onKeyboardMove(task.id, direction);
+            }
+            break;
+        }
+      }
+    } catch (error) {
+      console.error('Keyboard event error:', error);
+      setErrorState({ hasError: true, error: error as Error });
+    }
+  }, [isEditing, task.id, task.title, task.description, onSelect, onKeyboardMove]);
+
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    try {
+      if (!isEditing) {
+        onSelect?.(task.id);
+      }
+    } catch (error) {
+      console.error('Click event error:', error);
+      setErrorState({ hasError: true, error: error as Error });
+    }
+  }, [isEditing, onSelect, task.id]);
+
+  const handleComplete = useCallback(() => {
+    try {
+      const updatedTask: Task = {
+        ...task,
+        completed: !task.completed,
+        updatedAt: Date.now()
+      };
+      
+      onUpdate?.(updatedTask);
+      onComplete?.(task.id, !task.completed);
+      
+      // Add to undo stack (if service available)
+      try {
+        if (crossViewUndoService && typeof crossViewUndoService.addEntry === 'function') {
+          crossViewUndoService.addEntry({
+            view: 'bubble',
+            type: 'edit',
+            data: { task: updatedTask },
+            description: `Completed task: ${task.title}`
+          });
+        }
+      } catch (error) {
+        console.warn('Undo service not available:', error);
+      }
+      
+    } catch (error) {
+      console.error('Complete task error:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update task completion status",
+        variant: "destructive"
+      });
+    }
+  }, [task, onUpdate, onComplete, toast]);
+
+  const handleDelete = useCallback(() => {
+    try {
+      onDelete?.(task.id);
+      
+      // Add to undo stack (if service available)
+      try {
+        if (crossViewUndoService && typeof crossViewUndoService.addEntry === 'function') {
+          crossViewUndoService.addEntry({
+            view: 'bubble',
+            type: 'delete',
+            data: { task },
+            description: `Deleted task: ${task.title}`
+          });
+        }
+      } catch (error) {
+        console.warn('Undo service not available:', error);
+      }
+      
+      toast({
+        title: "Task Deleted",
+        description: "Task has been moved to trash",
+        action: (
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => {
+              try {
+                if (crossViewUndoService && typeof crossViewUndoService.undo === 'function') {
+                  crossViewUndoService.undo();
+                }
+              } catch (error) {
+                console.warn('Undo service not available:', error);
+              }
+            }}
+          >
+            Undo
+          </Button>
+        )
+      });
+      
+    } catch (error) {
+      console.error('Delete task error:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete task",
+        variant: "destructive"
+      });
+    }
+  }, [task, onDelete, toast]);
+
+  const handlePriorityChange = useCallback((newPriority: number) => {
+    try {
+      const updatedTask: Task = {
+        ...task,
+        priority: Math.max(0, Math.min(100, newPriority)),
+        updatedAt: Date.now()
+      };
+      
+      onUpdate?.(updatedTask);
+      onPriorityChange?.(task.id, newPriority);
+      
+    } catch (error) {
+      console.error('Priority change error:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update task priority",
+        variant: "destructive"
+      });
+    }
+  }, [task, onUpdate, onPriorityChange, toast]);
+
+  // Render error state
+  if (errorState.hasError && !errorState.corrupted) {
     return (
-      <Card className={cn('border-destructive', className)}>
-        <CardContent className="p-3">
+      <Card className={cn("border-destructive bg-destructive/5", className)}>
+        <CardContent className="p-4">
           <div className="flex items-center gap-2 text-destructive">
             <AlertTriangle className="w-4 h-4" />
-            <span className="text-sm">
-              {errorState.corrupted ? 'Corrupted task data detected' : 'Failed to load task'}
-            </span>
+            <span className="text-sm font-medium">Task Error</span>
           </div>
-          {issues.length > 0 && (
-            <div className="mt-2 text-xs text-muted-foreground">
-              Issues: {issues.join(', ')}
-            </div>
-          )}
+          <p className="text-xs text-muted-foreground mt-1">
+            {errorState.error?.message || 'An error occurred while rendering this task'}
+          </p>
+          <Button 
+            size="sm" 
+            variant="outline" 
+            className="mt-2"
+            onClick={() => setErrorState({ hasError: false })}
+          >
+            Retry
+          </Button>
         </CardContent>
       </Card>
     );
   }
 
-  const cardStyle = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    ...style
+  // Get priority styling
+  const getPriorityColor = () => {
+    if (task.priority >= 75) return 'destructive';
+    if (task.priority >= 50) return 'default';
+    if (task.priority >= 25) return 'secondary';
+    return 'outline';
   };
 
+  const getPriorityIcon = () => {
+    if (task.priority >= 75) return '🔥';
+    if (task.priority >= 50) return '⚡';
+    if (task.priority >= 25) return '📌';
+    return '💭';
+  };
+
+  // Compact rendering for bubble/atomic views
+  if (viewConfig.compact) {
+    return (
+      <div
+        ref={cardRef}
+        className={cn(
+          "relative transition-all duration-200 cursor-pointer rounded-lg",
+          "border border-border bg-card hover:bg-accent/50",
+          isSelected && "ring-2 ring-primary bg-primary/5",
+          isFocused && "ring-2 ring-ring",
+          task.completed && "opacity-60",
+          className
+        )}
+        style={{ ...style, ...dragStyle }}
+        onClick={handleClick}
+        onKeyDown={handleKeyDown}
+        tabIndex={0}
+        role="button"
+        aria-label={`Task: ${task.title}`}
+      >
+        <div className="flex items-center gap-1 p-2">
+          <Checkbox 
+            checked={task.completed} 
+            onCheckedChange={handleComplete}
+            className="flex-shrink-0"
+          />
+          <span className={cn(
+            "text-xs font-medium truncate flex-1",
+            task.completed && "line-through text-muted-foreground"
+          )}>
+            {task.title}
+          </span>
+          {task.priority > 50 && (
+            <span className="text-xs">{getPriorityIcon()}</span>
+          )}
+        </div>
+        
+        {/* Corruption indicator */}
+        {errorState.corrupted && (
+          <div className="absolute -top-1 -right-1 w-3 h-3 bg-destructive rounded-full animate-pulse" />
+        )}
+      </div>
+    );
+  }
+
+  // Full rendering for list/kanban/matrix views
   return (
     <Card
-      ref={setNodeRef}
-      style={cardStyle}
+      ref={sortableProps?.setNodeRef}
       className={cn(
-        'group relative transition-all duration-200',
-        {
-          'opacity-50': isDragging,
-          'ring-2 ring-primary': isSelected,
-          'ring-2 ring-accent': isFocused,
-          'bg-primary/5': isSelected,
-          'cursor-pointer': viewConfig.selectable
-        },
+        'group relative transition-all duration-200 cursor-pointer',
+        'hover:shadow-md focus-within:ring-2 focus-within:ring-ring/50',
+        isSelected && 'ring-2 ring-primary bg-primary/5',
+        isFocused && 'ring-2 ring-ring',
+        task.completed && 'opacity-75',
+        errorState.corrupted && 'border-destructive bg-destructive/5',
+        sortableProps?.isDragging && 'opacity-50',
         className
       )}
+      style={{ ...style, ...dragStyle }}
       tabIndex={0}
       role="button"
-      aria-label={`Task: ${task.title}. ${isSelected ? 'Selected. ' : ''}Press arrow keys to move, Enter to select, E to edit.`}
+      aria-label={`Task: ${task.title}. Press Enter to select, E to edit.`}
       onKeyDown={handleKeyDown}
-      onClick={() => viewConfig.selectable && onSelect?.(task.id)}
+      onClick={handleClick}
     >
-      <CardContent className={cn('p-3', viewConfig.compact && 'p-2')}>
+      <CardContent className="p-3">
         <div className="flex items-start gap-2">
           {/* Drag Handle */}
-          {viewConfig.showDragHandle && viewConfig.draggable && (
+          {viewConfig.showDragHandle && (
             <button
-              {...attributes}
-              {...listeners}
+              {...sortableProps?.attributes}
+              {...sortableProps?.listeners}
               className={cn(
                 'opacity-0 group-hover:opacity-100 transition-opacity touch-manipulation',
                 'flex items-center justify-center w-6 h-6 rounded hover:bg-muted',
-                'focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-primary/50'
+                'focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring/50'
               )}
               aria-label="Drag to reorder task"
               style={{ minWidth: '24px', minHeight: '24px' }}
@@ -423,38 +640,20 @@ export function TaskCard({
             <div className="flex items-center gap-2 mb-2">
               <Checkbox
                 checked={task.completed}
-                onCheckedChange={handleCompletionToggle}
+                onCheckedChange={handleComplete}
                 className="data-[state=checked]:bg-success data-[state=checked]:border-success"
                 aria-label={`Mark task ${task.completed ? 'incomplete' : 'complete'}`}
               />
               
-              {/* Title - Editable */}
               {isEditing ? (
-                <div className="flex-1 flex items-center gap-1">
-                  <Input
-                    ref={titleInputRef}
-                    value={editData.title || ''}
-                    onChange={(e) => setEditData(prev => ({ ...prev, title: e.target.value }))}
-                    className="text-sm font-medium border-0 p-0 h-auto focus-visible:ring-0"
-                    placeholder="Task title"
-                  />
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={saveEditing}
-                    className="h-6 w-6 p-0"
-                  >
-                    <Check className="w-3 h-3" />
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={cancelEditing}
-                    className="h-6 w-6 p-0"
-                  >
-                    <X className="w-3 h-3" />
-                  </Button>
-                </div>
+                <Input
+                  ref={titleInputRef}
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="text-sm font-medium"
+                  placeholder="Task title..."
+                  onBlur={() => setIsEditing(false)}
+                />
               ) : (
                 <h4 className={cn(
                   'text-sm font-medium truncate flex-1',
@@ -465,30 +664,30 @@ export function TaskCard({
               )}
             </div>
 
-            {/* Description - Editable */}
-            {(task.description || isEditing) && (
+            {/* Description */}
+            {(task.description || isEditing) && viewConfig.showMetadata && (
               <div className="mb-2">
                 {isEditing ? (
                   <Textarea
-                    ref={descriptionRef}
-                    value={editData.description || ''}
-                    onChange={(e) => setEditData(prev => ({ ...prev, description: e.target.value }))}
-                    className="text-xs min-h-[60px] resize-none border-0 p-0 focus-visible:ring-0"
-                    placeholder="Add description..."
+                    value={editDescription}
+                    onChange={(e) => setEditDescription(e.target.value)}
+                    className="text-xs resize-none"
+                    placeholder="Task description..."
+                    rows={2}
                   />
-                ) : (
+                ) : task.description ? (
                   <p className="text-xs text-muted-foreground line-clamp-2">
                     {task.description}
                   </p>
-                )}
+                ) : null}
               </div>
             )}
 
             {/* Metadata */}
-            {viewConfig.showMetadata !== false && (
+            {viewConfig.showMetadata && (
               <div className="flex items-center gap-1 flex-wrap">
                 {task.priority > 50 && (
-                  <Badge variant={priorityVariant} className="text-xs gap-1">
+                  <Badge variant={getPriorityColor()} className="text-xs gap-1">
                     <Flag className="w-2 h-2" />
                     {task.priority}
                   </Badge>
@@ -497,7 +696,7 @@ export function TaskCard({
                 {task.due && (
                   <Badge variant="outline" className="text-xs gap-1">
                     <Calendar className="w-2 h-2" />
-                    {formatDate(task.due)}
+                    {new Date(task.due).toLocaleDateString()}
                   </Badge>
                 )}
 
@@ -508,8 +707,7 @@ export function TaskCard({
                     className="text-xs"
                     style={{ backgroundColor: tag.colorHex ? `${tag.colorHex}20` : undefined }}
                   >
-                    {tag.emoji && <span className="mr-1">{tag.emoji}</span>}
-                    {tag.name}
+                    {tag.emoji} {tag.name}
                   </Badge>
                 ))}
 
@@ -523,7 +721,7 @@ export function TaskCard({
           </div>
 
           {/* Actions Menu */}
-          {viewConfig.showActions !== false && (
+          {viewConfig.showActions && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -540,84 +738,44 @@ export function TaskCard({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-40">
-                <DropdownMenuItem onClick={startEditing} className="gap-2 text-xs">
+                <DropdownMenuItem 
+                  className="gap-2 text-xs"
+                  onClick={() => setIsEditing(true)}
+                >
                   <Edit3 className="w-3 h-3" />
                   Edit task
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => onEdit?.(task.id)} className="gap-2 text-xs">
-                  <Target className="w-3 h-3" />
-                  Planning mode
+                <DropdownMenuItem 
+                  className="gap-2 text-xs"
+                  onClick={() => handlePriorityChange(Math.min(100, task.priority + 25))}
+                >
+                  <Flag className="w-3 h-3" />
+                  Increase priority
                 </DropdownMenuItem>
-                {onDelete && (
-                  <DropdownMenuItem 
-                    onClick={() => onDelete(task.id)} 
-                    className="gap-2 text-xs text-destructive focus:text-destructive"
-                  >
-                    <X className="w-3 h-3" />
-                    Delete task
-                  </DropdownMenuItem>
-                )}
+                <DropdownMenuItem 
+                  className="gap-2 text-xs text-destructive"
+                  onClick={handleDelete}
+                >
+                  <X className="w-3 h-3" />
+                  Delete task
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           )}
         </div>
+
+        {/* Auto-save indicator */}
+        {hasUnsavedChanges && (
+          <div className="absolute -top-1 -right-1 w-2 h-2 bg-warning rounded-full animate-pulse" />
+        )}
+
+        {/* Corruption indicator */}
+        {errorState.corrupted && (
+          <div className="absolute -top-1 -left-1 w-3 h-3 bg-destructive rounded-full animate-pulse" />
+        )}
       </CardContent>
     </Card>
   );
 }
 
-// Default configurations for different views
-export const TaskCardConfigs = {
-  universal: {
-    view: 'universal' as const,
-    draggable: false,
-    selectable: true,
-    showDragHandle: false,
-    showActions: true,
-    showMetadata: true
-  },
-  kanban: {
-    view: 'kanban' as const,
-    draggable: true,
-    selectable: true,
-    showDragHandle: true,
-    showActions: true,
-    showMetadata: true
-  },
-  list: {
-    view: 'list' as const,
-    draggable: false,
-    selectable: true,
-    showDragHandle: false,
-    showActions: true,
-    showMetadata: true,
-    compact: false
-  },
-  matrix: {
-    view: 'matrix' as const,
-    draggable: true,
-    selectable: true,
-    showDragHandle: false,
-    showActions: true,
-    showMetadata: true,
-    compact: true
-  },
-  atomic: {
-    view: 'atomic' as const,
-    draggable: true,
-    selectable: true,
-    showDragHandle: false,
-    showActions: false,
-    showMetadata: false,
-    compact: true
-  },
-  bubble: {
-    view: 'bubble' as const,
-    draggable: true,
-    selectable: true,
-    showDragHandle: false,
-    showActions: false,
-    showMetadata: false,
-    compact: true
-  }
-} as const;
+export default TaskCard;

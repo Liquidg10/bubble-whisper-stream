@@ -11,6 +11,7 @@ import { Brain, Edit3 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { BulletproofPhotoRenderer } from './BulletproofPhotoRenderer';
+import { TaskCard, TaskCardConfigs } from './TaskCard';
 
 interface BubbleCardProps {
   bubble: Bubble;
@@ -281,8 +282,41 @@ export function BubbleCard({
           bubbleId={bubble.id}
           debugMode={false}
         />
+      ) : bubble.type === 'Task' && isLargeEnoughForContent ? (
+        /* Task bubbles use TaskCard for rich editing */
+        <div className="absolute inset-0 p-1">
+          <TaskCard
+            task={{
+              id: bubble.id,
+              type: 'task',
+              title: bubble.content || 'Untitled Task',
+              description: '',
+              completed: bubble.completed || false,
+              priority: 50,
+              tags: bubble.tags,
+              createdAt: bubble.createdAt,
+              updatedAt: bubble.updatedAt,
+              view: {}
+            }}
+            viewConfig={TaskCardConfigs.bubble}
+            onUpdate={(updatedTask) => {
+              const updatedBubble = {
+                ...bubble,
+                content: updatedTask.title,
+                completed: updatedTask.completed,
+                tags: updatedTask.tags,
+                updatedAt: Date.now()
+              };
+              onEdit?.(updatedBubble);
+            }}
+            style={{ 
+              transform: 'scale(0.8)',
+              transformOrigin: 'center'
+            }}
+          />
+        </div>
       ) : (
-        /* Bubble Content - only show when no photo */
+        /* Regular Bubble Content - only show when no photo */
         <div className="relative z-10 flex flex-col items-center justify-center p-1 text-text-primary">
           {/* Type emoji */}
           <span

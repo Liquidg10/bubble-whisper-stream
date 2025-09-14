@@ -21,6 +21,7 @@ import { getHorizon, getHorizonDisplayName, ringIndexToHorizon } from '@/lib/hor
 import { calculateMoleculePositions } from '@/experimental/atomic/positioning';
 import { useMoleculePositionPersistence } from '@/hooks/useMoleculePositionPersistence';
 import { hapticsService } from '@/services/haptics';
+import { TaskCard, TaskCardConfigs } from '@/components/TaskCard';
 
 // Atomic structures
 interface Electron {
@@ -818,17 +819,21 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                 y = Math.sin(angle) * shell.radius;
               }
 
+              const isTaskBubble = electron.originalBubble?.type === 'Task';
+              const electronSize = isTaskBubble && shell.radius > 80 ? 48 : 24;
+              
               return (
                 <div
                   key={electron.id}
                   data-electron="true"
-                  className={`absolute w-6 h-6 rounded-full border-2 border-white cursor-move
-                    hover:scale-125 transition-transform duration-150 group-hover:shadow-lg
-                    ${isDragging ? 'scale-125 shadow-lg shadow-yellow-400/50 z-50' : ''}`}
+                  className={`absolute cursor-move transition-transform duration-150 group-hover:shadow-lg
+                    ${isDragging ? 'scale-125 shadow-lg shadow-yellow-400/50 z-50' : ''}
+                    ${isTaskBubble ? 'hover:scale-110' : 'hover:scale-125'}`}
                   style={{
-                    left: x - 12,
-                    top: y - 12,
-                    backgroundColor: shell.color,
+                    left: x - electronSize / 2,
+                    top: y - electronSize / 2,
+                    width: electronSize,
+                    height: electronSize,
                     transform: isDragging ? 'scale(1.25)' : undefined,
                     zIndex: isDragging ? 1000 : undefined
                   }}
@@ -841,7 +846,53 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                     }
                   }}
                   title={`${electron.content.slice(0, 30)}${electron.content.length > 30 ? '...' : ''}`}
-                />
+                >
+                  {isTaskBubble && electronSize >= 48 ? (
+                    /* Large task electrons show TaskCard */
+                    <TaskCard
+                      task={{
+                        id: electron.originalBubble.id,
+                        type: 'task',
+                        title: electron.content || 'Untitled Task',
+                        description: '',
+                        completed: electron.originalBubble.completed || false,
+                        priority: 50,
+                        tags: electron.originalBubble.tags,
+                        createdAt: electron.originalBubble.createdAt,
+                        updatedAt: electron.originalBubble.updatedAt,
+                        view: {}
+                      }}
+                      viewConfig={TaskCardConfigs.atomic}
+                      onUpdate={(updatedTask) => {
+                        // Handle task updates through atomic view
+                        if (electron.originalBubble) {
+                          const updatedBubble = {
+                            ...electron.originalBubble,
+                            content: updatedTask.title,
+                            completed: updatedTask.completed,
+                            tags: updatedTask.tags,
+                            updatedAt: Date.now()
+                          };
+                          onBubbleSelect?.(updatedBubble);
+                        }
+                      }}
+                      style={{ 
+                        transform: 'scale(0.7)',
+                        transformOrigin: 'center'
+                      }}
+                    />
+                  ) : (
+                    /* Regular electrons - simple visual representation */
+                    <div
+                      className={`w-full h-full rounded-full border-2 border-white flex items-center justify-center text-xs text-white font-bold`}
+                      style={{
+                        backgroundColor: shell.color,
+                      }}
+                    >
+                      {isTaskBubble ? '✓' : electron.content.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                </div>
               );
             })}
 

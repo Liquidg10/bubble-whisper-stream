@@ -3,7 +3,7 @@ import { Task, TaskId, TaskType, createTask, updateTask } from '@/types/task';
 import { useTaskStoreSync } from '@/stores/taskStore';
 import { createViewContext, createViewData, ViewSDK } from '@/views/sdk';
 import { ViewBus, ViewBusHelpers, useViewBusSubscription } from '@/views/bus';
-import { TaskListItem } from '@/components/TaskListItem';
+import { TaskCard, TaskCardConfigs } from '@/components/TaskCard';
 import { TaskQuickAdd } from '@/components/TaskQuickAdd';
 import { ListViewFilters } from '@/components/ListViewFilters';
 import { BulkActions } from '@/components/BulkActions';
@@ -378,15 +378,14 @@ export const ListView: React.FC = () => {
                       layout: { duration: 0.2 }
                     }}
                   >
-                    <TaskListItem
+                    <TaskCard
                       task={task}
+                      viewConfig={TaskCardConfigs.list}
                       isSelected={selectedTaskIds.has(task.id)}
                       isFocused={focusedTaskId === task.id}
                       onUpdate={handleUpdateTask}
                       onDelete={handleDeleteTask}
-                      onToggleSelect={handleToggleSelect}
-                      onFocus={handleFocusTask}
-                      onKeyDown={handleTaskKeyDown}
+                      onSelect={handleToggleSelect}
                     />
                   </motion.div>
                 ))}

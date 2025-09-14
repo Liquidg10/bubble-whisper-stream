@@ -1,5 +1,5 @@
 import React from 'react';
-import { MatrixTask } from '@/components/MatrixTask';
+import { TaskCard, TaskCardConfigs } from '@/components/TaskCard';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { type Task } from '@/types/task';
@@ -121,15 +121,14 @@ export function MatrixGrid({
           <div className="flex-1 p-3 space-y-2 overflow-auto">
             <AnimatePresence mode="popLayout">
               {tasks.map(task => (
-                <MatrixTask
+                <TaskCard
                   key={task.id}
                   task={task}
-                  quadrant={quadrant}
+                  viewConfig={TaskCardConfigs.matrix}
                   isSelected={selectedTaskIds.has(task.id)}
                   isFocused={focusedTaskId === task.id}
-                  onSelect={(isMulti) => onTaskSelect(task.id, isMulti)}
-                  onFocus={() => onTaskFocus(task.id)}
-                  viewSDK={viewSDK}
+                  onSelect={(taskId) => onTaskSelect(taskId, false)}
+                  onUpdate={(updatedTask) => viewSDK.actions.upsert(updatedTask)}
                 />
               ))}
             </AnimatePresence>
