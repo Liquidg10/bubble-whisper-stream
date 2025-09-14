@@ -71,6 +71,7 @@ export interface TaskCardProps {
   onEdit?: (taskId: TaskId) => void;
   onComplete?: (taskId: TaskId, completed: boolean) => void;
   onPriorityChange?: (taskId: TaskId, priority: number) => void;
+  onOpenDetail?: (task: Task) => void;
   
   // Layout props
   position?: number;
@@ -212,6 +213,7 @@ export function TaskCard({
   onEdit,
   onComplete,
   onPriorityChange,
+  onOpenDetail,
   position = 0,
   className,
   style
@@ -565,6 +567,7 @@ export function TaskCard({
         )}
         style={{ ...style, ...dragStyle }}
         onClick={handleClick}
+        onDoubleClick={() => onOpenDetail?.(task)}
         onKeyDown={handleKeyDown}
         tabIndex={0}
         role="button"
@@ -615,6 +618,7 @@ export function TaskCard({
       aria-label={`Task: ${task.title}. Press Enter to select, E to edit.`}
       onKeyDown={handleKeyDown}
       onClick={handleClick}
+      onDoubleClick={() => onOpenDetail?.(task)}
     >
       <CardContent className="p-3">
         <div className="flex items-start gap-2">

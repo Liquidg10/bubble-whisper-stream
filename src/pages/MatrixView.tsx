@@ -3,6 +3,7 @@ import { useTaskStoreSync } from '@/stores/taskStore';
 import { createViewContext, createViewData, type ViewSDK } from '@/views/sdk';
 import { ViewBus, ViewBusHelpers } from '@/views/bus';
 import { MatrixGrid } from '@/components/MatrixGrid';
+import { TaskDetail } from '@/components/TaskDetail';
 import { QuadrantFilters } from '@/components/QuadrantFilters';
 import { MatrixQuickAdd } from '@/components/MatrixQuickAdd';
 import { MatrixKeyboardHelp } from '@/components/MatrixKeyboardHelp';
@@ -40,6 +41,7 @@ export default function MatrixView() {
     delegate: true,
     drop: true
   });
+  const [detailTask, setDetailTask] = useState<Task | null>(null);
 
   // Feature flag check
   if (!isFeatureEnabled('matrixView')) {
@@ -276,6 +278,7 @@ export default function MatrixView() {
             }}
             onTaskFocus={setFocusedTaskId}
             onQuadrantFocus={setFocusedQuadrant}
+            onOpenDetail={setDetailTask}
             viewSDK={viewSDK}
           />
         </motion.div>
@@ -295,6 +298,16 @@ export default function MatrixView() {
       {showKeyboardHelp && (
         <MatrixKeyboardHelp onClose={() => setShowKeyboardHelp(false)} />
       )}
+
+      {/* TaskDetail Modal */}
+      <TaskDetail
+        task={detailTask}
+        isOpen={!!detailTask}
+        onClose={() => setDetailTask(null)}
+        onUpdate={(task) => viewSDK.actions.upsert(task)}
+        onDelete={(taskId) => viewSDK.actions.remove(taskId)}
+        view="matrix"
+      />
     </div>
   );
 }

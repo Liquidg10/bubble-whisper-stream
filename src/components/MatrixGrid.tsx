@@ -21,6 +21,7 @@ interface MatrixGridProps {
   onTaskSelect: (taskId: string, isMulti: boolean) => void;
   onTaskFocus: (taskId: string | null) => void;
   onQuadrantFocus: (quadrant: 1|2|3|4) => void;
+  onOpenDetail?: (task: Task) => void;
   viewSDK: ViewSDK;
 }
 
@@ -64,6 +65,7 @@ export function MatrixGrid({
   onTaskSelect,
   onTaskFocus,
   onQuadrantFocus,
+  onOpenDetail,
   viewSDK
 }: MatrixGridProps) {
 
@@ -129,6 +131,7 @@ export function MatrixGrid({
                   isFocused={focusedTaskId === task.id}
                   onSelect={(taskId) => onTaskSelect(taskId, false)}
                   onUpdate={(updatedTask) => viewSDK.actions.upsert(updatedTask)}
+                  onOpenDetail={onOpenDetail}
                 />
               ))}
             </AnimatePresence>

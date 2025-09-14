@@ -38,6 +38,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useTaskStoreSync } from '@/stores/taskStore';
 import { createViewContext, createViewData, type ViewSDK } from '@/views/sdk';
 import { SmartTaskQuickAdd } from '@/components/SmartTaskQuickAdd';
+import { TaskDetail } from '@/components/TaskDetail';
 import { KanbanTaskCard } from '@/components/KanbanTaskCard';
 import { KanbanColumn } from '@/components/KanbanColumn';
 import { KanbanColumnSettings } from '@/components/KanbanColumnSettings';
@@ -52,6 +53,7 @@ export default function KanbanView() {
   const [draggedTask, setDraggedTask] = useState<TaskId | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<TaskId | null>(null);
   const [settingsColumn, setSettingsColumn] = useState<KanbanColumnType | null>(null);
+  const [detailTask, setDetailTask] = useState<Task | null>(null);
   
   // LOD system for performance management
   const { setDragState, setMultiSelectState } = useLODSystem();
@@ -358,6 +360,16 @@ export default function KanbanView() {
             onSave={handleSaveColumnSettings}
           />
         )}
+
+        {/* TaskDetail Modal */}
+        <TaskDetail
+          task={detailTask}
+          isOpen={!!detailTask}
+          onClose={() => setDetailTask(null)}
+          onUpdate={(task) => taskStore.updateTask(task.id, task)}
+          onDelete={(taskId) => taskStore.deleteTask(taskId)}
+          view="kanban"
+        />
       </div>
     </div>
   );

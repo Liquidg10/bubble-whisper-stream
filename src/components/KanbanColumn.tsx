@@ -28,6 +28,7 @@ interface KanbanColumnProps {
   selectedTaskId: TaskId | null;
   onAddTask?: (columnId: string) => void;
   onClearCompleted?: (columnId: string) => void;
+  onOpenDetail?: (task: Task) => void;
   onColumnSettings?: (columnId: string) => void;
 }
 
@@ -40,6 +41,7 @@ export function KanbanColumn({
   selectedTaskId,
   onAddTask,
   onClearCompleted,
+  onOpenDetail,
   onColumnSettings
 }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
@@ -118,7 +120,8 @@ export function KanbanColumn({
                     // Handle task updates through parent view
                   }}
                   onKeyboardMove={onTaskKeyboardMove}
-                  onSelect={onTaskSelect}
+                   onSelect={onTaskSelect}
+                   onOpenDetail={onOpenDetail}
                 />
               ))}
               

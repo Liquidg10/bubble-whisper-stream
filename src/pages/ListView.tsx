@@ -4,6 +4,7 @@ import { useTaskStoreSync } from '@/stores/taskStore';
 import { createViewContext, createViewData, ViewSDK } from '@/views/sdk';
 import { ViewBus, ViewBusHelpers, useViewBusSubscription } from '@/views/bus';
 import { TaskCard, TaskCardConfigs } from '@/components/TaskCard';
+import { TaskDetail } from '@/components/TaskDetail';
 import { TaskQuickAdd } from '@/components/TaskQuickAdd';
 import { ListViewFilters } from '@/components/ListViewFilters';
 import { BulkActions } from '@/components/BulkActions';
@@ -31,6 +32,7 @@ export const ListView: React.FC = () => {
   const [showKeyboardHelp, setShowKeyboardHelp] = useState(false);
   const [showPlanningStats, setShowPlanningStats] = useState(false);
   const [editingTaskId, setEditingTaskId] = useState<TaskId | null>(null);
+  const [detailTask, setDetailTask] = useState<Task | null>(null);
 
   // Create ViewSDK context
   const viewContext = useMemo(() => createViewContext('main-list', 'list'), []);
@@ -386,6 +388,7 @@ export const ListView: React.FC = () => {
                       onUpdate={handleUpdateTask}
                       onDelete={handleDeleteTask}
                       onSelect={handleToggleSelect}
+                      onOpenDetail={setDetailTask}
                     />
                   </motion.div>
                 ))}
@@ -518,6 +521,16 @@ export const ListView: React.FC = () => {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* TaskDetail Modal */}
+        <TaskDetail
+          task={detailTask}
+          isOpen={!!detailTask}
+          onClose={() => setDetailTask(null)}
+          onUpdate={handleUpdateTask}
+          onDelete={handleDeleteTask}
+          view="list"
+        />
       </div>
     </div>
   );
