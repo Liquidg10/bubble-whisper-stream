@@ -392,6 +392,85 @@ export const UniversalTaskEditor: React.FC<UniversalTaskEditorProps> = ({
               </div>
             </div>
             
+            {/* Email Integration Fields */}
+            {(formData.type === 'task' || formData.view?.email) && (
+              <div className="space-y-4 p-4 border rounded-lg bg-muted/20">
+                <Label className="text-sm font-medium flex items-center gap-2">
+                  <Mail className="h-4 w-4" />
+                  Email Integration
+                </Label>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="email-to" className="text-xs">To (Recipients)</Label>
+                    <Input
+                      id="email-to"
+                      value={formData.view?.email?.to?.join(', ') || ''}
+                      onChange={(e) => setFormData(prev => ({
+                        ...prev,
+                        view: {
+                          ...prev.view,
+                          email: {
+                            ...prev.view?.email,
+                            to: e.target.value.split(',').map(email => email.trim()).filter(Boolean)
+                          }
+                        }
+                      }))}
+                      placeholder="email@example.com, ..."
+                      className="text-sm"
+                    />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="email-subject" className="text-xs">Subject</Label>
+                    <Input
+                      id="email-subject"
+                      value={formData.view?.email?.subject || ''}
+                      onChange={(e) => setFormData(prev => ({
+                        ...prev,
+                        view: {
+                          ...prev.view,
+                          email: {
+                            ...prev.view?.email,
+                            subject: e.target.value
+                          }
+                        }
+                      }))}
+                      placeholder="Email subject..."
+                      className="text-sm"
+                    />
+                  </div>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="email-body" className="text-xs">Email Body</Label>
+                  <Textarea
+                    id="email-body"
+                    value={formData.view?.email?.body || ''}
+                    onChange={(e) => setFormData(prev => ({
+                      ...prev,
+                      view: {
+                        ...prev.view,
+                        email: {
+                          ...prev.view?.email,
+                          body: e.target.value
+                        }
+                      }
+                    }))}
+                    placeholder="Email content will be generated from task description..."
+                    rows={3}
+                    className="text-sm"
+                  />
+                </div>
+                
+                {formData.view?.email?.to?.length > 0 && (
+                  <div className="text-xs text-muted-foreground">
+                    📧 Email draft will be created when task is saved
+                  </div>
+                )}
+              </div>
+            )}
+            
             <div className="space-y-2">
               <Label>Tags</Label>
               <div className="flex flex-wrap gap-2">

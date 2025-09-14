@@ -133,6 +133,12 @@ class TaskEmailAdapter {
   private generateBody(task: Task): string {
     let body = '';
     
+    // Use email body if provided, otherwise generate from task
+    const emailData = task.view?.email;
+    if (emailData?.body) {
+      return emailData.body;
+    }
+    
     if (task.description) {
       body += task.description + '\n\n';
     } else {
@@ -151,6 +157,13 @@ class TaskEmailAdapter {
     if (task.tags?.length) {
       const tagNames = task.tags.map(tag => tag.name).join(', ');
       body += `\nTags: ${tagNames}\n`;
+    }
+    
+    // Add task source context
+    if (task.metadata?.email?.autoCreated) {
+      body += '\n---\nThis task was created from an email. Original email details:\n';
+      body += `Subject: ${task.metadata.email.subject}\n`;
+      body += `From: ${task.metadata.email.sender}\n`;
     }
     
     body += '\nBest regards';
