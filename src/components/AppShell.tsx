@@ -17,6 +17,7 @@ import { OnboardingProgressIndicator } from '@/components/OnboardingProgressIndi
 import { useProgressiveOnboarding } from '@/providers/ProgressiveOnboardingProvider';
 import { SmartAIAssistant } from '@/components/SmartAIAssistant';
 import { ViewModeToggle } from '@/components/ViewModeToggle';
+import { AuthStatus } from '@/components/AuthStatus';
 
 import NarrativeSearch from '@/components/NarrativeSearch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -86,6 +87,7 @@ export const AppShell: React.FC = () => {
             <Search className="h-4 w-4" />
           </Button>
           <CompactThemeToggle />
+          <AuthStatus />
         </div>
       </header>
 

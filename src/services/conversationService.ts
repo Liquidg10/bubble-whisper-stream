@@ -39,10 +39,10 @@ export interface ConversationMessage {
 }
 
 class ConversationService {
-  async getOrCreateActiveThread(): Promise<ConversationThread> {
+  async getOrCreateActiveThread(): Promise<ConversationThread | null> {
     // Get current user
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) throw new Error('User not authenticated');
+    if (!user) return null; // Gracefully handle unauthenticated state
 
     // Get the most recent active thread
     const { data: existingThread } = await supabase

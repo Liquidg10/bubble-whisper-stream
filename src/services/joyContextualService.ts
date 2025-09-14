@@ -263,6 +263,11 @@ class JoyContextualService {
     try {
       const joyfulConversations = await conversationJoyService.getJoyfulConversations(10);
       
+      // Handle case where no conversations are available (e.g., unauthenticated)
+      if (!joyfulConversations || joyfulConversations.length === 0) {
+        return joyMoments;
+      }
+      
       for (const conversation of joyfulConversations) {
         if (conversation.joyScore > 0.7) {
           const moment: JoyMoment = {

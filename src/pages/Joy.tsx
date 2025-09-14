@@ -10,13 +10,16 @@ import { JoyCard } from '@/components/JoyCard';
 import { ConversationJoyCard } from '@/components/ConversationJoyCard';
 import { JoyContextualChip } from '@/components/JoyContextualChip';
 import { ContextualNudgeSystem } from '@/components/ContextualNudgeSystem';
-import { Heart, Search, Filter, Calendar, Star, Sparkles, MessageCircle, MapPin, Zap } from 'lucide-react';
+import { Heart, Search, Filter, Calendar, Star, Sparkles, MessageCircle, MapPin, Zap, LogIn } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
+import { Link } from 'react-router-dom';
 import { Bubble } from '@/types/bubble';
 import { conversationJoyService, JoyfulConversation } from '@/services/conversationJoyService';
 import { joyContextualService, JoyMoment } from '@/services/joyContextualService';
 
 export const Joy: React.FC = () => {
   const { bubbles } = useBubbleStore();
+  const { user, loading: authLoading } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [timeFilter, setTimeFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
   const [joyfulConversations, setJoyfulConversations] = useState<JoyfulConversation[]>([]);
@@ -135,9 +138,16 @@ export const Joy: React.FC = () => {
       }
     };
     
-    loadJoyfulConversations();
-    loadJoyMoments();
-  }, []);
+    // Only load conversation and context data if authenticated
+    // Basic joy bubbles work without authentication
+    if (user) {
+      loadJoyfulConversations();
+      loadJoyMoments();
+    } else {
+      setIsLoadingConversations(false);
+      setIsLoadingMoments(false);
+    }
+  }, [user]);
 
   const generateBecauseExplanation = (bubble: Bubble): string => {
     const isRecent = Date.now() - bubble.createdAt < (24 * 60 * 60 * 1000);
@@ -261,7 +271,17 @@ export const Joy: React.FC = () => {
         </TabsList>
 
         <TabsContent value="contextual" className="mt-6">
-          {isLoadingMoments ? (
+          {!user ? (
+            <Card>
+              <CardContent className="text-center py-8">
+                <LogIn className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                <p className="text-muted-foreground mb-4">Sign in to access contextual joy moments</p>
+                <Button asChild>
+                  <Link to="/login">Sign In</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          ) : isLoadingMoments ? (
             <Card>
               <CardContent className="text-center py-8">
                 <Zap className="h-8 w-8 text-muted-foreground mx-auto mb-2 animate-pulse" />
@@ -311,7 +331,17 @@ export const Joy: React.FC = () => {
         </TabsContent>
 
         <TabsContent value="conversations" className="mt-6">
-          {isLoadingConversations ? (
+          {!user ? (
+            <Card>
+              <CardContent className="text-center py-8">
+                <LogIn className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                <p className="text-muted-foreground mb-4">Sign in to access conversation memories</p>
+                <Button asChild>
+                  <Link to="/login">Sign In</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          ) : isLoadingConversations ? (
             <Card>
               <CardContent className="text-center py-8">
                 <MessageCircle className="h-8 w-8 text-muted-foreground mx-auto mb-2 animate-pulse" />

@@ -96,6 +96,9 @@ import Privacy from "./pages/Privacy";
 import { oauthService } from '@/services/oauthService';
 import { OnboardingManager } from '@/components/OnboardingManager';
 import { BehavioralScienceIntegration } from '@/components/BehavioralScienceIntegration';
+import { AuthProvider } from '@/providers/AuthProvider';
+import { Login } from '@/pages/Login';
+import { Signup } from '@/pages/Signup';
 
 const queryClient = new QueryClient();
 
@@ -129,7 +132,8 @@ const App = () => {
           <FeatureFlagsProvider>
             <ProgressiveOnboardingProvider>
               <CalmModeProvider>
-                <QueryClientProvider client={queryClient}>
+                <AuthProvider>
+                  <QueryClientProvider client={queryClient}>
                   <TooltipProvider>
                 <Toaster />
                 <Sonner />
@@ -221,21 +225,24 @@ const App = () => {
                          <Route path="masonry" element={<MasonryView />} />
                     <Route path="privacy" element={<Privacy />} />
                     </Route>
+                     <Route path="login" element={<Login />} />
+                     <Route path="signup" element={<Signup />} />
                      <Route path="auth/callback" element={<AuthCallback />} />
                      <Route path="oauth-callback" element={<AuthCallback />} />
                      <Route path="*" element={<NotFound />} />
                    </Routes>
                      <DevMenu isOpen={isDevMenuOpen} onClose={closeDevMenu} />
                       <OnboardingManager />
-                      <BehavioralScienceIntegration />
-                  </BrowserRouter>
-                 </TooltipProvider>
-               </QueryClientProvider>
-             </CalmModeProvider>
-           </ProgressiveOnboardingProvider>
-        </FeatureFlagsProvider>
-      </AccessibilityProvider>
-      </ThemeProvider>
+                       <BehavioralScienceIntegration />
+                   </BrowserRouter>
+                  </TooltipProvider>
+                </QueryClientProvider>
+                </AuthProvider>
+              </CalmModeProvider>
+            </ProgressiveOnboardingProvider>
+         </FeatureFlagsProvider>
+       </AccessibilityProvider>
+       </ThemeProvider>
     );
   } catch (error) {
     console.error('App render error:', error);

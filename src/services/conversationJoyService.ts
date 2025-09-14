@@ -96,8 +96,12 @@ class ConversationJoyService {
 
   async getJoyfulConversations(limit: number = 50): Promise<JoyfulConversation[]> {
     try {
-      // Get recent conversation threads
+      // Get recent conversation threads - handle unauthenticated gracefully
       const activeThread = await conversationService.getOrCreateActiveThread();
+      if (!activeThread) {
+        return []; // Return empty array if not authenticated
+      }
+      
       const conversations = await conversationService.getConversationHistory(activeThread.id, 200);
       
       const joyfulConversations: JoyfulConversation[] = [];
