@@ -3,12 +3,13 @@ interface DecisionSignal {
   value: any;
   confidence: number;
   source: string;
+  privacyLayer?: 'surface' | 'context' | 'deep';
 }
 
 interface DecisionTrace {
   id: string;
   timestamp: number;
-  feature: 'calendar' | 'email' | 'finance' | 'context' | 'system' | 'task-calendar';
+  feature: 'calendar' | 'email' | 'finance' | 'context' | 'system' | 'task-calendar' | 'behavioral' | 'mood' | 'perma' | 'contemplative' | 'task';
   userId?: string;
   signals: DecisionSignal[];
   confidenceThreshold: number;
@@ -16,6 +17,8 @@ interface DecisionTrace {
   decision: 'suggest' | 'draft' | 'auto-write' | 'skip' | 'calibrate' | 'rollback';
   action: string;
   becauseText: string;
+  privacyWatermark?: 'surface' | 'context' | 'deep';
+  castMember?: string;
   metadata: any;
   undoable: boolean;
   undoId?: string;
@@ -47,7 +50,8 @@ class DecisionTraceService {
     const newTrace: DecisionTrace = {
       ...trace,
       id: crypto.randomUUID(),
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      privacyWatermark: trace.privacyWatermark || 'surface'
     };
 
     this.traces.unshift(newTrace);
@@ -128,13 +132,13 @@ class DecisionTraceService {
   }
 
   /**
-   * Generate "Because..." text from signals
+   * Generate "Because..." text with privacy watermark
    */
-  generateBecauseText(signals: DecisionSignal[], decision: string): string {
+  generateBecauseText(signals: DecisionSignal[], decision: string, privacyLayer: 'surface' | 'context' | 'deep' = 'surface'): string {
     const primarySignals = signals.filter(s => s.confidence > 0.6);
     
     if (primarySignals.length === 0) {
-      return `Low confidence - ${decision}`;
+      return `Low confidence - ${decision} • ${privacyLayer.toUpperCase()}`;
     }
 
     const reasons = primarySignals.map(s => {
@@ -151,12 +155,37 @@ class DecisionTraceService {
           return `familiar location`;
         case 'finance':
           return `matches spending pattern`;
+        case 'energy':
+          return `energy window optimal`;
+        case 'mood':
+          return `mood context positive`;
+        case 'rhythm':
+          return `timing aligns with pattern`;
+        case 'stress':
+          return `stress levels manageable`;
+        case 'dmn':
+          return `attention state focused`;
+        case 'perma':
+          return `wellbeing factor present`;
         default:
           return `${s.type} signal`;
       }
     });
 
-    return `Because ${reasons.slice(0, 2).join(' and ')}`;
+    return `Because ${reasons.slice(0, 2).join(' and ')} • ${privacyLayer.toUpperCase()}`;
+  }
+
+  /**
+   * Generate privacy-aware explanation with watermark
+   */
+  generatePrivacyAwareExplanation(privacyLayer: 'surface' | 'context' | 'deep', dataTypes: string[]): string {
+    const layerDescriptions = {
+      surface: 'Basic task and timing data',
+      context: 'Behavioral patterns and preferences',
+      deep: 'Personal insights and emotional context'
+    };
+
+    return `Using ${layerDescriptions[privacyLayer]} (${dataTypes.join(', ')}) • ${privacyLayer.toUpperCase()}`;
   }
 
   /**

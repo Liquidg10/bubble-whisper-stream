@@ -185,18 +185,20 @@ const App = () => {
                         <Route path="dev/view-sdk" element={<DevViewSDK />} />
                         <Route path="dev/e2e-gate" element={<DevE2EGate />} />
                         <Route path="dev/auto-write" element={<DevAutoWrite />} />
-                        <Route path="dev/planning-stats" element={<DevPlanningStats />} />
-                        <Route path="dev/task-auto-write" element={<TaskAutoWriteDemo />} />
-                        <Route path="dev/production" element={<DevProductionDashboard />} />
-                        <Route path="dev/a11y-gate" element={<DevA11yGate />} />
+                         <Route path="dev/planning-stats" element={<DevPlanningStats />} />
+                         <Route path="dev/task-auto-write" element={<TaskAutoWriteDemo />} />
+                         <Route path="dev/production" element={<DevProductionDashboard />} />
+                         <Route path="dev/behavioral-science" element={<div>Behavioral Science Dev (Coming Soon)</div>} />
+                         <Route path="dev/a11y-gate" element={<DevA11yGate />} />
                       <Route path="privacy" element={<Privacy />} />
                     </Route>
                      <Route path="auth/callback" element={<AuthCallback />} />
                      <Route path="oauth-callback" element={<AuthCallback />} />
                      <Route path="*" element={<NotFound />} />
                    </Routes>
-                    <DevMenu isOpen={isDevMenuOpen} onClose={closeDevMenu} />
-                    <OnboardingManager />
+                     <DevMenu isOpen={isDevMenuOpen} onClose={closeDevMenu} />
+                     <OnboardingManager />
+                     {/* <BehavioralScienceIntegration /> */}
                   </BrowserRouter>
                  </TooltipProvider>
                </QueryClientProvider>
