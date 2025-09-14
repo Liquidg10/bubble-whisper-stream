@@ -35,6 +35,9 @@ import { useTaskStore } from '@/stores/taskStore';
 import { useToast } from '@/hooks/use-toast';
 import { useMobileCalendarPerformance } from '@/hooks/useMobileCalendarPerformance';
 import { calendarOfflineExtensions } from '@/services/calendarOfflineExtensions';
+import { CalendarDensityMonitor } from '@/components/calendar/CalendarDensityMonitor';
+import { SpacingSuggestionPanel } from '@/components/calendar/SpacingSuggestionPanel';
+import { ConfidenceDetailsPopover } from '@/components/calendar/ConfidenceDetailsPopover';
 
 export default function Calendar() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -157,6 +160,28 @@ export default function Calendar() {
 
         {/* Sidebar Widgets */}
         <div className="space-y-4">
+          {/* Calendar Intelligence Widgets */}
+          {selectedDate && (
+            <>
+              <CalendarDensityMonitor
+                date={selectedDate}
+                events={[]} // TODO: Get actual events for selected date
+              />
+              
+              <SpacingSuggestionPanel
+                date={selectedDate}
+                events={[]} // TODO: Get actual events for selected date
+                onApplySuggestion={(suggestion) => {
+                  console.log('Applying spacing suggestion:', suggestion);
+                  toast({
+                    title: "Spacing Applied",
+                    description: suggestion.reason,
+                  });
+                }}
+              />
+            </>
+          )}
+          
           {/* Mobile Conflict Resolver */}
           {conflicts.length > 0 && (
             <MobileConflictResolver 
