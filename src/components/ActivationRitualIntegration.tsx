@@ -92,7 +92,9 @@ export const ActivationRitualIntegration: React.FC<ActivationRitualIntegrationPr
     const breathCount = type === 'overwhelm' ? 10 : type === 'startup' ? 5 : 3;
     
     const sessionId = activationRitualService.startRitual(
-      { type, metadata },
+      type === 'startup' ? 'manual' : 
+      type === 'context-switch' ? 'context-switch' :
+      type === 'overwhelm' ? 'overwhelm-detected' : 'task-start',
       breathCount
     );
     

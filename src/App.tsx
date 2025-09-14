@@ -13,6 +13,7 @@ import { ProgressiveOnboardingProvider } from '@/providers/ProgressiveOnboarding
 import { CalmModeProvider } from '@/providers/CalmModeProvider';
 import Index from "./pages/Index";
 import { Timeline } from './pages/Timeline';
+import { Timeline2 } from './components/Timeline2';
 import { Settings } from './pages/Settings';
 import { Reminders } from './pages/Reminders';
 import { Reflection } from './pages/Reflection';

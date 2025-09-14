@@ -260,16 +260,25 @@ export default function DevProductionComplete() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Timeline className="h-5 w-5" />
+                  <Clock className="h-5 w-5" />
                   Split View Composer
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <SplitViewComposer
-                  leftContent={<div className="p-4 bg-muted rounded">Left Panel Content</div>}
-                  rightContent={<div className="p-4 bg-muted rounded">Right Panel Content</div>}
-                  defaultSplit={50}
-                />
+              <SplitViewComposer
+                defaultLayout={{
+                  id: 'test-layout',
+                  name: 'Test Layout',
+                  direction: 'horizontal',
+                  views: [
+                    { id: 'left', type: 'drafts', title: 'Left Panel', position: 'left', size: 50, visible: true },
+                    { id: 'right', type: 'eisenhower', title: 'Right Panel', position: 'right', size: 50, visible: true }
+                  ],
+                  syncEnabled: false,
+                  createdAt: new Date(),
+                  updatedAt: new Date()
+                }}
+              />
               </CardContent>
             </Card>
 

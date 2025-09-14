@@ -75,8 +75,8 @@ export const Timeline2: React.FC = () => {
         return bubbleDate.toDateString() === date.toDateString();
       });
       
-      const completedTasks = dayBubbles.filter(b => b.type === 'task' && b.content?.includes('completed'));
-      const totalTasks = dayBubbles.filter(b => b.type === 'task');
+      const completedTasks = dayBubbles.filter(b => b.type === 'Task' && b.content?.includes('completed'));
+      const totalTasks = dayBubbles.filter(b => b.type === 'Task');
       
       ribbons.push({
         date: date.toISOString().split('T')[0],
@@ -423,6 +423,7 @@ export const Timeline2: React.FC = () => {
         {selectedBubble && (
           <BubbleDetail
             bubble={selectedBubble}
+            isOpen={true}
             onClose={() => setSelectedBubble(null)}
           />
         )}

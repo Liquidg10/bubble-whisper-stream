@@ -98,8 +98,8 @@ export const AutoWriteProductionIntegration: React.FC = () => {
       const calendarStats = await taskAutoWriteProductionService.getAutoWriteMetrics(7);
       // Mock email stats for now
       setStats({
-        dailyCalendar: calendarStats.dailyAttempts || 0,
-        weeklyCalendar: calendarStats.weeklyAttempts || 0,
+        dailyCalendar: calendarStats.totalAttempts || 0,
+        weeklyCalendar: calendarStats.autoWriteCount || 0,
         dailyEmail: 0,
         weeklyEmail: 0,
         canAutoWrite: calendarStats.successRate > 0.8,
@@ -163,7 +163,7 @@ export const AutoWriteProductionIntegration: React.FC = () => {
     if (trace) {
       toast({
         title: "Decision Trace",
-        description: trace.reasoning,
+        description: trace.becauseText,
       });
     }
   };

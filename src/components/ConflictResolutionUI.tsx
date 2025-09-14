@@ -323,10 +323,9 @@ export const ConflictResolutionUI: React.FC<ConflictResolutionProps> = ({
                 
                 {currentConflict.localVersion && currentConflict.remoteVersion && (
                   <DiffView
-                    oldText={JSON.stringify(currentConflict.localVersion, null, 2)}
-                    newText={JSON.stringify(currentConflict.remoteVersion, null, 2)}
-                    oldLabel="Local Version"
-                    newLabel="Remote Version"
+                    original={JSON.stringify(currentConflict.localVersion, null, 2)}
+                    modified={JSON.stringify(currentConflict.remoteVersion, null, 2)}
+                    title="Version Comparison"
                   />
                 )}
               </TabsContent>
