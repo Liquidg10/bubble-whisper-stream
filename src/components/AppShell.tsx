@@ -18,6 +18,7 @@ import { useProgressiveOnboarding } from '@/providers/ProgressiveOnboardingProvi
 import { SmartAIAssistant } from '@/components/SmartAIAssistant';
 import { ViewModeToggle } from '@/components/ViewModeToggle';
 import { AuthStatus } from '@/components/AuthStatus';
+import { IntegrationStatusIndicator } from '@/components/IntegrationStatusIndicator';
 
 import NarrativeSearch from '@/components/NarrativeSearch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -69,6 +70,8 @@ export const AppShell: React.FC = () => {
             <CleanHouseHeaderTimer />
             <PomodoroHeaderTimer />
             <HeaderVoiceCapture />
+            <IntegrationStatusIndicator />
+            <AuthStatus />
           <Button
             variant="ghost"
             size="sm"
@@ -87,7 +90,6 @@ export const AppShell: React.FC = () => {
             <Search className="h-4 w-4" />
           </Button>
           <CompactThemeToggle />
-          <AuthStatus />
         </div>
       </header>
 

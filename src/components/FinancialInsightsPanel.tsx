@@ -139,16 +139,6 @@ export function FinancialInsightsPanel() {
     }).format(amount);
   };
 
-  if (!userId) {
-    return (
-      <Alert>
-        <AlertTriangle className="h-4 w-4" />
-        <AlertDescription>
-          Please sign in to view financial insights
-        </AlertDescription>
-      </Alert>
-    );
-  }
 
   return (
     <Card className="w-full">
