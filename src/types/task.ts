@@ -46,6 +46,16 @@ export interface TaskViewMetadata {
     importance: 0 | 1 | 2 | 3;
     quadrant?: 1 | 2 | 3 | 4;
   };
+  pinboard?: {
+    x?: number;
+    y?: number;
+    size?: number;
+    ordering?: number;
+    energy?: 'low' | 'medium' | 'high';
+    mood?: 'positive' | 'neutral' | 'negative';
+    lastMoved?: number;
+    context?: string; // AI-derived context for positioning suggestions
+  };
   calendar?: {
     startTime?: string;
     durationMin?: number;

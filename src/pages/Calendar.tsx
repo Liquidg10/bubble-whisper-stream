@@ -26,6 +26,8 @@ import { CalendarSyncPanel } from '@/components/CalendarSyncPanel';
 import { CalendarAutoWritePanel } from '@/components/CalendarAutoWritePanel';
 import { CalendarHealthPanel } from '@/components/CalendarHealthPanel';
 import { TaskCalendarAutoWriteWidget } from '@/components/TaskCalendarAutoWriteWidget';
+import { MasonryViewAdapter } from '@/views/MasonryViewAdapter';
+import { WithFeatureFlag } from '@/components/FeatureFlags';
 import { Task } from '@/types/task';
 import { useTaskStore } from '@/stores/taskStore';
 import { useToast } from '@/hooks/use-toast';
@@ -143,7 +145,7 @@ export default function Calendar() {
 
       {/* Management Tabs */}
       <Tabs defaultValue="sync" className="w-full">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="sync" className="flex items-center gap-2">
             <RotateCw className="h-4 w-4" />
             Sync Management
@@ -151,6 +153,10 @@ export default function Calendar() {
           <TabsTrigger value="autowrite" className="flex items-center gap-2">
             <Zap className="h-4 w-4" />
             Auto-Write
+          </TabsTrigger>
+          <TabsTrigger value="pinboard" className="flex items-center gap-2">
+            📌
+            Pinboard
           </TabsTrigger>
           <TabsTrigger value="health" className="flex items-center gap-2">
             <Activity className="h-4 w-4" />
@@ -168,6 +174,26 @@ export default function Calendar() {
 
         <TabsContent value="autowrite" className="space-y-4">
           <CalendarAutoWritePanel />
+        </TabsContent>
+
+        <TabsContent value="pinboard" className="space-y-4">
+          <WithFeatureFlag feature="pinboardView" fallback={
+            <Card>
+              <CardHeader>
+                <CardTitle>Pinboard View</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-muted-foreground">
+                  Pinboard view is currently disabled. Enable the feature flag to access this view.
+                </p>
+              </CardContent>
+            </Card>
+          }>
+            <MasonryViewAdapter 
+              viewId="calendar-pinboard"
+              onTaskSelect={handleTaskSelect}
+            />
+          </WithFeatureFlag>
         </TabsContent>
 
         <TabsContent value="health" className="space-y-4">

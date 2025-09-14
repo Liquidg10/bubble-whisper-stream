@@ -6,6 +6,8 @@ interface FeatureFlags {
   adaptiveRemindersEnabled: boolean;
   performanceMonitoringEnabled: boolean;
   debugMode: boolean;
+  pinboardView: boolean;
+  devRoutes: boolean;
 }
 
 interface FeatureFlagsContextValue {
@@ -34,6 +36,8 @@ const DEFAULT_FLAGS: FeatureFlags = {
   adaptiveRemindersEnabled: true,
   performanceMonitoringEnabled: process.env.NODE_ENV === 'development',
   debugMode: process.env.NODE_ENV === 'development',
+  pinboardView: false, // Off by default - progressive disclosure
+  devRoutes: process.env.NODE_ENV === 'development',
 };
 
 export function FeatureFlagsProvider({ children }: FeatureFlagsProviderProps) {
