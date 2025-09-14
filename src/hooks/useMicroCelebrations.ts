@@ -48,7 +48,7 @@ export function useMicroCelebrations() {
       
       if (burst && burst.celebrationEligible) {
         // Use preferred glimmer tone or default to Friend
-        const tone = (settings.preferredGlimmerTone || 'Friend') as GlimmerTone;
+        const tone = (settings.preferredGlimmerTone || 'supportive') as GlimmerTone;
         
         // Enhanced celebration check
         if (microCelebrationService.canShowCelebration(tone)) {

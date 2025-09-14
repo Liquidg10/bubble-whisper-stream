@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { X, Sparkles } from 'lucide-react';
 import { glimmerService } from '@/services/glimmerService';
 import type { Glimmer } from '@/types/bubble';
+import type { GlimmerTone } from '@/types/glimmer';
 
 export const GlimmerNotifications: React.FC = () => {
   const { glimmers, dismissGlimmer, addGlimmer, settings, bubbles, reminders } = useBubbleStore();
@@ -21,7 +22,7 @@ export const GlimmerNotifications: React.FC = () => {
 
         if (shouldTrigger) {
           const newGlimmer = await glimmerService.generateGlimmer(
-            settings.preferredGlimmerTone || 'Friend'
+            (settings.preferredGlimmerTone || 'supportive') as GlimmerTone
           );
 
           if (newGlimmer) {

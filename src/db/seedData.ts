@@ -52,7 +52,7 @@ export const sampleGlimmers: Glimmer[] = [
   {
     id: 'glimmer-1',
     createdAt: Date.now() - 3600000, // 1 hour ago
-    tone: 'Friend',
+    tone: 'supportive',
     message: 'Hey, I noticed you\'ve been feeling overwhelmed lately. Remember that it\'s okay to take things one step at a time. You\'ve handled difficult situations before.',
     cause: 'overwhelmed_pattern_detected',
     deliveredVia: 'text'
@@ -60,7 +60,7 @@ export const sampleGlimmers: Glimmer[] = [
   {
     id: 'glimmer-2',
     createdAt: Date.now() - 7200000, // 2 hours ago
-    tone: 'FutureYou',
+    tone: 'inspiring',
     message: 'Looking back, I\'m proud of how you pushed through that challenging moment. Your resilience is one of your strengths.',
     cause: 'stress_recovery_pattern',
     deliveredVia: 'both'

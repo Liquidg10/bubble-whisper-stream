@@ -191,7 +191,7 @@ export interface CBTEntry {
 }
 
 // Self-Compassion Glimmers
-export type GlimmerTone = 'FutureYou' | 'Friend' | 'Coach' | 'Scientist';
+export type GlimmerTone = 'supportive' | 'motivational' | 'analytical' | 'inspiring';
 
 export interface Glimmer {
   id: string;

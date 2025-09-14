@@ -12,7 +12,7 @@ const TONE_TEMPLATES: Record<GlimmerTone, {
   progress: string[];
   overwhelmed: string[];
 }> = {
-  FutureYou: {
+  supportive: {
     greeting: [
       "Hey, just checking in from a year from now...",
       "Future you here with a gentle reminder...",
@@ -39,7 +39,7 @@ const TONE_TEMPLATES: Record<GlimmerTone, {
       "One breath, one step - that's all you need right now"
     ]
   },
-  Friend: {
+  motivational: {
     greeting: [
       "Hey friend, thinking of you...",
       "Just wanted to remind you...",
@@ -66,7 +66,7 @@ const TONE_TEMPLATES: Record<GlimmerTone, {
       "One thing at a time, friend"
     ]
   },
-  Coach: {
+  analytical: {
     greeting: [
       "Quick coaching moment...",
       "Strategy check-in...",
@@ -93,7 +93,7 @@ const TONE_TEMPLATES: Record<GlimmerTone, {
       "This is training for future challenges"
     ]
   },
-  Scientist: {
+  inspiring: {
     greeting: [
       "Observation from your personal data...",
       "Pattern analysis suggests...",
@@ -248,7 +248,7 @@ class GlimmerService {
 
   // Generate a contextual glimmer with AI enhancement
   async generateGlimmer(
-    tone: GlimmerTone = 'Friend',
+    tone: GlimmerTone = 'supportive',
     patterns: PatternHint[] = [],
     bubbles: Bubble[] = []
   ): Promise<Glimmer | null> {

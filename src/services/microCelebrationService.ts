@@ -219,8 +219,7 @@ class MicroCelebrationService {
   }
 
   selectCelebrationMessage(burst: MomentumBurst, tone: GlimmerTone): string {
-    const normalizedTone = tone === 'inspiring' ? 'Future You' : tone;
-    const messages = MICRO_CELEBRATIONS[normalizedTone]?.[burst.type];
+    const messages = MICRO_CELEBRATIONS[tone]?.[burst.type];
     
     if (!messages || messages.length === 0) {
       return "Great work! ✨"; // Fallback
