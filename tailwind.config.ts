@@ -47,6 +47,10 @@ export default {
 				'bubble-selected': 'hsl(var(--bubble-selected))',
 				'bubble-reminder': 'hsl(var(--bubble-reminder))',
 				
+				/* Matrix card states */
+				'matrix-card-bg': 'hsl(var(--matrix-card-bg))',
+				'matrix-card-border': 'hsl(var(--matrix-card-border))',
+				
 				/* Standard shadcn mappings */
 				primary: {
 					DEFAULT: 'hsl(var(--primary))',

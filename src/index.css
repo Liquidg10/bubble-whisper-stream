@@ -25,9 +25,13 @@
     
     /* Bubble States */
     --bubble-idle: 210 20% 15%;             /* Resting state */
-    --bubble-active: 210 25% 25%;           /* Engaged state */
+    --bubble-active: 210 25% 20%;           /* Engaged state - darker for better contrast */
     --bubble-selected: 255 62% 20%;         /* Selection glow */
     --bubble-reminder: 0 60% 25%;           /* Reminder urgency */
+    
+    /* Matrix Card States - Extra dark for high text contrast */
+    --matrix-card-bg: 210 30% 12%;          /* Very dark background */
+    --matrix-card-border: 210 25% 18%;      /* Slightly lighter border */
     
     /* Gradients - Iridescent Magic */
     --gradient-aurora: linear-gradient(135deg, 

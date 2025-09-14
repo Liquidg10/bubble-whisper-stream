@@ -185,7 +185,8 @@ export const TaskCardConfigs: Record<string, TaskCardViewConfig> = {
     selectable: true,
     showDragHandle: false,
     showActions: true,
-    showMetadata: true
+    showMetadata: true,
+    className: 'bg-matrix-card-bg border-matrix-card-border text-text-primary'
   },
   universal: {
     view: 'universal',
@@ -610,6 +611,9 @@ export function TaskCard({
         task.completed && 'opacity-75',
         errorState.corrupted && 'border-destructive bg-destructive/5',
         sortableProps?.isDragging && 'opacity-50',
+        // Matrix view gets dark background for better text contrast
+        viewConfig.view === 'matrix' && 'bg-matrix-card-bg border-matrix-card-border text-text-primary',
+        viewConfig.className,
         className
       )}
       style={{ ...style, ...dragStyle }}
