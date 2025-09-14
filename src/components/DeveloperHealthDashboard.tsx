@@ -5,7 +5,6 @@
 
 import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Progress } from '@/components/ui/progress';
@@ -21,7 +20,8 @@ import {
   AlertTriangle,
   CheckCircle,
   XCircle,
-  Info
+  Info,
+  Monitor
 } from 'lucide-react';
 import { flagGatingValidator, type FlagGatingReport } from '@/services/flagGatingValidator';
 import { WatchHealthPanel } from '@/components/WatchHealthPanel';
@@ -29,6 +29,7 @@ import { syncTokenValidator, type SyncTokenValidationReport } from '@/services/s
 import { idempotencyService, type IdempotencyReport } from '@/services/idempotencyService';
 import { undoValidator, type UndoValidationReport } from '@/services/undoValidator';
 import { voiceMetricsService } from '@/services/voiceMetricsService';
+import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 
 export function DeveloperHealthDashboard() {
@@ -207,13 +208,14 @@ export function DeveloperHealthDashboard() {
 
       {/* Detailed Reports */}
       <Tabs defaultValue="flags" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-6">
+        <TabsList className="grid w-full grid-cols-7">
           <TabsTrigger value="flags">Flag Gating</TabsTrigger>
           <TabsTrigger value="watches">Watch Health</TabsTrigger>
           <TabsTrigger value="sync">Sync Tokens</TabsTrigger>
           <TabsTrigger value="idempotency">Idempotency</TabsTrigger>
           <TabsTrigger value="undo">Undo Tests</TabsTrigger>
           <TabsTrigger value="performance">Performance</TabsTrigger>
+          <TabsTrigger value="calendar">Calendar</TabsTrigger>
         </TabsList>
 
         <TabsContent value="flags">
@@ -462,6 +464,52 @@ export function DeveloperHealthDashboard() {
               ) : (
                 <div className="text-center py-4">No performance data available</div>
               )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="calendar">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Monitor className="h-5 w-5" />
+                Calendar Performance & Metrics
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="text-center py-8">
+                  <h3 className="text-lg font-semibold mb-2">Calendar Performance Dashboard</h3>
+                  <p className="text-muted-foreground mb-4">
+                    Comprehensive calendar and Masonry performance monitoring, privacy controls, and auto-write analytics.
+                  </p>
+                  <Button asChild>
+                    <a href="/dev/perf-calendar" className="inline-flex items-center gap-2">
+                      <Gauge className="h-4 w-4" />
+                      Open Calendar Dashboard
+                    </a>
+                  </Button>
+                </div>
+                
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+                  <div className="p-3 border rounded">
+                    <div className="text-sm font-medium">Performance</div>
+                    <div className="text-xs text-muted-foreground">FPS & Memory</div>
+                  </div>
+                  <div className="p-3 border rounded">
+                    <div className="text-sm font-medium">Privacy Layers</div>
+                    <div className="text-xs text-muted-foreground">Data Distribution</div>
+                  </div>
+                  <div className="p-3 border rounded">
+                    <div className="text-sm font-medium">Rate Limits</div>
+                    <div className="text-xs text-muted-foreground">Auto-Write Usage</div>
+                  </div>
+                  <div className="p-3 border rounded">
+                    <div className="text-sm font-medium">Watch Health</div>
+                    <div className="text-xs text-muted-foreground">Calendar Sync</div>
+                  </div>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
