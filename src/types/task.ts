@@ -108,6 +108,8 @@ export interface Task {
       amount?: number;
       merchant?: string;
       category?: string;
+      urgency?: 'low' | 'medium' | 'high' | 'critical';
+      dueDate?: number;
       itemLines?: Array<{
         name: string;
         price: number;
