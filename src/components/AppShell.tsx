@@ -32,6 +32,8 @@ export const AppShell: React.FC = () => {
   const navItems = [
     { path: '/', icon: Home, label: 'Canvas' },
     { path: '/timeline', icon: Calendar, label: 'Timeline' },
+    { path: '/calendar', icon: Calendar, label: 'Calendar' },
+    { path: '/email', icon: Inbox, label: 'Email' },
     { path: '/reminders', icon: Bell, label: 'Reminders' },
     { path: '/joy', icon: Heart, label: 'Joy' },
     { path: '/intelligence', icon: MapPin, label: 'Intelligence' },

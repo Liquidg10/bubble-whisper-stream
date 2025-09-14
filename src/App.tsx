@@ -58,6 +58,7 @@ import DevAutoWriteCalendar from "./pages/DevAutoWriteCalendar";
 import DevTemporalReasoning from "./pages/DevTemporalReasoning";
 import { DevGmailIntents } from "./pages/DevGmailIntentsQA";
 import DevEmailCompose from "./pages/DevEmailCompose";
+import Calendar from "./pages/Calendar";
 import DevRecurringFinance from "./pages/DevRecurringFinance";
 import { DevVoiceFirst } from "./pages/DevVoiceFirst";
 import DevHealthDashboard from "./pages/DevHealthDashboard";
@@ -145,6 +146,8 @@ const App = () => {
                       <Route path="search" element={<Search />} />
                       <Route path="cbt-worksheet" element={<CBTWorksheet />} />
                       <Route path="focus" element={<Focus />} />
+                      <Route path="calendar" element={<Calendar />} />
+                      <Route path="email" element={<DevEmailCompose />} />
                       <Route path="settings" element={<Settings />} />
                       {/* Dev routes - now inside AppShell for provider access */}
                       <Route path="dev/photo" element={<DevPhotoTest />} />
