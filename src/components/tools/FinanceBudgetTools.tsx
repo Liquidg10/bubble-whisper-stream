@@ -11,6 +11,8 @@ import { BankingIntegrationPlugin } from '@/plugins/BankingIntegrationPlugin';
 import { BudgetPaceAlerts } from '@/components/BudgetPaceAlerts';
 import { BudgetEnvelopeManager } from '@/components/BudgetEnvelopeManager';
 import { FinancialInsightsPanel } from '@/components/FinancialInsightsPanel';
+import { FinancialTaskDashboard } from '@/components/FinancialTaskDashboard';
+import { SmartFinancialInsights } from '@/components/SmartFinancialInsights';
 
 
 export function FinanceBudgetTools() {
@@ -57,6 +59,34 @@ export function FinanceBudgetTools() {
         <CardContent className="py-8 text-center text-muted-foreground">
           <Receipt className="h-12 w-12 mx-auto mb-4 opacity-50" />
           <p>Receipt scanning is available for individual bubble items in the canvas view</p>
+        </CardContent>
+      </Card>
+
+      {/* Financial Task Management */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <TrendingUp className="h-5 w-5 text-indigo-600" />
+            Financial Task Integration
+            <Badge variant="secondary">AI-Powered</Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <FinancialTaskDashboard />
+        </CardContent>
+      </Card>
+
+      {/* Smart Financial Insights */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Receipt className="h-5 w-5 text-purple-600" />
+            Smart Financial Insights
+            <Badge variant="secondary">AI-Powered</Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <SmartFinancialInsights />
         </CardContent>
       </Card>
 
