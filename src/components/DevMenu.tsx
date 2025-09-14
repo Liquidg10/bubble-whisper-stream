@@ -163,6 +163,7 @@ const devRoutes: DevRoute[] = [
     path: '/dev/fatigue-budgets',
     name: 'Fatigue Budgets',
     description: 'Nudge budget & cooldown tracking'
+  },
   {
     path: '/dev/watch-health',
     name: 'Watch Health',
