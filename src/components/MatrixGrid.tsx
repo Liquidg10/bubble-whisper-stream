@@ -29,29 +29,29 @@ const QUADRANT_CONFIG = {
   1: { 
     label: 'Do', 
     description: 'Urgent & Important',
-    color: 'bg-red-100 dark:bg-red-900/40 border-red-300 dark:border-red-700',
-    headerColor: 'bg-red-200 dark:bg-red-800/50 text-red-900 dark:text-red-100',
+    color: 'bg-red-200 dark:bg-red-900/60 border-red-400 dark:border-red-600',
+    headerColor: 'bg-red-300 dark:bg-red-700/70 text-red-900 dark:text-red-100',
     visible: 'do' as const
   },
   2: { 
     label: 'Schedule', 
     description: 'Not Urgent & Important',
-    color: 'bg-blue-100 dark:bg-blue-900/40 border-blue-300 dark:border-blue-700',
-    headerColor: 'bg-blue-200 dark:bg-blue-800/50 text-blue-900 dark:text-blue-100',
+    color: 'bg-blue-200 dark:bg-blue-900/60 border-blue-400 dark:border-blue-600',
+    headerColor: 'bg-blue-300 dark:bg-blue-700/70 text-blue-900 dark:text-blue-100',
     visible: 'schedule' as const
   },
   3: { 
     label: 'Delegate', 
     description: 'Urgent & Not Important',
-    color: 'bg-yellow-100 dark:bg-yellow-900/40 border-yellow-300 dark:border-yellow-700',
-    headerColor: 'bg-yellow-200 dark:bg-yellow-800/50 text-yellow-900 dark:text-yellow-100',
+    color: 'bg-yellow-200 dark:bg-yellow-900/60 border-yellow-400 dark:border-yellow-600',
+    headerColor: 'bg-yellow-300 dark:bg-yellow-700/70 text-yellow-900 dark:text-yellow-100',
     visible: 'delegate' as const
   },
   4: { 
     label: 'Drop', 
     description: 'Not Urgent & Not Important',
-    color: 'bg-gray-100 dark:bg-gray-900/40 border-gray-300 dark:border-gray-700',
-    headerColor: 'bg-gray-200 dark:bg-gray-800/50 text-gray-900 dark:text-gray-100',
+    color: 'bg-gray-200 dark:bg-gray-900/60 border-gray-400 dark:border-gray-600',
+    headerColor: 'bg-gray-300 dark:bg-gray-700/70 text-gray-900 dark:text-gray-100',
     visible: 'drop' as const
   }
 } as const;
