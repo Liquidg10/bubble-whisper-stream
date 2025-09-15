@@ -62,11 +62,37 @@ export default function Tools() {
 
         <div className="mt-6">
           <TabsContent value="pomodoro">
-            <PomodoroTimer />
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Timer className="h-5 w-5 text-blue-600" />
+                  Pomodoro Timer & Settings
+                </CardTitle>
+                <CardDescription>
+                  Focus technique using timed work sessions and breaks with full customization
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <PomodoroTimer />
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="clean">
-            <CleanHouseCues />
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Home className="h-5 w-5 text-green-600" />
+                  Clean House Timer & Settings
+                </CardTitle>
+                <CardDescription>
+                  Gentle cleaning sessions with customizable timers and encouragement
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <CleanHouseCues />
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="grocery" className="space-y-4">

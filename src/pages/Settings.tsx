@@ -22,8 +22,6 @@ import { PrivacySecuritySettings } from '@/components/settings/PrivacySecuritySe
 import { AdvancedSettings } from '@/components/settings/AdvancedSettings';
 import { AISettings } from '@/components/settings/AISettings';
 import { ThoughtSupportSettings } from '@/components/settings/ThoughtSupportSettings';
-import { PomodoroSettings } from '@/components/settings/PomodoroSettings';
-import { CleanHouseSettings } from '@/components/settings/CleanHouseSettings';
 import { SafetySettings } from '@/components/settings/SafetySettings';
 import { AuditSettings } from '@/components/settings/AuditSettings';
 import { OnboardingSettings } from '@/components/settings/OnboardingSettings';
@@ -63,14 +61,6 @@ export const Settings: React.FC = () => {
               <TabsTrigger value="ai" className="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm gap-2 min-w-fit">
                 <Bot className="h-4 w-4" />
                 <span>AI</span>
-              </TabsTrigger>
-              <TabsTrigger value="pomodoro" className="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm gap-2 min-w-fit">
-                <Timer className="h-4 w-4" />
-                <span>Pomodoro</span>
-              </TabsTrigger>
-              <TabsTrigger value="cleanhouse" className="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm gap-2 min-w-fit">
-                <Home className="h-4 w-4" />
-                <span>Clean House</span>
               </TabsTrigger>
               {showCBTTab && (
                 <TabsTrigger value="thought-support" className="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm gap-2 min-w-fit">
@@ -128,13 +118,6 @@ export const Settings: React.FC = () => {
               <AISettings />
             </TabsContent>
 
-            <TabsContent value="pomodoro" className="space-y-6 mt-0">
-              <PomodoroSettings />
-            </TabsContent>
-
-            <TabsContent value="cleanhouse" className="space-y-6 mt-0">
-              <CleanHouseSettings />
-            </TabsContent>
 
             {showCBTTab && (
               <TabsContent value="thought-support" className="space-y-6 mt-0">
