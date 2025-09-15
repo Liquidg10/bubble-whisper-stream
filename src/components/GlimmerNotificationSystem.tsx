@@ -10,17 +10,17 @@ import { Glimmer, GlimmerTone } from '@/types/bubble';
 import { useAccessibility } from './AccessibilityProvider';
 
 const TONE_ICONS = {
-  FutureYou: Heart,
-  Friend: Users,
-  Coach: Zap,
-  Scientist: Brain,
+  supportive: Heart,
+  motivational: Users,
+  analytical: Brain,
+  inspiring: Zap,
 } as const;
 
 const TONE_COLORS = {
-  FutureYou: 'bg-gradient-to-r from-pink-500/20 to-purple-500/20 border-pink-500/30',
-  Friend: 'bg-gradient-to-r from-blue-500/20 to-cyan-500/20 border-blue-500/30',
-  Coach: 'bg-gradient-to-r from-orange-500/20 to-yellow-500/20 border-orange-500/30',
-  Scientist: 'bg-gradient-to-r from-green-500/20 to-teal-500/20 border-green-500/30',
+  supportive: 'bg-gradient-to-r from-pink-500/20 to-purple-500/20 border-pink-500/30',
+  motivational: 'bg-gradient-to-r from-blue-500/20 to-cyan-500/20 border-blue-500/30',
+  analytical: 'bg-gradient-to-r from-green-500/20 to-teal-500/20 border-green-500/30',
+  inspiring: 'bg-gradient-to-r from-orange-500/20 to-yellow-500/20 border-orange-500/30',
 } as const;
 
 export function GlimmerNotificationSystem() {
