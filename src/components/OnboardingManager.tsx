@@ -9,13 +9,21 @@ export const OnboardingManager: React.FC = () => {
 
   useEffect(() => {
     const checkOnboardingStatus = async () => {
-      const hasCompleted = await userContextService.hasCompletedOnboarding();
-      
-      // Show wizard if:
-      // 1. User hasn't completed data onboarding
-      // 2. Progressive onboarding is active but user has no personalization data
-      if (!hasCompleted && onboardingState.isEnabled && !onboardingState.hasSkippedProgression) {
-        setShowWizard(true);
+      try {
+        const hasCompleted = await userContextService.hasCompletedOnboarding();
+        
+        // Show wizard if:
+        // 1. User hasn't completed data onboarding
+        // 2. Progressive onboarding is active but user has no personalization data
+        if (!hasCompleted && onboardingState.isEnabled && !onboardingState.hasSkippedProgression) {
+          setShowWizard(true);
+        }
+      } catch (error) {
+        console.warn('Failed to check onboarding status, defaulting to show wizard:', error);
+        // Default to showing wizard if we can't check status
+        if (onboardingState.isEnabled && !onboardingState.hasSkippedProgression) {
+          setShowWizard(true);
+        }
       }
     };
 
