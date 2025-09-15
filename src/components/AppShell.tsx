@@ -53,7 +53,7 @@ export const AppShell: React.FC = () => {
       {/* Header */}
       <header className="flex items-center justify-between p-4 border-b border-border/50 bg-card/50 backdrop-blur">
         <div className="flex items-center gap-3">
-          <h1 className="text-lg font-semibold text-foreground">Bubble Universe</h1>
+          <h1 className="text-lg font-semibold text-foreground">Mind Manual</h1>
           <OnboardingProgressIndicator 
             onboardingState={onboardingState}
             onSkipProgression={skipProgression}
