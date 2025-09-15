@@ -109,7 +109,7 @@ export default function Index() {
       <RadialCapture />
       
       {/* Smart Task Quick Add */}
-      <div className="absolute bottom-20 left-4 z-20 max-w-md">
+      <div className="absolute bottom-28 left-4 z-20 max-w-md">
         <SmartTaskQuickAdd />
       </div>
       <NotificationSystem />
@@ -146,7 +146,7 @@ export default function Index() {
 
       {/* Voice Intent Capture - Floating Bottom Center */}
       {isFeatureEnabled('voiceCapture') && (
-        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50">
+        <div className="fixed bottom-24 left-1/2 transform -translate-x-1/2 z-50">
           <VoiceIntentCapture
             onBubbleCreated={(bubble) => {
               console.log('Voice bubble created:', bubble);
