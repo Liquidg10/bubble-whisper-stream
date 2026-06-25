@@ -211,7 +211,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
     return () => {
       window.removeEventListener('resize', updateCanvasSize);
       cleanupKeyboard();
-      stopAnimation();
+      stopAnimation(floatStep);
     };
   }, []);
 
