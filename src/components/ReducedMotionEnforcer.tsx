@@ -53,27 +53,9 @@ export const ReducedMotionEnforcer: React.FC<ReducedMotionEnforcerProps> = ({ ch
         transition-duration: 0.01ms !important;
         scroll-behavior: auto !important;
       }
-      
-      /* Specifically target bubble animations */
-      .bubble-float, .bubble-pulse, .bubble-glow {
-        animation: none !important;
-        transform: none !important;
-      }
-      
-      /* Framer Motion override */
-      [data-framer-motion] {
-        transform: none !important;
-        animation: none !important;
-      }
-      
-      /* Disable CSS transforms */
+
       .animate-spin, .animate-pulse, .animate-bounce {
         animation: none !important;
-      }
-      
-      /* Disable Tailwind animations */
-      .transition-all, .transition-colors, .transition-opacity, .transition-transform {
-        transition: none !important;
       }
     `;
   };
