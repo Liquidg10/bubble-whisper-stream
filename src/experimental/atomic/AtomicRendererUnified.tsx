@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { usePanZoom } from '@/hooks/usePanZoom';
-import { startAnimation, stopAnimation, isMotionEnabled, subscribeToMotionState } from '@/lib/motion';
+import { startAnimation, stopAnimation, toggleAnimation, isMotionEnabled, subscribeToMotionState } from '@/lib/motion';
 import { classifyDomain, getAllDomains } from '@/lib/classifyDomain';
 import { getHorizon, getHorizonDisplayName, ringIndexToHorizon } from '@/lib/horizon';
 import { calculateMoleculePositions } from '@/experimental/atomic/positioning';
@@ -326,27 +326,9 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     startAnimation(animate);
 
     return () => {
-      stopAnimation();
+      stopAnimation(animate);
     };
   }, [motionState, reducedMotion, atomicState.molecules, atomicState.dragState.isDragging]);
-
-  // Auto-start animation on mount if motion is enabled
-  useEffect(() => {
-    if (isMotionEnabled() && !reducedMotion) {
-      const totalElectrons = atomicState.molecules.reduce((sum, mol) => sum + mol.electrons.length, 0);
-      const speedMultiplier = totalElectrons > ANIMATION_CONFIG.MAX_ELECTRONS_FOR_FAST_ANIMATION ? 0.5 : 1.0;
-
-      // Cache initial electron count
-      if (!animationRef.current) animationRef.current = {};
-      animationRef.current.electronCount = totalElectrons;
-
-      const animate = () => {
-        setAnimationStep(prev => prev + (ANIMATION_CONFIG.ELECTRON_SPEED * speedMultiplier));
-      };
-
-      startAnimation(animate);
-    }
-  }, [reducedMotion, atomicState.molecules]);
 
   // Unified drag start handler for both mouse and touch
   const getEventCoordinates = useCallback((event: React.MouseEvent | React.TouchEvent) => {
@@ -727,13 +709,8 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
 
   // Motion toggle
   const toggleMotion = useCallback(() => {
-    if (motionState) {
-      stopAnimation();
-    } else {
-      const animate = () => setAnimationStep(prev => prev + 0.02);
-      startAnimation(animate);
-    }
-  }, [motionState]);
+    toggleAnimation();
+  }, []);
 
   return (
     <div className={`relative w-full h-full overflow-hidden bg-background ${className}`}>
