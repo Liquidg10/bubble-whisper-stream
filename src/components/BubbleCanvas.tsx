@@ -72,6 +72,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
     zoomIn,
     zoomOut,
     resetZoom,
+    centerOnPoint,
     cursor
   } = usePanZoom({
     getContainerRect: () => canvasRef.current?.getBoundingClientRect() || null
@@ -443,11 +444,9 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
     
     const centerX = (bounds.minX + bounds.maxX) / 2;
     const centerY = (bounds.minY + bounds.maxY) / 2;
-    
-    // Center by setting pan offset to negative of bubble center
-    resetZoom();
-    // Note: This would need to be implemented in usePanZoom to properly center
-  }, [bubbles]);
+
+    centerOnPoint({ x: centerX, y: centerY });
+  }, [bubbles, centerOnPoint]);
 
   // Auto-center on first load
   useEffect(() => {
