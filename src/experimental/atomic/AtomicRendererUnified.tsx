@@ -156,6 +156,17 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     }
   });
 
+  // Convert an absolute screen point to canvas world coordinates.
+  // Must mirror the render transform: translate(pan) scale(scale) with transformOrigin: center.
+  const screenToWorld = useCallback((screenX: number, screenY: number, rect: DOMRect) => {
+    const cx = rect.width / 2;
+    const cy = rect.height / 2;
+    return {
+      x: cx + (screenX - rect.left - cx - panZoomState.x) / panZoomState.scale,
+      y: cy + (screenY - rect.top - cy - panZoomState.y) / panZoomState.scale,
+    };
+  }, [panZoomState.x, panZoomState.y, panZoomState.scale]);
+
   // Debounced molecule converter to prevent rapid re-conversions
   const debouncedConvertRef = useRef<NodeJS.Timeout>();
   const lastConversionRef = useRef<Bubble[]>([]);
@@ -434,12 +445,10 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         if (!rect || !electronId) return;
         
         // Transform coordinates to account for pan/zoom
-        const mouseX = (coords.x - rect.left - panZoomState.x) / panZoomState.scale;
-        const mouseY = (coords.y - rect.top - panZoomState.y) / panZoomState.scale;
-        
+        const { x: mouseX, y: mouseY } = screenToWorld(coords.x, coords.y, rect);
+
         // Calculate drag offset for visual feedback
-        const startMouseX = ((atomicState.dragState.lastMousePos?.x || 0) - rect.left - panZoomState.x) / panZoomState.scale;
-        const startMouseY = ((atomicState.dragState.lastMousePos?.y || 0) - rect.top - panZoomState.y) / panZoomState.scale;
+        const { x: startMouseX, y: startMouseY } = screenToWorld(atomicState.dragState.lastMousePos?.x || 0, atomicState.dragState.lastMousePos?.y || 0, rect);
         const dragOffsetX = mouseX - startMouseX;
         const dragOffsetY = mouseY - startMouseY;
         
@@ -496,8 +505,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           let targetShell = originalShell; // Default to no change
           
           if (rect && atomicState.dragState.currentMousePos) {
-            const mouseX = (atomicState.dragState.currentMousePos.x - rect.left - panZoomState.x) / panZoomState.scale;
-            const mouseY = (atomicState.dragState.currentMousePos.y - rect.top - panZoomState.y) / panZoomState.scale;
+            const { x: mouseX, y: mouseY } = screenToWorld(atomicState.dragState.currentMousePos.x, atomicState.dragState.currentMousePos.y, rect);
             
             // Find the closest molecule to determine final shell
             let minDistance = Infinity;
