@@ -50,7 +50,7 @@ export function useFloatMotion({
       const elements = document.querySelectorAll('.float-motion');
       elements.forEach((element) => {
         const htmlElement = element as HTMLElement;
-        htmlElement.style.transform = `translateY(${offset}px)`;
+        htmlElement.style.setProperty('--float-y', `${offset}px`);
       });
       
       if (shouldFloat) {
@@ -71,7 +71,7 @@ export function useFloatMotion({
     const elements = document.querySelectorAll('.float-motion');
     elements.forEach((element) => {
       const htmlElement = element as HTMLElement;
-      htmlElement.style.transform = 'translateY(0px)';
+      htmlElement.style.setProperty('--float-y', '0px');
     });
   }, []);
 
