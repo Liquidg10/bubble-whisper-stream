@@ -434,12 +434,10 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         if (!rect || !electronId) return;
         
         // Transform coordinates to account for pan/zoom
-        const mouseX = (coords.x - rect.left - panZoomState.x) / panZoomState.scale;
-        const mouseY = (coords.y - rect.top - panZoomState.y) / panZoomState.scale;
-        
+        const { x: mouseX, y: mouseY } = screenToWorld(coords.x, coords.y, rect);
+
         // Calculate drag offset for visual feedback
-        const startMouseX = ((atomicState.dragState.lastMousePos?.x || 0) - rect.left - panZoomState.x) / panZoomState.scale;
-        const startMouseY = ((atomicState.dragState.lastMousePos?.y || 0) - rect.top - panZoomState.y) / panZoomState.scale;
+        const { x: startMouseX, y: startMouseY } = screenToWorld(atomicState.dragState.lastMousePos?.x || 0, atomicState.dragState.lastMousePos?.y || 0, rect);
         const dragOffsetX = mouseX - startMouseX;
         const dragOffsetY = mouseY - startMouseY;
         
