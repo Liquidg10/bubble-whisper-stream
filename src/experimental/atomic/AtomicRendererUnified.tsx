@@ -156,6 +156,17 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     }
   });
 
+  // Convert an absolute screen point to canvas world coordinates.
+  // Must mirror the render transform: translate(pan) scale(scale) with transformOrigin: center.
+  const screenToWorld = useCallback((screenX: number, screenY: number, rect: DOMRect) => {
+    const cx = rect.width / 2;
+    const cy = rect.height / 2;
+    return {
+      x: cx + (screenX - rect.left - cx - panZoomState.x) / panZoomState.scale,
+      y: cy + (screenY - rect.top - cy - panZoomState.y) / panZoomState.scale,
+    };
+  }, [panZoomState.x, panZoomState.y, panZoomState.scale]);
+
   // Debounced molecule converter to prevent rapid re-conversions
   const debouncedConvertRef = useRef<NodeJS.Timeout>();
   const lastConversionRef = useRef<Bubble[]>([]);
