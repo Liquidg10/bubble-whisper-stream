@@ -510,7 +510,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
                 position: 'absolute',
                 left: bubble.x,
                 top: bubble.y,
-                transform: 'translate(-50%, -50%)',
+                transform: 'translate(-50%, -50%) translateY(var(--float-y, 0px))',
               }}
               className={`${!settings.reducedMotion ? 'float-motion' : ''}`}
             >
