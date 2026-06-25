@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "12.2.3 (519615d)"
+    PostgrestVersion: "13.0.5"
   }
   public: {
     Tables: {
@@ -1759,10 +1759,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      cleanup_expired_oauth_state: {
-        Args: Record<PropertyKey, never>
-        Returns: undefined
-      }
+      cleanup_expired_oauth_state: { Args: never; Returns: undefined }
       cleanup_old_calendar_events: {
         Args: { account_id: string; window_days?: number }
         Returns: number
@@ -1779,14 +1776,8 @@ export type Database = {
           watch_resource_id: string
         }[]
       }
-      get_user_tenant_id: {
-        Args: Record<PropertyKey, never>
-        Returns: string
-      }
-      is_tenant_admin: {
-        Args: { tenant_uuid: string }
-        Returns: boolean
-      }
+      get_user_tenant_id: { Args: never; Returns: string }
+      is_tenant_admin: { Args: { tenant_uuid: string }; Returns: boolean }
       user_belongs_to_tenant: {
         Args: { tenant_uuid: string }
         Returns: boolean
