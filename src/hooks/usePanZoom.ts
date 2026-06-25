@@ -62,45 +62,38 @@ export function usePanZoom({
     });
   }, [onStateChange]);
 
-  // Center-anchored zoom - zoom to center of what's currently visible
-  const performZoom = useCallback((zoomDirection: number, sourceEvent?: string) => {
+  // Focal-anchored zoom: keeps the point under the cursor/pinch fixed.
+  // Falls back to viewport-center anchoring when no focal point is given (button zoom).
+  const performZoom = useCallback((zoomDirection: number, sourceEvent?: string, focalPoint?: { x: number; y: number }) => {
     const rect = getContainerRect();
     if (!rect) return;
 
     const zoomFactor = zoomDirection > 0 ? 1.2 : 1 / 1.2;
     const newScale = Math.max(minScale, Math.min(state.scale * zoomFactor, maxScale));
-    
+
     if (newScale === state.scale) return; // Already at limit
 
-    // Find the center of what's currently visible in world coordinates
-    // This is the world point that appears at the center of the viewport
-    const viewCenterX = rect.width / 2;
-    const viewCenterY = rect.height / 2;
-    
-    // For transform: translate(x, y) scale(s) with transformOrigin: center
-    // The world coordinates don't change during zoom since we're scaling from center
-    // We just need to adjust the translation to maintain the view
     const zoomRatio = newScale / state.scale;
-    
-    // Keep the same visual content centered
-    const newX = state.x * zoomRatio;
-    const newY = state.y * zoomRatio;
+
+    // Focal point relative to the container center (transformOrigin: center).
+    const fx = focalPoint ? focalPoint.x - rect.left - rect.width / 2 : 0;
+    const fy = focalPoint ? focalPoint.y - rect.top - rect.height / 2 : 0;
+
+    // Keep the focal world-point fixed under the cursor/pinch while scaling.
+    const newX = fx * (1 - zoomRatio) + zoomRatio * state.x;
+    const newY = fy * (1 - zoomRatio) + zoomRatio * state.y;
 
     devLog('pan-zoom-transition', {
       source: sourceEvent || 'unknown',
       fromScale: state.scale,
       toScale: newScale,
       zoomDirection,
-      viewportCenter: { x: viewCenterX, y: viewCenterY },
+      focal: { x: fx, y: fy },
       oldOffset: { x: state.x, y: state.y },
       newOffset: { x: newX, y: newY }
     });
 
-    updateState({
-      scale: newScale,
-      x: newX,
-      y: newY
-    });
+    updateState({ scale: newScale, x: newX, y: newY });
   }, [state.scale, state.x, state.y, minScale, maxScale, getContainerRect, updateState]);
 
   // Pointer down - start potential pan (with threshold)
@@ -172,7 +165,7 @@ export function usePanZoom({
   const onWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();
     const zoomDirection = e.deltaY > 0 ? -1 : 1;
-    performZoom(zoomDirection, 'wheel');
+    performZoom(zoomDirection, 'wheel', { x: e.clientX, y: e.clientY });
   }, [performZoom]);
 
   // Button zoom functions
@@ -189,11 +182,23 @@ export function usePanZoom({
     updateState({ scale: 1, x: 0, y: 0 });
   }, [state.x, state.y, state.scale, updateState]);
 
+  // Center the viewport on a world-space point (optionally setting a scale).
+  const centerOnPoint = useCallback((point: { x: number; y: number }, opts?: { scale?: number }) => {
+    const rect = getContainerRect();
+    if (!rect) return;
+    const targetScale = opts?.scale ?? state.scale;
+    const cx = rect.width / 2;
+    const cy = rect.height / 2;
+    // Solve translate so that the point maps to the container center (origin: center).
+    const newX = targetScale * (cx - point.x);
+    const newY = targetScale * (cy - point.y);
+    updateState({ scale: targetScale, x: newX, y: newY });
+  }, [getContainerRect, state.scale, updateState]);
+
   // Handle mobile pinch - unified with other zoom sources
   const handlePinchZoom = useCallback((scaleFactor: number, center: { x: number; y: number }) => {
-    // Convert scale factor to zoom direction for unified logic
     const zoomDirection = scaleFactor > 1 ? 1 : -1;
-    performZoom(zoomDirection, 'pinch');
+    performZoom(zoomDirection, 'pinch', center);
   }, [performZoom]);
 
   // Touch handlers for mobile pinch
@@ -262,6 +267,7 @@ export function usePanZoom({
     zoomIn,
     zoomOut,
     resetZoom,
+    centerOnPoint,
     cursor
   };
 }
