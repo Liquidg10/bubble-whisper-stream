@@ -196,12 +196,12 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
     
     // Setup float motion animation
     const floatStep = () => {
-      const elements = document.querySelectorAll('.float-motion');
-      elements.forEach((element) => {
-        const htmlElement = element as HTMLElement;
-        const offset = Math.sin(Date.now() * 0.001) * 2; // subtle float
-        htmlElement.style.transform = `translateY(${offset}px)`;
-      });
+    const elements = document.querySelectorAll('.float-motion');
+    elements.forEach((element) => {
+      const htmlElement = element as HTMLElement;
+      const offset = Math.sin(Date.now() * 0.001) * 2; // subtle float
+      htmlElement.style.setProperty('--float-y', `${offset}px`);
+    });
     };
     
     // Start float animation
