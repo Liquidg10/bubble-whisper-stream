@@ -505,8 +505,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           let targetShell = originalShell; // Default to no change
           
           if (rect && atomicState.dragState.currentMousePos) {
-            const mouseX = (atomicState.dragState.currentMousePos.x - rect.left - panZoomState.x) / panZoomState.scale;
-            const mouseY = (atomicState.dragState.currentMousePos.y - rect.top - panZoomState.y) / panZoomState.scale;
+            const { x: mouseX, y: mouseY } = screenToWorld(atomicState.dragState.currentMousePos.x, atomicState.dragState.currentMousePos.y, rect);
             
             // Find the closest molecule to determine final shell
             let minDistance = Infinity;
