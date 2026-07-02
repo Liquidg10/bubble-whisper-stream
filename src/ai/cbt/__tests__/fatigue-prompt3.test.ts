@@ -130,7 +130,8 @@ describe('PROMPT 3 Fatigue Service', () => {
 
       const newState = fatigueService.recordIntervention(fatigueState, ['all_or_nothing']);
 
-      expect(newState.topicCooldowns['all_or_nothing']).toBeCloseTo(now + (30 * 60 * 1000), 1000);
+      // toBeCloseTo's 2nd arg is decimal precision, not a ms tolerance -- use an explicit delta check instead
+      expect(Math.abs(newState.topicCooldowns['all_or_nothing']! - (now + 30 * 60 * 1000))).toBeLessThan(1000);
     });
   });
 
@@ -171,7 +172,8 @@ describe('PROMPT 3 Fatigue Service', () => {
 
       const newState = fatigueService.recordTopicDecline(fatigueState, ['mind_reading']);
 
-      expect(newState.topicDeclines['mind_reading']).toBeCloseTo(now + (24 * 60 * 60 * 1000), 1000);
+      // toBeCloseTo's 2nd arg is decimal precision, not a ms tolerance -- use an explicit delta check instead
+      expect(Math.abs(newState.topicDeclines['mind_reading']! - (now + 24 * 60 * 60 * 1000))).toBeLessThan(1000);
     });
   });
 

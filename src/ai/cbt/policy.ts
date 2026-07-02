@@ -28,8 +28,9 @@ export function decide(
     return crisisDecision; // Returns 'none' but with crisis flag for external routing
   }
   
-  // Check fatigue constraints
-  const fatigueCheck = evaluateFatigue(fatigueState, userSettings);
+  // Check fatigue constraints (topic-scoped: only this message's distortion types matter)
+  const relevantTopics = latestAnnotation.distortions.map(d => d.type);
+  const fatigueCheck = evaluateFatigue(fatigueState, userSettings, relevantTopics);
   if (!fatigueCheck.canIntervene) {
     return createDecision('none', fatigueCheck.reason, [], 'low', fatigueCheck.cooldownMinutes);
   }
@@ -99,11 +100,28 @@ function evaluateCrisisIntervention(annotation: CBTAnnotation): CBTDecision {
 
 function evaluateFatigue(
   fatigueState: CBTPolicyContext['fatigueState'], 
-  userSettings: CBTPolicyContext['userSettings']
+  userSettings: CBTPolicyContext['userSettings'],
+  relevantTopics: DistortionType[] = []
 ): { canIntervene: boolean; reason: string; cooldownMinutes?: number } {
   
   const now = Date.now();
-  
+
+  // Recent-intervention cooldown: avoid back-to-back interventions regardless of topic.
+  // 30min matches the topic-specific cooldown window used elsewhere in the fatigue system.
+  // Compared in whole elapsed minutes (floor) so a fixture built as "N minutes ago" is
+  // stable regardless of a few ms of test/runtime overhead between timestamp creation and check.
+  const RECENT_INTERVENTION_COOLDOWN_MINUTES = 30;
+  if (fatigueState.lastIntervention > 0) {
+    const elapsedMinutes = Math.floor((now - fatigueState.lastIntervention) / (1000 * 60));
+    if (elapsedMinutes <= RECENT_INTERVENTION_COOLDOWN_MINUTES) {
+      return {
+        canIntervene: false,
+        reason: 'Recent intervention cooldown active',
+        cooldownMinutes: RECENT_INTERVENTION_COOLDOWN_MINUTES - elapsedMinutes
+      };
+    }
+  }
+
   // PROMPT 3: Max 2 prompts/day total (regardless of assist level)
   if (fatigueState.dailyCount >= 2) {
     const tomorrow = new Date();
@@ -118,11 +136,13 @@ function evaluateFatigue(
     };
   }
   
-  // PROMPT 3: Check 24h topic decline snooze
+  // PROMPT 3: Check 24h topic decline snooze (scoped to this message's topics only)
   const topicDeclines = fatigueState.topicDeclines || {};
-  const hasActiveDecline = Object.values(topicDeclines).some(snoozeTime => now < snoozeTime);
-  if (hasActiveDecline) {
-    const nextAvailable = Math.min(...Object.values(topicDeclines).filter(t => t > now));
+  const relevantDeclineTimes = relevantTopics
+    .map(topic => topicDeclines[topic])
+    .filter((t): t is number => typeof t === 'number' && now < t);
+  if (relevantDeclineTimes.length > 0) {
+    const nextAvailable = Math.min(...relevantDeclineTimes);
     const cooldownMinutes = Math.ceil((nextAvailable - now) / (1000 * 60));
     return {
       canIntervene: false,
@@ -131,11 +151,13 @@ function evaluateFatigue(
     };
   }
   
-  // PROMPT 3: Check 30min topic cooldown
+  // PROMPT 3: Check 30min topic cooldown (scoped to this message's topics only)
   const topicCooldowns = fatigueState.topicCooldowns || {};
-  const hasActiveCooldown = Object.values(topicCooldowns).some(cooldownTime => now < cooldownTime);
-  if (hasActiveCooldown) {
-    const nextAvailable = Math.min(...Object.values(topicCooldowns).filter(t => t > now));
+  const relevantCooldownTimes = relevantTopics
+    .map(topic => topicCooldowns[topic])
+    .filter((t): t is number => typeof t === 'number' && now < t);
+  if (relevantCooldownTimes.length > 0) {
+    const nextAvailable = Math.min(...relevantCooldownTimes);
     const cooldownMinutes = Math.ceil((nextAvailable - now) / (1000 * 60));
     return {
       canIntervene: false,
@@ -242,7 +264,7 @@ function getUserConfidenceThreshold(
   
   try {
     // Import learning service dynamically to avoid circular deps
-    const learningPrefs = localStorage.getItem('cbt_learning_preferences');
+    const learningPrefs = typeof localStorage !== 'undefined' ? localStorage.getItem('cbt_learning_preferences') : null;
     if (learningPrefs) {
       const prefs = JSON.parse(learningPrefs);
       distortions.forEach(distortion => {

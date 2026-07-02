@@ -294,7 +294,7 @@ export class CrisisSessionManager {
 
   static getSessionState(userId: string): CrisisSessionState {
     const storageKey = `${this.STORAGE_PREFIX}${userId}`;
-    const stored = localStorage.getItem(storageKey);
+    const stored = typeof localStorage !== 'undefined' ? localStorage.getItem(storageKey) : null;
     
     if (!stored) {
       return {
@@ -323,6 +323,7 @@ export class CrisisSessionManager {
   }
 
   static setSessionState(userId: string, state: CrisisSessionState): void {
+    if (typeof localStorage === 'undefined') return;
     const storageKey = `${this.STORAGE_PREFIX}${userId}`;
     localStorage.setItem(storageKey, JSON.stringify(state));
   }
