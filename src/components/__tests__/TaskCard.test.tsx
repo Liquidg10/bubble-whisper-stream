@@ -10,9 +10,17 @@ import { TaskCard, TaskCardConfigs, validateTask } from '../TaskCard';
 import type { Task } from '@/types/task';
 
 // Mock dependencies
+// The real useToast() hook returns a referentially-stable `toast` function
+// across renders (it's a module-level const, not recreated per call).
+// TaskCard's validation-warning effect depends on `toast` in its dependency
+// array; a mock that calls vi.fn() fresh inside the factory breaks that
+// stability and, combined with an unmemoized validateTask() call (see
+// TaskCard.tsx), caused an infinite render loop -> indefinite test hang
+// for any task with validation issues. Hoisting the mock fn fixes it.
+const { mockToastFn } = vi.hoisted(() => ({ mockToastFn: vi.fn() }));
 vi.mock('@/hooks/use-toast', () => ({
   useToast: () => ({
-    toast: vi.fn()
+    toast: mockToastFn
   })
 }));
 
