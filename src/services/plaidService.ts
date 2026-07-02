@@ -250,8 +250,12 @@ class PlaidService {
       if (error) throw error;
 
       // Also mark associated accounts as inactive
+      // plaid_items direct SELECT is revoked (migration 30); id is still
+      // exposed via the plaid_items_safe view.
+      // TODO(post-migration): remove the `as any` once `supabase gen types typescript`
+      // is re-run against the live DB and plaid_items_safe appears in the generated types.
       const { data: itemData } = await supabase
-        .from('plaid_items')
+        .from('plaid_items_safe' as any)
         .select('id')
         .eq('item_id', itemId)
         .single();
@@ -260,7 +264,7 @@ class PlaidService {
         await supabase
           .from('plaid_accounts')
           .update({ is_active: false })
-          .eq('plaid_item_id', itemData.id);
+          .eq('plaid_item_id', (itemData as unknown as { id: string }).id);
       }
     } catch (error) {
       console.error('Failed to disconnect account:', error);

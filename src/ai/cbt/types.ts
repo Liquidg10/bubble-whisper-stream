@@ -9,15 +9,18 @@ export type DistortionType =
   | 'should_statements'
   | 'mind_reading';
 
+export interface CBTDistortionAnnotation {
+  type: DistortionType;
+  confidence: number; // 0-1
+  evidence: string[];
+  keywords: string[];
+  patterns?: string[]; // Run 15: raw regex pattern matches, kept for debugging/telemetry
+}
+
 export interface CBTAnnotation {
   messageId: string;
   timestamp: number;
-  distortions: {
-    type: DistortionType;
-    confidence: number; // 0-1
-    evidence: string[];
-    keywords: string[];
-  }[];
+  distortions: CBTDistortionAnnotation[];
   sentiment: {
     score: number; // -1 to 1
     magnitude: number; // 0-1

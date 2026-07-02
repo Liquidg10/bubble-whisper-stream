@@ -293,6 +293,7 @@ function detectDistortions(message: string): CBTDistortionAnnotation[] {
     results.push({
       type,
       confidence: boostedConfidence,
+      evidence: matchedKeywords,
       keywords: matchedKeywords,
       patterns: matchedPatterns
     });
@@ -322,7 +323,14 @@ function detectCrisisFlags(message: string): CrisisFlag[] {
 
 export function annotate(
   message: string,
-  context?: { messageId?: string; userId?: string; userSettings?: { assistLevel?: string } }
+  context?: {
+    messageId?: string;
+    userId?: string;
+    userSettings?: { assistLevel?: string };
+    timestamp?: number;
+    recentMood?: string;
+    conversationDepth?: number;
+  }
 ): CBTAnnotation | null {
   // Run 17: Feature flag gate — cbtSilentObserve must not be explicitly disabled
   try {
@@ -368,9 +376,15 @@ export function annotate(
 
   return {
     messageId: context?.messageId || '',
-    timestamp: Date.now(),
+    timestamp: context?.timestamp ?? Date.now(),
     sentiment,
     distortions,
-    crisisFlags
+    crisisFlags,
+    context: {
+      recentMood: context?.recentMood,
+      timeOfDay: new Date().getHours(),
+      messageLength: message.length,
+      conversationDepth: context?.conversationDepth ?? conversationHistory.length
+    }
   };
 }
