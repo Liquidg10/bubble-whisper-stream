@@ -13,13 +13,18 @@ vi.mock('@/services/tts', () => ({
 }));
 
 // Mock the CBT service
-const mockCBTService = {
-  suggestDistortions: vi.fn(() => ['AllOrNothing', 'Catastrophizing']),
-  generateReframeSuggestions: vi.fn(() => [
-    'Consider that there might be middle ground here.',
-    'What evidence supports a more balanced view?',
-  ]),
-};
+// vi.mock factories are hoisted above top-level const declarations, so the
+// mock object must be created via vi.hoisted() -- referencing a plain const
+// here throws "Cannot access before initialization" at module load time.
+const { mockCBTService } = vi.hoisted(() => ({
+  mockCBTService: {
+    suggestDistortions: vi.fn(() => ['AllOrNothing', 'Catastrophizing']),
+    generateReframeSuggestions: vi.fn(() => [
+      'Consider that there might be middle ground here.',
+      'What evidence supports a more balanced view?',
+    ]),
+  },
+}));
 
 vi.mock('@/services/cbtService', () => ({
   cbtService: mockCBTService,
