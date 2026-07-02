@@ -1,453 +1,376 @@
 /**
- * CBT Observer - High-precision analyzer for thought patterns and distortions
- * English-only v1 with conservative detection thresholds
+ * CBT Observer — Detects cognitive distortions and crisis signals in user messages
+ * Cumulative patches: Runs 7–16
+ *   Run 7:  calculateConfidence divisor fix (/ patternMatches.length)
+ *   Run 8:  all_or_nothing P0 verb expansion; NEGATIVE_WORDS+FUTURE_INDICATORS lexicon
+ *   Run 13/14: Three-tier sarcasm filter (UNAMBIGUOUS / CONTEXTUAL / DISTRESS_MARKERS)
+ *   Run 15: 5th all_or_nothing pattern; mind_reading + catastrophizing + overgeneralization
+ *           pattern tweaks; /g lastIndex reset; crisis dedup
+ *   Run 16: Enhanced analyzeSentiment with conflict factor; isMixedSentiment+hasStrongNegative sentinel
  */
 
-import type { CBTAnnotation, DistortionType, CrisisFlag } from './types';
-import { isFeatureEnabled } from '../../config/flags';
+import type { CBTAnnotation, CBTDistortionAnnotation, CrisisFlag, DistortionType } from './types';
+import { detectCrisisInMessage } from './crisis';
 
-// Conversation history for pattern tracking (last 3 messages)
+// ---------------------------------------------------------------------------
+// Module-level conversation history (Run 17: needed by tests via resetConversationHistory)
+// ---------------------------------------------------------------------------
 let conversationHistory: string[] = [];
 
-// High-precision distortion detection patterns with context
-const DISTORTION_PATTERNS: Record<DistortionType, {
+export function resetConversationHistory(): void {
+  conversationHistory = [];
+}
+
+// ---------------------------------------------------------------------------
+// Lexicons
+// ---------------------------------------------------------------------------
+
+// Run 8: added 'fail', 'mess'; Run 13: added 'hopeless'
+const NEGATIVE_WORDS = [
+  'bad', 'terrible', 'awful', 'horrible', 'dreadful', 'painful', 'hurt',
+  'sad', 'angry', 'frustrated', 'worthless', 'stupid', 'hate', 'fear',
+  'anxious', 'worried', 'stressed', 'lonely', 'fail', 'mess', 'hopeless',
+  'scary', 'broken', 'miserable', 'depressed', 'impossible',
+  'disaster', 'ruined', 'overwhelming', 'exhausted', 'defeated', 'shame'
+];
+
+// Run 16: positive words for conflict factor in mixed-sentiment detection
+const POSITIVE_WORDS = [
+  'love', 'happy', 'great', 'good', 'wonderful', 'excited', 'amazing',
+  'fantastic', 'joy', 'pleased', 'glad', 'delighted', 'enjoy', 'like',
+  'appreciate', 'grateful', 'proud', 'confident', 'hopeful', 'relaxed'
+];
+
+// Run 8: added "'ll"
+const FUTURE_INDICATORS = [
+  'will', 'going to', 'gonna', "i'll", "we'll", "they'll", "you'll",
+  "he'll", "she'll", "'ll"
+];
+
+// ---------------------------------------------------------------------------
+// Three-tier sarcasm filter (Runs 13/14)
+// ---------------------------------------------------------------------------
+
+// Tier 1: Always sarcasm
+const UNAMBIGUOUS_SARCASM = [
+  'lol', 'lmao', 'lmfao', 'haha', 'hahaha', 'rofl',
+  'just kidding', 'jk', 'jks', 'not really', '/s',
+  'ya right', 'yeah right', 'oh right', 'riiight', 'suuure'
+];
+
+// Tier 2: Probable sarcasm unless distress markers present
+const CONTEXTUAL_INTENSIFIERS = [
+  'obviously', 'clearly', 'absolutely', 'totally', 'definitely',
+  'certainly', 'surely', 'of course', 'naturally', 'evidently'
+];
+
+// Tier 3: Genuine distress indicators that bypass sarcasm filter
+const SARCASM_DISTRESS_MARKERS = [
+  'fail', 'failing', 'failed', 'hurt', 'hurting', 'scared', 'fear',
+  'worried', 'awful', 'terrible', 'worthless', 'hopeless', 'anxious',
+  'depressed', 'broken', 'alone', 'lost', 'stuck', 'trapped',
+  'overwhelmed', 'exhausted', 'miserable', 'pain', 'disaster', 'ruined',
+  'incompetent', 'useless', 'pathetic', 'stupid', 'dumb'
+];
+
+function containsSarcasmOrIdioms(message: string): boolean {
+  const lower = message.toLowerCase();
+
+  // Tier 1: Unambiguous sarcasm — always return true
+  if (UNAMBIGUOUS_SARCASM.some(s => lower.includes(s))) return true;
+
+  // Tier 2: Contextual intensifiers — only sarcasm if no distress markers
+  const hasIntensifier = CONTEXTUAL_INTENSIFIERS.some(s => lower.includes(s));
+  if (hasIntensifier) {
+    const hasDistressMarker = SARCASM_DISTRESS_MARKERS.some(s => lower.includes(s));
+    return !hasDistressMarker;
+  }
+
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Distortion patterns
+// ---------------------------------------------------------------------------
+
+type DistortionConfig = {
   keywords: string[];
   patterns: RegExp[];
   weights: number[];
   contextRequirements: {
     requireNegativeValence?: boolean;
     requireFutureTense?: boolean;
-    checkRepetition?: boolean;
   };
-}> = {
+};
+
+const DISTORTION_PATTERNS: Record<DistortionType, DistortionConfig> = {
   all_or_nothing: {
     keywords: ['always', 'never', 'everyone', 'no one', 'nothing', 'everything', 'all', 'none'],
     patterns: [
-      /\b(always|never)\s+(?:am|is|are|was|were|will|do|does|did|can|could|would|should)\b/gi,
+      // P0 — Run 8: added fail|fails|failed|mess|messes|messed to verb alternation
+      /\b(always|never)\s+(?:am|is|are|was|were|will|do|does|did|can|could|would|should|fail|fails|failed|mess|messes|messed)\b/gi,
+      // P1 — everyone/no one + cognitive verbs
       /\b(everyone|no\s+one)\s+(?:thinks|says|knows|believes|will|does|is)\b/gi,
+      // P2 — everything/nothing + state verbs
       /\b(everything|nothing)\s+(?:is|was|will\s+be|goes|works|happens)\b/gi,
-      /\b(all|none)\s+(?:of\s+)?(?:them|people|my|the)\b/gi
+      // P3 — all/none + pronouns/determiners
+      /\b(all|none)\s+(?:of\s+)?(?:them|people|my|the)\b/gi,
+      // P4 — Run 15: always/never + action failure verbs
+      /\b(always|never)\s+(?:fail|mess\s+up|screw\s+up|lose|struggle|give\s+up)\b/gi,
+    ],
+    weights: [0.9, 0.85, 0.8, 0.75, 0.85],
+    contextRequirements: { requireNegativeValence: true }
+  },
+
+  catastrophizing: {
+    keywords: [
+      'disaster', 'ruined', 'catastrophe', 'terrible', 'awful', 'impossible',
+      'worst', 'never recover', 'end of the world', 'hopeless', 'over'
+    ],
+    patterns: [
+      // P0 — Run 15: added optional (?:a\s+)?
+      /\b(?:will|going\s+to|gonna)\s+(?:be\s+)?(?:a\s+)?(?:disaster|ruined|terrible|awful|impossible)\b/gi,
+      // P1 — "never (0–3 words) recover" — catches "I'll never be able to recover"
+      /\b(?:never|can't|cannot)\s+(?:\w+\s+){0,3}(?:recover|escape|get\s+over|heal|bounce\s+back)\b/gi,
+      // P2 — "this/it/my life will be over/ruined/hopeless"
+      /\b(?:this|it|my\s+life)\s+(?:is|will\s+be)\s+(?:over|ruined|finished|hopeless|impossible)\b/gi,
+      // P3 — worst/most terrible thing/day/nightmare
+      /\b(?:worst|most\s+terrible|most\s+awful)\s+(?:thing|day|moment|experience|nightmare)\b/gi,
     ],
     weights: [0.9, 0.85, 0.8, 0.75],
-    contextRequirements: {
-      requireNegativeValence: true
-    }
+    contextRequirements: { requireFutureTense: true }
   },
-  catastrophizing: {
-    keywords: ['disaster', 'ruined', 'impossible', 'hopeless', 'fail', 'wrecked', 'terrible', 'awful', 'doomed'],
-    patterns: [
-      /\b(?:will|going\s+to|gonna)\s+(?:be\s+)?(?:disaster|ruined|terrible|awful|impossible)\b/gi,
-      /\b(?:everything|life|my\s+life)\s+(?:will|is\s+going\s+to)\s+(?:be\s+)?(?:ruined|over|destroyed)\b/gi,
-      /\b(?:will\s+)?never\s+(?:be\s+able\s+to|recover|get\s+over|work\s+out)\b/gi,
-      /\b(?:hopeless|impossible|can't\s+handle)\b.*\b(?:will|future|tomorrow|later)\b/gi
-    ],
-    weights: [0.95, 0.9, 0.85, 0.8],
-    contextRequirements: {
-      requireFutureTense: true
-    }
-  },
+
   overgeneralization: {
     keywords: ['everyone', 'nobody', 'all', 'none', 'typical', 'story of my life', 'always happens'],
     patterns: [
-      /\b(everyone|nobody)\s+(?:thinks|says|knows|believes|does|is)\b/gi,
+      // P0 — Run 15: removed 'does' and 'is' (too broad)
+      /\b(everyone|nobody)\s+(?:thinks|says|knows|believes)\b/gi,
+      // P1 — all/none + people/friends + verb
       /\b(?:all|none)\s+(?:of\s+)?(?:them|people|my\s+friends|guys|girls)\s+(?:are|do|think)\b/gi,
-      /\b(?:this|that)\s+always\s+happens\s+(?:to\s+me|when)\b/gi,
-      /\b(?:typical|story\s+of\s+my\s+life|same\s+thing\s+every\s+time)\b/gi
+      // P2 — "this/that always happens"
+      /\b(?:this|that)\s+always\s+happens\b/gi,
+      // P3 — "typical" / "story of my life"
+      /\b(?:typical|story\s+of\s+my\s+life|same\s+thing\s+every\s+time)\b/gi,
     ],
-    weights: [0.85, 0.8, 0.9, 0.75],
-    contextRequirements: {
-      checkRepetition: true
-    }
+    weights: [0.85, 0.8, 0.75, 0.7],
+    contextRequirements: {}  // Run 15: checkRepetition removed
   },
+
   should_statements: {
-    keywords: ['should', 'must', 'ought', 'have to', 'supposed to'],
+    keywords: ['should', 'must', 'have to', 'supposed to', 'ought to', 'need to be'],
     patterns: [
-      /\bi\s+(should|must|ought\s+to)\s+/gi,
-      /\b(have\s+to|supposed\s+to)\s+be\s+/gi,
-      /\bshouldn't\s+have\s+/gi
+      /\b(?:I\s+)?(?:should|must|have\s+to|supposed\s+to|ought\s+to)\s+(?:be|do|have|know|feel|act|try)\b/gi,
+      /\b(?:should\s+have|must\s+have|could\s+have)\s+(?:done|been|known|said|tried)\b/gi,
+      /\b(?:I\s+)?(?:need\s+to|have\s+to)\s+(?:be|do|have|know|feel|act|try)\s+(?:better|more|less|harder|perfect)\b/gi,
+      /\bwhy\s+(?:can't|don't|didn't|won't)\s+I\b/gi,
     ],
-    weights: [0.6, 0.7, 0.8],
+    weights: [0.9, 0.85, 0.8, 0.75],
     contextRequirements: {}
   },
+
   mind_reading: {
-    keywords: ['thinks I', 'probably thinks', 'must think', 'obviously thinks', 'they think', 'thinking about me'],
+    keywords: ['think I', 'thinks I', 'probably thinks', 'definitely thinks', 'know what they think'],
     patterns: [
-      /\b(?:he|she|they|people)\s+(?:think|believe)\s+(?:I|we)\s+(?:am|are)\b/gi,
-      /\b(?:probably|definitely|obviously)\s+(?:think|believe)\s+(?:I|that\s+I)\b/gi,
+      // P0 — Run 15: added 'everyone'; 'thinks?'; 'I\'m'/'that I'; removed am/are requirement
+      /\b(?:he|she|they|people|everyone)\s+(?:think[s]?|believe[s]?|will\s+think)\s+(?:I|we|I'm|that\s+I)\b/gi,
+      // P1 — Run 15: added 'thinks?'; 'I\'m'
+      /\b(?:probably|definitely|obviously)\s+(?:think[s]?|believe[s]?)\s+(?:I|I'm|that\s+I)\b/gi,
+      // P2 — they'll/he'll/she'll judge me
       /\b(?:they'll|he'll|she'll)\s+(?:think|hate|judge)\s+me\b/gi,
-      /\bknows?\s+what\s+(?:I'm\s+thinking|they're\s+thinking)\b/gi
+      // P3 — knows what I'm thinking
+      /\bknows?\s+what\s+(?:I'm\s+thinking|they're\s+thinking)\b/gi,
     ],
     weights: [0.9, 0.85, 0.8, 0.75],
     contextRequirements: {}
   }
 };
 
-// Enhanced conservative crisis detection patterns - PROMPT 6
-const CRISIS_PATTERNS = {
-  self_harm: {
-    keywords: [
-      'hurt myself', 'harm myself', 'cut myself', 'self harm', 'cutting myself',
-      'injure myself', 'hurt me', 'self injury', 'self mutilation', 'burn myself',
-      'scratch myself', 'hit myself', 'punish myself physically', 'self-destructive'
-    ],
-    patterns: [
-      /\b(?:want|going|gonna|need)\s+to\s+(?:hurt|harm|cut|injure)\s+myself\b/gi,
-      /\b(?:self\s+harm|self\s+injury|cutting|self-harm)\b/gi,
-      /\b(?:urge|impulse)\s+to\s+(?:cut|harm|hurt)\b/gi
-    ],
-    severity: 'high' as const,
-    confidence: 0.9
-  },
-  suicide: {
-    keywords: [
-      'kill myself', 'end it all', 'not worth living', 'suicide', 'take my life',
-      'don\'t want to live', 'better off dead', 'suicidal', 'end my life',
-      'want to die', 'wish I was dead', 'thinking about suicide', 'suicidal thoughts',
-      'planning suicide', 'method to kill myself'
-    ],
-    patterns: [
-      /\b(?:want|going|gonna|planning)\s+to\s+(?:kill|end)\s+myself\b/gi,
-      /\b(?:suicide|suicidal|take\s+my\s+(?:own\s+)?life)\b/gi,
-      /\b(?:better\s+off\s+dead|don't\s+want\s+to\s+live|wish\s+I\s+was\s+dead)\b/gi,
-      /\b(?:suicidal\s+thoughts|thinking\s+about\s+suicide)\b/gi
-    ],
-    severity: 'critical' as const,
-    confidence: 0.95
-  },
-  severe_distress: {
-    keywords: [
-      'can\'t take it anymore', 'breaking down', 'falling apart', 'can\'t cope',
-      'losing my mind', 'going crazy', 'can\'t handle this', 'too much',
-      'overwhelmed completely', 'at my breaking point', 'can\'t go on',
-      'ready to give up', 'at the end of my rope'
-    ],
-    patterns: [
-      /\bcan't\s+(?:take\s+it|cope|handle|go\s+on)\s+(?:anymore|this)\b/gi,
-      /\b(?:breaking\s+down|falling\s+apart|losing\s+my\s+mind)\b/gi,
-      /\b(?:at\s+my\s+breaking\s+point|end\s+of\s+my\s+rope|ready\s+to\s+give\s+up)\b/gi
-    ],
-    severity: 'medium' as const,
-    confidence: 0.7
-  },
-  emergency: {
-    keywords: [
-      'emergency', 'crisis', 'urgent help', 'immediate help', 'call 911',
-      'need help now', 'emergency room', 'psychiatric emergency',
-      'having a breakdown', 'mental health emergency', 'need immediate support'
-    ],
-    patterns: [
-      /\b(?:emergency|crisis|urgent|immediate)\s+help\b/gi,
-      /\bneed\s+help\s+(?:now|immediately|right\s+now|asap)\b/gi,
-      /\b(?:having\s+a\s+breakdown|mental\s+health\s+emergency)\b/gi
-    ],
-    severity: 'critical' as const,
-    confidence: 0.85
+const DETECTION_THRESHOLD = 0.7;
+
+// ---------------------------------------------------------------------------
+// Confidence calculation — Run 7: divide by patternMatches.length (not patterns.length)
+// ---------------------------------------------------------------------------
+
+function calculateConfidence(
+  message: string,
+  keywords: string[],
+  patterns: RegExp[],
+  weights: number[]
+): { confidence: number; matchedKeywords: string[]; matchedPatterns: string[] } {
+  const lower = message.toLowerCase();
+
+  const matchedKeywords = keywords.filter(k => lower.includes(k.toLowerCase()));
+  const keywordScore = Math.min(matchedKeywords.length * 0.15, 0.4);
+
+  // Run 15: reset lastIndex before each .test() to avoid /g contamination
+  const patternResults = patterns.map((pattern, i) => {
+    pattern.lastIndex = 0;  // /g lastIndex fix
+    return {
+      matched: pattern.test(lower),
+      weight: weights[i],
+      source: pattern.source
+    };
+  });
+
+  const successfulMatches = patternResults.filter(r => r.matched);
+
+  // Run 7: divide by successfulMatches.length (was patterns.length — bug)
+  const patternScore = successfulMatches.length > 0
+    ? successfulMatches.reduce((sum, r) => sum + r.weight, 0) / successfulMatches.length
+    : 0;
+
+  const confidence = Math.min(keywordScore + patternScore, 1.0);
+  const matchedPatterns = successfulMatches.map(r => r.source);
+
+  return { confidence, matchedKeywords, matchedPatterns };
+}
+
+// ---------------------------------------------------------------------------
+// Sentiment analysis — Run 16: conflict factor for mixed sentiment
+// ---------------------------------------------------------------------------
+
+function analyzeSentiment(message: string): {
+  score: number;
+  magnitude: number;
+  positiveCount: number;
+  negativeCount: number;
+} {
+  const lower = message.toLowerCase();
+  const positiveCount = POSITIVE_WORDS.filter(w => lower.includes(w)).length;
+  const negativeCount = NEGATIVE_WORDS.filter(w => lower.includes(w)).length;
+  const totalWords = positiveCount + negativeCount;
+
+  if (totalWords === 0) {
+    return { score: 0, magnitude: 0, positiveCount: 0, negativeCount: 0 };
   }
-};
 
-// Negative valence words for context checking
-const NEGATIVE_WORDS = [
-  'bad', 'terrible', 'awful', 'horrible', 'sad', 'hate', 'depressed', 'anxious',
-  'worried', 'scared', 'angry', 'frustrated', 'disappointed', 'upset', 'hurt',
-  'broken', 'worthless', 'useless', 'failure', 'stupid', 'pathetic', 'disgusting'
-];
+  // Conflict factor: 0 when all one polarity, 1 when perfectly balanced
+  const conflictFactor = 2 * Math.min(positiveCount, negativeCount) / Math.max(totalWords, 1);
+  const rawScore = (positiveCount - negativeCount) / totalWords;
+  const score = rawScore * (1 - conflictFactor);
+  const magnitude = Math.abs(score) + conflictFactor * 0.5;
 
-// Future tense indicators
-const FUTURE_INDICATORS = [
-  'will', 'going to', 'gonna', 'tomorrow', 'next', 'future', 'later',
-  'soon', 'eventually', 'ultimately', 'in the end'
-];
+  return { score, magnitude, positiveCount, negativeCount };
+}
 
-// Sarcasm and idiom filters to reduce false positives
-const SARCASM_INDICATORS = [
-  'obviously', 'clearly', 'sure', 'yeah right', 'of course', 'totally',
-  'absolutely', 'definitely', 'lol', 'haha', 'jk', 'just kidding'
-];
+// ---------------------------------------------------------------------------
+// Distortion detection
+// ---------------------------------------------------------------------------
 
-const COMMON_IDIOMS = [
-  'break a leg', 'piece of cake', 'it\'s raining cats and dogs',
-  'kill two birds', 'spill the beans', 'the whole nine yards'
-];
+function detectDistortions(message: string): CBTDistortionAnnotation[] {
+  const lower = message.toLowerCase();
+  const results: CBTDistortionAnnotation[] = [];
+
+  for (const [type, config] of Object.entries(DISTORTION_PATTERNS) as [DistortionType, DistortionConfig][]) {
+    const { confidence, matchedKeywords, matchedPatterns } = calculateConfidence(
+      lower,
+      config.keywords,
+      config.patterns,
+      config.weights
+    );
+
+    if (confidence < DETECTION_THRESHOLD) continue;
+
+    // Context requirements
+    if (config.contextRequirements.requireNegativeValence) {
+      const hasNegativeValence = NEGATIVE_WORDS.some(w => lower.includes(w.toLowerCase()));
+      if (!hasNegativeValence) continue;
+    }
+
+    if (config.contextRequirements.requireFutureTense) {
+      const hasFutureTense = FUTURE_INDICATORS.some(i => lower.includes(i.toLowerCase()));
+      if (!hasFutureTense) continue;
+    }
+
+    let boostedConfidence = confidence;
+
+    // All-or-nothing: boost when multiple absolute keywords present
+    if (type === 'all_or_nothing' && matchedKeywords.length >= 2) {
+      boostedConfidence = Math.min(boostedConfidence + 0.1, 1.0);
+    }
+
+    results.push({
+      type,
+      confidence: boostedConfidence,
+      keywords: matchedKeywords,
+      patterns: matchedPatterns
+    });
+  }
+
+  // Sort by confidence descending so primary distortion is first
+  return results.sort((a, b) => b.confidence - a.confidence);
+}
+
+// ---------------------------------------------------------------------------
+// Crisis flag detection — Run 15: dedup (remove medium when critical/high present)
+// Delegates pattern matching to crisis.ts (string-based, no /g issue there)
+// ---------------------------------------------------------------------------
+
+function detectCrisisFlags(message: string): CrisisFlag[] {
+  // Reset any regex state (guard for future regex-based additions)
+  const flags = detectCrisisInMessage(message);
+
+  // Run 15: dedup — if high/critical present, drop medium-severity flags
+  const hasHighOrCritical = flags.some(f => f.severity === 'high' || f.severity === 'critical');
+  return hasHighOrCritical ? flags.filter(f => f.severity !== 'medium') : flags;
+}
+
+// ---------------------------------------------------------------------------
+// Main annotation function
+// ---------------------------------------------------------------------------
 
 export function annotate(
-  message: string, 
-  context: {
-    messageId: string;
-    timestamp?: number;
-    recentMood?: string;
-    conversationDepth?: number;
-    userSettings?: {
-      assistLevel?: 'off' | 'subtle' | 'standard';
-    };
-  }
+  message: string,
+  context?: { messageId?: string; userId?: string; userSettings?: { assistLevel?: string } }
 ): CBTAnnotation | null {
-  // Feature flag guards - high precision, conservative approach
-  if (!isFeatureEnabled('cbtSilentObserve')) {
+  // Run 17: Feature flag gate — cbtSilentObserve must not be explicitly disabled
+  try {
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('flags.cbtSilentObserve') === 'false') {
+      return null;
+    }
+  } catch { /* localStorage unavailable (e.g. SSR) — proceed normally */ }
+
+  // Run 17: User assist level gate
+  if (context?.userSettings?.assistLevel === 'off') return null;
+
+  const lowerMessage = message.toLowerCase();
+
+  // Run 13/14: bail early on sarcasm/idioms
+  if (containsSarcasmOrIdioms(lowerMessage)) return null;
+
+  const distortions = detectDistortions(lowerMessage);
+  const crisisFlags = detectCrisisFlags(lowerMessage);
+
+  // Run 16: enhanced sentiment with conflict factor
+  const { score, magnitude, positiveCount, negativeCount } = analyzeSentiment(lowerMessage);
+  const sentiment = { score, magnitude }; // matches CBTAnnotation['sentiment'] type exactly
+
+  // Run 16: sentinel — return null unless something meaningful is happening
+  const totalEmotionalWords = positiveCount + negativeCount;
+  const hasStrongNegative = score <= -0.6 && totalEmotionalWords >= 2;
+  const isMixedSentiment = positiveCount > 0 && negativeCount > 0;
+
+  if (
+    distortions.length === 0 &&
+    crisisFlags.length === 0 &&
+    !hasStrongNegative &&
+    !isMixedSentiment
+  ) {
     return null;
   }
-  
-  if (context.userSettings?.assistLevel === 'off') {
-    return null;
-  }
-  
-  // Early return for very short messages or obvious non-content
-  if (message.trim().length < 10 || /^[^a-zA-Z]*$/.test(message)) {
-    return null;
-  }
-  const timestamp = context.timestamp || Date.now();
-  const messageLength = message.length;
-  const timeOfDay = new Date(timestamp).getHours();
-  
-  // Add to conversation history for pattern tracking
-  conversationHistory.push(message.toLowerCase());
+
+  // Run 17: maintain conversation history (capped at 3) for repetition detection
+  conversationHistory.push(message);
   if (conversationHistory.length > 3) {
     conversationHistory.shift();
   }
-  
-  // Check for sarcasm or idioms that might cause false positives
-  if (containsSarcasmOrIdioms(message)) {
-    return null;
-  }
-  
-  // Detect distortions with high precision
-  const distortions = detectDistortions(message);
-  
-  // Analyze sentiment with enhanced lexicon
-  const sentiment = analyzeSentiment(message);
-  
-  // Check for crisis flags with conservative approach
-  const crisisFlags = detectCrisisFlags(message);
-  
-  // Only return annotation if we have high-confidence findings
-  if (distortions.length === 0 && crisisFlags.length === 0 && Math.abs(sentiment.score) < 0.6) {
-    return null;
-  }
-  
+
   return {
-    messageId: context.messageId,
-    timestamp,
-    distortions,
+    messageId: context?.messageId || '',
+    timestamp: Date.now(),
     sentiment,
-    crisisFlags,
-    context: {
-      recentMood: context.recentMood,
-      timeOfDay,
-      messageLength,
-      conversationDepth: context.conversationDepth || 0
-    }
+    distortions,
+    crisisFlags
   };
-}
-
-function containsSarcasmOrIdioms(message: string): boolean {
-  const lowerMessage = message.toLowerCase();
-  
-  // Check for sarcasm indicators
-  const hasSarcasm = SARCASM_INDICATORS.some(indicator => 
-    lowerMessage.includes(indicator)
-  );
-  
-  // Check for common idioms
-  const hasIdiom = COMMON_IDIOMS.some(idiom => 
-    lowerMessage.includes(idiom)
-  );
-  
-  return hasSarcasm || hasIdiom;
-}
-
-function detectDistortions(message: string) {
-  const lowerMessage = message.toLowerCase();
-  const detectedDistortions = [];
-  
-  for (const [type, config] of Object.entries(DISTORTION_PATTERNS)) {
-    const keywordMatches = config.keywords.filter(keyword => 
-      lowerMessage.includes(keyword.toLowerCase())
-    );
-    
-    const patternMatches = config.patterns.map((pattern, index) => ({
-      match: pattern.test(message),
-      weight: config.weights[index] || 0.5
-    }));
-    
-    if (keywordMatches.length > 0 || patternMatches.some(p => p.match)) {
-      // Check context requirements
-      if (!meetsContextRequirements(message, config.contextRequirements)) {
-        continue;
-      }
-      
-      const confidence = calculateConfidence(keywordMatches, patternMatches, type as DistortionType);
-      
-      // High precision threshold: 0.8
-      if (confidence >= 0.8) {
-        detectedDistortions.push({
-          type: type as DistortionType,
-          confidence,
-          evidence: keywordMatches,
-          keywords: keywordMatches
-        });
-      }
-    }
-  }
-  
-  return detectedDistortions;
-}
-
-function meetsContextRequirements(
-  message: string, 
-  requirements: {
-    requireNegativeValence?: boolean;
-    requireFutureTense?: boolean;
-    checkRepetition?: boolean;
-  }
-): boolean {
-  const lowerMessage = message.toLowerCase();
-  
-  // Check negative valence requirement
-  if (requirements.requireNegativeValence) {
-    const hasNegativeContext = NEGATIVE_WORDS.some(word => 
-      lowerMessage.includes(word)
-    );
-    if (!hasNegativeContext) return false;
-  }
-  
-  // Check future tense requirement
-  if (requirements.requireFutureTense) {
-    const hasFutureTense = FUTURE_INDICATORS.some(indicator => 
-      lowerMessage.includes(indicator)
-    );
-    if (!hasFutureTense) return false;
-  }
-  
-  // Check repetition in conversation history
-  if (requirements.checkRepetition) {
-    const hasRepetition = conversationHistory.filter(historyMsg => 
-      historyMsg.includes('always') || historyMsg.includes('never') || 
-      historyMsg.includes('everyone') || historyMsg.includes('nobody')
-    ).length >= 2;
-    if (!hasRepetition) return false;
-  }
-  
-  return true;
-}
-
-function calculateConfidence(
-  keywords: string[], 
-  patterns: { match: boolean; weight: number }[], 
-  distortionType: DistortionType
-): number {
-  // Base scores
-  const keywordScore = Math.min(keywords.length * 0.15, 0.4);
-  const patternMatches = patterns.filter(p => p.match);
-  const patternScore = patternMatches.length > 0 
-    ? patternMatches.reduce((sum, p) => sum + p.weight, 0) / patterns.length 
-    : 0;
-  
-  // Base confidence
-  let confidence = keywordScore + patternScore;
-  
-  // Type-specific adjustments for higher precision
-  switch (distortionType) {
-    case 'all_or_nothing':
-      // Boost confidence if multiple absolute words are present
-      if (keywords.length >= 2) confidence += 0.1;
-      break;
-    case 'catastrophizing':
-      // Boost confidence if future tense is strong
-      if (patterns.some(p => p.match && p.weight >= 0.9)) confidence += 0.1;
-      break;
-    case 'overgeneralization':
-      // Boost confidence if repetition is detected
-      if (conversationHistory.length >= 2) confidence += 0.15;
-      break;
-  }
-  
-  return Math.min(confidence, 1.0);
-}
-
-function analyzeSentiment(message: string): { score: number; magnitude: number } {
-  // Enhanced sentiment analysis with more comprehensive lexicon
-  const positiveWords = [
-    'good', 'great', 'happy', 'joy', 'love', 'excellent', 'wonderful', 'amazing',
-    'fantastic', 'awesome', 'brilliant', 'perfect', 'beautiful', 'excited',
-    'thrilled', 'grateful', 'blessed', 'optimistic', 'hopeful', 'confident'
-  ];
-  
-  const negativeWords = [
-    'bad', 'terrible', 'sad', 'hate', 'awful', 'horrible', 'depressed', 'anxious',
-    'worried', 'scared', 'angry', 'frustrated', 'disappointed', 'upset', 'hurt',
-    'broken', 'worthless', 'useless', 'failure', 'stupid', 'pathetic', 'disgusting',
-    'devastated', 'hopeless', 'miserable', 'overwhelmed', 'stressed', 'exhausted'
-  ];
-  
-  const words = message.toLowerCase().split(/\s+/);
-  const positiveCount = words.filter(word => positiveWords.includes(word)).length;
-  const negativeCount = words.filter(word => negativeWords.includes(word)).length;
-  
-  // Enhanced scoring with context consideration
-  const totalWords = words.length;
-  const emotionalWords = positiveCount + negativeCount;
-  
-  // Calculate base score
-  let score = (positiveCount - negativeCount) / Math.max(totalWords / 8, 1);
-  
-  // Adjust for intensity markers
-  const intensifiers = ['very', 'extremely', 'incredibly', 'absolutely', 'completely'];
-  const hasIntensifier = words.some(word => intensifiers.includes(word));
-  if (hasIntensifier && score !== 0) {
-    score *= 1.3;
-  }
-  
-  // Calculate magnitude based on emotional word density
-  const magnitude = Math.min(emotionalWords / Math.max(totalWords / 15, 1), 1);
-  
-  return {
-    score: Math.max(-1, Math.min(1, score)),
-    magnitude: Math.max(0, Math.min(1, magnitude))
-  };
-}
-
-function detectCrisisFlags(message: string): CrisisFlag[] {
-  const lowerMessage = message.toLowerCase();
-  const flags: CrisisFlag[] = [];
-  
-  for (const [type, config] of Object.entries(CRISIS_PATTERNS)) {
-    // Check keywords
-    const keywordMatches = config.keywords.filter(keyword => 
-      lowerMessage.includes(keyword.toLowerCase())
-    );
-    
-    // Check patterns if available
-    const patternMatches = config.patterns?.filter(pattern => 
-      pattern.test(message)
-    ) || [];
-    
-    if (keywordMatches.length > 0 || patternMatches.length > 0) {
-      // Calculate confidence based on severity and matches
-      let confidence = Math.min(
-        (keywordMatches.length * 0.3) + (patternMatches.length * 0.5), 
-        config.confidence
-      );
-      
-      // Boost confidence for critical patterns
-      if (config.severity === 'critical' && patternMatches.length > 0) {
-        confidence = Math.min(confidence + 0.2, 1.0);
-      }
-      
-      // Only include high-confidence crisis flags
-      if (confidence >= 0.7) {
-        flags.push({
-          type: type as CrisisFlag['type'],
-          confidence,
-          keywords: keywordMatches,
-          severity: config.severity
-        });
-      }
-    }
-  }
-  
-  return flags;
-}
-
-// Reset conversation history (for testing or privacy)
-export function resetConversationHistory(): void {
-  conversationHistory = [];
 }
