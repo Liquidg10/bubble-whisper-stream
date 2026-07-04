@@ -101,7 +101,10 @@ describe('ContextEngineService', () => {
     it('should generate appropriate "because" explanations for high confidence', async () => {
       const score = await contextEngineService.generateScore(HIGH_CONFIDENCE_FIXTURE);
       
-      expect(score.because).toContain(expect.stringMatching(/deadline|24 hours|today/i));
+      // Item 2 (2026-07-03): `.toContain()` doesn't support asymmetric matchers in this
+      // vitest version (always fails regardless of array contents) — `.toContainEqual()`
+      // is the correct API for an array-membership check against expect.stringMatching().
+      expect(score.because).toContainEqual(expect.stringMatching(/deadline|24 hours|today/i));
       expect(score.because.some(reason => reason.includes('trusted') || reason.includes('company'))).toBe(true);
       expect(score.because.some(reason => reason.includes('date') || reason.includes('location'))).toBe(true);
     });
