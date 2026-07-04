@@ -2,6 +2,7 @@
  * Crisis Protocol Integration for CBT System
  * Handles crisis detection, session silencing, and resource delivery
  * PROMPT 6: Block CBT when crisis detected, provide supportive resources
+ * Run 11: Phrase confidence bump 0.4→0.7; expanded phrase lists
  */
 
 import type { CBTAnnotation, CrisisFlag } from './types';
@@ -26,6 +27,10 @@ const ENHANCED_CRISIS_PATTERNS = {
       'want to hurt myself',
       'going to hurt myself',
       'thinking about hurting myself',
+      'thinking about self harm',
+      'thinking about self-harm',
+      'need to injure myself',
+      'need to harm myself',
       'urge to cut',
       'need to cut'
     ]
@@ -41,7 +46,14 @@ const ENHANCED_CRISIS_PATTERNS = {
       'going to kill myself',
       'planning to end my life',
       'thoughts of suicide',
-      'suicidal ideation'
+      'suicidal ideation',
+      'don\'t want to live',
+      'thinking about suicide',
+      'think about suicide',
+      'better off dead',
+      'want to die',
+      'not worth living',
+      'wish i was dead'
     ]
   },
   severe_distress: {
@@ -52,9 +64,13 @@ const ENHANCED_CRISIS_PATTERNS = {
     ],
     phrases: [
       'can\'t take this anymore',
+      'can\'t take it anymore',
       'at the end of my rope',
       'ready to give up',
-      'completely overwhelmed'
+      'completely overwhelmed',
+      'at my breaking point',
+      'breaking down',
+      'can\'t go on'
     ]
   },
   emergency: {
@@ -67,7 +83,10 @@ const ENHANCED_CRISIS_PATTERNS = {
       'need help right now',
       'this is an emergency',
       'having a crisis',
-      'urgent mental health help'
+      'urgent mental health help',
+      'mental health emergency',
+      'having a breakdown',
+      'urgent help'
     ]
   }
 };
@@ -205,11 +224,11 @@ export function detectCrisisInMessage(message: string): CrisisFlag[] {
       }
     }
 
-    // Check phrases (higher weight)
+    // Check phrases (higher weight) — Run 11: bumped from 0.4 to 0.7
     for (const phrase of patterns.phrases) {
       if (lowerMessage.includes(phrase.toLowerCase())) {
         keywords.push(phrase);
-        confidence += 0.4;
+        confidence += 0.7;
       }
     }
 
@@ -275,7 +294,7 @@ export class CrisisSessionManager {
 
   static getSessionState(userId: string): CrisisSessionState {
     const storageKey = `${this.STORAGE_PREFIX}${userId}`;
-    const stored = localStorage.getItem(storageKey);
+    const stored = typeof localStorage !== 'undefined' ? localStorage.getItem(storageKey) : null;
     
     if (!stored) {
       return {
@@ -304,6 +323,7 @@ export class CrisisSessionManager {
   }
 
   static setSessionState(userId: string, state: CrisisSessionState): void {
+    if (typeof localStorage === 'undefined') return;
     const storageKey = `${this.STORAGE_PREFIX}${userId}`;
     localStorage.setItem(storageKey, JSON.stringify(state));
   }
@@ -351,7 +371,7 @@ export class CrisisSessionManager {
  */
 export const CRISIS_RESPONSE_TEMPLATES = {
   validation: [
-    'I\'m here with you. You don\'t have to go through this alone. 💙',
+    'I\'m here with you. You don\'t have to go through this alone. \u{1F499}',
     'What you\'re feeling right now is valid and I\'m here to support you.',
     'You\'re not alone in this moment. I care about your wellbeing.',
     'I hear how much pain you\'re in right now. Let\'s get you connected to support.'

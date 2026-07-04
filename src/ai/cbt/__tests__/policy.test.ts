@@ -6,7 +6,18 @@ import { describe, it, expect } from 'vitest';
 import { decide } from '../policy';
 import type { CBTAnnotation, CBTPolicyContext, DistortionType } from '../types';
 
-describe('CBT Policy Engine', () => {
+
+/**
+ * LEGACY / SUPERSEDED SUITE -- skipped 2026-07-01 as part of consolidated fix branch.
+ * Superseded by policy-prompt3.test.ts, which matches the current policy.ts
+ * implementation (0.85 confidence threshold, chip|none-only intervention types,
+ * '(2/day)'-suffixed reason strings). This file predates the PROMPT 3 simplification
+ * and directly contradicts it (expects a 0.8 threshold and gentle/direct types that
+ * the current design deliberately does not produce). See
+ * Mind-Manual_PR-Triage-and-Fix-Bundle_2026-07-01.md for the full analysis.
+ * Not deleted (kept for reference/audit trail) but intentionally excluded from CI.
+ */
+describe.skip('CBT Policy Engine', () => {
   const mockAnnotation: CBTAnnotation = {
     messageId: 'test-1',
     timestamp: Date.now(),

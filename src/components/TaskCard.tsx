@@ -5,7 +5,7 @@
  * with comprehensive error handling, accessibility, and advanced features.
  */
 
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -222,8 +222,16 @@ export function TaskCard({
 }: TaskCardProps) {
   const { toast } = useToast();
   
-  // Validate and sanitize task data
-  const { isValid, sanitized: task, issues } = validateTask(rawTask);
+  // Validate and sanitize task data.
+  // MUST be memoized: validateTask() builds a fresh `sanitized` object and
+  // `issues` array on every call. Left unmemoized, the effect below (which
+  // depends on `issues` by reference) re-fires on every render for any
+  // invalid task, calls setErrorState(), triggers a re-render, gets a new
+  // `issues` array, and fires again -- an infinite render loop that hangs
+  // the browser tab (and, in tests, the whole vitest worker) for any
+  // task with validation issues. Found via TaskCard.test.tsx's
+  // 'Error Handling & Validation' block hanging indefinitely.
+  const { isValid, sanitized: task, issues } = useMemo(() => validateTask(rawTask), [rawTask]);
   
   // Error state management
   const [errorState, setErrorState] = useState<TaskCardErrorState>({ hasError: false });

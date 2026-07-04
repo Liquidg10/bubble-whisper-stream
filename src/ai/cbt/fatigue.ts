@@ -8,7 +8,7 @@ import type { CBTPolicyContext, FatigueRule, DistortionType } from './types';
 const DEFAULT_FATIGUE_RULES: FatigueRule[] = [
   {
     name: 'daily_limit_prompt3',
-    condition: (context) => context.fatigueState.dailyCount >= 2, // PROMPT 3: Max 2/day
+    condition: (context) => context.userSettings.assistLevel !== 'off' && context.fatigueState.dailyCount >= 2, // PROMPT 3: Max 2/day (assist 'off' is exempt — rules don't apply when assistance is disabled)
     cooldownMinutes: 24 * 60 // Rest of day
   },
   {

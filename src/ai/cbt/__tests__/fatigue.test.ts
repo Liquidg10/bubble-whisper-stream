@@ -6,7 +6,19 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { CBTFatigueService, getHourlyLimit, getDailyLimit } from '../fatigue';
 import type { CBTPolicyContext, DistortionType } from '../types';
 
-describe('CBT Fatigue Service', () => {
+
+/**
+ * LEGACY / SUPERSEDED SUITE -- skipped 2026-07-01 as part of consolidated fix branch.
+ * Superseded by fatigue-prompt3.test.ts, which matches the current fatigue.ts
+ * implementation (flat 2/day limit regardless of assist level, no hourly limits).
+ * This file expects an assist-level-tiered limit model (hourly/daily limits per
+ * tier) that directly contradicts the current design -- e.g. it requires
+ * dailyCount=5 to be ALLOWED for 'standard' while fatigue-prompt3.test.ts requires
+ * dailyCount=2 to be BLOCKED for 'standard'. Both cannot pass simultaneously.
+ * See Mind-Manual_PR-Triage-and-Fix-Bundle_2026-07-01.md for the full analysis.
+ * Not deleted (kept for reference/audit trail) but intentionally excluded from CI.
+ */
+describe.skip('CBT Fatigue Service', () => {
   let fatigueService: CBTFatigueService;
 
   const mockUserSettings: CBTPolicyContext['userSettings'] = {

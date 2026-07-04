@@ -79,6 +79,15 @@ vi.mock('../fatigue', () => ({
       fatigueScore: 0.3
     })),
     recordIntervention: vi.fn(),
+    // Incomplete mock previously omitted resetFatigue, which index.ts's
+    // getCurrentFatigueState() calls on every processCBTMessage() invocation.
+    resetFatigue: vi.fn(() => ({
+      globalInterventions: 0,
+      topicCooldowns: {},
+      lastIntervention: 0,
+      dailyCount: 0,
+      topicDeclines: {}
+    })),
   },
 }));
 

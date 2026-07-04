@@ -31,8 +31,12 @@ export function PlaidIntegrationPlugin() {
 
   const loadBankConnections = async () => {
     try {
+      // Migration 30 excludes access_token/key_id from client reads via a
+      // security-barrier view; the base table's direct SELECT is revoked.
+      // TODO(post-migration): remove the `as any` once `supabase gen types typescript`
+      // is re-run against the live DB and plaid_items_safe appears in the generated types.
       const { data, error } = await supabase
-        .from('plaid_items')
+        .from('plaid_items_safe' as any)
         .select('*')
         .eq('is_active', true)
         .order('created_at', { ascending: false });

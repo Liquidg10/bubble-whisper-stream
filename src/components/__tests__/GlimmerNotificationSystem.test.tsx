@@ -3,40 +3,54 @@ import { render } from '@testing-library/react';
 import { screen, fireEvent, waitFor } from '@testing-library/dom';
 import { GlimmerNotificationSystem } from '../GlimmerNotificationSystem';
 
-// Mock the glimmer service
-const mockGlimmerService = {
-  shouldTriggerGlimmer: vi.fn(() => true),
-  generateGlimmer: vi.fn(() => Promise.resolve({
-    id: 'glimmer-1',
-    tone: 'Friend' as const,
-    message: 'You\'re doing great! Remember that progress isn\'t always linear.',
-    cause: 'consistent_activity',
-    createdAt: Date.now(),
-    deliveredVia: 'text' as const,
-  })),
-};
+// Mock the glimmer service, accessibility provider, and bubble store.
+// vi.mock factories are hoisted above top-level const declarations, so each
+// mock object must be created via vi.hoisted() -- referencing a plain const
+// here throws "Cannot access before initialization" at module load time.
+const { mockGlimmerService, mockAccessibility, mockBubbleStore } = vi.hoisted(() => ({
+  mockGlimmerService: {
+    shouldTriggerGlimmer: vi.fn(() => true),
+    generateGlimmer: vi.fn(() => Promise.resolve({
+      id: 'glimmer-1',
+      tone: 'supportive' as const, // was 'Friend', not a valid GlimmerTone -- crashed TONE_ICONS[tone] lookup
+      message: 'You\'re doing great! Remember that progress isn\'t always linear.',
+      cause: 'consistent_activity',
+      createdAt: Date.now(),
+      deliveredVia: 'text' as const,
+    })),
+  },
+  // useAccessibility() actually returns { settings, updateSetting, announceText }
+  // -- the component reads settings.reducedMotion; the previous mock only had
+  // announceText, which crashed rendering with "Cannot read properties of
+  // undefined (reading 'reducedMotion')" once the hoisting bug above was fixed.
+  mockAccessibility: {
+    settings: {
+      dyslexiaFriendly: false,
+      highContrast: false,
+      reducedMotion: false,
+      voiceNavigation: false,
+      largeText: false,
+      focusIndicators: false,
+    },
+    updateSetting: vi.fn(),
+    announceText: vi.fn(),
+  },
+  mockBubbleStore: {
+    settings: {
+      intelligenceEnabled: true,
+      glimmersEnabled: true,
+      ttsEnabled: true,
+    },
+  },
+}));
 
 vi.mock('@/services/glimmerService', () => ({
   glimmerService: mockGlimmerService,
 }));
 
-// Mock accessibility provider
-const mockAccessibility = {
-  announceText: vi.fn(),
-};
-
 vi.mock('@/components/AccessibilityProvider', () => ({
   useAccessibility: () => mockAccessibility,
 }));
-
-// Mock the bubble store
-const mockBubbleStore = {
-  settings: {
-    intelligenceEnabled: true,
-    glimmersEnabled: true,
-    ttsEnabled: true,
-  },
-};
 
 vi.mock('@/stores/bubbleStore', () => ({
   useBubbleStore: () => mockBubbleStore,

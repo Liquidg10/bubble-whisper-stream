@@ -26,13 +26,21 @@ export class PhotoService {
         throw new Error('Invalid file input');
       }
 
-      // Generate unique filename
+      // Generate unique filename, scoped under the owning user's ID.
+      // Required for the storage RLS policies (migration 31) which authorize
+      // access via storage.foldername(name)[1] = auth.uid()::text -- flat
+      // filenames with no user-id folder would fail every policy check.
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error('Cannot upload photo: no authenticated user');
+      }
       const uniqueFileName = `${Date.now()}-${Math.random().toString(36).substring(2)}-${fileToUpload.name}`;
+      const storagePath = `${user.id}/${uniqueFileName}`;
       
       // Upload to Supabase storage
       const { data, error } = await supabase.storage
         .from('photos')
-        .upload(uniqueFileName, fileToUpload, {
+        .upload(storagePath, fileToUpload, {
           cacheControl: '3600',
           upsert: false
         });
@@ -42,12 +50,23 @@ export class PhotoService {
         throw new Error(`Upload failed: ${error.message}`);
       }
 
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
+      // Migration 31 makes the 'photos' bucket private (it previously allowed
+      // anonymous read/write of any user's photos -- a real exposure for a
+      // mental-health app). getPublicUrl() no longer resolves against a private
+      // bucket, so we sign a long-lived URL instead. 10 years is a pragmatic
+      // stand-in for "effectively permanent" for a personal-use app with no
+      // URL-rotation job; revisit if that job gets built.
+      const TEN_YEARS_IN_SECONDS = 10 * 365 * 24 * 60 * 60;
+      const { data: signedData, error: signError } = await supabase.storage
         .from('photos')
-        .getPublicUrl(data.path);
+        .createSignedUrl(data.path, TEN_YEARS_IN_SECONDS);
 
-      return publicUrl;
+      if (signError || !signedData) {
+        console.error('Failed to sign photo URL:', signError);
+        throw new Error(`Failed to generate photo URL: ${signError?.message}`);
+      }
+
+      return signedData.signedUrl;
     } catch (error) {
       console.error('Photo upload failed:', error);
       throw error;
@@ -76,14 +95,16 @@ export class PhotoService {
    */
   async deletePhoto(photoUrl: string): Promise<void> {
     try {
-      // Extract file path from URL
+      // Extract the storage path from the URL -- must keep the `{userId}/{fileName}`
+      // prefix (last two segments), not just the trailing filename, since uploads
+      // are now stored under a per-user folder (see uploadPhoto above).
       const url = new URL(photoUrl);
       const pathParts = url.pathname.split('/');
-      const fileName = pathParts[pathParts.length - 1];
+      const storagePath = pathParts.slice(-2).join('/');
       
       const { error } = await supabase.storage
         .from('photos')
-        .remove([fileName]);
+        .remove([storagePath]);
 
       if (error) {
         console.error('Delete error:', error);
