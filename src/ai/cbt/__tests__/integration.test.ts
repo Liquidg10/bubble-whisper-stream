@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { processCBTMessage, recordCBTEngagement, getCBTStats, deleteCBTData } from '../index';
+import { processCBTMessage, confirmAndPersist, recordCBTEngagement, getCBTStats, deleteCBTData } from '../index';
 import type { CBTPolicyContext } from '../types';
 
 describe('CBT Integration Tests', () => {
@@ -180,23 +180,29 @@ describe('CBT Integration Tests', () => {
   });
 
   describe('Engagement Tracking', () => {
+    // Item 4 (2026-07-03): defaultUserSettings uses autoLogMode: 'ask', which no longer
+    // auto-persists (that was dead code before this fix — see Item 4 in the punch list).
+    // These tests now simulate the user answering "yes" to the consent prompt via
+    // confirmAndPersist(), which is what a real UI would call once the user responds.
     it('should record user engagement with interventions', async () => {
       const message = "I always mess everything up.";
-      
+
       const result = await processCBTMessage(message, 'msg-1', userId, {
         userSettings: defaultUserSettings
       });
-      
-      expect(result.traceId).toBeDefined();
-      
+
+      expect(result.traceCandidate).toBeDefined();
+      const traceId = await confirmAndPersist(result.traceCandidate!, true);
+      expect(traceId).toBeDefined();
+
       // Record positive engagement
       const recorded = await recordCBTEngagement(
-        result.traceId!,
+        traceId!,
         true,
         4,
         "That was helpful, thank you"
       );
-      
+
       expect(recorded).toBe(true);
     });
 
@@ -207,19 +213,22 @@ describe('CBT Integration Tests', () => {
         "This is going to be terrible.",
         "Nobody likes me."
       ];
-      
+
       for (let i = 0; i < messages.length; i++) {
         const result = await processCBTMessage(messages[i], `msg-${i}`, userId, {
           userSettings: defaultUserSettings
         });
-        
-        if (result.traceId) {
-          await recordCBTEngagement(result.traceId, true, 3 + i);
+
+        if (result.traceCandidate) {
+          const traceId = await confirmAndPersist(result.traceCandidate, true);
+          if (traceId) {
+            await recordCBTEngagement(traceId, true, 3 + i);
+          }
         }
       }
-      
+
       const stats = getCBTStats(userId);
-      
+
       expect(stats.totalTraces).toBeGreaterThan(0);
       expect(stats.interventions).toBeGreaterThan(0);
       expect(stats.averageHelpfulness).toBeGreaterThan(0);
@@ -250,16 +259,19 @@ describe('CBT Integration Tests', () => {
     it('should isolate data between users', async () => {
       const user1 = 'user-1';
       const user2 = 'user-2';
-      
-      // Create data for both users
-      await processCBTMessage("I always fail.", 'msg-1', user1, {
+
+      // Create data for both users (Item 4: 'ask' mode requires confirming consent
+      // before anything is persisted — see confirmAndPersist()).
+      const result1 = await processCBTMessage("I always fail.", 'msg-1', user1, {
         userSettings: defaultUserSettings
       });
-      
-      await processCBTMessage("Everything is terrible.", 'msg-2', user2, {
+      await confirmAndPersist(result1.traceCandidate!, true);
+
+      const result2 = await processCBTMessage("Everything is terrible.", 'msg-2', user2, {
         userSettings: defaultUserSettings
       });
-      
+      await confirmAndPersist(result2.traceCandidate!, true);
+
       // Each user should only see their own data
       const stats1 = getCBTStats(user1);
       const stats2 = getCBTStats(user2);
