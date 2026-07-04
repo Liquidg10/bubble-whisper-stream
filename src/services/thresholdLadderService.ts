@@ -58,7 +58,7 @@ class ThresholdLadderService {
     
     // Apply forced overrides
     decision = this.applyFirstTimeRecipientOverride(decision, policyContext, appliedOverrides);
-    decision = this.applyUserPreferenceOverride(decision, policyContext, appliedOverrides);
+    decision = this.applyUserPreferenceOverride(decision, baseScore, policyContext, appliedOverrides);
     
     const baseThreshold = this.getThresholdLevel(adjustedScore);
     const reason = this.generateReason(decision, adjustedScore, appliedOverrides, contextScore);
@@ -160,13 +160,33 @@ class ThresholdLadderService {
     return decision;
   }
 
+  /**
+   * Item 8 (2026-07-03): checks eligibility off the raw base score instead of the
+   * already-computed `decision`. getBaseDecision only ever returns 'auto-write' when
+   * userAutoWriteEnabled is already true, so the old `decision === 'auto-write' &&
+   * !userAutoWriteEnabled` guard could never both be true at once — the final decision
+   * still ended up 'draft' correctly (via base logic), but this override never recorded
+   * 'auto-write-disabled' in appliedOverrides, silently dropping the "why" trail.
+   *
+   * Note: the punch list's suggested `decision !== 'draft'` guard (meant to avoid
+   * double-counting with applyFirstTimeRecipientOverride, which runs first and may have
+   * already forced 'draft' for its own reason) turned out to also suppress the exact
+   * case this fix targets — here, `decision` is *already* 'draft' by the time this runs,
+   * because getBaseDecision itself falls through to 'draft' whenever userAutoWriteEnabled
+   * is false, even at a HIGH score. Checking for the first-time-recipient override by
+   * name (rather than decision's current value) is what actually distinguishes "already
+   * handled by that other override" from "draft because auto-write is simply disabled" —
+   * verified against the test rather than assumed, per the punch list's own caveat.
+   */
   private applyUserPreferenceOverride(
     decision: ThresholdDecision,
+    baseScore: number,
     context: PolicyContext,
     overrides: string[]
   ): ThresholdDecision {
-    // If auto-write is disabled, degrade to draft
-    if (decision === 'auto-write' && !context.userAutoWriteEnabled) {
+    const wouldQualifyForAutoWrite = baseScore >= THRESHOLD_LEVELS.HIGH;
+    const alreadyHandledByRecipientOverride = overrides.includes('first-time-recipient');
+    if (wouldQualifyForAutoWrite && !context.userAutoWriteEnabled && !alreadyHandledByRecipientOverride) {
       overrides.push('auto-write-disabled');
       return 'draft';
     }
