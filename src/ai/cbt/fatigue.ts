@@ -4,11 +4,15 @@
 
 import type { CBTPolicyContext, FatigueRule, DistortionType } from './types';
 
+// Item 6 (2026-07-03): named constant for the daily intervention cap (was a magic number
+// duplicated across this file and policy.ts). Down from 3 to 2 per Mark's call.
+export const MAX_DAILY_INTERVENTIONS = 2;
+
 // PROMPT 3 Fatigue Rules - Max 2/day, 30min topic cooldown, 24h decline snooze
 const DEFAULT_FATIGUE_RULES: FatigueRule[] = [
   {
     name: 'daily_limit_prompt3',
-    condition: (context) => context.userSettings.assistLevel !== 'off' && context.fatigueState.dailyCount >= 2, // PROMPT 3: Max 2/day (assist 'off' is exempt — rules don't apply when assistance is disabled)
+    condition: (context) => context.userSettings.assistLevel !== 'off' && context.fatigueState.dailyCount >= MAX_DAILY_INTERVENTIONS, // PROMPT 3: Max 2/day (assist 'off' is exempt — rules don't apply when assistance is disabled)
     cooldownMinutes: 24 * 60 // Rest of day
   },
   {
@@ -233,8 +237,8 @@ function getHourlyLimit(context: CBTPolicyContext): number {
 }
 
 function getDailyLimit(context: CBTPolicyContext): number {
-  // PROMPT 3: Max 2/day regardless of assist level
-  return context.userSettings.assistLevel === 'off' ? 0 : 2;
+  // PROMPT 3: Max MAX_DAILY_INTERVENTIONS/day regardless of assist level
+  return context.userSettings.assistLevel === 'off' ? 0 : MAX_DAILY_INTERVENTIONS;
 }
 
 function getMinInterventionGap(context: CBTPolicyContext): number {

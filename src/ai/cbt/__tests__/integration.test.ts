@@ -75,40 +75,50 @@ describe('CBT Integration Tests', () => {
 
   describe('Fatigue Management Integration', () => {
     it('should respect daily intervention limits', async () => {
-      const message = "I always fail at everything I try.";
-      
-      // First few interventions should work
-      for (let i = 0; i < 3; i++) {
-        const result = await processCBTMessage(message, `msg-${i}`, userId, {
-          userSettings: defaultUserSettings
-        });
-        expect(result.decision.shouldIntervene).toBe(true);
-      }
-      
-      // Fourth intervention should be blocked by daily limit (subtle mode = 3/day)
-      const blockedResult = await processCBTMessage(message, 'msg-4', userId, {
+      // Item 6 (2026-07-03): daily limit is now 2/day (down from 3), and is
+      // topic-scoped — different-topic messages on the same day don't cool each
+      // other down, they just count against the shared daily cap. Three distinct
+      // distortion topics here so the topic-cooldown rule doesn't also fire.
+      const allOrNothingMsg = "I always fail at everything I try.";
+      const mindReadingMsg = "They probably think I'm worthless.";
+      const shouldStatementMsg = "I must be a better person by now.";
+
+      const first = await processCBTMessage(allOrNothingMsg, 'msg-1', userId, {
         userSettings: defaultUserSettings
       });
-      
+      expect(first.decision.shouldIntervene).toBe(true);
+
+      const second = await processCBTMessage(mindReadingMsg, 'msg-2', userId, {
+        userSettings: defaultUserSettings
+      });
+      expect(second.decision.shouldIntervene).toBe(true);
+
+      // Third intervention (yet another topic) should be blocked by the daily limit (2/day)
+      const blockedResult = await processCBTMessage(shouldStatementMsg, 'msg-3', userId, {
+        userSettings: defaultUserSettings
+      });
+
       expect(blockedResult.decision.shouldIntervene).toBe(false);
-      expect(blockedResult.decision.reason).toBe('Daily intervention limit reached');
+      expect(blockedResult.decision.reason).toBe('Daily intervention limit reached (2/day)');
     });
 
     it('should enforce cooldown periods between interventions', async () => {
       const message = "Everything is going to be a disaster.";
-      
+
       // First intervention
       const first = await processCBTMessage(message, 'msg-1', userId, {
         userSettings: defaultUserSettings
       });
       expect(first.decision.shouldIntervene).toBe(true);
-      
-      // Immediate second intervention should be blocked
+
+      // Item 6 (2026-07-03): the old blanket cross-topic 30min cooldown was removed;
+      // an immediate repeat of the SAME topic is now blocked by the topic-scoped
+      // 30min cooldown instead (a different topic would not be blocked here).
       const second = await processCBTMessage(message, 'msg-2', userId, {
         userSettings: defaultUserSettings
       });
       expect(second.decision.shouldIntervene).toBe(false);
-      expect(second.decision.reason).toBe('Recent intervention cooldown active');
+      expect(second.decision.reason).toBe('Topic cooldown active (30min)');
     });
   });
 
@@ -140,14 +150,30 @@ describe('CBT Integration Tests', () => {
       expect(result.decision.reason).toBe('Message contains excluded topic');
     });
 
-    it('should escalate intervention level for standard assist', async () => {
+    /**
+     * NOT FIXED as part of the 2026-07-03 punch list (Item 5) — flagged for Mark, not
+     * silently resolved. This test's expectation (assistLevel:'standard' -> interventionType
+     * 'direct') directly contradicts policy-prompt3.test.ts's "Decision Simplification
+     * (chip|none only)" suite, which is the current, non-skipped, deliberately-designed
+     * spec from the 2026-07-01 consolidation and explicitly asserts the opposite:
+     * "should never return silent, gentle, or direct intervention types" / "should only
+     * return chip or none intervention types" (both passing on main today). CBTDecision's
+     * interventionType is also typed as 'none' | 'chip' only — 'direct' isn't a valid value
+     * in the current design at all. Implementing Item 5 literally (adding 'direct' and
+     * assist-level branching) would break those two currently-passing tests. This needs
+     * Mark's call: (A) restore assist-level branching and update/remove the two
+     * policy-prompt3.test.ts tests that forbid it, or (B) keep the chip/none-only
+     * simplification and retire this test the same way policy.test.ts / fatigue.test.ts /
+     * observer.test.ts were already retired for the same kind of pre-simplification drift.
+     */
+    it.skip('should escalate intervention level for standard assist', async () => {
       const message = "This is going to be a complete catastrophe.";
       const standardSettings = { ...defaultUserSettings, assistLevel: 'standard' as const };
-      
+
       const result = await processCBTMessage(message, 'msg-1', userId, {
         userSettings: standardSettings
       });
-      
+
       expect(result.decision.shouldIntervene).toBe(true);
       expect(result.decision.interventionType).toBe('direct');
     });
