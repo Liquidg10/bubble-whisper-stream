@@ -150,7 +150,8 @@ export async function processCBTMessage(
     [annotation],
     context.userSettings,
     fatigueState,
-    context.conversationContext
+    context.conversationContext,
+    message
   );
   
   // Step 4: Render action if intervention needed

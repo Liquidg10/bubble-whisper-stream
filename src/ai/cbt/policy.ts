@@ -3,12 +3,16 @@
  */
 
 import type { CBTAnnotation, CBTDecision, CBTPolicyContext, DistortionType } from './types';
+import { MAX_DAILY_INTERVENTIONS } from './fatigue';
 
 export function decide(
-  annotations: CBTAnnotation[], 
+  annotations: CBTAnnotation[],
   userSettings: CBTPolicyContext['userSettings'],
   fatigueState: CBTPolicyContext['fatigueState'],
-  conversationContext?: CBTPolicyContext['conversationContext']
+  conversationContext?: CBTPolicyContext['conversationContext'],
+  // Item 1 (2026-07-03): raw message text, so checkTopicExclusions can match against
+  // what the user actually wrote instead of the distortion's static keyword list.
+  message?: string
 ): CBTDecision {
   
   // Quick exit for disabled assistance
@@ -41,11 +45,11 @@ export function decide(
   }
   
   // Check topic exclusions
-  const hasExcludedTopic = checkTopicExclusions(latestAnnotation, userSettings);
+  const hasExcludedTopic = checkTopicExclusions(message, userSettings);
   if (hasExcludedTopic) {
     return createDecision('none', 'Message contains excluded topic', [], 'low');
   }
-  
+
   // Evaluate distortions for intervention
   return evaluateDistortionIntervention(latestAnnotation, userSettings, fatigueState);
 }
@@ -106,32 +110,22 @@ function evaluateFatigue(
   
   const now = Date.now();
 
-  // Recent-intervention cooldown: avoid back-to-back interventions regardless of topic.
-  // 30min matches the topic-specific cooldown window used elsewhere in the fatigue system.
-  // Compared in whole elapsed minutes (floor) so a fixture built as "N minutes ago" is
-  // stable regardless of a few ms of test/runtime overhead between timestamp creation and check.
-  const RECENT_INTERVENTION_COOLDOWN_MINUTES = 30;
-  if (fatigueState.lastIntervention > 0) {
-    const elapsedMinutes = Math.floor((now - fatigueState.lastIntervention) / (1000 * 60));
-    if (elapsedMinutes <= RECENT_INTERVENTION_COOLDOWN_MINUTES) {
-      return {
-        canIntervene: false,
-        reason: 'Recent intervention cooldown active',
-        cooldownMinutes: RECENT_INTERVENTION_COOLDOWN_MINUTES - elapsedMinutes
-      };
-    }
-  }
+  // Item 6 (2026-07-03): the blanket cross-topic "recent intervention" cooldown that used
+  // to live here (block ANY intervention for 30min regardless of topic) has been removed.
+  // Mark's call: keep the older topic-scoped design (below) — a user can get multiple
+  // same-day interventions as long as they're about different topics — and rely solely on
+  // the per-topic 30min cooldown (further down) plus the daily cap for throttling.
 
-  // PROMPT 3: Max 2 prompts/day total (regardless of assist level)
-  if (fatigueState.dailyCount >= 2) {
+  // PROMPT 3 / Item 6: Max MAX_DAILY_INTERVENTIONS prompts/day total (regardless of assist level)
+  if (fatigueState.dailyCount >= MAX_DAILY_INTERVENTIONS) {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
     tomorrow.setHours(0, 0, 0, 0);
     const minutesUntilTomorrow = Math.ceil((tomorrow.getTime() - now) / (1000 * 60));
-    
+
     return {
       canIntervene: false,
-      reason: 'Daily intervention limit reached (2/day)',
+      reason: `Daily intervention limit reached (${MAX_DAILY_INTERVENTIONS}/day)`,
       cooldownMinutes: minutesUntilTomorrow
     };
   }
@@ -206,21 +200,21 @@ function getMinutesUntilQuietHoursEnd(userSettings: CBTPolicyContext['userSettin
   return Math.ceil((endTime.getTime() - now.getTime()) / (1000 * 60));
 }
 
+/**
+ * Item 1 (2026-07-03): matches user-configured topicExclusions/neverInterveneOn against
+ * the actual message text (case-insensitive substring match), instead of the distortion's
+ * own generic static keyword list — which could never contain a user-chosen exclusion term
+ * like 'work' or 'projects' and so could never exclude anything.
+ */
 function checkTopicExclusions(
-  annotation: CBTAnnotation, 
+  message: string | undefined,
   userSettings: CBTPolicyContext['userSettings']
 ): boolean {
   const exclusions = userSettings.topicExclusions.concat(userSettings.neverInterveneOn);
-  if (exclusions.length === 0) return false;
-  
-  // Check if any distortion keywords match exclusions
-  return annotation.distortions.some(distortion =>
-    distortion.keywords.some(keyword =>
-      exclusions.some(exclusion =>
-        keyword.toLowerCase().includes(exclusion.toLowerCase())
-      )
-    )
-  );
+  if (exclusions.length === 0 || !message) return false;
+
+  const lowerMessage = message.toLowerCase();
+  return exclusions.some(exclusion => lowerMessage.includes(exclusion.toLowerCase()));
 }
 
 function evaluateDistortionIntervention(
