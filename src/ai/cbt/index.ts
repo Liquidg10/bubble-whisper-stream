@@ -52,6 +52,11 @@ export async function processCBTMessage(
   decision: CBTTrace['decision'];
   action: CBTAction | null;
   traceId?: string;
+  // Item 4 (2026-07-03): populated whenever an intervention was recorded, regardless of
+  // autoLogMode. In 'ask' mode nothing is persisted yet (traceId stays null/undefined) —
+  // the UI is expected to show a consent prompt and call confirmAndPersist() with the
+  // user's answer once they respond.
+  traceCandidate?: Omit<CBTTrace, 'id' | 'pseudonymousId'>;
 }> {
   
   // PROMPT 6: Crisis session check first
@@ -150,7 +155,8 @@ export async function processCBTMessage(
     [annotation],
     context.userSettings,
     fatigueState,
-    context.conversationContext
+    context.conversationContext,
+    message
   );
   
   // Step 4: Render action if intervention needed
@@ -158,6 +164,7 @@ export async function processCBTMessage(
   
   // Step 5: Record trace and update fatigue
   let traceId: string | undefined;
+  let traceCandidate: Omit<CBTTrace, 'id' | 'pseudonymousId'> | undefined;
   if (decision.shouldIntervene && action) {
     // Update fatigue state
     const updatedFatigueState = fatigueService.recordIntervention(
@@ -165,16 +172,17 @@ export async function processCBTMessage(
       decision.targetDistortions
     );
     saveFatigueState(userId, updatedFatigueState);
-    
-    // Determine if consent was given
-    const consentGiven = context.userSettings.autoLogMode === 'on' || 
-                        (context.userSettings.autoLogMode === 'ask' && false);
-    
+
+    // Item 4 (2026-07-03): 'on' persists immediately (unchanged); 'ask' used to be dead
+    // code (`autoLogMode === 'ask' && false` — always false, nothing was ever asked or
+    // saved). Now 'ask' builds the candidate and defers the actual persist+consent
+    // decision to confirmAndPersist(), called once the UI's consent prompt is answered.
+    const consentGiven = context.userSettings.autoLogMode === 'on';
+
     const primaryDistortion = annotation.distortions[0]?.type;
     const reframe = action?.data?.reframes?.[0];
-    
-    // Record trace
-    traceId = await traceService.persist({
+
+    traceCandidate = {
       conversationId: context.conversationId || 'default',
       messageId,
       userId,
@@ -188,15 +196,37 @@ export async function processCBTMessage(
       annotation,
       decision,
       action
-    }, consentGiven);
+    };
+
+    // Record trace (no-ops and returns null when consentGiven is false, i.e. 'ask'/'off')
+    traceId = await traceService.persist(traceCandidate, consentGiven);
   }
-  
+
   return {
     annotation,
     decision,
     action,
-    traceId
+    traceId,
+    traceCandidate
   };
+}
+
+/**
+ * Item 4 (2026-07-03): completes the 'ask' consent flow. The UI calls this once the user
+ * answers the "ask before saving" prompt (shown when autoLogMode === 'ask' — see
+ * cbtGuardService.shouldPromptBeforeLogging()) for the traceCandidate returned by
+ * processCBTMessage. Persists (and returns a traceId) only if the user consented;
+ * otherwise this is a no-op, matching what 'on' mode already does unconditionally.
+ */
+export async function confirmAndPersist(
+  traceCandidate: Omit<CBTTrace, 'id' | 'pseudonymousId'>,
+  consented: boolean
+): Promise<string | undefined> {
+  const traceId = await traceService.persist(
+    { ...traceCandidate, consent: consented },
+    consented
+  );
+  return traceId ?? undefined;
 }
 
 /**

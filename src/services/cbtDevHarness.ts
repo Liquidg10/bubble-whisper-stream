@@ -129,7 +129,7 @@ export class CBTDevHarness {
         start: `${this.mockUserSettings.quietHours.start}:00`,
         end: `${this.mockUserSettings.quietHours.end}:00`
       } : undefined
-    }, this.mockFatigueState);
+    }, this.mockFatigueState, undefined, message);
     const decisionTime = performance.now() - decisionStart;
 
     reasoning.push(`Decision took ${decisionTime.toFixed(2)}ms`);

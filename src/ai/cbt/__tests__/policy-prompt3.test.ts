@@ -283,11 +283,14 @@ describe('PROMPT 3 Policy Engine', () => {
   });
 
   describe('Topic Exclusions', () => {
+    // Item 1 (2026-07-03): topic exclusions now match against the actual message text
+    // (via decide()'s new optional `message` param), not the distortion's static keyword
+    // list — a real user message containing the excluded term is required to exercise this.
     test('should respect topic exclusions', () => {
       const annotation = createAnnotation([{ type: 'all_or_nothing', confidence: 0.9 }]);
-      userSettings.topicExclusions = ['test']; // Matches keyword in createAnnotation
+      userSettings.topicExclusions = ['work'];
 
-      const decision = decide([annotation], userSettings, fatigueState);
+      const decision = decide([annotation], userSettings, fatigueState, undefined, 'I always mess up work projects');
 
       expect(decision.interventionType).toBe('none');
       expect(decision.reason).toBe('Message contains excluded topic');
@@ -295,9 +298,9 @@ describe('PROMPT 3 Policy Engine', () => {
 
     test('should respect never intervene list', () => {
       const annotation = createAnnotation([{ type: 'all_or_nothing', confidence: 0.9 }]);
-      userSettings.neverInterveneOn = ['test']; // Matches keyword in createAnnotation
+      userSettings.neverInterveneOn = ['work'];
 
-      const decision = decide([annotation], userSettings, fatigueState);
+      const decision = decide([annotation], userSettings, fatigueState, undefined, 'I always mess up work projects');
 
       expect(decision.interventionType).toBe('none');
       expect(decision.reason).toBe('Message contains excluded topic');

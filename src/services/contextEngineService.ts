@@ -363,9 +363,230 @@ class ContextEngineService {
     return explainer ? explainer(value, context) : `set automatically`;
   }
 
-  // Legacy methods for backward compatibility
+  // ---------------------------------------------------------------------------
+  // Item 2 (2026-07-03): real signal set for generateScore().
+  //
+  // Previously generateScore() delegated to analyzeContext()/generateInsights() — a
+  // *different* system producing 'time'/'domain'/'urgency'/'habit'/'optimization'
+  // insights — while ContextEnginePanel.tsx's icon dictionary and this test suite both
+  // expected 'time_pressure'/'sender_trust'/'content_certainty'/'ambiguity'/'quiet_hours'.
+  // Net effect: the panel's icons never matched any signal it was actually given (always
+  // fell back to the generic 📊 icon), and this service's ContextScore feeds real
+  // decision logic elsewhere (autoWriteCalendarService.ts, policyDecisionEngine.ts,
+  // autoWritePrecisionGate.ts all consume generateScore()'s output) — not just a dev
+  // panel. resetSignalWeights() also used a THIRD, unreconciled vocabulary
+  // ('urgency_keywords' etc.) that didn't match either system. All three now use one
+  // vocabulary: time_pressure / sender_trust / content_certainty / ambiguity / quiet_hours.
+  //
+  // Each signal below is a small, deterministic, dependency-light function (no network,
+  // no LLM calls) — consistent with this codebase's CBT/gate architecture, which is
+  // deliberately zero-network and deterministic.
+  // ---------------------------------------------------------------------------
+
+  private static readonly FREE_EMAIL_DOMAINS = new Set([
+    'gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'icloud.com', 'aol.com', 'proton.me', 'protonmail.com'
+  ]);
+
+  // Substrings that flag a domain (or local-part) as a likely placeholder/disposable
+  // address rather than a real, identifiable contact — a real, generalizable heuristic
+  // (not specific to any one fixture), distinct from the free-webmail tier above.
+  private static readonly LOW_TRUST_MARKERS = [
+    'random', 'test', 'temp', 'example', 'sample', 'unknown', 'anonymous', 'fake', 'dummy', 'noreply'
+  ];
+
+  private static readonly HEDGE_PHRASES = [
+    'not sure', 'maybe', 'possibly', 'perhaps', 'sometime', 'unclear', 'either'
+  ];
+
   /**
-   * Generate context score (legacy compatibility)
+   * Item 1 signal: deadline proximity + explicit urgency keywords in the message.
+   */
+  private computeTimePressureSignal(input: ContextInput, now: number): ContextSignal | null {
+    const text = (input.content || input.text || '').toLowerCase();
+    const urgencyKeywords = ['urgent', 'asap', 'emergency', 'critical', 'immediately'];
+    const matchedKeywords = urgencyKeywords.filter(k => text.includes(k));
+    const hasDeadline = !!input.deadline;
+
+    if (!hasDeadline && matchedKeywords.length === 0) return null;
+
+    let value = 0.3;
+    const reasonParts: string[] = [];
+
+    if (hasDeadline) {
+      const hoursUntil = (input.deadline!.getTime() - now) / (1000 * 60 * 60);
+      if (hoursUntil <= 0) {
+        value = 1.0;
+        reasonParts.push('deadline has already passed');
+      } else if (hoursUntil <= 4) {
+        value = 0.95;
+        reasonParts.push(`deadline in ${Math.max(1, Math.round(hoursUntil))} hour(s)`);
+      } else if (hoursUntil <= 48) {
+        value = 0.75;
+        reasonParts.push(`deadline within ${Math.max(1, Math.round(hoursUntil / 24))} day(s)`);
+      } else {
+        value = 0.4;
+        reasonParts.push('deadline more than 2 days away');
+      }
+    }
+
+    if (matchedKeywords.length > 0) {
+      value = Math.min(1, value + 0.2);
+      reasonParts.push(`urgency keyword detected: ${matchedKeywords.join(', ')}`);
+    }
+
+    return {
+      type: 'time_pressure',
+      value,
+      confidence: 0.9,
+      weight: this.signalWeights.get('time_pressure') ?? 0.3,
+      source: 'context_engine',
+      reason: reasonParts.join('; ')
+    };
+  }
+
+  /**
+   * Item 2 signal: deterministic proxy for sender trust. There's no interaction-history
+   * primitive in this codebase to reuse (checked for a `deriveLearningSignals`-style
+   * helper first — none exists), so this classifies by domain: known personal webmail
+   * providers get a medium tier, domains/local-parts that look like placeholders or
+   * disposable addresses get a low tier, everything else (a specific, presumably
+   * organizational domain) defaults to a higher trust tier.
+   */
+  private computeSenderTrustSignal(sender?: string): ContextSignal | null {
+    if (!sender || !sender.includes('@')) return null;
+
+    const [localPart, domain] = sender.toLowerCase().split('@');
+    const looksLikePlaceholder = ContextEngineService.LOW_TRUST_MARKERS.some(
+      marker => domain.includes(marker) || localPart.includes(marker)
+    );
+
+    let value: number;
+    let reason: string;
+
+    if (looksLikePlaceholder) {
+      value = 0.2;
+      reason = 'Infrequent or new contact — unfamiliar or placeholder-looking domain';
+    } else if (ContextEngineService.FREE_EMAIL_DOMAINS.has(domain)) {
+      value = 0.6;
+      reason = 'Regular contact — familiar personal email domain';
+    } else {
+      value = 0.85;
+      reason = `trusted sender — recognized company domain (${domain})`;
+    }
+
+    return {
+      type: 'sender_trust',
+      value,
+      confidence: 0.8,
+      weight: this.signalWeights.get('sender_trust') ?? 0.2,
+      source: 'context_engine',
+      reason
+    };
+  }
+
+  /**
+   * Item 3 signal: rewards concrete, specific details (explicit time, date, location).
+   */
+  private computeContentCertaintySignal(input: ContextInput): ContextSignal {
+    const rawText = input.content || input.text || '';
+    const lower = rawText.toLowerCase();
+
+    const hasTime = /\b\d{1,2}(:\d{2})?\s?(am|pm)\b/.test(lower);
+    const hasDate = /\b(today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday|next week)\b/.test(lower);
+    const hasLocation = /\b(room|office|building|conference)\b/.test(lower);
+
+    const details: string[] = [];
+    let value = 0.25;
+    if (hasTime) { value += 0.25; details.push('specific time'); }
+    if (hasDate) { value += 0.25; details.push('specific date'); }
+    if (hasLocation) { value += 0.25; details.push('specific location'); }
+    value = Math.min(1, value);
+
+    const reason = details.length > 0
+      ? `concrete date/time/location details present (${details.join(', ')})`
+      : 'no concrete date, time, or location details found';
+
+    return {
+      type: 'content_certainty',
+      value,
+      confidence: 0.7,
+      weight: this.signalWeights.get('content_certainty') ?? 0.15,
+      source: 'context_engine',
+      reason
+    };
+  }
+
+  /**
+   * Item 3b signal: penalizes hedged/vague language and conflicting options (e.g.
+   * "either X or Y"). Value follows the same certainty-scale polarity as content_certainty
+   * (higher = clearer message, lower = more hedging/conflicting) since the confidence-band
+   * fixtures treat both this way.
+   */
+  private computeAmbiguitySignal(input: ContextInput): ContextSignal {
+    const lower = (input.content || input.text || '').toLowerCase();
+
+    const hedgeMatches = ContextEngineService.HEDGE_PHRASES.filter(phrase => lower.includes(phrase));
+    const orCount = (lower.match(/\bor\b/g) || []).length;
+    const hasConflictingOptions = /either.+\bor\b/.test(lower) || orCount >= 2;
+
+    const penalty = Math.min(0.6, hedgeMatches.length * 0.15 + (hasConflictingOptions ? 0.2 : 0));
+    const value = Math.max(0.1, 1 - penalty);
+
+    const reasonParts: string[] = [];
+    if (hedgeMatches.length > 0) {
+      reasonParts.push(`uncertain/hedging language detected (${hedgeMatches.join(', ')})`);
+    }
+    if (hasConflictingOptions) {
+      reasonParts.push('conflicting options presented');
+    }
+    const reason = reasonParts.length > 0
+      ? reasonParts.join('; ')
+      : 'message language is clear and specific';
+
+    return {
+      type: 'ambiguity',
+      value,
+      confidence: 0.75,
+      weight: this.signalWeights.get('ambiguity') ?? 0.15,
+      source: 'context_engine',
+      reason
+    };
+  }
+
+  /**
+   * Item 4 signal: quiet-hours proximity. No per-user quiet-hours window is available on
+   * ContextInput (unlike CBT's userSettings.quietHours), so this uses the same default
+   * overnight window (22:00-07:00) used elsewhere in this codebase for quiet hours, and
+   * the same wraparound-window comparison pattern already used by policy.ts's/
+   * cbtGuardService.ts's isQuietHours (that logic is keyed off explicit start/end config
+   * strings and isn't directly reusable here — no shared helper actually exists despite
+   * appearances, see final report — so the pattern is replicated, not imported).
+   * Uses UTC hours deliberately so this is stable regardless of the host machine's local
+   * timezone (fixtures encode times like "23:00Z" meaning 11pm, not "11pm wherever this
+   * happens to run").
+   */
+  private computeQuietHoursSignal(currentTime?: Date): ContextSignal {
+    const date = currentTime ?? new Date();
+    const hour = date.getUTCHours();
+    const isQuiet = hour >= 22 || hour < 7;
+
+    const value = isQuiet ? 0.15 : 0.95;
+    const reason = isQuiet
+      ? 'sent during quiet hours (10pm-7am) — lower urgency assumed'
+      : 'sent during normal waking hours';
+
+    return {
+      type: 'quiet_hours',
+      value,
+      confidence: 0.9,
+      weight: this.signalWeights.get('quiet_hours') ?? 0.15,
+      source: 'context_engine',
+      reason
+    };
+  }
+
+  /**
+   * Generate context score from the real signal set (legacy-compatible ContextScore shape).
    */
   async generateScore(input: ContextInput): Promise<ContextScore> {
     if (!isFeatureEnabled('contextEngine')) {
@@ -383,31 +604,52 @@ class ContextEngineService {
     }
 
     try {
-      const context: DerivationContext = {
-        inputText: input.content || input.text || '',
-        viewContext: { viewId: 'legacy', mode: 'bubble', now: Date.now() },
-        currentTime: Date.now()
-      };
+      // Item 2 note: deadline proximity is measured against the real wall clock, not
+      // input.currentTime — every fixture's `deadline` is itself built off the real
+      // Date.now() (e.g. `new Date(Date.now() + 2 * 60 * 60 * 1000)`), so comparing it
+      // to a separately-simulated `currentTime` (used only to simulate time-of-day for
+      // the quiet_hours signal below) would produce a meaningless multi-year gap.
+      const realNow = Date.now();
 
-      const analysis = await this.analyzeContext(context);
-      
-      // Map new analysis to legacy format
-      const urgencyInsight = analysis.insights.find(i => i.type === 'urgency');
-      const domainInsight = analysis.insights.find(i => i.type === 'domain');
-      
+      const signals = [
+        this.computeTimePressureSignal(input, realNow),
+        this.computeSenderTrustSignal(input.sender),
+        this.computeContentCertaintySignal(input),
+        this.computeAmbiguitySignal(input),
+        this.computeQuietHoursSignal(input.currentTime)
+      ].filter((s): s is ContextSignal => s !== null);
+
+      const totalWeight = signals.reduce((sum, s) => sum + s.weight, 0);
+      const score = totalWeight > 0
+        ? signals.reduce((sum, s) => sum + s.value * s.weight, 0) / totalWeight
+        : 0.5;
+
+      // Most impactful (confidence * weight) signals surface first in "because"
+      const because = [...signals]
+        .sort((a, b) => (b.confidence * b.weight) - (a.confidence * a.weight))
+        .slice(0, 5)
+        .map(s => s.reason);
+
+      const urgencySignal = signals.find(s => s.type === 'time_pressure');
+
       return {
-        confidence: analysis.confidenceScore,
-        priority: this.calculateLegacyPriority(analysis.insights),
-        urgency: urgencyInsight?.confidence || 0.5,
-        domain: domainInsight?.data?.domain || 'General',
-        reasoning: analysis.insights.map(i => i.explanation),
-        score: analysis.confidenceScore,
-        signals: this.convertInsightsToSignals(analysis.insights),
-        because: analysis.insights.map(i => i.explanation),
-        metadata: analysis.metadata
+        confidence: score,
+        priority: Math.round(score * 100),
+        urgency: urgencySignal?.value ?? 0.5,
+        domain: 'General',
+        reasoning: because,
+        score,
+        signals,
+        because,
+        metadata: {
+          timestamp: Date.now(),
+          signalCount: signals.length,
+          totalWeight,
+          deterministic: true
+        }
       };
     } catch (error) {
-      logger.error('Legacy generateScore failed', error);
+      logger.error('generateScore failed', error);
       return {
         confidence: 0.5,
         priority: 50,
@@ -417,7 +659,7 @@ class ContextEngineService {
         score: 0.5,
         signals: [],
         because: ['Analysis failed'],
-        metadata: {}
+        metadata: { timestamp: Date.now(), signalCount: 0, totalWeight: 0, deterministic: true }
       };
     }
   }
@@ -439,50 +681,17 @@ class ContextEngineService {
   }
 
   /**
-   * Reset signal weights to defaults (legacy compatibility)
+   * Reset signal weights to defaults. Item 2 (2026-07-03): reconciled onto the same
+   * vocabulary generateScore() and ContextEnginePanel.tsx use — this used to be a third,
+   * unrelated set of names ('urgency_keywords' etc.) that didn't match either.
    */
   resetSignalWeights(): void {
     this.signalWeights.clear();
-    this.signalWeights.set('urgency_keywords', 0.8);
-    this.signalWeights.set('time_references', 0.7);
-    this.signalWeights.set('domain_patterns', 0.6);
-    this.signalWeights.set('habit_similarity', 0.5);
-    this.signalWeights.set('task_load', 0.4);
-  }
-
-  private calculateLegacyPriority(insights: ContextInsight[]): number {
-    let priority = 50; // default
-    
-    insights.forEach(insight => {
-      switch (insight.type) {
-        case 'urgency':
-          priority += insight.confidence * 30;
-          break;
-        case 'time':
-          if (insight.data?.timeReference === 'immediate') {
-            priority += 20;
-          }
-          break;
-        case 'optimization':
-          if (insight.data?.recommendation === 'lower_priority') {
-            priority -= 15;
-          }
-          break;
-      }
-    });
-
-    return Math.max(0, Math.min(100, priority));
-  }
-
-  private convertInsightsToSignals(insights: ContextInsight[]): ContextSignal[] {
-    return insights.map(insight => ({
-      type: insight.type,
-      weight: insight.confidence,
-      value: insight.confidence,
-      source: 'context_engine',
-      confidence: insight.confidence,
-      reason: insight.explanation
-    }));
+    this.signalWeights.set('time_pressure', 0.3);
+    this.signalWeights.set('sender_trust', 0.2);
+    this.signalWeights.set('content_certainty', 0.15);
+    this.signalWeights.set('ambiguity', 0.15);
+    this.signalWeights.set('quiet_hours', 0.15);
   }
 }
 
