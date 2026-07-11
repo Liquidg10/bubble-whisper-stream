@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Settings, Calendar, Bell, Home, Flower, Brain, Search, Heart, Inbox, Wrench, Bot, MapPin, List, Grid3x3 } from 'lucide-react';
+import { Settings, Calendar, Bell, Home, Flower, Brain, Search, Heart, Inbox, Wrench, Bot, MapPin, List, Grid3x3, Sun, Moon } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { CompactThemeToggle } from '@/components/ThemeToggle';
 import { useBubbleStore } from '@/stores/bubbleStore';
@@ -30,6 +30,19 @@ export const AppShell: React.FC = () => {
   
   const [showSearch, setShowSearch] = useState(false);
   const [showAIAssistant, setShowAIAssistant] = useState(false);
+  const [isLight, setIsLight] = useState(() => {
+    if (typeof document === 'undefined') return false;
+    const saved = localStorage.getItem('mm-color-mode');
+    if (saved) return saved === 'light';
+    return window.matchMedia?.('(prefers-color-scheme: light)').matches ?? false;
+  });
+
+  React.useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle('light', isLight);
+    root.classList.toggle('dark', !isLight);
+    localStorage.setItem('mm-color-mode', isLight ? 'light' : 'dark');
+  }, [isLight]);
 
   const navItems = [
     { path: '/', icon: Home, label: 'Canvas' },
@@ -53,7 +66,9 @@ export const AppShell: React.FC = () => {
       {/* Header */}
       <header className="flex items-center justify-between p-4 border-b border-border/50 bg-card/50 backdrop-blur">
         <div className="flex items-center gap-3">
-          <h1 className="text-lg font-semibold text-foreground">Mind Manual</h1>
+          <h1 className="font-display text-2xl tracking-tight text-foreground">
+            Mind <em className="italic text-accent-void">Manual</em>
+          </h1>
           <OnboardingProgressIndicator 
             onboardingState={onboardingState}
             onSkipProgression={skipProgression}
@@ -72,6 +87,16 @@ export const AppShell: React.FC = () => {
             <HeaderVoiceCapture />
             <IntegrationStatusIndicator />
             <AuthStatus />
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setIsLight((v) => !v)}
+            className="h-8 w-8 p-0"
+            title={isLight ? 'Switch to dark' : 'Switch to light'}
+            aria-label="Toggle light and dark mode"
+          >
+            {isLight ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+          </Button>
           <Button
             variant="ghost"
             size="sm"
