@@ -1083,11 +1083,18 @@ export type Database = {
             referencedRelation: "plaid_items"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "plaid_accounts_plaid_item_id_fkey"
+            columns: ["plaid_item_id"]
+            isOneToOne: false
+            referencedRelation: "plaid_items_safe"
+            referencedColumns: ["id"]
+          },
         ]
       }
       plaid_items: {
         Row: {
-          access_token: string
+          access_token_secret_id: string
           created_at: string
           id: string
           institution_name: string
@@ -1098,7 +1105,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
-          access_token: string
+          access_token_secret_id: string
           created_at?: string
           id?: string
           institution_name: string
@@ -1109,7 +1116,7 @@ export type Database = {
           user_id: string
         }
         Update: {
-          access_token?: string
+          access_token_secret_id?: string
           created_at?: string
           id?: string
           institution_name?: string
@@ -1173,6 +1180,13 @@ export type Database = {
             columns: ["plaid_item_id"]
             isOneToOne: true
             referencedRelation: "plaid_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plaid_sync_status_plaid_item_id_fkey"
+            columns: ["plaid_item_id"]
+            isOneToOne: true
+            referencedRelation: "plaid_items_safe"
             referencedColumns: ["id"]
           },
         ]
@@ -1250,6 +1264,13 @@ export type Database = {
             columns: ["plaid_item_id"]
             isOneToOne: false
             referencedRelation: "plaid_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plaid_transactions_plaid_item_id_fkey"
+            columns: ["plaid_item_id"]
+            isOneToOne: false
+            referencedRelation: "plaid_items_safe"
             referencedColumns: ["id"]
           },
         ]
@@ -1756,13 +1777,46 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      plaid_items_safe: {
+        Row: {
+          created_at: string | null
+          id: string | null
+          institution_name: string | null
+          is_active: boolean | null
+          item_id: string | null
+          updated_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string | null
+          institution_name?: string | null
+          is_active?: boolean | null
+          item_id?: string | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string | null
+          institution_name?: string | null
+          is_active?: boolean | null
+          item_id?: string | null
+          updated_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       cleanup_expired_oauth_state: { Args: never; Returns: undefined }
       cleanup_old_calendar_events: {
         Args: { account_id: string; window_days?: number }
         Returns: number
+      }
+      create_plaid_secret: {
+        Args: { p_access_token: string; p_description?: string }
+        Returns: string
       }
       get_expiring_watch_channels: {
         Args: { hours_ahead?: number }
@@ -1776,6 +1830,7 @@ export type Database = {
           watch_resource_id: string
         }[]
       }
+      get_plaid_access_token: { Args: { p_secret_id: string }; Returns: string }
       get_user_tenant_id: { Args: never; Returns: string }
       is_tenant_admin: { Args: { tenant_uuid: string }; Returns: boolean }
       user_belongs_to_tenant: {
