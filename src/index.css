@@ -1,111 +1,228 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap');
 @import './styles/accessibility.css';
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Bubble Universe Design System - Iridescent, High-Contrast Cognitive Companion */
+/* =========================================================================
+   Mind Manual — Tidepool Design System
+   Living Coral × Seafoam. Editorial, warm, tactile. No neon-on-black.
+   Default = Dark (Midnight Tidepool). Add class="light" for Sunlit Reef.
+   ========================================================================= */
 
 @layer base {
   :root {
-    /* Core Universe Colors */
-    --bg-universe: 224 15% 7%;              /* Deep space background #0E0F12 */
-    --text-primary: 210 20% 95%;            /* Bright clarity #F2F5F7 */
-    --text-secondary: 210 15% 75%;          /* Gentle secondary #B6C0CC */
-    
-    /* Iridescent Accent Trilogy */
-    --accent-void: 255 62% 68%;             /* Purple magic #7B5CFF */
-    --accent-flow: 180 85% 50%;             /* Cyan energy #2BD9D9 */
-    --accent-growth: 135 100% 75%;          /* Green vitality #7FFFA1 */
-    
-    /* Emotional Spectrum */
-    --danger-soft: 0 100% 70%;              /* Gentle red #FF6B6B */
-    --success-gentle: 135 76% 60%;          /* Life green #5BE37D */
-    --warning-glow: 45 100% 68%;            /* Amber warmth */
-    
-    /* Bubble States */
-    --bubble-idle: 210 20% 15%;             /* Resting state */
-    --bubble-active: 210 25% 20%;           /* Engaged state - darker for better contrast */
-    --bubble-selected: 255 62% 20%;         /* Selection glow */
-    --bubble-reminder: 0 60% 25%;           /* Reminder urgency */
-    
-    /* Matrix Card States - Extra dark for high text contrast */
-    --matrix-card-bg: 210 30% 12%;          /* Very dark background */
-    --matrix-card-border: 210 25% 18%;      /* Slightly lighter border */
-    
-    /* Gradients - Iridescent Magic */
-    --gradient-aurora: linear-gradient(135deg, 
-      hsl(var(--accent-void) / 0.8), 
-      hsl(var(--accent-flow) / 0.8), 
-      hsl(var(--accent-growth) / 0.8));
-    --gradient-canvas: radial-gradient(ellipse at center, 
-      hsl(var(--bg-universe) / 0.9), 
-      hsl(var(--bg-universe)));
+    /* ---------- Dark: Midnight Tidepool (default) ---------- */
+    --bg-universe: 195 42% 7%;              /* Deep marine ink, not black */
+    --bg-tide: 190 38% 10%;                 /* Secondary surface */
+    --text-primary: 30 40% 96%;             /* Warm shell */
+    --text-secondary: 175 14% 72%;          /* Sea mist */
+
+    /* Signature Coral × Seafoam trilogy */
+    --accent-void: 8 88% 66%;               /* Living Coral #F26D5B */
+    --accent-flow: 165 55% 62%;             /* Seafoam #5FD9B4 */
+    --accent-growth: 22 92% 74%;            /* Warm Peach-Coral #FBB088 */
+
+    /* Emotional spectrum */
+    --danger-soft: 6 84% 62%;
+    --success-gentle: 160 58% 55%;
+    --warning-glow: 32 92% 68%;
+
+    /* Bubble/surface states */
+    --bubble-idle: 192 30% 14%;
+    --bubble-active: 190 32% 18%;
+    --bubble-selected: 8 60% 28%;
+    --bubble-reminder: 6 55% 30%;
+
+    --matrix-card-bg: 194 38% 11%;
+    --matrix-card-border: 190 28% 20%;
+
+    /* Ambient background art (coral + seafoam ink) */
+    --ambient-image: url('/src/assets/ambient-coral-seafoam.jpg');
+    --ambient-opacity: 0.18;
+    --ambient-blend: soft-light;
+
+    /* Gradients — coral to seafoam, editorial */
+    --gradient-aurora: linear-gradient(135deg,
+      hsl(var(--accent-void)) 0%,
+      hsl(22 92% 68%) 45%,
+      hsl(var(--accent-flow)) 100%);
+    --gradient-canvas: radial-gradient(ellipse at 20% 10%,
+      hsl(8 60% 22% / 0.55) 0%,
+      hsl(var(--bg-universe)) 55%),
+      radial-gradient(ellipse at 85% 90%,
+      hsl(165 55% 30% / 0.45) 0%,
+      hsl(var(--bg-universe)) 60%);
     --gradient-bubble: linear-gradient(145deg,
-      hsl(var(--bubble-idle) / 0.9),
-      hsl(var(--bubble-active) / 0.7));
+      hsl(var(--bubble-idle) / 0.92),
+      hsl(var(--bubble-active) / 0.78));
     --gradient-gentle: linear-gradient(120deg,
-      hsl(var(--accent-flow) / 0.3),
-      hsl(var(--accent-growth) / 0.3));
-    
-    /* Elevation & Glow */
-    --glow-soft: 0 0 20px hsl(var(--accent-void) / 0.3);
+      hsl(var(--accent-flow) / 0.28),
+      hsl(var(--accent-void) / 0.28));
+
+    /* Elevation & glow */
+    --glow-soft: 0 0 24px hsl(var(--accent-void) / 0.35);
     --glow-medium: 0 0 40px hsl(var(--accent-flow) / 0.4);
-    --glow-strong: 0 0 60px hsl(var(--accent-growth) / 0.5);
-    --shadow-depth: 0 8px 32px hsl(224 15% 3% / 0.6);
-    
-    /* Motion & Transitions */
+    --glow-strong: 0 12px 60px hsl(var(--accent-void) / 0.45);
+    --shadow-depth: 0 12px 40px hsl(195 60% 3% / 0.55),
+                    0 1px 0 hsl(30 40% 96% / 0.04) inset;
+
+    /* Motion */
     --transition-gentle: all 220ms cubic-bezier(0.4, 0, 0.2, 1);
     --transition-bubble: transform 180ms cubic-bezier(0.34, 1.56, 0.64, 1);
     --transition-flow: all 320ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
-    
-    /* Float Animation (for explicit motion control) */
+
     --float-amplitude: 2px;
     --float-frequency: 3s;
-    
-    /* Spacing & Rhythm */
+
+    /* Spacing / rhythm */
     --space-bubble: 1.5rem;
     --space-breath: 2.5rem;
     --radius-bubble: 1.25rem;
-    --radius-gentle: 0.75rem;
-    
-    /* Typography Scale */
+    --radius-gentle: 0.85rem;
+
+    /* Typography */
+    --font-display: 'Instrument Serif', ui-serif, Georgia, serif;
+    --font-body: 'Inter', ui-sans-serif, system-ui, sans-serif;
+
     --font-size-whisper: 0.75rem;
     --font-size-gentle: 0.875rem;
     --font-size-natural: 1rem;
     --font-size-speak: 1.125rem;
     --font-size-call: 1.5rem;
     --font-size-shout: 2rem;
-    
-    /* Standard mappings for shadcn compatibility */
+
+    /* shadcn mappings */
     --background: var(--bg-universe);
     --foreground: var(--text-primary);
-    --card: 224 20% 12%;
+    --card: 194 38% 11%;
     --card-foreground: var(--text-primary);
-    --popover: 224 20% 12%;
+    --popover: 194 42% 9%;
     --popover-foreground: var(--text-primary);
     --primary: var(--accent-void);
-    --primary-foreground: var(--text-primary);
+    --primary-foreground: 30 40% 98%;
     --secondary: var(--bubble-active);
-    --secondary-foreground: var(--text-secondary);
+    --secondary-foreground: var(--text-primary);
     --muted: var(--bubble-idle);
     --muted-foreground: var(--text-secondary);
     --accent: var(--accent-flow);
-    --accent-foreground: var(--text-primary);
+    --accent-foreground: 195 60% 8%;
     --destructive: var(--danger-soft);
-    --destructive-foreground: var(--text-primary);
-    --border: 210 20% 20%;
-    --input: 210 20% 18%;
+    --destructive-foreground: 30 40% 98%;
+    --border: 190 25% 20%;
+    --input: 190 28% 16%;
     --ring: var(--accent-void);
     --radius: var(--radius-gentle);
   }
-  
-  /* High contrast mode adjustments */
+
+  /* ---------- Light: Sunlit Reef ---------- */
+  .light {
+    --bg-universe: 30 45% 96%;              /* Warm shell / sand */
+    --bg-tide: 25 40% 92%;
+    --text-primary: 195 55% 12%;            /* Deep ink teal */
+    --text-secondary: 195 20% 34%;
+
+    --accent-void: 8 78% 56%;               /* Living Coral (deeper) */
+    --accent-flow: 168 52% 40%;             /* Seafoam (deeper for contrast) */
+    --accent-growth: 20 82% 60%;
+
+    --danger-soft: 6 78% 52%;
+    --success-gentle: 160 55% 42%;
+    --warning-glow: 32 88% 54%;
+
+    --bubble-idle: 25 50% 94%;
+    --bubble-active: 20 55% 90%;
+    --bubble-selected: 8 78% 88%;
+    --bubble-reminder: 8 78% 84%;
+
+    --matrix-card-bg: 30 60% 99%;
+    --matrix-card-border: 20 20% 86%;
+
+    --ambient-image: url('/src/assets/ambient-coral-seafoam-light.jpg');
+    --ambient-opacity: 0.35;
+    --ambient-blend: multiply;
+
+    --gradient-aurora: linear-gradient(135deg,
+      hsl(var(--accent-void)) 0%,
+      hsl(20 90% 68%) 50%,
+      hsl(var(--accent-flow)) 100%);
+    --gradient-canvas: radial-gradient(ellipse at 15% 10%,
+      hsl(8 88% 88% / 0.55) 0%,
+      hsl(var(--bg-universe)) 55%),
+      radial-gradient(ellipse at 85% 90%,
+      hsl(165 60% 82% / 0.55) 0%,
+      hsl(var(--bg-universe)) 60%);
+    --gradient-bubble: linear-gradient(145deg,
+      hsl(30 60% 99% / 0.95),
+      hsl(25 45% 93% / 0.85));
+    --gradient-gentle: linear-gradient(120deg,
+      hsl(var(--accent-flow) / 0.22),
+      hsl(var(--accent-void) / 0.22));
+
+    --glow-soft: 0 0 24px hsl(var(--accent-void) / 0.28);
+    --glow-medium: 0 0 40px hsl(var(--accent-flow) / 0.28);
+    --glow-strong: 0 12px 60px hsl(var(--accent-void) / 0.32);
+    --shadow-depth: 0 10px 30px hsl(20 40% 40% / 0.12),
+                    0 1px 0 hsl(30 60% 100% / 0.6) inset;
+
+    --card: 30 60% 99%;
+    --card-foreground: var(--text-primary);
+    --popover: 30 60% 99%;
+    --popover-foreground: var(--text-primary);
+    --primary: var(--accent-void);
+    --primary-foreground: 30 45% 98%;
+    --secondary: 20 40% 92%;
+    --secondary-foreground: var(--text-primary);
+    --muted: 25 30% 90%;
+    --muted-foreground: var(--text-secondary);
+    --accent: var(--accent-flow);
+    --accent-foreground: 30 45% 98%;
+    --destructive: var(--danger-soft);
+    --destructive-foreground: 30 45% 98%;
+    --border: 20 20% 86%;
+    --input: 20 25% 90%;
+    --ring: var(--accent-void);
+  }
+
+  /* Auto light mode when user prefers it AND no explicit override */
+  @media (prefers-color-scheme: light) {
+    :root:not(.dark) {
+      --bg-universe: 30 45% 96%;
+      --bg-tide: 25 40% 92%;
+      --text-primary: 195 55% 12%;
+      --text-secondary: 195 20% 34%;
+      --accent-void: 8 78% 56%;
+      --accent-flow: 168 52% 40%;
+      --accent-growth: 20 82% 60%;
+      --bubble-idle: 25 50% 94%;
+      --bubble-active: 20 55% 90%;
+      --matrix-card-bg: 30 60% 99%;
+      --matrix-card-border: 20 20% 86%;
+      --ambient-image: url('/src/assets/ambient-coral-seafoam-light.jpg');
+      --ambient-opacity: 0.35;
+      --ambient-blend: multiply;
+      --card: 30 60% 99%;
+      --popover: 30 60% 99%;
+      --secondary: 20 40% 92%;
+      --muted: 25 30% 90%;
+      --border: 20 20% 86%;
+      --input: 20 25% 90%;
+      --accent-foreground: 30 45% 98%;
+      --primary-foreground: 30 45% 98%;
+      --shadow-depth: 0 10px 30px hsl(20 40% 40% / 0.12),
+                      0 1px 0 hsl(30 60% 100% / 0.6) inset;
+    }
+  }
+
+  /* High-contrast preference */
   @media (prefers-contrast: high) {
     :root {
-      --text-primary: 0 0% 100%;
-      --text-secondary: 0 0% 85%;
-      --bg-universe: 0 0% 0%;
+      --text-primary: 30 40% 100%;
+      --text-secondary: 30 20% 90%;
+    }
+    .light {
+      --text-primary: 195 80% 6%;
+      --text-secondary: 195 40% 20%;
     }
   }
   
@@ -126,6 +243,57 @@
 
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-body);
+    background-image: var(--gradient-canvas);
+    background-attachment: fixed;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Ambient art overlay — coral & seafoam ink dispersion */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background-image: var(--ambient-image);
+    background-size: cover;
+    background-position: center;
+    opacity: var(--ambient-opacity);
+    mix-blend-mode: var(--ambient-blend);
+    filter: saturate(1.05);
+  }
+  #root { position: relative; z-index: 1; }
+
+  /* Editorial display type — used by opting in via .font-display */
+  .font-display {
+    font-family: var(--font-display);
+    font-weight: 400;
+    letter-spacing: -0.01em;
+  }
+
+  h1, h2 {
+    font-family: var(--font-display);
+    letter-spacing: -0.015em;
+  }
+  h1 { font-weight: 400; }
+
+  /* Selection uses the coral accent */
+  ::selection {
+    background: hsl(var(--accent-void) / 0.35);
+    color: hsl(var(--text-primary));
+  }
+
+  /* Scrollbar — subtle coral/seafoam */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg,
+      hsl(var(--accent-void) / 0.45),
+      hsl(var(--accent-flow) / 0.45));
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
   }
   
   /* Focus rings that are distinct from bubble rims */
