@@ -38,7 +38,7 @@
     --matrix-card-border: 190 28% 20%;
 
     /* Ambient background art (coral + seafoam ink) */
-    --ambient-image: url('/src/assets/ambient-coral-seafoam.jpg');
+    --ambient-image: url('./assets/ambient-coral-seafoam.jpg');
     --ambient-opacity: 0.18;
     --ambient-blend: soft-light;
 
@@ -138,7 +138,7 @@
     --matrix-card-bg: 30 60% 99%;
     --matrix-card-border: 20 20% 86%;
 
-    --ambient-image: url('/src/assets/ambient-coral-seafoam-light.jpg');
+    --ambient-image: url('./assets/ambient-coral-seafoam-light.jpg');
     --ambient-opacity: 0.35;
     --ambient-blend: multiply;
 
@@ -198,7 +198,7 @@
       --bubble-active: 20 55% 90%;
       --matrix-card-bg: 30 60% 99%;
       --matrix-card-border: 20 20% 86%;
-      --ambient-image: url('/src/assets/ambient-coral-seafoam-light.jpg');
+      --ambient-image: url('./assets/ambient-coral-seafoam-light.jpg');
       --ambient-opacity: 0.35;
       --ambient-blend: multiply;
       --card: 30 60% 99%;
