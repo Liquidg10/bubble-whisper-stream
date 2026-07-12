@@ -236,6 +236,58 @@
   }
 }
 
+/* -------------------------------------------------------------------------
+   Neutralize legacy `.high-contrast` palette override from accessibility.css.
+   That stylesheet forces --background/--card/etc. to pure white/black on the
+   body, which killed the light/dark toggle because CalmModeService applies
+   `.high-contrast` to <body> by default. We keep the a11y class active for
+   focus/target-size behaviors but restore the Tidepool palette so the toggle
+   is visible. High-contrast intent is preserved via boosted text tokens.
+   ------------------------------------------------------------------------- */
+@layer base {
+  body.high-contrast,
+  html.high-contrast,
+  .high-contrast {
+    --background: var(--bg-universe);
+    --foreground: var(--text-primary);
+    --card: 194 38% 11%;
+    --card-foreground: var(--text-primary);
+    --popover: 194 42% 9%;
+    --popover-foreground: var(--text-primary);
+    --primary: var(--accent-void);
+    --primary-foreground: 30 40% 98%;
+    --secondary: var(--bubble-active);
+    --secondary-foreground: var(--text-primary);
+    --muted: var(--bubble-idle);
+    --muted-foreground: var(--text-secondary);
+    --accent: var(--accent-flow);
+    --accent-foreground: 195 60% 8%;
+    --destructive: var(--danger-soft);
+    --destructive-foreground: 30 40% 98%;
+    --border: 190 25% 20%;
+    --input: 190 28% 16%;
+    --ring: var(--accent-void);
+  }
+
+  /* Light mode: override the high-contrast remap with Sunlit Reef surfaces. */
+  html.light .high-contrast,
+  html.light.high-contrast,
+  .light.high-contrast,
+  .light .high-contrast {
+    --card: 30 60% 99%;
+    --card-foreground: var(--text-primary);
+    --popover: 30 60% 99%;
+    --popover-foreground: var(--text-primary);
+    --secondary: 20 40% 92%;
+    --muted: 25 30% 90%;
+    --accent-foreground: 30 45% 98%;
+    --primary-foreground: 30 45% 98%;
+    --destructive-foreground: 30 45% 98%;
+    --border: 20 20% 86%;
+    --input: 20 25% 90%;
+  }
+}
+
 @layer base {
   * {
     @apply border-border;
