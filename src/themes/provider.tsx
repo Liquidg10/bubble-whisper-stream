@@ -93,12 +93,15 @@ export function ThemeProvider({
       root.style.setProperty('--transition-duration', '0ms');
     }
     
-    // Apply CSS custom properties
+    // NOTE: Design tokens are now owned by src/index.css (Tidepool design system).
+    // The legacy per-theme token map is intentionally NOT applied here — doing so
+    // would inline vars on <html> and override the .light/.dark stylesheet rules,
+    // which broke the light/dark toggle. Clear any previously-inlined token vars
+    // so switching themes at runtime hands control back to the stylesheet.
     if (theme.tokens && typeof theme.tokens === 'object') {
-      Object.entries(theme.tokens).forEach(([key, value]) => {
-        // Convert camelCase to kebab-case for CSS variables
+      Object.keys(theme.tokens).forEach((key) => {
         const cssVar = `--${key.replace(/([A-Z])/g, '-$1').toLowerCase()}`;
-        root.style.setProperty(cssVar, value);
+        root.style.removeProperty(cssVar);
       });
     }
     
