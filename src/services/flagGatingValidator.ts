@@ -3,7 +3,7 @@
  * Ensures flags actually control both rendering and side effects
  */
 
-import { isFeatureEnabled, getActiveFlags, type FeatureFlag } from '@/config/flags';
+import { isFeatureEnabled, getActiveFlags, AUTO_WRITE_FLAGS, type FeatureFlag } from '@/config/flags';
 import { devLog } from '@/devtools/devLog';
 
 export interface FlagViolation {
@@ -196,16 +196,9 @@ class FlagGatingValidator {
 
   private validateAutoWriteKillSwitch(): void {
     const killSwitchActive = isFeatureEnabled('autoWriteKillSwitch');
-    const autoWriteFlags: FeatureFlag[] = [
-      'autoWriteCalendar',
-      'autoWriteEmail',
-      'autoFinanceRead',
-      'autoFinanceInsights',
-      'contextEngine',
-    ];
-    
+
     if (killSwitchActive) {
-      autoWriteFlags.forEach(flag => {
+      AUTO_WRITE_FLAGS.forEach(flag => {
         if (isFeatureEnabled(flag)) {
           this.recordViolation(flag, 'side_effect', `Auto-write flag ${flag} active despite kill switch`);
         }
