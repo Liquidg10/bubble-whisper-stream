@@ -123,7 +123,7 @@ class ProactiveTokenRefreshService {
       await supabase
         .from('sync_logs')
         .insert({
-          user_id: accountId, // We'll use account ID as user ID for now
+          user_id: (await supabase.auth.getUser()).data.user?.id,
           provider: provider,
           service_type: 'oauth',
           operation: 'proactive_token_refresh',
@@ -148,7 +148,7 @@ class ProactiveTokenRefreshService {
       await supabase
         .from('sync_logs')
         .insert({
-          user_id: accountId,
+          user_id: (await supabase.auth.getUser()).data.user?.id,
           provider: provider,
           service_type: 'oauth',
           operation: 'proactive_token_refresh',
