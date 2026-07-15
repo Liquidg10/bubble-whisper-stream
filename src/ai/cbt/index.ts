@@ -142,10 +142,36 @@ export async function processCBTMessage(
   }
 
   // Continue with normal CBT processing
-  const annotation = earlyAnnotation;
-  if (!annotation) {
-    return { annotation: null, decision: null, action: null };
-  }
+  // Run 48 fix (2026-07-07): annotate() legitimately returns null for several
+  // distinct reasons -- feature flag off, sarcasm/idiom bail, or Run 16's
+  // "nothing meaningful found" sentinel (observer-precision.test.ts
+  // intentionally asserts annotate() itself returns null for non-distortion
+  // messages, so that contract is correct and untouched). The bug was here:
+  // ANY null from annotate() made processCBTMessage abort entirely (no
+  // annotation, no decision, no trace object at all), which crashes/fails
+  // callers that expect a valid annotation+decision shape even for ordinary
+  // neutral or empty messages (see integration.test.ts "should not intervene
+  // for neutral messages" / "should handle malformed messages gracefully").
+  // Root-caused in Mind-Manual_PR10-FullVerification_2026-07-06.md (Run 47);
+  // fixed by substituting a valid empty annotation when annotate() declines,
+  // then letting the normal decide()/fatigue/action pipeline run as usual --
+  // decide() and evaluateDistortionIntervention() already return
+  // shouldIntervene: false for empty distortions/crisisFlags, so the
+  // observable outcome for genuinely-neutral messages (no intervention, no
+  // trace) is unchanged; only the null-vs-object shape of the result changes.
+  const annotation = earlyAnnotation ?? {
+    messageId,
+    timestamp: Date.now(),
+    distortions: [],
+    sentiment: { score: 0, magnitude: 0 },
+    crisisFlags: [],
+    context: {
+      recentMood: context.recentMood,
+      timeOfDay: new Date().getHours(),
+      messageLength: message.length,
+      conversationDepth: context.conversationContext?.messageCount || 0
+    }
+  };
   
   // Step 2: Get current fatigue state
   const fatigueState = getCurrentFatigueState(userId);

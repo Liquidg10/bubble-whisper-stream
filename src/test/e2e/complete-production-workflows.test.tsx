@@ -1,42 +1,100 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { BrowserRouter } from 'react-router-dom';
 import App from '@/App';
-import { useBubbleStore } from '@/stores/bubbleStore';
 import { crossDeviceSyncService } from '@/services/crossDeviceSyncService';
 import { modalityService } from '@/services/modalityService';
+import { resetMockBubbleStore, setMockBubbleState } from '@/test/helpers/mockBubbleStore';
 
-// Mock all external services
-vi.mock('@/stores/bubbleStore');
+// Mock all external services.
+//
+// bubbleStore: faithful, selector-aware mock via the shared helper (see
+// src/test/helpers/mockBubbleStore.ts) instead of a bare `vi.mock(...)`
+// auto-mock + ad hoc `.mockReturnValue(...)`. The bare auto-mock made
+// `useBubbleStore()` return a fixed object with no `settings` key, so
+// `ProgressiveOnboardingProvider` (mounted deep inside <App/>) crashed at
+// `settings.progressiveOnboarding` -- this suite's actual class-B failure
+// signature (11/11 failing on that single crash, confirmed 2026-07-14
+// REVIVE Run 78). It also could not answer App.tsx's
+// `useBubbleStore(state => state.initializeStore)` selector call correctly;
+// the shared helper's selector-awareness fix (this same run) is required
+// for <App/> to mount at all.
+vi.mock('@/stores/bubbleStore', async () => {
+  const { makeBubbleStoreMockModule } = await import('@/test/helpers/mockBubbleStore');
+  return makeBubbleStoreMockModule();
+});
 vi.mock('@/services/crossDeviceSyncService');
 vi.mock('@/services/modalityService');
-vi.mock('@/integrations/supabase/client');
+// bubbleStore + Router are the only class-B/mount bugs `mockBubbleStore.ts`
+// and `renderApp()` fix; a THIRD, independent one lives here. A bare
+// `vi.mock('@/integrations/supabase/client')` auto-mocks `supabase.auth.*`
+// as functions returning `undefined`. `AuthProvider` (one of App.tsx's 8
+// providers, wraps the whole tree) destructures
+// `const { data: { subscription } } = supabase.auth.onAuthStateChange(...)`
+// and `const { data: { session } } = await supabase.auth.getSession()`
+// unconditionally in its mount effect (src/providers/AuthProvider.tsx:18,36)
+// -- both throw "Cannot destructure property 'data' of ... as it is
+// undefined" on the auto-mock's `undefined` return, independent of the
+// bubbleStore/Router fixes above and masked by them until now. Stubs the
+// full supabase.auth.* surface AuthProvider calls (verified against
+// AuthProvider.tsx) so it mounts like a signed-out session.
+vi.mock('@/integrations/supabase/client', () => ({
+  supabase: {
+    auth: {
+      onAuthStateChange: vi.fn(() => ({
+        data: { subscription: { unsubscribe: vi.fn() } },
+      })),
+      getSession: vi.fn(() => Promise.resolve({ data: { session: null }, error: null })),
+      signInWithPassword: vi.fn(() => Promise.resolve({ data: {}, error: null })),
+      signUp: vi.fn(() => Promise.resolve({ data: {}, error: null })),
+      signInWithOAuth: vi.fn(() => Promise.resolve({ data: {}, error: null })),
+      signOut: vi.fn(() => Promise.resolve({ error: null })),
+    },
+  },
+}));
 
+// NOTE: <App/> already renders its own internal <BrowserRouter> (App.tsx:140).
+// The original test wrapped it in a SECOND <BrowserRouter> here, which React
+// Router forbids outright ("You cannot render a <Router> inside another
+// <Router>"). This was masked until now by the earlier store-mock crash
+// (ProgressiveOnboardingProvider throws before render ever reaches App's
+// internal BrowserRouter) -- fixing that crash surfaced this second,
+// independent test-scaffolding bug. Pure harness fix: render <App/> directly.
 const renderApp = () => {
-  return render(
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
-  );
+  return render(<App />);
 };
+
+// Full-<App/>-tree store surface: every field/action the mounted tree reads
+// during initial render (App.tsx's `initializeStore` selector call,
+// AppShell/Index/AccessibilityProvider/ProgressiveOnboardingProvider/
+// HeaderVoiceCapture's whole-state destructures). `settings` itself comes
+// from the shared helper's `createMockSettings()` default (already includes
+// `progressiveOnboarding`); this only adds the actions + loading/selection
+// fields this suite's original inline mock declared, so behavior for those
+// fields is unchanged from before -- only the missing `settings` (and now-
+// working `initializeStore`) are new.
+const productionAppStoreStubs = () => ({
+  initializeStore: vi.fn(() => Promise.resolve()),
+  selectedBubbles: new Set<string>(),
+  isLoading: false,
+  addBubble: vi.fn(),
+  updateBubble: vi.fn(),
+  deleteBubble: vi.fn(),
+  selectBubble: vi.fn(),
+  clearSelection: vi.fn(),
+  mergeBubbles: vi.fn(),
+  updateSettings: vi.fn(),
+});
 
 describe('Complete Production Workflows', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    
-    // Mock bubble store
-    (useBubbleStore as any).mockReturnValue({
-      bubbles: [],
-      selectedBubbles: [],
-      isLoading: false,
-      addBubble: vi.fn(),
-      updateBubble: vi.fn(),
-      deleteBubble: vi.fn(),
-      selectBubble: vi.fn(),
-      clearSelection: vi.fn(),
-      mergeBubbles: vi.fn()
-    });
+    resetMockBubbleStore();
+
+    // Mock bubble store: full App-tree surface (see productionAppStoreStubs
+    // above). bubbles: [] and settings come from the shared helper's
+    // defaults; this layers in the actions/flags this suite needs.
+    setMockBubbleState(productionAppStoreStubs());
 
     // Mock sync service
     (crossDeviceSyncService as any).initialize = vi.fn();
@@ -292,17 +350,11 @@ describe('Complete Production Workflows', () => {
         created_at: new Date().toISOString()
       }));
 
-      (useBubbleStore as any).mockReturnValue({
-        bubbles: largeBubbleSet,
-        selectedBubbles: [],
-        isLoading: false,
-        addBubble: vi.fn(),
-        updateBubble: vi.fn(),
-        deleteBubble: vi.fn(),
-        selectBubble: vi.fn(),
-        clearSelection: vi.fn(),
-        mergeBubbles: vi.fn()
-      });
+      // beforeEach already applied productionAppStoreStubs(); layer the
+      // large dataset on top rather than replacing the whole mocked state
+      // (the old code's full-object replace is what silently dropped
+      // `settings` here too, on top of duplicating the stub list).
+      setMockBubbleState({ bubbles: largeBubbleSet });
 
       const startTime = performance.now();
       renderApp();
@@ -403,10 +455,15 @@ describe('Complete Production Workflows', () => {
     it('should recover from storage errors', async () => {
       const user = userEvent.setup();
       
-      // Mock storage error
-      (useBubbleStore as any).addBubble = vi.fn().mockRejectedValue(
-        new Error('Storage quota exceeded')
-      );
+      // Mock storage error. NOTE: the original test wrote
+      // `(useBubbleStore as any).addBubble = vi.fn()...` -- that sets a
+      // property on the mock *hook function*, which nothing reads (the real
+      // code reads `addBubble` off the hook's *return value*), so it was a
+      // silent no-op. Fixed to actually override the store's addBubble
+      // action via the shared helper.
+      setMockBubbleState({
+        addBubble: vi.fn().mockRejectedValue(new Error('Storage quota exceeded')),
+      });
 
       renderApp();
 

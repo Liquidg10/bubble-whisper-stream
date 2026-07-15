@@ -1,11 +1,21 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import { BubbleCanvas } from '@/components/BubbleCanvas';
-import { useBubbleStore } from '@/stores/bubbleStore';
 import { Bubble } from '@/types/bubble';
+import { renderWithProviders } from '@/test/helpers/renderWithProviders';
+import { resetMockBubbleStore, setMockBubbleState } from '@/test/helpers/mockBubbleStore';
 
-// Mock the bubble store
-vi.mock('@/stores/bubbleStore');
+// Faithful, complete bubbleStore mock via shared helper (see mockBubbleStore.ts).
+// A bare `vi.mock('@/stores/bubbleStore')` auto-mock made `settings` undefined,
+// crashing BubbleCanvas at `settings.reducedMotion` / `settings.viewMode`
+// (src/components/BubbleCanvas.tsx:514,656) -- the same class-B signature
+// `mockBubbleStore.ts` was built to fix. `AccessibilityProvider` (pulled in by
+// `renderWithProviders`) also calls `useBubbleStore()` internally, so it reads
+// this same mock state.
+vi.mock('@/stores/bubbleStore', async () => {
+  const { makeBubbleStoreMockModule } = await import('@/test/helpers/mockBubbleStore');
+  return makeBubbleStoreMockModule();
+});
 
 // Performance utilities
 const measurePerformance = (fn: () => void): number => {
@@ -28,31 +38,47 @@ const generateLargeBubbleDataset = (count: number): Bubble[] => {
   }));
 };
 
+// BubbleCanvas destructures these directly from useBubbleStore() (see
+// src/components/BubbleCanvas.tsx:40-51); `settings` already comes from the
+// shared helper's createMockSettings() default. `mergeCandidate` /
+// `lastOperation` are only read when truthy so `null` is safe; `selectAll` /
+// `isSelected` are included defensively even though this suite doesn't
+// exercise them directly.
+const bubbleCanvasActionStubs = () => ({
+  selectedBubbles: new Set(),
+  isLoading: false,
+  addBubble: vi.fn(),
+  updateBubble: vi.fn(),
+  deleteBubble: vi.fn(),
+  selectBubble: vi.fn(),
+  clearSelection: vi.fn(),
+  selectAll: vi.fn(),
+  isSelected: vi.fn(() => false),
+  mergeBubbles: vi.fn(),
+  mergeCandidate: null,
+  setMergeCandidate: vi.fn(),
+  clearMergeCandidate: vi.fn(),
+  undoLastMerge: vi.fn(),
+  lastOperation: null,
+});
+
 describe('Load Testing Suite', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetMockBubbleStore();
   });
 
   describe('Large Dataset Performance', () => {
     it('should handle 1000+ bubbles with acceptable performance', async () => {
       const largeBubbleSet = generateLargeBubbleDataset(1000);
-      
-      const mockStore = {
-        bubbles: largeBubbleSet,
-        selectedBubbles: [],
-        isLoading: false,
-        addBubble: vi.fn(),
-        updateBubble: vi.fn(),
-        deleteBubble: vi.fn(),
-        selectBubble: vi.fn(),
-        clearSelection: vi.fn(),
-        mergeBubbles: vi.fn()
-      };
 
-      (useBubbleStore as any).mockReturnValue(mockStore);
+      setMockBubbleState({
+        bubbles: largeBubbleSet,
+        ...bubbleCanvasActionStubs(),
+      });
 
       const renderTime = measurePerformance(() => {
-        render(<BubbleCanvas />);
+        renderWithProviders(<BubbleCanvas />);
       });
 
       // Rendering 1000+ bubbles should take less than 2 seconds
@@ -66,22 +92,13 @@ describe('Load Testing Suite', () => {
 
     it('should maintain smooth scrolling with large datasets', async () => {
       const largeBubbleSet = generateLargeBubbleDataset(2000);
-      
-      const mockStore = {
+
+      setMockBubbleState({
         bubbles: largeBubbleSet,
-        selectedBubbles: [],
-        isLoading: false,
-        addBubble: vi.fn(),
-        updateBubble: vi.fn(),
-        deleteBubble: vi.fn(),
-        selectBubble: vi.fn(),
-        clearSelection: vi.fn(),
-        mergeBubbles: vi.fn()
-      };
+        ...bubbleCanvasActionStubs(),
+      });
 
-      (useBubbleStore as any).mockReturnValue(mockStore);
-
-      render(<BubbleCanvas />);
+      renderWithProviders(<BubbleCanvas />);
 
       // Simulate rapid scroll events
       const canvas = screen.getByRole('main');
@@ -101,28 +118,20 @@ describe('Load Testing Suite', () => {
   describe('Memory Management', () => {
     it('should not cause memory leaks with frequent bubble creation/deletion', async () => {
       const initialMemory = (performance as any).memory?.usedJSHeapSize || 0;
-      
-      const mockStore = {
+
+      const stubs = bubbleCanvasActionStubs();
+      setMockBubbleState({
         bubbles: [],
-        selectedBubbles: [],
-        isLoading: false,
-        addBubble: vi.fn(),
-        updateBubble: vi.fn(),
-        deleteBubble: vi.fn(),
-        selectBubble: vi.fn(),
-        clearSelection: vi.fn(),
-        mergeBubbles: vi.fn()
-      };
+        ...stubs,
+      });
 
-      (useBubbleStore as any).mockReturnValue(mockStore);
-
-      const { unmount } = render(<BubbleCanvas />);
+      const { unmount } = renderWithProviders(<BubbleCanvas />);
 
       // Simulate rapid bubble creation/deletion
       for (let i = 0; i < 100; i++) {
         const bubble = generateLargeBubbleDataset(1)[0];
-        mockStore.addBubble(bubble);
-        mockStore.deleteBubble(bubble.id);
+        stubs.addBubble(bubble);
+        stubs.deleteBubble(bubble.id);
       }
 
       unmount();

@@ -71,15 +71,20 @@ const TEMPORAL_PATTERNS = {
 };
 
 const TIME_PATTERNS = [
+  // 12-hour format with minutes (must be tried before bare 24-hour so "2:30pm" is 14:30, not 02:30)
+  /(\d{1,2}):(\d{2})\s*(am|pm|a\.m\.|p\.m\.)/i,
   // 24-hour format
   /(\d{1,2}):(\d{2})/,
-  // 12-hour format
-  /(\d{1,2}):(\d{2})\s*(am|pm|a\.m\.|p\.m\.)/i,
   // Hour only
   /(\d{1,2})\s*(am|pm|a\.m\.|p\.m\.)/i,
   // Natural time
   /(noon|midnight|morning|afternoon|evening|night)/i
 ];
+
+// Explicit "Xpm to Ypm" / "X:XX until Y:YY" ranges. Both sides must look like a real
+// clock time (am/pm or a colon) to avoid false positives on dates like 10-11-2024.
+const TIME_RANGE_PATTERN =
+  /(\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)|\d{1,2}:\d{2})\s*(?:\bto\b|\buntil\b|\btill\b)\s*(\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)|\d{1,2}:\d{2})/i;
 
 const DATE_PATTERNS = [
   // MM/DD/YYYY or DD/MM/YYYY
@@ -121,6 +126,18 @@ export class TemporalReasoningService {
     };
   }
 
+  /**
+   * Construct a Date and reject silent JS calendar rollover (e.g. Feb 30 -> Mar 2).
+   * Returns an invalid Date so downstream isValid() reports it as a warning.
+   */
+  private buildValidatedDate(year: number, monthIndex: number, day: number): Date {
+    const d = new Date(year, monthIndex, day);
+    if (d.getFullYear() !== year || d.getMonth() !== monthIndex || d.getDate() !== day) {
+      return new Date(NaN);
+    }
+    return d;
+  }
+
   private detectLocale(): 'US' | 'EU' | 'ISO' {
     const locale = navigator.language;
     if (locale.startsWith('en-US')) return 'US';
@@ -153,8 +170,13 @@ export class TemporalReasoningService {
         result.ambiguities.push(...dateResult.ambiguities);
       }
 
+      // Parse explicit time ranges ("2pm to 3pm") before single times
+      const rangeResult = this.parseTimeRange(normalizedText);
+
       // Parse time
-      const timeResult = this.parseTime(normalizedText);
+      const timeResult = rangeResult
+        ? { time: rangeResult.start, confidence: 0.85, ambiguities: [] as string[], original: rangeResult.original }
+        : this.parseTime(normalizedText);
       if (timeResult.time) {
         result.parsedElements.time = timeResult.original;
         result.confidence += timeResult.confidence;
@@ -188,6 +210,35 @@ export class TemporalReasoningService {
         result.startTime = businessStart;
         result.confidence = dateResult.confidence * 0.7; // Lower confidence without time
         result.warnings.push('No specific time provided, assuming 9:00 AM');
+      } else if (timeResult.time) {
+        // Time only, assume today
+        const todayAt = new Date();
+        const timeParts = timeResult.time.split(':');
+        todayAt.setHours(parseInt(timeParts[0]), parseInt(timeParts[1]), 0, 0);
+        result.startTime = todayAt;
+        result.confidence = timeResult.confidence * 0.75; // Lower confidence without a date
+        result.warnings.push('No date provided, assuming today');
+      }
+
+      // Explicit range end time overrides any duration-derived end time
+      if (rangeResult && result.startTime) {
+        const rangeEnd = new Date(result.startTime);
+        const endParts = rangeResult.end.split(':');
+        rangeEnd.setHours(parseInt(endParts[0]), parseInt(endParts[1]), 0, 0);
+        result.endTime = rangeEnd;
+      }
+
+      // Flag vague / tentative phrasing as ambiguities
+      const vaguenessSignals: Array<[RegExp, string]> = [
+        [/\bmaybe\b|\bperhaps\b|\bpossibly\b|\bmight\b/, 'Tentative language detected'],
+        [/\bsometime\b|\bsomeday\b|\beventually\b/, 'Non-specific timing mentioned'],
+        [/\bor\b/, 'Alternative times mentioned'],
+        [/\?/, 'Phrased as a question'],
+      ];
+      for (const [signal, message] of vaguenessSignals) {
+        if (signal.test(normalizedText)) {
+          result.ambiguities.push(message);
+        }
       }
 
       // Detect timezone mentions
@@ -253,18 +304,18 @@ export class TemporalReasoningService {
           
           if (firstNum > 12 && secondNum <= 12) {
             // Must be DD/MM
-            result.date = new Date(parseInt(year), secondNum - 1, firstNum);
+            result.date = this.buildValidatedDate(parseInt(year), secondNum - 1, firstNum);
             result.confidence = 0.8;
           } else if (secondNum > 12 && firstNum <= 12) {
             // Must be MM/DD
-            result.date = new Date(parseInt(year), firstNum - 1, secondNum);
+            result.date = this.buildValidatedDate(parseInt(year), firstNum - 1, secondNum);
             result.confidence = 0.8;
           } else {
             // Ambiguous, use user locale
             if (this.userLocale === 'US') {
-              result.date = new Date(parseInt(year), firstNum - 1, secondNum);
+              result.date = this.buildValidatedDate(parseInt(year), firstNum - 1, secondNum);
             } else {
-              result.date = new Date(parseInt(year), secondNum - 1, firstNum);
+              result.date = this.buildValidatedDate(parseInt(year), secondNum - 1, firstNum);
             }
             result.confidence = 0.6;
             result.ambiguities.push(`Date format ambiguous (${this.userLocale} format assumed)`);
@@ -272,7 +323,7 @@ export class TemporalReasoningService {
         } else if (pattern === DATE_PATTERNS[2]) {
           // ISO format
           const [, year, month, day] = match;
-          result.date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+          result.date = this.buildValidatedDate(parseInt(year), parseInt(month) - 1, parseInt(day));
           result.confidence = 0.9;
         } else {
           // Written date formats
@@ -295,7 +346,7 @@ export class TemporalReasoningService {
           }
           
           if (monthIndex !== -1) {
-            result.date = new Date(year, monthIndex, day);
+            result.date = this.buildValidatedDate(year, monthIndex, day);
             result.confidence = 0.85;
           }
         }
@@ -329,14 +380,6 @@ export class TemporalReasoningService {
         result.original = match[0];
         
         if (pattern === TIME_PATTERNS[0]) {
-          // 24-hour format
-          const hour = parseInt(match[1]);
-          const minute = parseInt(match[2]);
-          if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
-            result.time = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
-            result.confidence = 0.9;
-          }
-        } else if (pattern === TIME_PATTERNS[1]) {
           // 12-hour format with minutes
           let hour = parseInt(match[1]);
           const minute = parseInt(match[2]);
@@ -348,6 +391,14 @@ export class TemporalReasoningService {
           if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
             result.time = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
             result.confidence = 0.85;
+          }
+        } else if (pattern === TIME_PATTERNS[1]) {
+          // 24-hour format
+          const hour = parseInt(match[1]);
+          const minute = parseInt(match[2]);
+          if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+            result.time = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+            result.confidence = 0.9;
           }
         } else if (pattern === TIME_PATTERNS[2]) {
           // 12-hour format without minutes
@@ -370,16 +421,52 @@ export class TemporalReasoningService {
   }
 
   /**
+   * Parse an explicit "X to Y" time range. Returns null when no range is present.
+   */
+  private parseTimeRange(text: string): { start: string; end: string; original: string } | null {
+    const match = text.match(TIME_RANGE_PATTERN);
+    if (!match) return null;
+
+    const start = this.normalizeTimeToken(match[1]);
+    const end = this.normalizeTimeToken(match[2]);
+    if (!start || !end) return null;
+
+    return { start, end, original: match[0] };
+  }
+
+  /**
+   * Normalize a clock-time token ("2pm", "2:30pm", "14:30") to "HH:MM", or null.
+   */
+  private normalizeTimeToken(token: string): string | null {
+    const m = token.trim().match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?$/i);
+    if (!m) return null;
+
+    let hour = parseInt(m[1]);
+    const minute = m[2] ? parseInt(m[2]) : 0;
+    const period = m[3]?.toLowerCase();
+
+    if (period?.includes('pm') && hour !== 12) hour += 12;
+    if (period?.includes('am') && hour === 12) hour = 0;
+
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+    return `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+  }
+
+  /**
    * Parse duration from text
    */
   private parseDuration(text: string): { duration: number | null; confidence: number; original: string } {
     const result = { duration: null as number | null, confidence: 0, original: '' };
 
     const durationPatterns = [
+      // Combined "1h 30m" must be tried before the hours-only pattern, which would
+      // otherwise consume just the "1h" and drop the minutes.
+      /(\d+)\s*h\s*(\d+)\s*m/i,
       /(\d+)\s*(hour|hr|h)s?/i,
       /(\d+)\s*(minute|min|m)s?/i,
-      /(\d+)\s*h\s*(\d+)\s*m/i,
-      /(\d+):(\d+)/
+      // Bare H:MM is only a duration with an explicit "for " prefix — otherwise it
+      // would swallow clock times like "at 2:30pm" as a 150-minute duration.
+      /for\s+(\d+):(\d{2})\b/i
     ];
 
     for (const pattern of durationPatterns) {
@@ -387,20 +474,20 @@ export class TemporalReasoningService {
       if (match) {
         result.original = match[0];
         
-        if (pattern === durationPatterns[0]) {
-          // Hours
-          result.duration = parseInt(match[1]) * 60;
-          result.confidence = 0.8;
-        } else if (pattern === durationPatterns[1]) {
-          // Minutes
-          result.duration = parseInt(match[1]);
-          result.confidence = 0.8;
-        } else if (pattern === durationPatterns[2] || pattern === durationPatterns[3]) {
+        if (pattern === durationPatterns[0] || pattern === durationPatterns[3]) {
           // Hours and minutes
           const hours = parseInt(match[1]);
           const minutes = parseInt(match[2]);
           result.duration = hours * 60 + minutes;
           result.confidence = 0.85;
+        } else if (pattern === durationPatterns[1]) {
+          // Hours
+          result.duration = parseInt(match[1]) * 60;
+          result.confidence = 0.8;
+        } else if (pattern === durationPatterns[2]) {
+          // Minutes
+          result.duration = parseInt(match[1]);
+          result.confidence = 0.8;
         }
         break;
       }
@@ -451,7 +538,7 @@ export class TemporalReasoningService {
     // Check for significant ambiguities
     if (parseResult.ambiguities.length > 1) {
       shouldDegrade = true;
-      degradeReason = `Multiple temporal ambiguities: ${parseResult.ambiguities.join(', ')}`;
+      degradeReason = degradeReason || `Multiple temporal ambiguities: ${parseResult.ambiguities.join(', ')}`;
     }
 
     // Check for conflicts with existing events

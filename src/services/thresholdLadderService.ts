@@ -8,7 +8,7 @@ export const THRESHOLD_LEVELS = {
   LOW: 0.0      // Suggestion only
 };
 
-export type ThresholdDecision = 'auto-write' | 'draft' | 'suggest';
+export type ThresholdDecision = 'auto-write' | 'draft' | 'draft-ask' | 'suggest';
 
 export interface ThresholdResult {
   decision: ThresholdDecision;
@@ -57,7 +57,7 @@ class ThresholdLadderService {
     let decision = this.getBaseDecision(adjustedScore, policyContext);
     
     // Apply forced overrides
-    decision = this.applyFirstTimeRecipientOverride(decision, policyContext, appliedOverrides);
+    decision = this.applyFirstTimeRecipientOverride(decision, policyContext, appliedOverrides, baseScore);
     decision = this.applyUserPreferenceOverride(decision, baseScore, policyContext, appliedOverrides);
     
     const baseThreshold = this.getThresholdLevel(adjustedScore);
@@ -151,12 +151,36 @@ class ThresholdLadderService {
   private applyFirstTimeRecipientOverride(
     decision: ThresholdDecision,
     context: PolicyContext,
-    overrides: string[]
+    overrides: string[],
+    baseScore: number
   ): ThresholdDecision {
-    if (context.isFirstTimeRecipient && decision === 'auto-write') {
-      overrides.push('first-time-recipient');
-      return 'draft'; // Force confirmation for new recipients
+    if (!context.isFirstTimeRecipient) {
+      return decision;
     }
+
+    // 4th tier: 'draft-ask'. First-time recipients are a fixed safety class -- they
+    // should never get a silent auto-write, and if the raw signal was strong enough to
+    // have qualified for auto-write in the first place, they shouldn't quietly fall all
+    // the way down to 'suggest' either just because another override (meeting/quiet-
+    // hours/location) ran first and dragged the adjusted score down first. Keying off
+    // baseScore (not the already-adjusted decision) means this safety net can't be
+    // bypassed by those other overrides running earlier in the chain.
+    const wasAutoWriteEligible =
+      baseScore >= THRESHOLD_LEVELS.HIGH && Boolean(context.userAutoWriteEnabled);
+
+    if (wasAutoWriteEligible && decision !== 'draft-ask') {
+      overrides.push('first-time-recipient');
+      return 'draft-ask'; // Force explicit confirmation for new recipients
+    }
+
+    if (decision === 'draft') {
+      // Already at draft-level confidence -- first-time recipients still get the
+      // stronger draft-ask variant so nothing about a new contact is ever
+      // half-automated. This isn't overriding a higher decision, so it isn't
+      // recorded as a policy override.
+      return 'draft-ask';
+    }
+
     return decision;
   }
 
@@ -228,6 +252,8 @@ class ThresholdLadderService {
     switch (decision) {
       case 'auto-write':
         return `High confidence (${Math.round(score * 100)}%) allows auto-write`;
+      case 'draft-ask':
+        return `Confidence (${Math.round(score * 100)}%) requires an explicit ask before proceeding`;
       case 'draft':
         return `Medium confidence (${Math.round(score * 100)}%) requires confirmation`;
       case 'suggest':

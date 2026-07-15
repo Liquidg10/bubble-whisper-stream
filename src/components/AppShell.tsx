@@ -12,7 +12,7 @@ import { AudioQueueIndicator } from '@/components/AudioQueueIndicator';
 import { PhotoDebugPanel } from '@/components/PhotoDebugPanel';
 import { CleanHouseHeaderTimer } from '@/components/CleanHouseHeaderTimer';
 import { PomodoroHeaderTimer } from '@/components/PomodoroHeaderTimer';
-import { HeaderVoiceCapture } from '@/components/HeaderVoiceCapture';
+import { HeaderVoiceCapture } from '@/components/HeaderVoiceCaptureUnified';
 import { OnboardingProgressIndicator } from '@/components/OnboardingProgressIndicator';
 import { useProgressiveOnboarding } from '@/providers/ProgressiveOnboardingProvider';
 import { SmartAIAssistant } from '@/components/SmartAIAssistant';

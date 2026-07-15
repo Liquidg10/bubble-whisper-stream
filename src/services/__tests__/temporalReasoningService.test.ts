@@ -141,11 +141,15 @@ describe('TemporalReasoningService', () => {
 
   describe('Conflict Detection', () => {
     it('should detect overlapping events', () => {
+      // The service parses year-less written dates ("December 25th") into the
+      // CURRENT year, so the fixture must be built dynamically — hardcoding 2024
+      // made this test a time bomb that could never overlap after 2024.
+      const year = new Date().getFullYear();
       const existingEvents = [{
         id: 'test-1',
         title: 'Existing Meeting',
-        startTime: new Date('2024-12-25T14:00:00'), // 2pm
-        endTime: new Date('2024-12-25T15:00:00')    // 3pm
+        startTime: new Date(year, 11, 25, 14, 0, 0), // Dec 25, 2pm
+        endTime: new Date(year, 11, 25, 15, 0, 0)    // Dec 25, 3pm
       }];
 
       const result = service.analyzeTemporalExpression(
@@ -207,11 +211,13 @@ describe('TemporalReasoningService', () => {
     });
 
     it('should degrade on high-severity conflicts', () => {
+      // Same dynamic-year fix as 'should detect overlapping events' above.
+      const year = new Date().getFullYear();
       const existingEvents = [{
         id: 'test-1',
         title: 'Important Meeting',
-        startTime: new Date('2024-12-25T14:00:00'),
-        endTime: new Date('2024-12-25T15:00:00')
+        startTime: new Date(year, 11, 25, 14, 0, 0),
+        endTime: new Date(year, 11, 25, 15, 0, 0)
       }];
 
       const result = service.analyzeTemporalExpression(

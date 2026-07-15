@@ -362,7 +362,7 @@ export function ThoughtSupportSettings() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="ask">Ask - Prompt before saving</SelectItem>
+                  <SelectItem value="ask">Ask - Prompt before saving (not yet built; currently behaves like Off)</SelectItem>
                   <SelectItem value="off">Off - Never auto-save</SelectItem>
                   <SelectItem value="on">On - Auto-save all reflections</SelectItem>
                 </SelectContent>

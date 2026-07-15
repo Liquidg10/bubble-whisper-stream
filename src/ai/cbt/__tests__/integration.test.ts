@@ -54,8 +54,16 @@ describe('CBT Integration Tests', () => {
         userSettings: defaultUserSettings
       });
       
-      expect(result.annotation.distortions).toHaveLength(0);
-      expect(result.decision.shouldIntervene).toBe(false);
+      // Run 16 (observer.ts): annotate() sentinel returns null outright for messages
+      // with no distortions, no crisis flags, and no strong/mixed sentiment -- an
+      // intentional perf optimization to skip trace/policy work entirely on truly
+      // neutral input. index.ts's processCBTMessage propagates that null straight
+      // through (annotation: null, decision: null, action: null) rather than
+      // fabricating an empty-but-non-null annotation. Every real caller (index.ts,
+      // DevCBTObserver.tsx, cbtDevHarness.ts) already null-checks correctly -- this
+      // test was the one place still asserting the pre-Run-16 contract.
+      expect(result.annotation).toBeNull();
+      expect(result.decision).toBeNull();
       expect(result.action).toBeNull();
       expect(result.traceId).toBeUndefined();
     });
@@ -298,9 +306,14 @@ describe('CBT Integration Tests', () => {
         userSettings: defaultUserSettings
       });
       
-      expect(result.annotation).toBeDefined();
-      expect(result.decision).toBeDefined();
-      expect(result.annotation.distortions).toHaveLength(0);
+      // Run 16 sentinel (see note above): an empty string has no distortions, no
+      // crisis flags, and no sentiment signal, so annotate() returns null and
+      // processCBTMessage short-circuits to { annotation: null, decision: null,
+      // action: null } rather than throwing. "Graceful" here means no throw / no
+      // crash, not a populated-but-empty annotation.
+      expect(result.annotation).toBeNull();
+      expect(result.decision).toBeNull();
+      expect(result.action).toBeNull();
     });
 
     it('should handle missing context gracefully', async () => {

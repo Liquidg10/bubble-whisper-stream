@@ -189,10 +189,25 @@ export function updateFlag(flag: keyof typeof flags, value: boolean): void {
 }
 
 /**
+ * Single source of truth for which flags the global Auto-Write Kill Switch
+ * covers. Previously this exact list was duplicated in
+ * flagGatingValidator.ts's validateAutoWriteKillSwitch() -- both copies had
+ * to be kept in sync by hand. Import this constant instead of re-declaring
+ * the list anywhere else.
+ */
+export const AUTO_WRITE_FLAGS: readonly FeatureFlag[] = [
+  'autoWriteCalendar',
+  'autoWriteEmail',
+  'autoFinanceRead',
+  'autoFinanceInsights',
+  'contextEngine',
+] as const;
+
+/**
  * Check if a feature is an auto-write feature
  */
 export function isAutoWriteFeature(flag: FeatureFlag): boolean {
-  return ['autoWriteCalendar', 'autoWriteEmail', 'autoFinanceRead', 'autoFinanceInsights', 'contextEngine'].includes(flag);
+  return (AUTO_WRITE_FLAGS as readonly string[]).includes(flag);
 }
 
 /**

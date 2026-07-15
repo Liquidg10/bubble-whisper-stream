@@ -129,7 +129,13 @@ const DISTORTION_PATTERNS: Record<DistortionType, DistortionConfig> = {
     ],
     patterns: [
       // P0 — Run 15: added optional (?:a\s+)?
-      /\b(?:will|going\s+to|gonna)\s+(?:be\s+)?(?:a\s+)?(?:disaster|ruined|terrible|awful|impossible)\b/gi,
+      // Run 35: added catastrophe|hopeless to the noun alternation (both are already
+      // in this distortion's own `keywords` list above but were missing from the P0
+      // regex, so keyword-only matches topped out at 0.4 confidence -- well under the
+      // 0.7 DETECTION_THRESHOLD -- and phrases like "going to be a catastrophe" never
+      // registered at all). Also allowed an optional intensifying adjective
+      // (complete/total/utter) before the noun, e.g. "a complete catastrophe".
+      /\b(?:will|going\s+to|gonna)\s+(?:be\s+)?(?:a\s+)?(?:complete\s+|total\s+|utter\s+)?(?:disaster|catastrophe|ruined|terrible|awful|impossible|hopeless)\b/gi,
       // P1 — "never (0–3 words) recover" — catches "I'll never be able to recover"
       /\b(?:never|can't|cannot)\s+(?:\w+\s+){0,3}(?:recover|escape|get\s+over|heal|bounce\s+back)\b/gi,
       // P2 — "this/it/my life will be over/ruined/hopeless"

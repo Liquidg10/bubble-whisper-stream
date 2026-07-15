@@ -94,6 +94,8 @@ import { useDevMenu } from "./hooks/useDevMenu";
 import { AuthCallback } from "./pages/AuthCallback";
 import Privacy from "./pages/Privacy";
 import { oauthService } from '@/services/oauthService';
+import { watchHealthProductionService } from '@/services/watchHealthProductionService';
+import { isFeatureEnabled } from '@/config/flags';
 import { OnboardingManager } from '@/components/OnboardingManager';
 import { BehavioralScienceIntegration } from '@/components/BehavioralScienceIntegration';
 import { AuthProvider } from '@/providers/AuthProvider';
@@ -118,11 +120,25 @@ const App = () => {
         console.error('Failed to start OAuth background services:', error);
       });
 
+      // Start P9 watch health production monitoring (health-check alerting,
+      // 410-recovery tracking, renewal-stats aggregation). Previously built
+      // but never wired to the app entry point -- see
+      // Mind-Manual_FlagsAudit_ScopeHonesty_2026-07-05.md.
+      if (isFeatureEnabled('watchHealth')) {
+        watchHealthProductionService.startProductionMonitoring().catch(error => {
+          console.error('Failed to start watch health production monitoring:', error);
+        });
+      }
+
       // Cleanup on unmount
       return () => {
         oauthService.stopBackgroundServices().catch(error => {
           console.error('Failed to stop OAuth background services:', error);
         });
+
+        if (isFeatureEnabled('watchHealth')) {
+          watchHealthProductionService.stopProductionMonitoring();
+        }
       };
     }, [initializeStore]);
 

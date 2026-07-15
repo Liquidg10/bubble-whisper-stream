@@ -10,6 +10,7 @@ import { useBubbleStore } from '@/stores/bubbleStore';
 import { IntentResult } from '@/intent/voiceRouter';
 import { SessionState } from '@/services/voiceSessionManager';
 import { toast } from 'sonner';
+import { isKillSwitchActive } from '@/config/flags';
 
 export interface UseVoiceEngineOptions {
   source: string;
@@ -51,7 +52,14 @@ export function useVoiceEngine(options: UseVoiceEngineOptions) {
   // Get voice settings from store
   const voiceHotkey = settings.voiceHotkey ?? 'Space';
   const confidenceThreshold = settings.voiceConfidenceThreshold ?? 0.7;
-  const autoCommitEnabled = options.autoCommitOverride ?? (settings.voiceAutoCommit !== false);
+  // Kill-switch gate: when the global auto-write kill switch is active, voice capture
+  // must never silently auto-commit a bubble, regardless of the per-user store setting
+  // or a caller-supplied override. This is the single choke point for ALL useVoiceEngine
+  // consumers (HeaderVoiceCaptureUnified and any future callers), replacing the old
+  // per-component kill-switch patches from Runs 52/58 that only covered the deleted
+  // HeaderVoiceCapture.tsx.
+  const autoCommitEnabled = !isKillSwitchActive() &&
+    (options.autoCommitOverride ?? (settings.voiceAutoCommit !== false));
 
   // Update engine state tracking
   const updateEngineState = useCallback(() => {
