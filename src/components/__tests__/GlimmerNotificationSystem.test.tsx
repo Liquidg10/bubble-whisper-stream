@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render } from '@testing-library/react';
-import { screen, fireEvent, waitFor } from '@testing-library/dom';
+import { screen, fireEvent } from '@testing-library/dom';
 import { GlimmerNotificationSystem } from '../GlimmerNotificationSystem';
 
 // Mock the glimmer service, accessibility provider, and bubble store.
@@ -18,6 +18,9 @@ const { mockGlimmerService, mockAccessibility, mockBubbleStore } = vi.hoisted(()
       createdAt: Date.now(),
       deliveredVia: 'text' as const,
     })),
+    // real GlimmerNotificationSystem.tsx:64 calls glimmerService.dismissGlimmer(id) on
+    // dismiss; this mock omitted it entirely -- unhandled "not a function" rejection.
+    dismissGlimmer: vi.fn(() => Promise.resolve()),
   },
   // useAccessibility() actually returns { settings, updateSetting, announceText }
   // -- the component reads settings.reducedMotion; the previous mock only had
@@ -82,7 +85,7 @@ describe('GlimmerNotificationSystem', () => {
     // Fast-forward past the initial check interval
     vi.advanceTimersByTime(900000); // 15 minutes
 
-    await waitFor(() => {
+    await vi.waitFor(() => {
       expect(mockGlimmerService.shouldTriggerGlimmer).toHaveBeenCalled();
     });
   });
@@ -95,7 +98,7 @@ describe('GlimmerNotificationSystem', () => {
     // Trigger glimmer generation
     vi.advanceTimersByTime(900000);
 
-    await waitFor(() => {
+    await vi.waitFor(() => {
       expect(screen.getByText(/You're doing great!/)).toBeInTheDocument();
     });
 
@@ -111,7 +114,7 @@ describe('GlimmerNotificationSystem', () => {
     // Wait for glimmer to appear
     vi.advanceTimersByTime(900000);
 
-    await waitFor(() => {
+    await vi.waitFor(() => {
       expect(screen.getByText(/You're doing great!/)).toBeInTheDocument();
     });
 
@@ -119,7 +122,7 @@ describe('GlimmerNotificationSystem', () => {
     const dismissButton = screen.getByRole('button', { name: /dismiss/i });
     fireEvent.click(dismissButton);
 
-    await waitFor(() => {
+    await vi.waitFor(() => {
       expect(screen.queryByText(/You're doing great!/)).not.toBeInTheDocument();
     });
   });
@@ -139,7 +142,7 @@ describe('GlimmerNotificationSystem', () => {
 
     vi.advanceTimersByTime(900000);
 
-    await waitFor(() => {
+    await vi.waitFor(() => {
       expect(mockGlimmerService.shouldTriggerGlimmer).toHaveBeenCalled();
     });
 
@@ -154,7 +157,7 @@ describe('GlimmerNotificationSystem', () => {
 
     vi.advanceTimersByTime(900000);
 
-    await waitFor(() => {
+    await vi.waitFor(() => {
       expect(mockAccessibility.announceText).toHaveBeenCalledWith(
         expect.stringContaining('New glimmer')
       );
@@ -178,7 +181,7 @@ describe('GlimmerNotificationSystem', () => {
 
     vi.advanceTimersByTime(900000);
 
-    await waitFor(() => {
+    await vi.waitFor(() => {
       expect(screen.getByText(/You're doing great!/)).toBeInTheDocument();
     });
 
@@ -186,7 +189,7 @@ describe('GlimmerNotificationSystem', () => {
     const speakButton = screen.getByRole('button', { name: /speak/i });
     fireEvent.click(speakButton);
 
-    await waitFor(() => {
+    await vi.waitFor(() => {
       expect(mockTTS.speak).toHaveBeenCalledWith(
         expect.stringContaining('You\'re doing great!')
       );
@@ -203,7 +206,7 @@ describe('GlimmerNotificationSystem', () => {
     vi.advanceTimersByTime(900000); // Second trigger within cap window
 
     // Should only call generate once due to frequency cap
-    await waitFor(() => {
+    await vi.waitFor(() => {
       expect(mockGlimmerService.generateGlimmer).toHaveBeenCalledTimes(1);
     });
   });
