@@ -261,7 +261,7 @@ describe('ThresholdLadderService', () => {
         {}
       );
 
-      expect(result.decision).toBe('suggestion');
+      expect(result.decision).toBe('suggest');
       expect(result.appliedOverrides).toHaveLength(0);
     });
 
@@ -281,7 +281,7 @@ describe('ThresholdLadderService', () => {
         {}
       );
 
-      expect(result.decision).toBe('suggestion');
+      expect(result.decision).toBe('suggest');
       expect(result.score).toBe(0);
     });
   });

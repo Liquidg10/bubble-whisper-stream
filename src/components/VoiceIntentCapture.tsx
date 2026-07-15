@@ -6,103 +6,159 @@ import { useBubbleStore } from '@/stores/bubbleStore';
 import { ttsService } from '@/services/tts';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/hooks/use-toast';
-import { isFeatureEnabled } from '@/config/flags';
+import { isFeatureEnabled, isKillSwitchActive } from '@/config/flags';
 import { Bubble, BubbleType } from '@/types/bubble';
 import { setHorizon } from '@/lib/horizon';
+import { voiceRouter, IntentResult } from '@/intent/voiceRouter';
 
 interface VoiceIntentCaptureProps {
   onBubbleCreated?: (bubble: Bubble) => void;
   className?: string;
 }
 
-interface IntentResult {
-  type: BubbleType;
-  tags: string[];
-  horizon?: 'today' | 'week' | 'later';
-  confidence: number;
-}
-
 const DEBUG = localStorage.getItem('DEBUG') === 'true';
 
-export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({ 
+export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
   onBubbleCreated, 
   className 
 }) => {
   const { toast } = useToast();
   const { addBubble, settings } = useBubbleStore();
-  
-  // Recording state
+
+  const voiceAutoCommit = settings.voiceAutoCommit ?? true;
+  const confidenceThreshold = settings.voiceConfidenceThreshold ?? 0.7;
+
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [recordingMode, setRecordingMode] = useState<'hold' | 'toggle'>('hold');
   const [transcript, setTranscript] = useState('');
   const [confidence, setConfidence] = useState(0);
-  
-  // Audio infrastructure
+
+  const [awaitingConfirmation, setAwaitingConfirmation] = useState(false);
+  const [pendingIntent, setPendingIntent] = useState<{ transcript: string; intent: IntentResult } | null>(null);
+
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
-  
-  // Intent routing logic
-  const routeIntent = useCallback((text: string): IntentResult => {
-    const lowerText = text.toLowerCase().trim();
-    
-    // Reminder patterns
-    if (lowerText.includes('remind') || lowerText.includes('reminder') || 
-        lowerText.includes('set a reminder') || lowerText.includes('don\'t forget')) {
-      
-      let horizon: 'today' | 'week' | 'later' = 'today';
-      const tags = ['reminder'];
-      
-      if (lowerText.includes('tomorrow') || lowerText.includes('next week') || 
-          lowerText.includes('later') || lowerText.includes('someday')) {
-        horizon = 'week';
-      }
-      if (lowerText.includes('next month') || lowerText.includes('eventually')) {
-        horizon = 'later';
-      }
-      
-      return { type: 'ReminderNote', tags, horizon, confidence: 0.9 };
+
+  const getTagEmoji = (tag: string): string => {
+    const emojiMap: Record<string, string> = {
+      shopping: '🛒',
+      idea: '💡',
+      reminder: '⏰',
+      joy: '😊',
+      note: '📝',
+    };
+    return emojiMap[tag] || '📝';
+  };
+
+  // Provide TTS feedback
+  const provideFeedback = useCallback(async (text: string, intent: IntentResult) => {
+    if (!settings.ttsEnabled) return;
+
+    let summary = '';
+    const shortText = text.substring(0, 50) + (text.length > 50 ? '...' : '');
+
+    switch (intent.type) {
+      case 'ReminderNote':
+        summary = `Set reminder: ${shortText}`;
+        if (intent.horizon) {
+          summary += ` for ${intent.horizon.toLowerCase()}`;
+        }
+        break;
+      case 'Task':
+        if (intent.tags.includes('shopping')) {
+          summary = `Added to shopping list: ${shortText}`;
+        } else {
+          summary = `Created task: ${shortText}`;
+        }
+        break;
+      case 'Memory':
+        summary = `Saved joyful memory: ${shortText}`;
+        break;
+      case 'Thought':
+        if (intent.tags.includes('idea')) {
+          summary = `Captured idea: ${shortText}`;
+        } else {
+          summary = `Took note: ${shortText}`;
+        }
+        break;
+      default:
+        summary = `Saved: ${shortText}`;
     }
-    
-    // Buy/shopping patterns
-    if (lowerText.includes('buy') || lowerText.includes('need to get') || 
-        lowerText.includes('pick up') || lowerText.includes('grocery') ||
-        lowerText.includes('shopping') || lowerText.includes('purchase')) {
-      return { type: 'Task', tags: ['shopping'], confidence: 0.85 };
+
+    await ttsService.speak(summary, {
+      tone: 'gentle',
+      context: 'notes',
+      interrupt: false
+    });
+  }, [settings.ttsEnabled]);
+
+  // Commit a routed intent as a bubble, positioned prominently in view center — this
+  // component's distinct capture UX vs. HeaderVoiceCapture's header-anchored button.
+  const commitBubble = useCallback(async (text: string, intent: IntentResult) => {
+    const bubble: Bubble = {
+      id: crypto.randomUUID(),
+      type: intent.type,
+      content: text,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      x: window.innerWidth / 2 + (Math.random() - 0.5) * 200,
+      y: window.innerHeight / 2 + (Math.random() - 0.5) * 200,
+      size: 0.8,
+      tags: intent.tags.map(tag => ({
+        id: crypto.randomUUID(),
+        name: tag,
+        emoji: getTagEmoji(tag)
+      }))
+    };
+
+    if (intent.horizon) {
+      setHorizon(bubble, intent.horizon);
     }
-    
-    // Idea patterns  
-    if (lowerText.includes('idea') || lowerText.includes('what if') || 
-        lowerText.includes('i\'m thinking') || lowerText.includes('concept') ||
-        lowerText.includes('brainstorm')) {
-      return { type: 'Thought', tags: ['idea'], confidence: 0.8 };
+
+    await addBubble(bubble);
+    onBubbleCreated?.(bubble);
+
+    await provideFeedback(text, intent);
+
+    toast({
+      title: `Auto-created ${intent.type}!`,
+      description: `${Math.round(intent.confidence * 100)}% confidence: "${text.substring(0, 40)}${text.length > 40 ? '...' : ''}"`,
+    });
+  }, [addBubble, onBubbleCreated, provideFeedback, toast]);
+
+  // Route the transcript through the shared voiceRouter (same classifier HeaderVoiceCapture
+  // uses) and apply the same 3-tier confidence gate + Auto-Write Kill Switch check, instead
+  // of this component's former private classifier that committed unconditionally.
+  const handleTranscript = useCallback(async (text: string) => {
+    const intent = voiceRouter.route(text);
+    setConfidence(intent.confidence);
+
+    if (DEBUG) {
+      console.log('🎯 Intent routed:', { text, intent });
     }
-    
-    // Note patterns
-    if (lowerText.includes('note') || lowerText.includes('take note') || 
-        lowerText.includes('write down') || lowerText.includes('remember this') ||
-        lowerText.includes('jot down')) {
-      return { type: 'Thought', tags: ['note'], confidence: 0.85 };
+
+    if (intent.confidence >= 0.85 && intent.autoCommitRecommended && voiceAutoCommit && !isKillSwitchActive()) {
+      // High confidence + auto-commit enabled + kill switch inactive = create immediately
+      await commitBubble(text, intent);
+    } else if (intent.confidence >= 0.85 && intent.autoCommitRecommended && voiceAutoCommit && isKillSwitchActive()) {
+      // Kill switch active: fall back to confirmation instead of silently auto-creating
+      setPendingIntent({ transcript: text, intent });
+      setAwaitingConfirmation(true);
+    } else if (intent.confidence >= confidenceThreshold && intent.confidence < 0.85) {
+      // Medium confidence = ask for confirmation
+      setPendingIntent({ transcript: text, intent });
+      setAwaitingConfirmation(true);
+    } else {
+      // Low confidence = surface what was heard without creating anything
+      toast({
+        title: "Not sure what to do",
+        description: `I heard "${text}" but wasn't sure what to do. Try being more specific.`,
+      });
     }
-    
-    // Task patterns
-    if (lowerText.includes('task') || lowerText.includes('todo') || 
-        lowerText.includes('need to do') || lowerText.includes('have to')) {
-      return { type: 'Task', tags: [], confidence: 0.7 };
-    }
-    
-    // Joy/happy patterns
-    if (lowerText.includes('happy') || lowerText.includes('joy') || 
-        lowerText.includes('excited') || lowerText.includes('love') ||
-        lowerText.includes('amazing') || lowerText.includes('wonderful')) {
-      return { type: 'Memory', tags: ['joy'], confidence: 0.75 };
-    }
-    
-    // Default to Thought
-    return { type: 'Thought', tags: [], confidence: 0.6 };
-  }, []);
-  
+  }, [voiceAutoCommit, confidenceThreshold, commitBubble, toast]);
+
   // Start recording
   const startRecording = useCallback(async () => {
     try {
@@ -181,20 +237,16 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
     if (audioChunksRef.current.length === 0) return;
     
     setIsProcessing(true);
-    
+
     try {
-      // Create audio blob
       const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-      
-      // Convert to base64
       const arrayBuffer = await audioBlob.arrayBuffer();
       const base64Audio = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
-      
+
       if (DEBUG) {
         console.log('🔄 Transcribing audio...', { size: audioBlob.size });
       }
-      
-      // Transcribe with Whisper
+
       const { data, error } = await supabase.functions.invoke('ai-voice-transcribe', {
         body: { audio: base64Audio, language: 'en' }
       });
@@ -214,52 +266,12 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
         });
         return;
       }
-      
-      // Route intent
-      const intent = routeIntent(text);
-      setConfidence(intent.confidence);
-      
-      if (DEBUG) {
-        console.log('🎯 Intent routed:', { text, intent });
-      }
-      
-      // Create bubble - position prominently in view center
-      const bubble: Bubble = {
-        id: crypto.randomUUID(),
-        type: intent.type,
-        content: text,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        x: window.innerWidth / 2 + (Math.random() - 0.5) * 200,
-        y: window.innerHeight / 2 + (Math.random() - 0.5) * 200,
-        size: 0.8, // Slightly larger for visibility
-        tags: intent.tags.map(tag => ({
-          id: crypto.randomUUID(),
-          name: tag,
-          emoji: tag === 'shopping' ? '🛒' : tag === 'idea' ? '💡' : tag === 'reminder' ? '⏰' : tag === 'joy' ? '😊' : '📝'
-        }))
-      };
-      
-      // Set horizon if provided
-      if (intent.horizon) {
-        setHorizon(bubble, intent.horizon);
-      }
-      
-      await addBubble(bubble);
-      onBubbleCreated?.(bubble);
-      
-      // Provide feedback
-      await provideFeedback(text, intent);
-      
-      toast({
-        title: `Auto-created ${intent.type}!`,
-        description: `${Math.round(intent.confidence * 100)}% confidence: "${text.substring(0, 40)}${text.length > 40 ? '...' : ''}"`,
-      });
-      
+
+      await handleTranscript(text);
+
     } catch (error) {
       console.error('Failed to process recording:', error);
-      
-      // Fallback to browser speech recognition
+
       if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
         await tryBrowserSpeechFallback();
       } else {
@@ -272,54 +284,13 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
     } finally {
       setIsProcessing(false);
     }
-  }, [routeIntent, addBubble, onBubbleCreated, toast]);
-  
-  // Provide TTS feedback
-  const provideFeedback = useCallback(async (text: string, intent: IntentResult) => {
-    if (!settings.ttsEnabled) return;
-    
-    let summary = '';
-    const shortText = text.substring(0, 50) + (text.length > 50 ? '...' : '');
-    
-    switch (intent.type) {
-      case 'ReminderNote':
-        summary = `Set reminder: ${shortText}`;
-        if (intent.horizon) {
-          summary += ` for ${intent.horizon.toLowerCase()}`;
-        }
-        break;
-      case 'Task':
-        if (intent.tags.includes('shopping')) {
-          summary = `Added to shopping list: ${shortText}`;
-        } else {
-          summary = `Created task: ${shortText}`;
-        }
-        break;
-      case 'Memory':
-        summary = `Saved joyful memory: ${shortText}`;
-        break;
-      case 'Thought':
-        if (intent.tags.includes('idea')) {
-          summary = `Captured idea: ${shortText}`;
-        } else {
-          summary = `Took note: ${shortText}`;
-        }
-        break;
-      default:
-        summary = `Saved: ${shortText}`;
-    }
-    
-    await ttsService.speak(summary, { 
-      tone: 'gentle', 
-      context: 'notes',
-      interrupt: false 
-    });
-  }, [settings.ttsEnabled]);
-  
-  // Browser speech recognition fallback
+  }, [handleTranscript, toast]);
+
+  // Browser speech recognition fallback — also routed through the shared voiceRouter +
+  // confidence gate (previously created bubbles unconditionally, bypassing the gate).
   const tryBrowserSpeechFallback = useCallback(async () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    
+
     if (!SpeechRecognition) {
       throw new Error('No speech recognition available');
     }
@@ -329,60 +300,51 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
       recognition.lang = 'en-US';
       recognition.continuous = false;
       recognition.interimResults = false;
-      
+
       recognition.onresult = async (event) => {
         const text = event.results[0][0].transcript;
-        const intent = routeIntent(text);
-        
-        const bubble: Bubble = {
-          id: crypto.randomUUID(),
-          type: intent.type,
-          content: text,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-          x: Math.random() * 400 + 100,
-          y: Math.random() * 300 + 100,
-          size: 0.7,
-          tags: intent.tags.map(tag => ({
-            id: crypto.randomUUID(),
-            name: tag,
-            emoji: tag === 'shopping' ? '🛒' : tag === 'idea' ? '💡' : '📝'
-          }))
-        };
-        
-        await addBubble(bubble);
-        await provideFeedback(text, intent);
+        setTranscript(text);
+        await handleTranscript(text);
         resolve();
       };
-      
+
       recognition.onerror = () => reject(new Error('Browser speech recognition failed'));
       recognition.start();
     });
-  }, [routeIntent, addBubble, provideFeedback]);
-  
+  }, [handleTranscript]);
+
+  // Resolve a pending medium-confidence / kill-switch confirmation
+  const handleConfirmation = useCallback(async (confirmed: boolean) => {
+    if (confirmed && pendingIntent) {
+      await commitBubble(pendingIntent.transcript, pendingIntent.intent);
+    }
+    setAwaitingConfirmation(false);
+    setPendingIntent(null);
+  }, [pendingIntent, commitBubble]);
+
   // Button handlers
   const handleMouseDown = useCallback(() => {
-    if (recordingMode === 'hold' && !isRecording) {
+    if (recordingMode === 'hold' && !isRecording && !awaitingConfirmation) {
       startRecording();
     }
-  }, [recordingMode, isRecording, startRecording]);
-  
+  }, [recordingMode, isRecording, awaitingConfirmation, startRecording]);
+
   const handleMouseUp = useCallback(() => {
     if (recordingMode === 'hold' && isRecording) {
       stopRecording();
     }
   }, [recordingMode, isRecording, stopRecording]);
-  
+
   const handleClick = useCallback(() => {
-    if (recordingMode === 'toggle') {
+    if (recordingMode === 'toggle' && !awaitingConfirmation) {
       if (isRecording) {
         stopRecording();
       } else {
         startRecording();
       }
     }
-  }, [recordingMode, isRecording, startRecording, stopRecording]);
-  
+  }, [recordingMode, isRecording, awaitingConfirmation, startRecording, stopRecording]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -391,9 +353,10 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
       }
     };
   }, []);
-  
+
   const getStatusText = () => {
     if (isProcessing) return 'Processing...';
+    if (awaitingConfirmation) return 'Awaiting confirmation';
     if (isRecording) return recordingMode === 'hold' ? 'Recording (release to stop)' : 'Recording (tap to stop)';
     return recordingMode === 'hold' ? 'Hold to record' : 'Tap to record';
   };
@@ -413,9 +376,9 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
         className="h-16 w-16 rounded-full transition-all duration-200 transform hover:scale-105 active:scale-95"
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp} // Stop if mouse leaves while holding
+        onMouseLeave={handleMouseUp}
         onClick={handleClick}
-        disabled={isProcessing}
+        disabled={isProcessing || awaitingConfirmation}
         aria-label={getStatusText()}
       >
         {isProcessing ? (
@@ -466,7 +429,32 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
             )}
           </div>
         )}
-        
+
+        {/* Medium-confidence / kill-switch confirmation */}
+        {awaitingConfirmation && pendingIntent && (
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-muted-foreground">
+              Create {pendingIntent.intent.type}?
+            </span>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 px-2 text-xs"
+              onClick={() => handleConfirmation(true)}
+            >
+              Yes
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 px-2 text-xs"
+              onClick={() => handleConfirmation(false)}
+            >
+              No
+            </Button>
+          </div>
+        )}
+
         {/* Debug info */}
         {DEBUG && (
           <Badge variant="secondary" className="text-xs">

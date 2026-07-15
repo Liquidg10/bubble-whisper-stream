@@ -9,6 +9,8 @@ import { PlanImplementationDialog } from './PlanImplementationDialog';
 import { PlanEditor } from './PlanEditor';
 import { conversationPlanService } from '@/services/conversationPlanService';
 import { supabase } from '@/integrations/supabase/client';
+import { cbtConversationIntegration, type CBTConversationResult } from '@/services/cbtConversationIntegration';
+import { CBTConversationWrapper } from '@/components/CBTConversationWrapper';
 
 interface Message {
   id: string;
@@ -21,6 +23,13 @@ interface Message {
     label: string;
     planId: string;
   }>;
+  // Wired 2026-07-09: CBT chat-intervention engine guidance for this message (Run 51/Run 58 follow-up)
+  cbtGuidance?: {
+    shouldShow: boolean;
+    action?: CBTConversationResult['cbtAction'];
+    traceId?: string;
+    distortionTypes?: string[];
+  };
 }
 
 export const SmartAIAssistant: React.FC = () => {
@@ -61,6 +70,26 @@ export const SmartAIAssistant: React.FC = () => {
     setIsLoading(true);
 
     try {
+      // Wired 2026-07-09: intercept every message through the real CBT engine
+      // (cbtConversationIntegration -> processCBTMessage -> observer/policy) before
+      // the reply is generated, mirroring src/components/CBTEnhancedChat.tsx's wiring.
+      let cbtResult: CBTConversationResult | undefined;
+      try {
+        const { data: authData } = await supabase.auth.getUser();
+        cbtResult = await cbtConversationIntegration.analyzeMessage({
+          messageText: userMessage.content,
+          messageId: userMessage.id,
+          userId: authData.user?.id || 'anonymous',
+          conversationHistory: messages.slice(-8).map(msg => ({
+            role: msg.role,
+            content: msg.content,
+            timestamp: msg.timestamp
+          }))
+        });
+      } catch (cbtError) {
+        console.warn('[SmartAIAssistant] CBT analysis failed:', cbtError);
+      }
+
       const activePlan = conversationPlanService.getActivePlan(conversationId);
       let assistantMessage: Message;
 
@@ -161,7 +190,13 @@ export const SmartAIAssistant: React.FC = () => {
           id: `assistant-${Date.now()}`,
           role: 'assistant',
           content: data.response || 'I\'m sorry, I couldn\'t process that right now. Please try again.',
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          cbtGuidance: cbtResult?.shouldShowCBT ? {
+            shouldShow: true,
+            action: cbtResult.cbtAction,
+            traceId: cbtResult.traceId,
+            distortionTypes: cbtResult.cbtAction?.data?.distortionType ? [cbtResult.cbtAction.data.distortionType] : []
+          } : undefined
         };
       }
 
@@ -243,13 +278,40 @@ export const SmartAIAssistant: React.FC = () => {
     }
   };
 
+  // Wired 2026-07-09: engagement feedback loop for the CBT engine (fatigue/learning services)
+  const handleCBTEngagement = async (
+    traceId: string,
+    engaged: boolean,
+    response?: string,
+    helpfulness?: number,
+    distortionTypes?: string[]
+  ) => {
+    try {
+      await cbtConversationIntegration.recordCBTEngagement(traceId, engaged, response, helpfulness, distortionTypes);
+
+      if (!engaged) {
+        setMessages(prev => prev.map(msg =>
+          msg.cbtGuidance?.traceId === traceId
+            ? { ...msg, cbtGuidance: { ...msg.cbtGuidance, shouldShow: false } }
+            : msg
+        ));
+      }
+    } catch (error) {
+      console.error('[SmartAIAssistant] Failed to record CBT engagement:', error);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full" data-ai-assistant>
       <ScrollArea className="flex-1 p-4" ref={scrollAreaRef}>
         <div className="space-y-4">
           {messages.map((message) => (
-            <div
+            <CBTConversationWrapper
               key={message.id}
+              cbtGuidance={message.cbtGuidance}
+              onCBTEngagement={handleCBTEngagement}
+            >
+            <div
               className={`flex items-start gap-3 ${
                 message.role === 'user' ? 'flex-row-reverse' : 'flex-row'
               }`}
@@ -311,6 +373,7 @@ export const SmartAIAssistant: React.FC = () => {
                 </p>
               </div>
             </div>
+            </CBTConversationWrapper>
           ))}
           
           {isLoading && (

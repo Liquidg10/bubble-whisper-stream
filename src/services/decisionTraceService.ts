@@ -14,7 +14,7 @@ interface DecisionTrace {
   signals: DecisionSignal[];
   confidenceThreshold: number;
   finalConfidence: number;
-  decision: 'suggest' | 'draft' | 'auto-write' | 'skip' | 'calibrate' | 'rollback';
+  decision: 'suggest' | 'draft' | 'draft-ask' | 'auto-write' | 'skip' | 'calibrate' | 'rollback';
   action: string;
   becauseText: string;
   privacyWatermark?: 'surface' | 'context' | 'deep';
