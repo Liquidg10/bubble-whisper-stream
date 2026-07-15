@@ -6,19 +6,37 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { cbtConversationIntegration } from '@/services/cbtConversationIntegration';
 import { isFeatureEnabled } from '@/config/flags';
+import { processCBTMessage } from '@/ai/cbt/index';
+import { cbtGuardService } from '@/services/cbtGuardService';
+import { resetMockBubbleStore, setMockSettings } from '@/test/helpers/mockBubbleStore';
 
 // Mock dependencies
 vi.mock('@/config/flags');
 vi.mock('@/services/cbtGuardService');
-vi.mock('@/stores/bubbleStore');
 vi.mock('@/ai/cbt/index');
+// Faithful, complete bubbleStore mock via shared helper. A bare auto-mock made
+// getState() return undefined, crashing the SUT at settings.cbtSettings.
+vi.mock('@/stores/bubbleStore', async () => {
+  const { makeBubbleStoreMockModule } = await import('@/test/helpers/mockBubbleStore');
+  return makeBubbleStoreMockModule();
+});
 
 const mockIsFeatureEnabled = vi.mocked(isFeatureEnabled);
+const mockProcessCBTMessage = vi.mocked(processCBTMessage);
+const mockCanIntervene = vi.mocked(cbtGuardService.canIntervene);
 
 describe('CBT Conversation Integration', () => {
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
+    resetMockBubbleStore();
+    // Clear the singleton service's idempotency cache so reused messageIds
+    // (e.g. the two Dev Logging cases) don't leak results across tests.
+    (cbtConversationIntegration as unknown as { messageProcessingCache: Map<string, unknown> })
+      .messageProcessingCache.clear();
+    // Safe defaults; individual tests override as needed.
+    mockCanIntervene.mockReturnValue({ allowed: true } as never);
+    mockProcessCBTMessage.mockResolvedValue({ annotation: null, decision: null, action: null, traceId: undefined } as never);
   });
 
   afterEach(() => {
@@ -50,21 +68,8 @@ describe('CBT Conversation Integration', () => {
         return false;
       });
 
-      // Mock user settings with assist disabled
-      const mockBubbleStore = {
-        getState: () => ({
-          settings: {
-            cbtSettings: {
-              cbtAssistEnabled: false,
-              assistLevel: 'off'
-            }
-          }
-        })
-      };
-      
-      vi.doMock('@/stores/bubbleStore', () => ({
-        useBubbleStore: mockBubbleStore
-      }));
+      // Assist disabled in user settings (silent-observe path).
+      setMockSettings({ cbtSettings: { cbtAssistEnabled: false, assistLevel: 'off' } });
 
       const result = await cbtConversationIntegration.analyzeMessage({
         messageText: 'I always mess everything up',
@@ -86,25 +91,17 @@ describe('CBT Conversation Integration', () => {
         return false;
       });
 
-      // Mock guard service allowing intervention
-      const mockGuardService = {
-        canIntervene: () => ({ allowed: true })
-      };
-      vi.doMock('@/services/cbtGuardService', () => ({
-        cbtGuardService: mockGuardService
-      }));
+      // Assist must be enabled in user settings for the intervention branch to render.
+      setMockSettings({ cbtSettings: { cbtAssistEnabled: true, assistLevel: 'standard' } });
+      mockCanIntervene.mockReturnValue({ allowed: true } as never);
 
-      // Mock CBT processing with intervention
       const mockCBTResult = {
         annotation: { distortions: [{ type: 'all_or_nothing', confidence: 0.9 }] },
         decision: { shouldIntervene: true, reason: 'high_confidence_distortion' },
         action: { type: 'chip', text: 'Want to explore this together?' },
         traceId: 'trace-123'
       };
-      
-      vi.doMock('@/ai/cbt/index', () => ({
-        processCBTMessage: vi.fn().mockResolvedValue(mockCBTResult)
-      }));
+      mockProcessCBTMessage.mockResolvedValue(mockCBTResult as never);
 
       const result = await cbtConversationIntegration.analyzeMessage({
         messageText: 'I never do anything right',
@@ -123,15 +120,8 @@ describe('CBT Conversation Integration', () => {
     it('should not process the same message twice', async () => {
       mockIsFeatureEnabled.mockReturnValue(true);
       
-      const mockProcessCBT = vi.fn().mockResolvedValue({
-        annotation: null,
-        decision: null,
-        action: null
-      });
-      
-      vi.doMock('@/ai/cbt/index', () => ({
-        processCBTMessage: mockProcessCBT
-      }));
+      const mockProcessCBT = mockProcessCBTMessage;
+      mockProcessCBT.mockResolvedValue({ annotation: null, decision: null, action: null } as never);
 
       const messageContext = {
         messageText: 'Test message',
