@@ -146,14 +146,16 @@ describe('Complete Production Workflows', () => {
       });
 
       // 2. Create first bubble via radial capture
-      const radialButton = screen.getByRole('button', { name: /add bubble/i });
+      const radialButton = screen.getByRole('button', { name: /capture thought/i });
       await user.click(radialButton);
+      const textMenuItem = await screen.findByRole('button', { name: /^text$/i });
+      await user.click(textMenuItem);
 
       // Simulate text input
       const textInput = screen.getByPlaceholderText(/what's on your mind/i);
       await user.type(textInput, 'My first thought bubble');
       
-      const createButton = screen.getByRole('button', { name: /create/i });
+      const createButton = screen.getByRole('button', { name: /save/i });
       await user.click(createButton);
 
       // 3. Test voice capture workflow
@@ -208,13 +210,15 @@ describe('Complete Production Workflows', () => {
       renderApp();
 
       // Create bubbles while offline
-      const radialButton = screen.getByRole('button', { name: /add bubble/i });
+      const radialButton = screen.getByRole('button', { name: /capture thought/i });
       await user.click(radialButton);
+      const textMenuItem = await screen.findByRole('button', { name: /^text$/i });
+      await user.click(textMenuItem);
 
       const textInput = screen.getByPlaceholderText(/what's on your mind/i);
       await user.type(textInput, 'Offline bubble');
       
-      const createButton = screen.getByRole('button', { name: /create/i });
+      const createButton = screen.getByRole('button', { name: /save/i });
       await user.click(createButton);
 
       // Simulate going online
@@ -307,8 +311,10 @@ describe('Complete Production Workflows', () => {
       renderApp();
 
       // Create bubble with AI analysis
-      const radialButton = screen.getByRole('button', { name: /add bubble/i });
+      const radialButton = screen.getByRole('button', { name: /capture thought/i });
       await user.click(radialButton);
+      const textMenuItem = await screen.findByRole('button', { name: /^text$/i });
+      await user.click(textMenuItem);
 
       const textInput = screen.getByPlaceholderText(/what's on your mind/i);
       await user.type(textInput, 'I feel overwhelmed with work today');
@@ -317,7 +323,7 @@ describe('Complete Production Workflows', () => {
       const aiToggle = screen.getByRole('switch', { name: /ai analysis/i });
       await user.click(aiToggle);
 
-      const createButton = screen.getByRole('button', { name: /create/i });
+      const createButton = screen.getByRole('button', { name: /save/i });
       await user.click(createButton);
 
       // Verify AI analysis is triggered
@@ -486,13 +492,15 @@ describe('Complete Production Workflows', () => {
       renderApp();
 
       // Attempt to create bubble
-      const radialButton = screen.getByRole('button', { name: /add bubble/i });
+      const radialButton = screen.getByRole('button', { name: /capture thought/i });
       await user.click(radialButton);
+      const textMenuItem = await screen.findByRole('button', { name: /^text$/i });
+      await user.click(textMenuItem);
 
       const textInput = screen.getByPlaceholderText(/what's on your mind/i);
       await user.type(textInput, 'Test bubble');
       
-      const createButton = screen.getByRole('button', { name: /create/i });
+      const createButton = screen.getByRole('button', { name: /save/i });
       await user.click(createButton);
 
       // Verify error handling and recovery options
