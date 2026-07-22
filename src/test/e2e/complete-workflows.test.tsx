@@ -93,27 +93,64 @@ describe('End-to-End User Workflows', () => {
         expect(screen.getByText(bubbleLabel('My first thought bubble'))).toBeInTheDocument();
       });
 
-      // 3. Edit the bubble
+      // 3. Edit the bubble. Clicking a bubble opens BubbleDetail (src/components/BubbleDetail.tsx)
+      // directly into an always-editable view -- its Content field is a live-bound <Textarea>
+      // (value={editedBubble.content}), not a separate read-only "view" gated behind an "Edit"
+      // button. Confirmed directly (diagnostic probe dumping all buttons in the open dialog):
+      // 6 buttons total -- Play (TTS), tag Plus, Done, Remind, Delete, Radix's default Close --
+      // none named "Edit". Interact with the Textarea directly via getByDisplayValue, which the
+      // edit form's input correctly exposes (untruncated, unlike the canvas label).
       const bubble = screen.getByText(bubbleLabel('My first thought bubble'));
       await user.click(bubble);
-
-      const editButton = screen.getByRole('button', { name: /edit/i });
-      await user.click(editButton);
 
       const editInput = screen.getByDisplayValue('My first thought bubble');
       await user.clear(editInput);
       await user.type(editInput, 'My updated thought bubble');
 
-      const updateButton = screen.getByRole('button', { name: /update/i });
-      await user.click(updateButton);
+      // BubbleDetail auto-saves via a 1000ms debounce on every Content keystroke
+      // (debouncedSave -> updateBubble() -> storageService.updateBubble(), confirmed directly:
+      // the same probe observed storageService.updateBubble called once, ~1s after typing, with
+      // the exact edited content) -- there is no separate "Update" button in the dialog (same
+      // 6-button inventory as above). Wait for the debounced save to actually fire rather than
+      // looking for a button that doesn't exist.
+      await waitFor(() => {
+        expect(storageService.updateBubble).toHaveBeenCalledWith(
+          expect.objectContaining({ content: 'My updated thought bubble' })
+        );
+      }, { timeout: 2000 });
 
-      // 4. Verify update
+      // 4. Verify update (canvas re-renders once updateBubble's local store `set()` runs)
       await waitFor(() => {
         expect(screen.getByText(bubbleLabel('My updated thought bubble'))).toBeInTheDocument();
       });
 
-      // 5. Delete the bubble
-      await user.click(bubble);
+      // BubbleDetail never auto-closes itself (no equivalent of a legacy "Save & close" -- the
+      // Textarea's onChange only ever schedules the debounced save above); Radix's Dialog
+      // overlay sets pointer-events:none on the rest of the page while open, so the canvas is
+      // unclickable until the dialog closes. Confirmed directly: re-clicking the canvas with the
+      // dialog still open throws "Unable to perform pointer interaction... pointer-events: none"
+      // rather than reaching the delete flow at all. Close it the same way a real user would --
+      // the "Done" button -- before interacting with the canvas again.
+      const doneButton = screen.getByRole('button', { name: /done/i });
+      await user.click(doneButton);
+
+      // 5. Delete the bubble. Re-query by the bubble's current (updated) label -- the `bubble`
+      // reference above points at now-stale "My first thought bubble" DOM text that no longer
+      // exists post-edit; reusing it here would silently click a detached node.
+      const updatedBubble = screen.getByText(bubbleLabel('My updated thought bubble'));
+      await user.click(updatedBubble);
+
+      // NOT FIXED HERE -- a real, distinct, precisely-diagnosed gap, left honestly failing (same
+      // standing practice as Run 90's mood-button gap). Confirmed directly via the same button
+      // dump: BubbleDetail's delete control (<Button variant="destructive"><Trash2 /></Button>,
+      // no text, no aria-label) has an EMPTY accessible name, so no role="button" name query can
+      // ever find it -- not a wrong-label issue like the Edit/Update fixes above. Every other
+      // icon-only button in this codebase sets an explicit aria-label (the capture FAB:
+      // "Capture thought"; the view toggles: "Bubble view mode" / "Atomic view mode") -- this one
+      // alone doesn't, reading like an oversight rather than a deliberate omission. Separately,
+      // handleDelete() in BubbleDetail.tsx calls deleteBubble() immediately with zero confirmation
+      // step, so even a correctly-named Delete button would never reach a "confirm" button either
+      // -- a genuine product-UX question (is immediate delete intentional?), not a test bug.
       const deleteButton = screen.getByRole('button', { name: /delete/i });
       await user.click(deleteButton);
 
