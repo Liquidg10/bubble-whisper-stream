@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import App from '@/App';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { userContextService } from '@/services/userContextService';
+import { storageService } from '@/services/storage';
 
 // Mock all external services
 vi.mock('@/services/crossDeviceSyncService');
@@ -32,6 +33,23 @@ describe('End-to-End User Workflows', () => {
     // just this one method (not a full module mock) so every other real
     // userContextService/selfModelV2Service behavior this suite may exercise is untouched.
     vi.spyOn(userContextService, 'hasCompletedOnboarding').mockResolvedValue(true);
+    // storageService.initialize() opens a real IndexedDB connection via window.indexedDB.open().
+    // The suite's global mock (src/test/setup.ts) returns a static request object whose
+    // onsuccess/onerror/onupgradeneeded handlers are assigned but never invoked -- so the
+    // returned promise never settles and storageService's private `db` field stays null
+    // forever. isInitialized() (`db !== null`) is therefore always false in this suite, which
+    // makes addBubble() silently no-op (early-return + console.warn, no thrown error) and would
+    // make updateBubble/deleteBubble throw "Database not initialized" (caught internally, also
+    // silent). Proved directly with a temporary diagnostic probe before this fix: after a full,
+    // error-free capture -> Text -> type -> Save flow, isInitialized() was still false and the
+    // store's bubbles array was still empty. Spy on just the 4 methods this file's tests
+    // exercise (isInitialized/createBubble/updateBubble/deleteBubble) on the real singleton --
+    // same targeted-spy pattern as the hasCompletedOnboarding fix above -- rather than touching
+    // the shared global indexedDB mock, which every other test file in the suite also depends on.
+    vi.spyOn(storageService, 'isInitialized').mockReturnValue(true);
+    vi.spyOn(storageService, 'createBubble').mockResolvedValue(undefined);
+    vi.spyOn(storageService, 'updateBubble').mockResolvedValue(undefined);
+    vi.spyOn(storageService, 'deleteBubble').mockResolvedValue(undefined);
   });
 
   describe('Complete Bubble Lifecycle', () => {
