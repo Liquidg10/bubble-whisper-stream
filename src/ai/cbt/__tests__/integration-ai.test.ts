@@ -13,7 +13,14 @@ import { useBubbleStore } from '@/stores/bubbleStore';
 vi.mock('@/services/cbtGuardService', () => ({
   cbtGuardService: {
     canIntervene: vi.fn(() => ({ allowed: true })),
-    isFeatureAllowed: vi.fn(() => true)
+    isFeatureAllowed: vi.fn(() => true),
+    // trace.ts's persist() calls this on every processCBTMessage() run to
+    // mint a telemetry-safe pseudonymous id; without a stub here it throws
+    // ("generatePseudonymousId is not a function"), which analyzeForConversation's
+    // try/catch silently swallows -- turning a real crisis-path success into
+    // a false-looking `shouldShowCBTResponse: false`. Verified real signature:
+    // src/services/cbtGuardService.ts:160, generatePseudonymousId(userId: string): string.
+    generatePseudonymousId: vi.fn((userId: string) => `pseudo-${userId}`)
   }
 }));
 
@@ -44,6 +51,29 @@ describe('CBT AI Integration', () => {
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
+    // vi.clearAllMocks() only clears call history (mock.calls/mock.results),
+    // it does NOT reset implementations set via .mockReturnValue() in
+    // earlier tests. Several tests below override canIntervene/getState to
+    // exercise a specific branch; without restoring defaults here, those
+    // overrides silently leak into every later test in the file (confirmed
+    // root cause of 3 of this file's 6 failures via a source-verified run,
+    // REVIVE run 2026-07-16). Restore exactly what the vi.mock() factories
+    // above establish as the baseline.
+    vi.mocked(cbtGuardService.canIntervene).mockReturnValue({ allowed: true });
+    vi.mocked(cbtGuardService.isFeatureAllowed).mockReturnValue(true);
+    vi.mocked(isFeatureEnabled).mockReturnValue(true);
+    vi.mocked(useBubbleStore.getState).mockReturnValue({
+      settings: {
+        cbtSettings: {
+          assistLevel: 'subtle',
+          privacyLayer: 'context',
+          autoLogMode: 'ask',
+          quietHours: { enabled: false, start: '22:00', end: '07:00' },
+          topicExclusions: [],
+          neverInterveneOn: []
+        }
+      }
+    } as ReturnType<typeof useBubbleStore.getState>);
   });
 
   describe('Conversation Analysis', () => {
