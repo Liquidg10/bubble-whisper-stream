@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Outlet, useLocation } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Settings, Calendar, Bell, Home, Flower, Brain, Search, Heart, Inbox, Wrench, Bot, MapPin, List, Grid3x3, Sun, Moon } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -25,6 +25,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 
 export const AppShell: React.FC = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const { settings } = useBubbleStore();
   const { state: onboardingState, skipProgression, rewindToDay } = useProgressiveOnboarding();
   
@@ -109,8 +110,10 @@ export const AppShell: React.FC = () => {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => window.location.href = '/search'}
+            onClick={() => navigate('/search')}
             className="h-8 w-8 p-0"
+            title="Search"
+            aria-label="Search"
           >
             <Search className="h-4 w-4" />
           </Button>
@@ -159,7 +162,7 @@ export const AppShell: React.FC = () => {
             </p>
             <Button onClick={() => {
               setShowSearch(false);
-              window.location.href = '/search';
+              navigate('/search');
             }}>
               Go to Search Page
             </Button>
