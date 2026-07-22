@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { BrowserRouter } from 'react-router-dom';
 import App from '@/App';
 import { useBubbleStore } from '@/stores/bubbleStore';
 
@@ -11,11 +10,7 @@ vi.mock('@/services/advancedAIService');
 vi.mock('@/services/vectorSearchService');
 
 const renderApp = () => {
-  return render(
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
-  );
+  return render(<App />);
 };
 
 describe('End-to-End User Workflows', () => {
@@ -30,8 +25,11 @@ describe('End-to-End User Workflows', () => {
       renderApp();
 
       // 1. Create a bubble via radial capture
-      const captureButton = screen.getByRole('button', { name: /add thought/i });
+      const captureButton = screen.getByRole('button', { name: /capture thought/i });
       await user.click(captureButton);
+
+      const textMenuItem = screen.getByRole('button', { name: 'Text' });
+      await user.click(textMenuItem);
 
       const textInput = screen.getByPlaceholderText(/what's on your mind/i);
       await user.type(textInput, 'My first thought bubble');
@@ -113,7 +111,7 @@ describe('End-to-End User Workflows', () => {
       renderApp();
 
       // Create a mood bubble indicating stress
-      const captureButton = screen.getByRole('button', { name: /add thought/i });
+      const captureButton = screen.getByRole('button', { name: /capture thought/i });
       await user.click(captureButton);
 
       const moodButton = screen.getByRole('button', { name: /mood/i });
@@ -152,8 +150,11 @@ describe('End-to-End User Workflows', () => {
       ];
 
       for (const thought of thoughts) {
-        const captureButton = screen.getByRole('button', { name: /add thought/i });
+        const captureButton = screen.getByRole('button', { name: /capture thought/i });
         await user.click(captureButton);
+
+        const textMenuItem = screen.getByRole('button', { name: 'Text' });
+        await user.click(textMenuItem);
 
         const textInput = screen.getByPlaceholderText(/what's on your mind/i);
         await user.type(textInput, thought);
