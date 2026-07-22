@@ -5,6 +5,9 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { cbtAIIntegration } from '../integration';
 import type { CBTIntegrationResult } from '../integration';
+import { cbtGuardService } from '@/services/cbtGuardService';
+import { isFeatureEnabled } from '@/config/flags';
+import { useBubbleStore } from '@/stores/bubbleStore';
 
 // Mock the CBT guard service
 vi.mock('@/services/cbtGuardService', () => ({
@@ -65,10 +68,10 @@ describe('CBT AI Integration', () => {
 
     it('should escalate to explicit CBT for standard assist level', async () => {
       // Mock standard assist level
-      const mockStore = vi.mocked(require('@/stores/bubbleStore').useBubbleStore);
-      mockStore.getState.mockReturnValue({
+      vi.mocked(useBubbleStore.getState).mockReturnValue({
         settings: {
           cbtSettings: {
+            cbtAssistEnabled: true,
             assistLevel: 'standard',
             privacyLayer: 'context',
             autoLogMode: 'ask',
@@ -77,7 +80,7 @@ describe('CBT AI Integration', () => {
             neverInterveneOn: []
           }
         }
-      });
+      } as ReturnType<typeof useBubbleStore.getState>);
 
       const message = "I never do anything right. Everyone thinks I'm incompetent.";
       
@@ -110,7 +113,7 @@ describe('CBT AI Integration', () => {
 
     it('should respect user settings and constraints', async () => {
       // Mock disabled CBT
-      const mockGuard = vi.mocked(require('@/services/cbtGuardService').cbtGuardService);
+      const mockGuard = vi.mocked(cbtGuardService);
       mockGuard.canIntervene.mockReturnValue({ 
         allowed: false, 
         reason: 'User has disabled assistance' 
@@ -181,7 +184,7 @@ describe('CBT AI Integration', () => {
 
   describe('Silent vs Explicit Interventions', () => {
     it('should provide silent guidance when intervention is blocked', async () => {
-      const mockGuard = vi.mocked(require('@/services/cbtGuardService').cbtGuardService);
+      const mockGuard = vi.mocked(cbtGuardService);
       mockGuard.canIntervene.mockReturnValue({ 
         allowed: false, 
         reason: 'Quiet hours active' 
@@ -214,10 +217,10 @@ describe('CBT AI Integration', () => {
       expect(subtleResult.enhancedPrompt).toBeDefined();
 
       // Test standard mode
-      const mockStore = vi.mocked(require('@/stores/bubbleStore').useBubbleStore);
-      mockStore.getState.mockReturnValue({
+      vi.mocked(useBubbleStore.getState).mockReturnValue({
         settings: {
           cbtSettings: {
+            cbtAssistEnabled: true,
             assistLevel: 'standard',
             privacyLayer: 'context',
             autoLogMode: 'ask',
@@ -226,7 +229,7 @@ describe('CBT AI Integration', () => {
             neverInterveneOn: []
           }
         }
-      });
+      } as ReturnType<typeof useBubbleStore.getState>);
 
       const standardResult = await cbtAIIntegration.analyzeForConversation(
         message,
@@ -292,7 +295,7 @@ describe('CBT AI Integration', () => {
     });
 
     it('should handle disabled features gracefully', async () => {
-      const mockFlags = vi.mocked(require('@/config/flags').isFeatureEnabled);
+      const mockFlags = vi.mocked(isFeatureEnabled);
       mockFlags.mockReturnValue(false);
 
       const message = "I always fail.";
