@@ -11,6 +11,24 @@ vi.mock('@/services/crossDeviceSyncService');
 vi.mock('@/services/advancedAIService');
 vi.mock('@/services/vectorSearchService');
 
+// This app's default theme (iridescent-soap, src/themes/definitions/iridescent-soap.ts)
+// renders bubbles through the experimental src/experimental/iridescent/BubbleRenderer.tsx
+// canvas, not the src/components/BubbleCanvas.tsx + BubbleCard.tsx pair -- confirmed by
+// inspecting the rendered DOM (`.iridescent-bubble` / `.soap-*` classes, not BubbleCard's
+// markup) and by tracing the theme definition's import. That renderer truncates every
+// bubble's on-canvas label to its first 20 characters + "..." whenever content is longer
+// than 20 chars (BubbleRenderer.tsx ~L95: `content.slice(0, 20) + (content.length > 20 ?
+// '...' : '')`) -- real, deliberate, verified product behavior (it would truncate in a
+// real browser identically; nothing jsdom-specific about it), not a bug to work around.
+// Several of this suite's fixtures ("My first thought bubble", "Feeling anxious about
+// tomorrow", ...) are longer than 20 characters, so asserting on the raw, untruncated
+// string can never match what the app actually renders on canvas. Mirror the app's own
+// truncation here so assertions check the real rendered label. Does NOT apply to
+// getByDisplayValue() checks against the edit form's input, which correctly holds the
+// full untruncated content.
+const bubbleLabel = (content: string) =>
+  content.slice(0, 20) + (content.length > 20 ? '...' : '');
+
 const renderApp = () => {
   return render(<App />);
 };
@@ -72,11 +90,11 @@ describe('End-to-End User Workflows', () => {
 
       // 2. Verify bubble appears on canvas
       await waitFor(() => {
-        expect(screen.getByText('My first thought bubble')).toBeInTheDocument();
+        expect(screen.getByText(bubbleLabel('My first thought bubble'))).toBeInTheDocument();
       });
 
       // 3. Edit the bubble
-      const bubble = screen.getByText('My first thought bubble');
+      const bubble = screen.getByText(bubbleLabel('My first thought bubble'));
       await user.click(bubble);
 
       const editButton = screen.getByRole('button', { name: /edit/i });
@@ -91,7 +109,7 @@ describe('End-to-End User Workflows', () => {
 
       // 4. Verify update
       await waitFor(() => {
-        expect(screen.getByText('My updated thought bubble')).toBeInTheDocument();
+        expect(screen.getByText(bubbleLabel('My updated thought bubble'))).toBeInTheDocument();
       });
 
       // 5. Delete the bubble
@@ -104,7 +122,7 @@ describe('End-to-End User Workflows', () => {
 
       // 6. Verify deletion
       await waitFor(() => {
-        expect(screen.queryByText('My updated thought bubble')).not.toBeInTheDocument();
+        expect(screen.queryByText(bubbleLabel('My updated thought bubble'))).not.toBeInTheDocument();
       });
     });
   });
@@ -195,9 +213,11 @@ describe('End-to-End User Workflows', () => {
         const saveButton = screen.getByRole('button', { name: /save/i });
         await user.click(saveButton);
         
-        // Wait for bubble to be created
+        // Wait for bubble to be created. Its on-canvas label is the app's own
+        // truncated form (see bubbleLabel() above), not the raw `thought` string --
+        // all four fixtures here are longer than the 20-char truncation threshold.
         await waitFor(() => {
-          expect(screen.getByText(thought)).toBeInTheDocument();
+          expect(screen.getByText(bubbleLabel(thought))).toBeInTheDocument();
         });
       }
 
