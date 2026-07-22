@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from '@/App';
@@ -114,6 +114,24 @@ describe('Complete Production Workflows', () => {
       success: true,
       analysis: 'Test photo analysis',
       because: 'Test analysis'
+    });
+  });
+
+  // Guards against a real, verified leak: this file has no afterEach, and
+  // 'should handle offline-to-online sync workflow' below sets
+  // navigator.onLine=false then throws (getByRole('add bubble') not found,
+  // see REVIVE Run 78) BEFORE its own value:true restore line runs -- so
+  // onLine stays stuck false for every later test in this file. Currently
+  // masked because those later tests already fail for their own unrelated,
+  // pre-diagnosed reasons (Run 78) -- but it's live latent pollution that
+  // would surface as a confusing regression the moment those are fixed.
+  // Verified via a temporary DIAGNOSTIC-PROBE test: failed
+  // ('expected false to be true') before this afterEach, passes after.
+  afterEach(() => {
+    Object.defineProperty(navigator, 'onLine', {
+      writable: true,
+      configurable: true,
+      value: true,
     });
   });
 

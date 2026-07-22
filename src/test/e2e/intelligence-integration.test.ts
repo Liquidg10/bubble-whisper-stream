@@ -33,6 +33,18 @@ describe('Intelligence Layer E2E Integration', () => {
 
   afterEach(async () => {
     localStorage.clear();
+    // Defense-in-depth: this file's own 'should handle offline mode
+    // gracefully' test mutates navigator.onLine via Object.defineProperty.
+    // It currently restores it inline before returning, so this is not
+    // presently leaking (verified: complete-production-workflows.test.tsx's
+    // sibling test WAS leaking for want of exactly this reset, see REVIVE
+    // Run 88). Resetting here unconditionally removes the ordering
+    // dependency rather than relying on every test's internal cleanup.
+    Object.defineProperty(navigator, 'onLine', {
+      writable: true,
+      configurable: true,
+      value: true,
+    });
   });
 
   describe('Adaptive Reminder Flow', () => {
