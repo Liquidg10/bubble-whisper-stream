@@ -16,6 +16,7 @@ import { ReceiptScanner } from './ReceiptScanner';
 import { useToast } from '@/hooks/use-toast';
 import { TaskOutliner } from './TaskOutliner';
 import { isFeatureEnabled } from '@/config/flags';
+import { AccessibleConfirmDialog } from '@/components/AccessibleConfirmDialog';
 
 interface BubbleDetailProps {
   bubble: Bubble | null;
@@ -33,6 +34,13 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
   const [showTagPicker, setShowTagPicker] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [showImageModal, setShowImageModal] = useState(false);
+  // Delete requires an explicit confirm step (AccessibleConfirmDialog, already used
+  // elsewhere in the app for accessible/calm-mode-aware confirmations -- see
+  // AccessibilitySettings.tsx) rather than deleting on the first click. The Trash2
+  // button below only opens this dialog; handleDelete (renamed target below) is now
+  // the dialog's onConfirm, so a misclick can no longer instantly destroy a journaled
+  // thought.
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [showOutliner, setShowOutliner] = useState(false);
   const { toast } = useToast();
 
@@ -323,9 +331,10 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
             )}
             <Button
               variant="destructive"
-              onClick={handleDelete}
+              onClick={() => setConfirmDeleteOpen(true)}
               size="sm"
               className="ml-auto"
+              aria-label="Delete bubble"
             >
               <Trash2 className="h-4 w-4" />
             </Button>
@@ -370,6 +379,15 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
             </DialogContent>
           </Dialog>
         )}
+
+        <AccessibleConfirmDialog
+          open={confirmDeleteOpen}
+          onOpenChange={setConfirmDeleteOpen}
+          action="delete"
+          item="this bubble"
+          onConfirm={handleDelete}
+          variant="destructive"
+        />
       </DialogContent>
     </Dialog>
   );

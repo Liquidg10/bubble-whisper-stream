@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from '@/App';
 import { useBubbleStore } from '@/stores/bubbleStore';
@@ -155,22 +155,23 @@ describe('End-to-End User Workflows', () => {
       const updatedBubble = screen.getByText(bubbleLabel('My updated thought bubble'));
       await user.click(updatedBubble);
 
-      // NOT FIXED HERE -- a real, distinct, precisely-diagnosed gap, left honestly failing (same
-      // standing practice as Run 90's mood-button gap). Confirmed directly via the same button
-      // dump: BubbleDetail's delete control (<Button variant="destructive"><Trash2 /></Button>,
-      // no text, no aria-label) has an EMPTY accessible name, so no role="button" name query can
-      // ever find it -- not a wrong-label issue like the Edit/Update fixes above. Every other
-      // icon-only button in this codebase sets an explicit aria-label (the capture FAB:
-      // "Capture thought"; the view toggles: "Bubble view mode" / "Atomic view mode") -- this one
-      // alone doesn't, reading like an oversight rather than a deliberate omission. Separately,
-      // handleDelete() in BubbleDetail.tsx calls deleteBubble() immediately with zero confirmation
-      // step, so even a correctly-named Delete button would never reach a "confirm" button either
-      // -- a genuine product-UX question (is immediate delete intentional?), not a test bug.
-      const deleteButton = screen.getByRole('button', { name: /delete/i });
+      // Both gaps this comment used to document are now fixed (Run 97): the Trash2 button has
+      // an explicit aria-label ("Delete bubble", matching the codebase's own icon-button
+      // convention -- capture FAB: "Capture thought"; view toggles: "Bubble view mode" /
+      // "Atomic view mode"), and clicking it now opens AccessibleConfirmDialog (already used
+      // elsewhere in the app -- see AccessibilitySettings.tsx) instead of deleting instantly.
+      const deleteButton = screen.getByRole('button', { name: /delete bubble/i });
       await user.click(deleteButton);
 
-      const confirmDelete = screen.getByRole('button', { name: /confirm/i });
-      await user.click(confirmDelete);
+      // AccessibleConfirmDialog's default tone (friendly/middle-reading-level, this app's global
+      // default -- see microcopyService.getConfirmationTemplates) renders the confirm action's
+      // own text as "Yes, delete", not the word "confirm" -- mirror the dialog's real, deliberately
+      // warm/low-anxiety microcopy rather than asserting on a generic guess. Scoped to the
+      // alertdialog (Radix's AlertDialog.Content role) since the underlying "Delete bubble" button
+      // is still in the DOM behind the dialog and also matches a loose /delete/i pattern.
+      const confirmDialog = await screen.findByRole('alertdialog');
+      const confirmDeleteButton = within(confirmDialog).getByRole('button', { name: 'Yes, delete' });
+      await user.click(confirmDeleteButton);
 
       // 6. Verify deletion
       await waitFor(() => {
@@ -265,11 +266,19 @@ describe('End-to-End User Workflows', () => {
         const saveButton = screen.getByRole('button', { name: /save/i });
         await user.click(saveButton);
         
-        // Wait for bubble to be created. Its on-canvas label is the app's own
-        // truncated form (see bubbleLabel() above), not the raw `thought` string --
-        // all four fixtures here are longer than the 20-char truncation threshold.
+        // Wait for the bubble to actually be created -- checking the store directly,
+        // not the canvas. BubbleRenderer.tsx's default bubbleDensity='medium' filter only
+        // shows the first ceil(N*0.7) bubbles on canvas, a real, deliberate declutter
+        // feature (confirmed directly, Run 96) -- with 4 fixtures created back-to-back,
+        // the 4th is legitimately never visible on canvas at this density, regardless of
+        // test isolation. The canvas-visibility check this replaced was only ever meant as
+        // a "did creation finish" sync proxy -- this test's real assertions (below) check
+        // the search UI, a different surface than the density-filtered canvas entirely. A
+        // store-state check verifies the same underlying fact without coupling bubble
+        // creation to an unrelated UI feature (Run 97, option A of the 3 named in Run 96's
+        // write-up).
         await waitFor(() => {
-          expect(screen.getByText(bubbleLabel(thought))).toBeInTheDocument();
+          expect(useBubbleStore.getState().bubbles.some(b => b.content === thought)).toBe(true);
         });
       }
 
