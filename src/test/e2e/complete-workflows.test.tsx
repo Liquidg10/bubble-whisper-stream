@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from '@/App';
 import { useBubbleStore } from '@/stores/bubbleStore';
+import { userContextService } from '@/services/userContextService';
 
 // Mock all external services
 vi.mock('@/services/crossDeviceSyncService');
@@ -17,6 +18,20 @@ describe('End-to-End User Workflows', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    // App.tsx owns its own <BrowserRouter> (renderApp no longer wraps its own, per the
+    // Router-nesting fix) which reads real jsdom window.history -- a global that is NOT
+    // reset between tests by RTL's automatic unmount/cleanup. Whatever route the previous
+    // test's userEvent clicks navigated to (e.g. /cbt-worksheet, /settings) is still the
+    // current URL when the next test's fresh <App/> mounts, so it silently renders the
+    // wrong page. Reset explicitly so every test starts at "/" regardless of run order.
+    window.history.pushState({}, '', '/');
+    // OnboardingManager scroll-locks the whole app (body pointer-events:none) whenever
+    // userContextService.hasCompletedOnboarding() resolves false -- which it always does
+    // in jsdom, because selfModelV2Service's real IndexedDB call throws ("Database not
+    // initialized") and getUserContext() swallows that into a bare {} default. Spy on
+    // just this one method (not a full module mock) so every other real
+    // userContextService/selfModelV2Service behavior this suite may exercise is untouched.
+    vi.spyOn(userContextService, 'hasCompletedOnboarding').mockResolvedValue(true);
   });
 
   describe('Complete Bubble Lifecycle', () => {
