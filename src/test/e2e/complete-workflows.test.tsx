@@ -37,6 +37,21 @@ describe('End-to-End User Workflows', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
+    // useBubbleStore is a module-level Zustand store, NOT reset by RTL's automatic
+    // unmount/cleanup or by localStorage.clear() above -- any bubble left in memory by a
+    // prior test in this file (e.g. Complete Bubble Lifecycle's bubble, which is created and
+    // edited but never actually deleted because that test currently fails at the Delete-button
+    // step -- see the Delete-button accessible-name gap documented elsewhere in this file's
+    // history) silently carries over into every later test. Confirmed directly with a temporary
+    // diagnostic probe: at the start of 'should perform semantic search across bubbles', the
+    // store already held 1 leftover bubble from the Lifecycle test. That single extra bubble
+    // shifts the app's own bubbleDensity='medium' canvas filter (BubbleRenderer.tsx, keeps only
+    // the first ceil(length*0.7) bubbles) one slot earlier than a clean run would, which is the
+    // real cause of this test's 3rd created bubble silently failing to render. Reset explicitly
+    // so every test starts with a clean, empty store regardless of run order or a prior test's
+    // own pass/fail outcome -- same isolation-hygiene precedent as the window.history.pushState
+    // reset below.
+    useBubbleStore.setState({ bubbles: [] });
     // App.tsx owns its own <BrowserRouter> (renderApp no longer wraps its own, per the
     // Router-nesting fix) which reads real jsdom window.history -- a global that is NOT
     // reset between tests by RTL's automatic unmount/cleanup. Whatever route the previous
