@@ -91,3 +91,26 @@ Object.defineProperty(window, 'indexedDB', {
     deleteDatabase: vi.fn(() => mockIDBRequest),
   },
 });
+
+// jsdom has never implemented ResizeObserver (confirmed live in this suite's own stderr:
+// `ReferenceError: ResizeObserver is not defined`, thrown when @radix-ui/react-use-size's
+// real hook runs inside any Radix Dialog/Popover/etc. primitive). No file in src/
+// references ResizeObserver directly -- grep confirms every usage is inside Radix's own
+// internals -- so this is a pure test-environment gap, not something app or test code
+// ever mocks today. A global no-op stub (observe/unobserve/disconnect as spies, same
+// vi.fn()-based mock style as this file's other shims) is the standard fix for jsdom +
+// Radix and lets any Radix primitive mount without crashing, without asserting anything
+// about real resize behavior.
+class ResizeObserverMock {
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+}
+
+for (const target of [globalThis, window]) {
+  Object.defineProperty(target, 'ResizeObserver', {
+    writable: true,
+    configurable: true,
+    value: ResizeObserverMock,
+  });
+}

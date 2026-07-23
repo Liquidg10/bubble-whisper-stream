@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from '@/App';
@@ -117,6 +117,24 @@ describe('Complete Production Workflows', () => {
     });
   });
 
+  // Guards against a real, verified leak: this file has no afterEach, and
+  // 'should handle offline-to-online sync workflow' below sets
+  // navigator.onLine=false then throws (getByRole('add bubble') not found,
+  // see REVIVE Run 78) BEFORE its own value:true restore line runs -- so
+  // onLine stays stuck false for every later test in this file. Currently
+  // masked because those later tests already fail for their own unrelated,
+  // pre-diagnosed reasons (Run 78) -- but it's live latent pollution that
+  // would surface as a confusing regression the moment those are fixed.
+  // Verified via a temporary DIAGNOSTIC-PROBE test: failed
+  // ('expected false to be true') before this afterEach, passes after.
+  afterEach(() => {
+    Object.defineProperty(navigator, 'onLine', {
+      writable: true,
+      configurable: true,
+      value: true,
+    });
+  });
+
   describe('End-to-End User Journey', () => {
     it('should complete full user workflow from onboarding to collaboration', async () => {
       const user = userEvent.setup();
@@ -128,14 +146,16 @@ describe('Complete Production Workflows', () => {
       });
 
       // 2. Create first bubble via radial capture
-      const radialButton = screen.getByRole('button', { name: /add bubble/i });
+      const radialButton = screen.getByRole('button', { name: /capture thought/i });
       await user.click(radialButton);
+      const textMenuItem = await screen.findByRole('button', { name: /^text$/i });
+      await user.click(textMenuItem);
 
       // Simulate text input
       const textInput = screen.getByPlaceholderText(/what's on your mind/i);
       await user.type(textInput, 'My first thought bubble');
       
-      const createButton = screen.getByRole('button', { name: /create/i });
+      const createButton = screen.getByRole('button', { name: /save/i });
       await user.click(createButton);
 
       // 3. Test voice capture workflow
@@ -190,13 +210,15 @@ describe('Complete Production Workflows', () => {
       renderApp();
 
       // Create bubbles while offline
-      const radialButton = screen.getByRole('button', { name: /add bubble/i });
+      const radialButton = screen.getByRole('button', { name: /capture thought/i });
       await user.click(radialButton);
+      const textMenuItem = await screen.findByRole('button', { name: /^text$/i });
+      await user.click(textMenuItem);
 
       const textInput = screen.getByPlaceholderText(/what's on your mind/i);
       await user.type(textInput, 'Offline bubble');
       
-      const createButton = screen.getByRole('button', { name: /create/i });
+      const createButton = screen.getByRole('button', { name: /save/i });
       await user.click(createButton);
 
       // Simulate going online
@@ -289,8 +311,10 @@ describe('Complete Production Workflows', () => {
       renderApp();
 
       // Create bubble with AI analysis
-      const radialButton = screen.getByRole('button', { name: /add bubble/i });
+      const radialButton = screen.getByRole('button', { name: /capture thought/i });
       await user.click(radialButton);
+      const textMenuItem = await screen.findByRole('button', { name: /^text$/i });
+      await user.click(textMenuItem);
 
       const textInput = screen.getByPlaceholderText(/what's on your mind/i);
       await user.type(textInput, 'I feel overwhelmed with work today');
@@ -299,7 +323,7 @@ describe('Complete Production Workflows', () => {
       const aiToggle = screen.getByRole('switch', { name: /ai analysis/i });
       await user.click(aiToggle);
 
-      const createButton = screen.getByRole('button', { name: /create/i });
+      const createButton = screen.getByRole('button', { name: /save/i });
       await user.click(createButton);
 
       // Verify AI analysis is triggered
@@ -468,13 +492,15 @@ describe('Complete Production Workflows', () => {
       renderApp();
 
       // Attempt to create bubble
-      const radialButton = screen.getByRole('button', { name: /add bubble/i });
+      const radialButton = screen.getByRole('button', { name: /capture thought/i });
       await user.click(radialButton);
+      const textMenuItem = await screen.findByRole('button', { name: /^text$/i });
+      await user.click(textMenuItem);
 
       const textInput = screen.getByPlaceholderText(/what's on your mind/i);
       await user.type(textInput, 'Test bubble');
       
-      const createButton = screen.getByRole('button', { name: /create/i });
+      const createButton = screen.getByRole('button', { name: /save/i });
       await user.click(createButton);
 
       // Verify error handling and recovery options

@@ -47,7 +47,13 @@ export default function SearchPage() {
 
   const renderBubblePreview = (match: SearchMatch) => {
     const { bubble } = match;
+    // Guard against bubbles with a missing/unparseable createdAt: date-fns
+    // format() throws RangeError('Invalid time value') on an Invalid Date,
+    // which would crash the entire Search page render (not just one card).
     const createdDate = new Date(bubble.createdAt);
+    const createdLabel = Number.isNaN(createdDate.getTime())
+      ? 'Unknown date'
+      : format(createdDate, 'MMM d, yyyy HH:mm');
 
     return (
       <Card key={bubble.id} className="w-full hover:shadow-md transition-shadow">
@@ -58,7 +64,7 @@ export default function SearchPage() {
                 {bubble.type}
               </Badge>
               <span className="text-sm text-muted-foreground">
-                {format(createdDate, 'MMM d, yyyy HH:mm')}
+                {createdLabel}
               </span>
             </div>
             <Badge variant="secondary" className="text-xs">
