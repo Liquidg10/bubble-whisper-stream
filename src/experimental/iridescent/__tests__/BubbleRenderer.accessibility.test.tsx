@@ -174,7 +174,7 @@ describe('Adaptive Bubble renderer accessibility slice', () => {
       .toBeVisible();
   });
 
-  it('supports keyboard activation and disables float motion from the app preference', async () => {
+  it('supports keyboard activation and movement while app reduced motion is enabled', async () => {
     const user = userEvent.setup();
     const onBubbleSelect = vi.fn();
     setTasks([
@@ -197,6 +197,7 @@ describe('Adaptive Bubble renderer accessibility slice', () => {
 
     bubble.focus();
     await user.keyboard('{Enter}');
+    await user.keyboard('{ArrowRight}');
 
     expect(onBubbleSelect).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'keyboard-task' }),
@@ -204,6 +205,14 @@ describe('Adaptive Bubble renderer accessibility slice', () => {
     expect(
       (mockUseBubbleStore.getState().toggleSelection as ReturnType<typeof vi.fn>),
     ).toHaveBeenCalledWith('keyboard-task');
+    expect(
+      (mockUseBubbleStore.getState().updateBubble as ReturnType<typeof vi.fn>),
+    ).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'keyboard-task',
+      x: 10,
+      y: 0,
+    }));
+    expect(screen.getByTestId('keyboard-move-instructions')).toBeVisible();
     expect(screen.getByRole('region', { name: 'Adaptive Bubble view' }))
       .toHaveAttribute('data-reduced-motion', 'true');
     expect(container.querySelector('.soap')).toHaveStyle({ animation: 'none' });
