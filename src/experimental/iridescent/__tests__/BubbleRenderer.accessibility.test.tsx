@@ -134,6 +134,27 @@ describe('Adaptive Bubble renderer accessibility slice', () => {
     );
   });
 
+  it('applies persisted density when settings finish hydrating', async () => {
+    const tasks = [
+      task({ id: 'hydrate-1', title: 'One' }),
+      task({ id: 'hydrate-2', title: 'Two' }),
+      task({ id: 'hydrate-3', title: 'Three' }),
+      task({ id: 'hydrate-4', title: 'Four' }),
+      task({ id: 'hydrate-5', title: 'Five' }),
+    ];
+    setTasks(tasks, createMockSettings({ bubbleDensity: 'medium' }));
+
+    const { container, rerender } = render(<IridescentCanvas />);
+    expect(container.querySelectorAll('[data-adaptive-bubble]')).toHaveLength(4);
+
+    setTasks(tasks, createMockSettings({ bubbleDensity: 'high' }));
+    rerender(<IridescentCanvas />);
+
+    await waitFor(() => {
+      expect(container.querySelectorAll('[data-adaptive-bubble]')).toHaveLength(5);
+    });
+  });
+
   it('keeps high urgency text visible when honest readiness is later', async () => {
     const user = userEvent.setup();
     setTasks([

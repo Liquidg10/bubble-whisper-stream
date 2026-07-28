@@ -13,12 +13,16 @@ projection.
 ## Behavior
 
 - Density selection uses readiness order rather than BubbleStore array order.
+- Persisted density is applied when BubbleStore's asynchronous settings
+  hydration completes.
 - Current energy and available time are explicit, transient user inputs.
   Unset values stay neutral in the readiness engine.
 - Every rendered bubble is a keyboard-focusable button.
 - Focused bubbles can be moved with arrow keys; holding Shift uses a
   one-unit precision step. Visible instructions and a polite status
-  announcement provide a keyboard alternative to pointer drag.
+  announcement provide a keyboard alternative to pointer drag. The visible
+  keyboard helper is hidden at touch-width breakpoints to avoid covering
+  bubble targets; the region's accessible description remains available.
 - Every bubble exposes the projection's complete accessible summary.
 - Readiness is always visible as text.
 - Moderate and high urgency remain a separate persistent text badge.
@@ -55,10 +59,11 @@ navigator are unchanged when motion is disabled.
 proves:
 
 1. low density selects from readiness order rather than storage order;
-2. every Task remains available through the `All tasks` navigator;
-3. urgent-but-not-ready remains `later` with visible high-urgency text;
-4. bubble activation and positional movement work from the keyboard;
-5. app and operating-system reduced-motion preferences disable float motion;
-6. the narrow renderer surface has no axe-core violations in jsdom, with the
+2. hydrated density settings replace the pre-hydration default;
+3. every Task remains available through the `All tasks` navigator;
+4. urgent-but-not-ready remains `later` with visible high-urgency text;
+5. bubble activation and positional movement work from the keyboard;
+6. app and operating-system reduced-motion preferences disable float motion;
+7. the narrow renderer surface has no axe-core violations in jsdom, with the
    color-contrast rule excluded because jsdom cannot calculate rendered color
    contrast.

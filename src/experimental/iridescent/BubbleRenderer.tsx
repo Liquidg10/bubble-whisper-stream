@@ -144,6 +144,12 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
   
   const canvasRef = useRef<HTMLDivElement>(null);
 
+  // BubbleStore hydrates settings from IndexedDB after the first render. Keep
+  // this view state aligned with the persisted density once hydration lands.
+  useEffect(() => {
+    setBubbleDensity(settings.bubbleDensity);
+  }, [settings.bubbleDensity]);
+
   const bubbleById = useMemo(
     () => new Map(bubbles.map((bubble) => [bubble.id, bubble])),
     [bubbles],
@@ -732,7 +738,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
         </label>
         <p
           data-testid="keyboard-move-instructions"
-          className="max-w-40 self-center text-xs text-muted-foreground"
+          className="hidden max-w-40 self-center text-xs text-muted-foreground sm:block"
         >
           Keyboard: focus a bubble, then use arrow keys to move it. Hold Shift
           for precise movement.
