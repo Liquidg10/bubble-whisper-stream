@@ -16,6 +16,9 @@ projection.
 - Current energy and available time are explicit, transient user inputs.
   Unset values stay neutral in the readiness engine.
 - Every rendered bubble is a keyboard-focusable button.
+- Focused bubbles can be moved with arrow keys; holding Shift uses a
+  one-unit precision step. Visible instructions and a polite status
+  announcement provide a keyboard alternative to pointer drag.
 - Every bubble exposes the projection's complete accessible summary.
 - Readiness is always visible as text.
 - Moderate and high urgency remain a separate persistent text badge.
@@ -54,7 +57,7 @@ proves:
 1. low density selects from readiness order rather than storage order;
 2. every Task remains available through the `All tasks` navigator;
 3. urgent-but-not-ready remains `later` with visible high-urgency text;
-4. bubble activation works from the keyboard;
+4. bubble activation and positional movement work from the keyboard;
 5. app and operating-system reduced-motion preferences disable float motion;
 6. the narrow renderer surface has no axe-core violations in jsdom, with the
    color-contrast rule excluded because jsdom cannot calculate rendered color

@@ -140,6 +140,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
   );
   const [currentEnergy, setCurrentEnergy] = useState<CurrentEnergy | undefined>();
   const [availableMinutes, setAvailableMinutes] = useState<number | undefined>();
+  const [movementAnnouncement, setMovementAnnouncement] = useState('');
   
   const canvasRef = useRef<HTMLDivElement>(null);
 
@@ -375,6 +376,37 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
     handleTaskSelect(nodeId);
   }, [handleTaskSelect, hasDragged]);
 
+  const handleBubbleKeyDown = useCallback((
+    nodeId: string,
+    event: React.KeyboardEvent<HTMLButtonElement>,
+  ) => {
+    const direction = {
+      ArrowUp: { x: 0, y: -1, label: 'up' },
+      ArrowDown: { x: 0, y: 1, label: 'down' },
+      ArrowLeft: { x: -1, y: 0, label: 'left' },
+      ArrowRight: { x: 1, y: 0, label: 'right' },
+    }[event.key];
+
+    if (!direction) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const bubble = bubbleById.get(nodeId);
+    if (!bubble) return;
+
+    const step = event.shiftKey ? 1 : 10;
+    useBubbleStore.getState().updateBubble({
+      ...bubble,
+      x: bubble.x + direction.x * step,
+      y: bubble.y + direction.y * step,
+      updatedAt: Date.now(),
+    });
+    setMovementAnnouncement(
+      `${bubble.content || 'Task'} moved ${direction.label} ${step} ${step === 1 ? 'unit' : 'units'}.`,
+    );
+  }, [bubbleById]);
+
   // Zoom controls
   const zoomIn = useCallback(() => {
     setViewport(prev => ({ ...prev, scale: Math.min(prev.scale * 1.2, 3) }));
@@ -541,7 +573,11 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
       <p id="adaptive-bubble-view-description" className="sr-only">
         Tasks are ordered by current readiness. Readiness and urgency are
         available as text, and every task remains reachable from the All tasks
-        navigator.
+        navigator. Focus a bubble and use the arrow keys to move it. Hold Shift
+        for precise movement.
+      </p>
+      <p className="sr-only" aria-live="polite" aria-atomic="true">
+        {movementAnnouncement}
       </p>
 
       {/* Render bubbles */}
@@ -555,6 +591,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
             selected={isSelected}
             onPointerDown={(e) => handlePointerDown(node.id, e)}
             onClick={() => handleBubbleClick(node.id)}
+            onKeyDown={(event) => handleBubbleKeyDown(node.id, event)}
             phase={index}
             lod={!lodConfig.enableSpecular || dragging === node.id}
             zIndex={index}
@@ -693,6 +730,13 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
             <option value="120">2 hours</option>
           </select>
         </label>
+        <p
+          data-testid="keyboard-move-instructions"
+          className="max-w-40 self-center text-xs text-muted-foreground"
+        >
+          Keyboard: focus a bubble, then use arrow keys to move it. Hold Shift
+          for precise movement.
+        </p>
       </div>
 
       {/* Declutter & Focus controls */}
@@ -813,6 +857,7 @@ function IridescentBubble({
   selected,
   onPointerDown,
   onClick,
+  onKeyDown,
   phase,
   lod,
   zIndex = 0,
@@ -829,6 +874,7 @@ function IridescentBubble({
   selected: boolean;
   onPointerDown: (e: React.PointerEvent) => void;
   onClick: () => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLButtonElement>) => void;
   phase: number;
   lod: boolean;
   zIndex?: number;
@@ -893,6 +939,7 @@ function IridescentBubble({
       }}
       onPointerDown={onPointerDown}
       onClick={onClick}
+      onKeyDown={onKeyDown}
     >
       <div
         ref={wrapRef}
