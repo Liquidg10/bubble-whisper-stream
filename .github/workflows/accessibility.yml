@@ -24,7 +24,7 @@ jobs:
       run: npm ci
       
     - name: Run Assistant Cohesion Lint (P18)
-      run: node scripts/lint-assistant-cohesion.js
+      run: node scripts/lint-assistant-cohesion.cjs
       
     - name: Run TypeScript check
       run: npx tsc --noEmit
