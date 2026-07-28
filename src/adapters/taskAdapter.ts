@@ -1,279 +1,407 @@
 /**
- * Task Adapter - Bi-directional conversion between Bubble and Task
- * 
- * Provides lossless conversion that preserves all existing Bubble metadata
- * while adding Task-specific view organization.
+ * Task Adapter - bi-directional conversion between Bubble persistence and the
+ * Canonical Task Contract v0.1.
+ *
+ * BubbleStore/IndexedDB remains the single persisted owner during this
+ * migration. Task-only semantics are stored in a versioned
+ * Bubble.metadata.canonicalTask envelope, while legacy Bubble fields remain
+ * readable and directly editable.
  */
 
-import type { Bubble, BubbleType } from '@/types/bubble';
-import type { Task, TaskType, TimeHorizon } from '@/types/task';
-import { getHorizon, setHorizon } from '@/lib/horizon';
+import type {
+  Bubble,
+  BubbleMetadata,
+  BubbleType,
+} from '@/types/bubble';
+import {
+  CANONICAL_TASK_CONTRACT_VERSION,
+  type CanonicalTaskContractV1,
+  type Task,
+  type TaskMetadata,
+  type TaskType,
+  type TaskViewMetadata,
+} from '@/types/task';
+import { getHorizon, getHorizonEmoji } from '@/lib/horizon';
 import { classifyDomain } from '@/lib/classifyDomain';
 import { logger } from '@/utils/logger';
 
+const VIEW_METADATA_KEYS = [
+  'atomic',
+  'list',
+  'kanban',
+  'matrix',
+  'pinboard',
+  'calendar',
+  'email',
+] as const;
+
+const LEGACY_HORIZON_TAG_PREFIX = 'canonical-task-horizon:';
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
 /**
- * Convert Bubble priority/size (0-1) to Task priority (0-100)
+ * Convert Bubble priority/size (0-1) to Task priority (0-100).
  */
 function sizeToPriority(size?: number): number {
-  if (size === undefined || size === null) return 50; // Default medium priority
+  if (!isFiniteNumber(size)) return 50;
   return Math.round(Math.max(0, Math.min(1, size)) * 100);
 }
 
 /**
- * Convert Task priority (0-100) to Bubble size (0-1)
+ * Convert Task priority (0-100) to Bubble size (0-1).
  */
-function priorityToSize(priority: number): number {
+function priorityToSize(priority?: number): number {
+  if (!isFiniteNumber(priority)) return 0.5;
   return Math.max(0, Math.min(100, priority)) / 100;
 }
 
 /**
- * Fallback: Convert Bubble y position to priority
- * Higher on canvas (lower y) = higher priority
+ * Fallback: higher on the canvas (lower y) maps to higher priority.
  */
 function yToPriority(y?: number, canvasHeight: number = 1000): number {
-  if (y === undefined || y === null) return 50;
+  if (!isFiniteNumber(y)) return 50;
   return Math.round((1 - Math.max(0, Math.min(canvasHeight, y)) / canvasHeight) * 100);
 }
 
-/**
- * Map BubbleType to TaskType
- */
-function bubbleTypeToTaskType(bubbleType: BubbleType): TaskType {
+function bubbleTypeToTaskType(bubbleType?: BubbleType): TaskType {
   const typeMap: Record<BubbleType, TaskType> = {
-    'Thought': 'thought',
-    'Task': 'task',
-    'Memory': 'memory',
-    'Mood': 'mood',
-    'ReminderNote': 'reminder'
+    Thought: 'thought',
+    Task: 'task',
+    Memory: 'memory',
+    Mood: 'mood',
+    ReminderNote: 'reminder',
   };
-  
-  return typeMap[bubbleType] || 'task';
+
+  return bubbleType ? typeMap[bubbleType] ?? 'task' : 'task';
 }
 
-/**
- * Map TaskType to BubbleType
- */
-function taskTypeToBubbleType(taskType: TaskType): BubbleType {
+function taskTypeToBubbleType(taskType?: TaskType): BubbleType {
   const typeMap: Record<TaskType, BubbleType> = {
     thought: 'Thought',
-    task: 'Task', 
+    task: 'Task',
     memory: 'Memory',
     mood: 'Mood',
     reminder: 'ReminderNote',
-    photo: 'Task', // Map to Task as fallback
-    event: 'Task'  // Map to Task as fallback
+    photo: 'Task',
+    event: 'Task',
   };
-  
-  return typeMap[taskType] || 'Task';
+
+  return taskType ? typeMap[taskType] ?? 'Task' : 'Task';
+}
+
+function getCanonicalEnvelope(metadata?: BubbleMetadata): CanonicalTaskContractV1 | undefined {
+  const envelope = metadata?.canonicalTask;
+  return envelope?.schemaVersion === CANONICAL_TASK_CONTRACT_VERSION
+    ? envelope
+    : undefined;
 }
 
 /**
- * Convert Bubble to Task
- * 
- * Extracts view metadata from Bubble positioning and tags while preserving
- * all existing metadata.
+ * Projection metadata belongs in Task.view. Domain metadata stays in
+ * Task.metadata. Direct Bubble-side edits win over an older envelope.
+ */
+function extractTaskMetadata(
+  metadata: BubbleMetadata | undefined,
+  envelope: CanonicalTaskContractV1 | undefined,
+): TaskMetadata | undefined {
+  const directMetadata: TaskMetadata = {};
+
+  if (metadata) {
+    for (const [key, value] of Object.entries(metadata)) {
+      if (key === 'canonicalTask' || VIEW_METADATA_KEYS.includes(key as typeof VIEW_METADATA_KEYS[number])) {
+        continue;
+      }
+      directMetadata[key] = value;
+    }
+  }
+
+  const merged = {
+    ...(envelope?.metadata ?? {}),
+    ...directMetadata,
+  };
+
+  return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+function extractCalendarView(
+  metadata: BubbleMetadata | undefined,
+  envelope: CanonicalTaskContractV1 | undefined,
+): TaskViewMetadata['calendar'] | undefined {
+  const directCalendar = metadata?.calendar;
+  if (!directCalendar) return envelope?.view?.calendar;
+
+  const {
+    start: _legacyStart,
+    end: _legacyEnd,
+    ...calendarView
+  } = directCalendar;
+
+  return {
+    ...(envelope?.view?.calendar ?? {}),
+    ...calendarView,
+  };
+}
+
+function buildTaskView(
+  bubble: Bubble,
+  priority: number,
+  envelope: CanonicalTaskContractV1 | undefined,
+): TaskViewMetadata {
+  const metadata = bubble.metadata;
+  const savedView = envelope?.view;
+  const horizon = getHorizon(bubble);
+
+  const view: TaskViewMetadata = {
+    ...(savedView ?? {}),
+    bubble: {
+      ...(savedView?.bubble ?? {}),
+      x: bubble.x ?? savedView?.bubble?.x ?? 0,
+      y: bubble.y ?? savedView?.bubble?.y ?? 0,
+      size: bubble.size ?? savedView?.bubble?.size ?? priorityToSize(priority),
+      colorHex: bubble.moodColor ?? savedView?.bubble?.colorHex,
+    },
+  };
+
+  const atomicShell = horizon ?? savedView?.atomic?.shell;
+  if (atomicShell) {
+    view.atomic = {
+      ...(savedView?.atomic ?? {}),
+      ...(metadata?.atomic ?? {}),
+      shell: atomicShell,
+      domain:
+        metadata?.atomic?.domain
+        ?? savedView?.atomic?.domain
+        ?? classifyDomain(bubble)
+        ?? undefined,
+    };
+  }
+
+  view.list = metadata?.list ?? savedView?.list;
+  view.kanban = metadata?.kanban ?? savedView?.kanban;
+  view.matrix = metadata?.matrix ?? savedView?.matrix;
+  view.pinboard = metadata?.pinboard ?? savedView?.pinboard;
+  view.calendar = extractCalendarView(metadata, envelope);
+  view.email = metadata?.email ?? savedView?.email;
+
+  for (const key of VIEW_METADATA_KEYS) {
+    if (view[key] === undefined) {
+      delete view[key];
+    }
+  }
+
+  return view;
+}
+
+/**
+ * Convert persisted Bubble data to the canonical Task representation.
  */
 export function bubbleToTask(bubble: Bubble): Task {
   try {
-    // Extract priority from size, fallback to y position
-    const priority = bubble.size !== undefined 
+    const envelope = getCanonicalEnvelope(bubble.metadata);
+    const priority = isFiniteNumber(bubble.size)
       ? sizeToPriority(bubble.size)
       : yToPriority(bubble.y);
-
-    // Get current horizon from tags
-    const horizon = getHorizon(bubble);
-    
-    // Classify domain for atomic view
-    const domain = classifyDomain(bubble);
-
-    // Build view metadata
-    const view: Task['view'] = {
-        bubble: {
-          x: bubble.x || 0,
-          y: bubble.y || 0,
-          size: bubble.size || priorityToSize(priority),
-          colorHex: bubble.moodColor
-        }
-    };
-
-    // Add atomic view if horizon exists
-    if (horizon) {
-      view.atomic = {
-        shell: horizon,
-        domain: domain || undefined,
-        angle: bubble.metadata?.atomic?.angle
-      };
-    }
-
-    // Preserve list/kanban/matrix metadata if present
-    if (bubble.metadata?.list) {
-      view.list = bubble.metadata.list;
-    }
-    if (bubble.metadata?.kanban) {
-      view.kanban = bubble.metadata.kanban;
-    }
-    if (bubble.metadata?.matrix) {
-      view.matrix = bubble.metadata.matrix;
-    }
-    if (bubble.metadata?.calendar) {
-      view.calendar = bubble.metadata.calendar;
-    }
+    const now = Date.now();
 
     const task: Task = {
       id: bubble.id,
-      type: bubbleTypeToTaskType(bubble.type),
-      title: bubble.content || 'Untitled',
+      type: envelope?.type ?? bubbleTypeToTaskType(bubble.type),
+      title: bubble.content ?? 'Untitled',
       description: bubble.caption,
-      completed: false, // Bubbles don't have completion state
+      // Direct Bubble edits are authoritative over a stale migration envelope.
+      completed: bubble.completed ?? envelope?.completed ?? false,
       priority,
-      tags: bubble.tags.map(tag => ({
-        id: tag.id,
-        name: tag.name,
-        emoji: tag.emoji,
-        colorHex: tag.colorHex
-      })),
-      createdAt: bubble.createdAt || Date.now(),
-      updatedAt: bubble.updatedAt || Date.now(),
-      due: undefined, // Will handle reminders separately
-      start: bubble.metadata?.calendar?.start,
-      end: bubble.metadata?.calendar?.end,
-      view,
-      metadata: {
-        ...bubble.metadata,
-        // Map legacy bubble metadata to new Task metadata structure
-        outliner: bubble.metadata?.outliner ? {
-          parentId: bubble.metadata.outliner.parentTaskId,
-          estimateMin: bubble.metadata.outliner.estimatedMinutes,
-          steps: bubble.metadata.outliner.stepId ? [{
-            id: bubble.metadata.outliner.stepId,
-            title: 'Legacy step',
-            completed: false
-          }] : undefined
-        } : undefined,
-        focusSession: bubble.metadata?.focusSession ? {
-          targetMin: bubble.metadata.focusSession.duration,
-          actualMin: bubble.metadata.focusSession.duration,
-          notes: bubble.metadata.focusSession.log?.join('; ')
-        } : undefined
-      }
+      actionability: envelope?.actionability,
+      energyFit: envelope?.energyFit,
+      urgency: envelope?.urgency,
+      readiness: envelope?.readiness,
+      domainLinks: envelope?.domainLinks,
+      tags: (bubble.tags ?? [])
+        .filter(tag => !envelope || !tag.id.startsWith(LEGACY_HORIZON_TAG_PREFIX))
+        .map(tag => ({ ...tag })),
+      createdAt: bubble.createdAt ?? now,
+      updatedAt: bubble.updatedAt ?? now,
+      due: envelope?.due,
+      start: envelope?.start ?? bubble.metadata?.calendar?.start,
+      end: envelope?.end ?? bubble.metadata?.calendar?.end,
+      estimatedMinutes:
+        envelope?.estimatedMinutes
+        ?? bubble.metadata?.outliner?.estimateMin
+        ?? bubble.metadata?.outliner?.estimatedMinutes,
+      view: buildTaskView(bubble, priority, envelope),
+      metadata: extractTaskMetadata(bubble.metadata, envelope),
     };
 
-    logger.debug('Converted Bubble to Task', { bubbleId: bubble.id, taskId: task.id, priority });
+    logger.debug('Converted Bubble to canonical Task', {
+      bubbleId: bubble.id,
+      taskId: task.id,
+      contractVersion: envelope?.schemaVersion ?? 'legacy',
+      priority,
+    });
     return task;
-
   } catch (error) {
     logger.error('Failed to convert Bubble to Task', error, { bubbleId: bubble.id });
-    // Return minimal valid task on error
-      return {
-        id: bubble.id,
-        type: 'task',
-        title: bubble.content || 'Untitled',
-        completed: false,
-        priority: 50,
-        tags: [],
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        view: {
-          bubble: { x: 0, y: 0, size: 0.5 }
-        }
-      };
+    const now = Date.now();
+    return {
+      id: bubble.id,
+      type: 'task',
+      title: bubble.content ?? 'Untitled',
+      completed: bubble.completed ?? false,
+      priority: 50,
+      tags: [],
+      createdAt: bubble.createdAt ?? now,
+      updatedAt: bubble.updatedAt ?? now,
+      view: {
+        bubble: { x: bubble.x ?? 0, y: bubble.y ?? 0, size: 0.5 },
+      },
+    };
   }
 }
 
+function buildBubbleMetadata(task: Task): BubbleMetadata {
+  const metadata: BubbleMetadata = {
+    ...(task.metadata ?? {}),
+  };
+
+  if (task.view?.atomic) {
+    metadata.atomic = task.view.atomic;
+  }
+  if (task.view?.list) {
+    metadata.list = task.view.list;
+  }
+  if (task.view?.kanban) {
+    metadata.kanban = task.view.kanban;
+  }
+  if (task.view?.matrix) {
+    metadata.matrix = task.view.matrix;
+  }
+  if (task.view?.pinboard) {
+    metadata.pinboard = task.view.pinboard;
+  }
+  if (task.view?.calendar) {
+    metadata.calendar = {
+      ...task.view.calendar,
+      start: task.start,
+      end: task.end,
+    };
+  }
+  if (task.view?.email) {
+    metadata.email = task.view.email;
+  }
+
+  const canonicalTask: CanonicalTaskContractV1 = {
+    schemaVersion: CANONICAL_TASK_CONTRACT_VERSION,
+    type: task.type ?? 'task',
+    completed: task.completed ?? false,
+    due: task.due,
+    start: task.start,
+    end: task.end,
+    estimatedMinutes: task.estimatedMinutes,
+    actionability: task.actionability,
+    energyFit: task.energyFit,
+    urgency: task.urgency,
+    readiness: task.readiness,
+    domainLinks: task.domainLinks,
+    view: task.view,
+    metadata: task.metadata,
+  };
+
+  metadata.canonicalTask = canonicalTask;
+  return metadata;
+}
+
 /**
- * Convert Task to Bubble
- * 
- * Writes view metadata back to appropriate Bubble fields while preserving
- * all existing functionality.
+ * Atomic still reads legacy horizon tags. Add a clearly marked transport tag
+ * when the canonical Task does not already contain the requested horizon.
+ * The marked tag is filtered back out when the versioned envelope is read.
+ */
+function applyLegacyHorizonTag(bubble: Bubble, targetHorizon: NonNullable<TaskViewMetadata['atomic']>['shell']): Bubble {
+  const existingTargetTag = (bubble.tags ?? []).find(
+    tag => tag.name.toLowerCase() === targetHorizon,
+  );
+  const withoutHorizons = (bubble.tags ?? []).filter(tag => {
+    const name = tag.name.toLowerCase();
+    return name !== 'today' && name !== 'week' && name !== 'later';
+  });
+
+  return {
+    ...bubble,
+    tags: [
+      ...withoutHorizons,
+      existingTargetTag ?? {
+        id: `${LEGACY_HORIZON_TAG_PREFIX}${bubble.id}`,
+        name: targetHorizon,
+        emoji: getHorizonEmoji(targetHorizon),
+      },
+    ],
+  };
+}
+
+/**
+ * Convert a canonical Task to the single BubbleStore persistence record.
  */
 export function taskToBubble(task: Task): Bubble {
   try {
-    // Convert priority back to size
-    const size = priorityToSize(task.priority);
-    
-    // Build base bubble
+    const now = Date.now();
+    const taskType = task.type ?? 'task';
+    const updatedAt = task.updatedAt ?? now;
     let bubble: Bubble = {
       id: task.id,
-      type: taskTypeToBubbleType(task.type),
-      content: task.title,
+      type: taskTypeToBubbleType(taskType),
+      content: task.title ?? task.id ?? 'Untitled',
       caption: task.description,
-      tags: task.tags.map(tag => ({
-        id: tag.id,
-        name: tag.name,
-        emoji: tag.emoji,
-        colorHex: tag.colorHex
-      })),
-      createdAt: task.createdAt,
-      updatedAt: task.updatedAt,
-      x: task.view?.bubble?.x || 0,
-      y: task.view?.bubble?.y || 0,
-      size,
+      completed: task.completed ?? false,
+      tags: (task.tags ?? []).map(tag => ({ ...tag })),
+      createdAt: task.createdAt ?? now,
+      updatedAt,
+      x: task.view?.bubble?.x ?? 0,
+      y: task.view?.bubble?.y ?? 0,
+      size: priorityToSize(task.priority),
       moodColor: task.view?.bubble?.colorHex,
-      metadata: {
-        ...task.metadata,
-        // Map new Task metadata back to legacy bubble format for compatibility
-        outliner: task.metadata?.outliner ? {
-          parentTaskId: task.metadata.outliner.parentId,
-          estimatedMinutes: task.metadata.outliner.estimateMin,
-          stepId: task.metadata.outliner.steps?.[0]?.id
-        } : undefined,
-        focusSession: task.metadata?.focusSession ? {
-          duration: task.metadata.focusSession.actualMin || task.metadata.focusSession.targetMin || 0,
-          stepsCompleted: 0,
-          log: task.metadata.focusSession.notes ? [task.metadata.focusSession.notes] : []
-        } : undefined
-      }
+      metadata: buildBubbleMetadata(task),
     };
 
-    // Set reminder if due date exists - will be handled by reminder system
-
-    // Apply horizon from atomic view if present
-    if (task.view?.atomic?.shell) {
-      bubble = setHorizon(bubble, task.view.atomic.shell);
+    const targetHorizon = task.view?.atomic?.shell;
+    if (targetHorizon && getHorizon(bubble) !== targetHorizon) {
+      bubble = applyLegacyHorizonTag(bubble, targetHorizon);
     }
 
-    // Merge view-specific metadata
-    bubble.metadata = {
-      ...bubble.metadata,
-      atomic: task.view?.atomic ? {
-        domain: task.view.atomic.domain,
-        angle: task.view.atomic.angle,
-        ...bubble.metadata?.atomic
-      } : bubble.metadata?.atomic,
-      list: task.view?.list || bubble.metadata?.list,
-      kanban: task.view?.kanban || bubble.metadata?.kanban,
-      matrix: task.view?.matrix || bubble.metadata?.matrix,
-      calendar: task.view?.calendar ? {
-        start: task.start,
-        end: task.end,
-        ...task.view.calendar,
-        ...bubble.metadata?.calendar
-      } : bubble.metadata?.calendar
-    };
-
-    logger.debug('Converted Task to Bubble', { taskId: task.id, bubbleId: bubble.id, size });
+    logger.debug('Converted canonical Task to Bubble', {
+      taskId: task.id,
+      bubbleId: bubble.id,
+      contractVersion: CANONICAL_TASK_CONTRACT_VERSION,
+      size: bubble.size,
+    });
     return bubble;
-
   } catch (error) {
     logger.error('Failed to convert Task to Bubble', error, { taskId: task.id });
-    // Return minimal valid bubble on error
+    const now = Date.now();
     return {
       id: task.id,
       type: 'Task',
-      content: task.title || 'Untitled',
+      content: task.title ?? task.id ?? 'Untitled',
+      completed: task.completed ?? false,
       tags: [],
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      createdAt: task.createdAt ?? now,
+      updatedAt: task.updatedAt ?? now,
       x: 0,
       y: 0,
-      size: 0.5
+      size: 0.5,
+      metadata: {
+        canonicalTask: {
+          schemaVersion: CANONICAL_TASK_CONTRACT_VERSION,
+          type: task.type ?? 'task',
+          completed: task.completed ?? false,
+        },
+      },
     };
   }
 }
 
 /**
- * Round-trip test helper
- * Verifies that Bubble → Task → Bubble preserves core data
+ * Verify that Bubble → Task → Bubble preserves the existing core record.
  */
 export function validateRoundTrip(originalBubble: Bubble): {
   isValid: boolean;
@@ -282,52 +410,54 @@ export function validateRoundTrip(originalBubble: Bubble): {
   convertedBubble: Bubble;
 } {
   const errors: string[] = [];
-  
+
   try {
     const task = bubbleToTask(originalBubble);
     const convertedBubble = taskToBubble(task);
-    
-    // Check core field preservation
+
     if (originalBubble.id !== convertedBubble.id) {
       errors.push(`ID mismatch: ${originalBubble.id} → ${convertedBubble.id}`);
     }
-    
+
     if (originalBubble.content !== convertedBubble.content) {
       errors.push(`Content mismatch: "${originalBubble.content}" → "${convertedBubble.content}"`);
     }
-    
-    // Note: Bubbles don't have completion state, so we skip this check
-    
-    // Check priority mapping within ±1
+
+    if ((originalBubble.completed ?? false) !== (convertedBubble.completed ?? false)) {
+      errors.push(
+        `Completion mismatch: ${originalBubble.completed ?? false} → ${convertedBubble.completed ?? false}`,
+      );
+    }
+
     const originalPriority = sizeToPriority(originalBubble.size);
     const convertedPriority = sizeToPriority(convertedBubble.size);
     if (Math.abs(originalPriority - convertedPriority) > 1) {
       errors.push(`Priority drift: ${originalPriority} → ${convertedPriority}`);
     }
-    
-    // Check tags preservation
-    if (originalBubble.tags.length !== convertedBubble.tags.length) {
-      errors.push(`Tag count mismatch: ${originalBubble.tags.length} → ${convertedBubble.tags.length}`);
+
+    if ((originalBubble.tags ?? []).length !== (convertedBubble.tags ?? []).length) {
+      errors.push(
+        `Tag count mismatch: ${(originalBubble.tags ?? []).length} → ${(convertedBubble.tags ?? []).length}`,
+      );
     }
-    
-    // Check metadata preservation (lenient - structure may change but critical data preserved)
+
     if (originalBubble.metadata?.outliner && !convertedBubble.metadata?.outliner) {
       errors.push('Outliner metadata lost');
     }
-    
+
     return {
       isValid: errors.length === 0,
       errors,
       task,
-      convertedBubble
+      convertedBubble,
     };
-    
   } catch (error) {
+    const task = bubbleToTask(originalBubble);
     return {
       isValid: false,
       errors: [`Round-trip failed: ${error}`],
-      task: bubbleToTask(originalBubble), // Best effort
-      convertedBubble: taskToBubble(bubbleToTask(originalBubble))
+      task,
+      convertedBubble: taskToBubble(task),
     };
   }
 }

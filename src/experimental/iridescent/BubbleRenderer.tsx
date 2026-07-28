@@ -2,16 +2,32 @@ import React, { useMemo, useRef, useState, useCallback, useEffect } from "react"
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { usePinchZoom } from '@/hooks/usePinchZoom';
-import { useTouchGestures } from '@/hooks/useTouchGestures';
 import { useLODSystem } from '@/hooks/useLODSystem';
-import { Bubble } from '@/types/bubble';
-import { BubbleCanvasProps } from '@/themes/ThemeTypes';
+import type { Bubble } from '@/types/bubble';
+import type { BubbleCanvasProps, ThemeTokens } from '@/themes/ThemeTypes';
 import { MergeConfirmPortal } from '@/components/MergeConfirmPortal';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { useReducedMotion } from '@/components/ReducedMotionEnforcer';
+import { bubbleToTask } from '@/adapters/taskAdapter';
+import {
+  projectAdaptiveBubbles,
+  type AdaptiveBubbleProjection,
+  type AdaptiveBubbleSemantics,
+} from '@/services/adaptiveBubbleContract';
+import type { CurrentEnergy } from '@/services/readinessEngine';
+import type { TaskReadiness } from '@/types/task';
 import { PhotoBubbleIridescent } from './PhotoBubbleIridescent';
 
-import { ZoomIn, ZoomOut, RotateCcw, Map, Filter, Focus, Layers } from 'lucide-react';
+import {
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
+  Map as MapIcon,
+  Filter,
+  Focus,
+  Layers,
+} from 'lucide-react';
 
 interface IridescentNode {
   id: string;
@@ -21,7 +37,60 @@ interface IridescentNode {
   label: string;
   type: string;
   glow: string;
-  bubble: Bubble; // Add full bubble data for photo access
+  bubble: Bubble;
+  readiness: TaskReadiness;
+  semantics: AdaptiveBubbleSemantics;
+}
+
+interface LastMerge {
+  A: Bubble;
+  B: Bubble;
+  mergedId: string;
+}
+
+type BubbleVisualProperties = React.CSSProperties & {
+  '--cx': string;
+  '--cy': string;
+  '--hx': string;
+  '--hy': string;
+};
+
+interface AdaptiveTaskNavigatorProps {
+  projections: readonly AdaptiveBubbleProjection[];
+  onTaskSelect: (taskId: string) => void;
+}
+
+export function AdaptiveTaskNavigator({
+  projections,
+  onTaskSelect,
+}: AdaptiveTaskNavigatorProps) {
+  return (
+    <details className="absolute bottom-6 right-4 z-30 max-w-[min(24rem,calc(100%-2rem))] rounded-md border bg-card/95 text-card-foreground shadow-lg backdrop-blur-sm">
+      <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        All tasks ({projections.length})
+      </summary>
+      <ol
+        aria-label="All tasks by current readiness"
+        className="max-h-64 space-y-1 overflow-y-auto border-t p-2"
+      >
+        {projections.map(({ task, semantics }) => (
+          <li key={task.id}>
+            <button
+              type="button"
+              onClick={() => onTaskSelect(task.id)}
+              className="w-full rounded-md px-2 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-label={`Open ${semantics.accessibleSummary}`}
+            >
+              <span className="block font-medium">{task.title}</span>
+              <span className="block text-xs text-muted-foreground">
+                {semantics.readinessLabel} · {semantics.urgencyLabel}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ol>
+    </details>
+  );
 }
 
 // Utility functions
@@ -39,10 +108,20 @@ function dist(a: IridescentNode, b: IridescentNode): number {
 }
 
 export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, className, theme }: BubbleCanvasProps) {
-  const { bubbles, selectedBubbles, toggleSelection, clearSelection, mergeBubbles, undoLastMerge } = useBubbleStore();
+  const {
+    bubbles,
+    settings,
+    selectedBubbles,
+    toggleSelection,
+    clearSelection,
+    mergeBubbles,
+    undoLastMerge,
+  } = useBubbleStore();
   const { getLODConfig } = useLODSystem();
   const isMobile = useIsMobile();
+  const systemPrefersReducedMotion = useReducedMotion();
   const lodConfig = getLODConfig();
+  const reducedMotion = settings.reducedMotion || systemPrefersReducedMotion;
   
   const [dragging, setDragging] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
@@ -52,24 +131,46 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
   const [viewportStart, setViewportStart] = useState({ x: 0, y: 0 });
   const [confirm, setConfirm] = useState<{ x: number; y: number; a: string; b: string } | null>(null);
   const [toast, setToast] = useState(false);
-  const [lastMerge, setLastMerge] = useState<any>(null);
+  const [lastMerge, setLastMerge] = useState<LastMerge | null>(null);
   const [viewport, setViewport] = useState({ x: 0, y: 0, scale: 1, width: 800, height: 600 });
   const [declutterMode, setDeclutterMode] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
-  const [bubbleDensity, setBubbleDensity] = useState<'low' | 'medium' | 'high'>('medium');
+  const [bubbleDensity, setBubbleDensity] = useState<'low' | 'medium' | 'high'>(
+    settings.bubbleDensity,
+  );
+  const [currentEnergy, setCurrentEnergy] = useState<CurrentEnergy | undefined>();
+  const [availableMinutes, setAvailableMinutes] = useState<number | undefined>();
   
   const canvasRef = useRef<HTMLDivElement>(null);
 
-  // Filter bubbles based on controls
-  const filteredBubbles = useMemo(() => {
-    let filtered = [...bubbles];
+  const bubbleById = useMemo(
+    () => new Map(bubbles.map((bubble) => [bubble.id, bubble])),
+    [bubbles],
+  );
+
+  const adaptiveProjections = useMemo(
+    () => projectAdaptiveBubbles(
+      bubbles.map(bubbleToTask),
+      {
+        currentEnergy,
+        availableMinutes,
+        now: Date.now(),
+      },
+    ),
+    [availableMinutes, bubbles, currentEnergy],
+  );
+
+  // Visual density may change what is drawn, but the navigator below keeps
+  // every canonical Task reachable in the same readiness order.
+  const filteredProjections = useMemo(() => {
+    let filtered = [...adaptiveProjections];
     
     // Apply focus mode filter
     if (focusMode && selectedBubbles.size > 0) {
-      filtered = filtered.filter(b => selectedBubbles.has(b.id));
+      filtered = filtered.filter(({ task }) => selectedBubbles.has(task.id));
     }
     
-    // Apply density filter
+    // Apply density to readiness order, never BubbleStore array order.
     if (bubbleDensity === 'low') {
       filtered = filtered.slice(0, Math.ceil(filtered.length * 0.3));
     } else if (bubbleDensity === 'medium') {
@@ -78,28 +179,60 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
     
     // Apply declutter mode filter (remove smaller bubbles)
     if (declutterMode) {
-      const avgSize = filtered.reduce((sum, b) => sum + b.size, 0) / filtered.length;
-      filtered = filtered.filter(b => b.size >= avgSize * 0.8);
+      const visibleBubbles = filtered
+        .map(({ task }) => bubbleById.get(task.id))
+        .filter((bubble): bubble is Bubble => bubble !== undefined);
+      const avgSize = visibleBubbles.length === 0
+        ? 0
+        : visibleBubbles.reduce((sum, bubble) => sum + bubble.size, 0)
+          / visibleBubbles.length;
+      filtered = filtered.filter(({ task }) => (
+        (bubbleById.get(task.id)?.size ?? 0) >= avgSize * 0.8
+      ));
     }
     
     return filtered;
-  }, [bubbles, focusMode, selectedBubbles, bubbleDensity, declutterMode]);
+  }, [
+    adaptiveProjections,
+    bubbleById,
+    bubbleDensity,
+    declutterMode,
+    focusMode,
+    selectedBubbles,
+  ]);
+
+  const filteredBubbles = useMemo(
+    () => filteredProjections
+      .map(({ task }) => bubbleById.get(task.id))
+      .filter((bubble): bubble is Bubble => bubble !== undefined),
+    [bubbleById, filteredProjections],
+  );
 
   // Convert bubbles to nodes with viewport transformation
   const nodes: IridescentNode[] = useMemo(() => {
-    return filteredBubbles.map((bubble, index) => ({
-      id: bubble.id,
-      x: (bubble.x * viewport.scale) + viewport.x + (viewport.width / 2),
-      y: (bubble.y * viewport.scale) + viewport.y + (viewport.height / 2),
-      r: Math.max(20, bubble.size * 50 * viewport.scale),
-      label: bubble.content?.slice(0, 20) + (bubble.content?.length > 20 ? '...' : '') || `${bubble.type} bubble`,
-      type: String(bubble.type || '').toLowerCase(),
-      glow: getGlowColor(bubble, theme?.tokens.auraMapping),
-      bubble: bubble // Include full bubble data
-    }));
-  }, [filteredBubbles, theme?.tokens.auraMapping, viewport]);
+    return filteredProjections.flatMap((projection) => {
+      const bubble = bubbleById.get(projection.task.id);
+      if (!bubble) return [];
 
-  function getGlowColor(bubble: Bubble, auraMapping: any): string {
+      return [{
+        id: bubble.id,
+        x: (bubble.x * viewport.scale) + viewport.x + (viewport.width / 2),
+        y: (bubble.y * viewport.scale) + viewport.y + (viewport.height / 2),
+        r: Math.max(20, bubble.size * 50 * viewport.scale),
+        label: bubble.content?.slice(0, 20) + (bubble.content?.length > 20 ? '...' : '') || `${bubble.type} bubble`,
+        type: String(bubble.type || '').toLowerCase(),
+        glow: getGlowColor(bubble, theme?.tokens.auraMapping),
+        bubble,
+        readiness: projection.readiness,
+        semantics: projection.semantics,
+      }];
+    });
+  }, [bubbleById, filteredProjections, theme?.tokens.auraMapping, viewport]);
+
+  function getGlowColor(
+    bubble: Bubble,
+    auraMapping: ThemeTokens['auraMapping'] | undefined,
+  ): string {
     const h = (val: string) => (/%/.test(val) ? `hsl(${val})` : val);
     const typeMap: Record<string, string> = {
       thought:     h(auraMapping?.cloudy   || '#FF3FD4'),
@@ -113,7 +246,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
   }
 
   const handlePointerDown = useCallback((nodeId: string, e: React.PointerEvent) => {
-    e.preventDefault();
+    e.stopPropagation();
     const node = nodes.find(n => n.id === nodeId);
     if (!node) return;
 
@@ -159,7 +292,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
     
     const updatedBubble = { ...bubble, x: newX, y: newY, updatedAt: Date.now() };
     useBubbleStore.getState().updateBubble(updatedBubble);
-  }, [dragging, dragOffset, bubbles]);
+  }, [bubbles, dragOffset, dragging, viewport]);
 
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
     if (!dragging) return;
@@ -228,19 +361,19 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
     setToast(false);
   }, [lastMerge, undoLastMerge]);
 
-  const handleBubbleClick = useCallback((nodeId: string) => {
-    // Only handle click if we haven't dragged
-    if (hasDragged) return;
-    
-    const bubble = bubbles.find(b => b.id === nodeId);
+  const handleTaskSelect = useCallback((taskId: string) => {
+    const bubble = bubbleById.get(taskId);
     if (bubble) {
-      if (onBubbleSelect) {
-        onBubbleSelect(bubble);
-      }
-      // Also toggle selection for the renderer
+      onBubbleSelect?.(bubble);
       toggleSelection(bubble.id);
     }
-  }, [bubbles, onBubbleSelect, toggleSelection, hasDragged]);
+  }, [bubbleById, onBubbleSelect, toggleSelection]);
+
+  const handleBubbleClick = useCallback((nodeId: string) => {
+    // Only handle click if we haven't dragged.
+    if (hasDragged) return;
+    handleTaskSelect(nodeId);
+  }, [handleTaskSelect, hasDragged]);
 
   // Zoom controls
   const zoomIn = useCallback(() => {
@@ -383,6 +516,10 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
     <div 
       ref={canvasRef}
       className={`relative w-full h-full overflow-hidden bg-universe cursor-grab active:cursor-grabbing ${className || ''}`}
+      role="region"
+      aria-label="Adaptive Bubble view"
+      aria-describedby="adaptive-bubble-view-description"
+      data-reduced-motion={reducedMotion}
       onPointerDown={handleCanvasPointerDown}
       onPointerMove={(e) => {
         handleCanvasPointerMove(e);
@@ -401,6 +538,12 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
         touchAction: 'none'
       }}
     >
+      <p id="adaptive-bubble-view-description" className="sr-only">
+        Tasks are ordered by current readiness. Readiness and urgency are
+        available as text, and every task remains reachable from the All tasks
+        navigator.
+      </p>
+
       {/* Render bubbles */}
       {nodes.map((node, index) => {
         const bubbleId = node.id;
@@ -416,6 +559,9 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
             lod={!lodConfig.enableSpecular || dragging === node.id}
             zIndex={index}
             bubble={node.bubble}
+            readiness={node.readiness}
+            semantics={node.semantics}
+            reducedMotion={reducedMotion}
           />
         </div>
         );
@@ -469,6 +615,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
           onClick={zoomIn}
           aria-label="Zoom in"
           className="bg-card/80 backdrop-blur-sm"
+          aria-label="Zoom in"
         >
           <ZoomIn className="h-4 w-4" />
         </Button>
@@ -478,6 +625,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
           onClick={zoomOut}
           aria-label="Zoom out"
           className="bg-card/80 backdrop-blur-sm"
+          aria-label="Zoom out"
         >
           <ZoomOut className="h-4 w-4" />
         </Button>
@@ -487,6 +635,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
           onClick={centerOnBubbles}
           aria-label="Center bubbles"
           className="bg-card/80 backdrop-blur-sm"
+          aria-label="Center visible bubbles"
         >
           <RotateCcw className="h-4 w-4" />
         </Button>
@@ -496,9 +645,54 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
           onClick={() => setViewport(prev => ({ ...prev, scale: 1 }))}
           aria-label="Reset zoom"
           className="bg-card/80 backdrop-blur-sm"
+          aria-label="Reset zoom"
         >
-          <Map className="h-4 w-4" />
+          <MapIcon className="h-4 w-4" />
         </Button>
+      </div>
+
+      {/* User-controlled, transient readiness context. */}
+      <div
+        className="absolute top-16 left-4 z-20 flex flex-wrap items-end gap-2 rounded-md border bg-card/90 p-2 text-card-foreground shadow-sm backdrop-blur-sm"
+        role="group"
+        aria-label="Current readiness context"
+      >
+        <span className="self-center text-xs font-medium">Right now</span>
+        <label className="flex flex-col gap-1 text-xs">
+          <span>Energy</span>
+          <select
+            aria-label="Current energy"
+            value={currentEnergy ?? ''}
+            onChange={(event) => {
+              const value = event.target.value;
+              setCurrentEnergy(value === '' ? undefined : value as CurrentEnergy);
+            }}
+            className="h-8 rounded border bg-background px-2 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <option value="">Not set</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-xs">
+          <span>Time available</span>
+          <select
+            aria-label="Available time"
+            value={availableMinutes ?? ''}
+            onChange={(event) => {
+              const value = event.target.value;
+              setAvailableMinutes(value === '' ? undefined : Number(value));
+            }}
+            className="h-8 rounded border bg-background px-2 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <option value="">Not set</option>
+            <option value="10">10 minutes</option>
+            <option value="30">30 minutes</option>
+            <option value="60">1 hour</option>
+            <option value="120">2 hours</option>
+          </select>
+        </label>
       </div>
 
       {/* Declutter & Focus controls */}
@@ -510,6 +704,8 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
           aria-label={`${declutterMode ? 'Disable' : 'Enable'} declutter mode`}
           aria-pressed={declutterMode}
           className="bg-card/80 backdrop-blur-sm"
+          aria-label="Toggle decluttered view"
+          aria-pressed={declutterMode}
         >
           <Filter className="h-4 w-4" />
         </Button>
@@ -520,6 +716,8 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
           aria-label={`${focusMode ? 'Disable' : 'Enable'} focus mode`}
           aria-pressed={focusMode}
           className="bg-card/80 backdrop-blur-sm"
+          aria-label="Toggle focus mode"
+          aria-pressed={focusMode}
         >
           <Focus className="h-4 w-4" />
         </Button>
@@ -533,6 +731,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
           }}
           aria-label={`Bubble density: ${bubbleDensity}. Change density`}
           className="bg-card/80 backdrop-blur-sm"
+          aria-label={`Change bubble density. Current density: ${bubbleDensity}`}
         >
           <Layers className="h-4 w-4" />
         </Button>
@@ -551,25 +750,31 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
           </Badge>
         )}
         {selectedBubbles.size > 0 && (
-          <Badge 
-            variant="default" 
-            className="bg-bubble-selected/90 backdrop-blur-sm cursor-pointer"
+          <Button
+            variant="default"
+            size="sm"
+            className="h-6 bg-bubble-selected/90 px-2 text-xs backdrop-blur-sm"
             onClick={clearSelection}
+            aria-label={`Clear ${selectedBubbles.size} selected tasks`}
           >
             {selectedBubbles.size} selected • tap to clear
-          </Badge>
+          </Button>
         )}
         <Badge variant="outline" className="bg-card/80 backdrop-blur-sm">
           Density: {bubbleDensity}
         </Badge>
       </div>
 
+      <AdaptiveTaskNavigator
+        projections={adaptiveProjections}
+        onTaskSelect={handleTaskSelect}
+      />
 
       {/* Performance Stats (Development) */}
       {process.env.NODE_ENV === 'development' && (
         <div className="absolute bottom-20 right-4 text-xs text-muted-foreground bg-card/80 
                        backdrop-blur px-2 py-1 rounded border">
-          Rendering: {nodes.length}/{bubbles.length} bubbles ({filteredBubbles.length} filtered)
+          Rendering: {nodes.length}/{adaptiveProjections.length} tasks ({filteredBubbles.length} visible)
           <br />
           Scale: {viewport.scale.toFixed(2)}x
         </div>
@@ -611,7 +816,10 @@ function IridescentBubble({
   phase,
   lod,
   zIndex = 0,
-  bubble
+  bubble,
+  readiness,
+  semantics,
+  reducedMotion,
 }: {
   x: number;
   y: number;
@@ -625,6 +833,9 @@ function IridescentBubble({
   lod: boolean;
   zIndex?: number;
   bubble: Bubble;
+  readiness: TaskReadiness;
+  semantics: AdaptiveBubbleSemantics;
+  reducedMotion: boolean;
 }) {
   const [cx, setCx] = useState(35);
   const [cy, setCy] = useState(28);
@@ -651,18 +862,27 @@ function IridescentBubble({
     setHy(12);
   }
 
-  const varStyle = {
-    ['--cx' as any]: `${cx}%`,
-    ['--cy' as any]: `${cy}%`,
-    ['--hx' as any]: `${hx}%`,
-    ['--hy' as any]: `${hy}%`
-  } as React.CSSProperties;
+  const varStyle: BubbleVisualProperties = {
+    '--cx': `${cx}%`,
+    '--cy': `${cy}%`,
+    '--hx': `${hx}%`,
+    '--hy': `${hy}%`,
+  };
 
   const floatDuration = 16 + ((phase % 5) * 2);
   const floatDelay = -((phase % 7) * 0.7);
 
   return (
-    <div
+    <button
+      type="button"
+      className="rounded-full bg-transparent p-0 text-inherit focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background"
+      aria-label={semantics.accessibleSummary}
+      aria-pressed={selected}
+      data-adaptive-bubble
+      data-task-id={semantics.taskId}
+      data-readiness-band={readiness.band}
+      data-urgency={semantics.urgencyLabel}
+      data-motion-independent={semantics.motionIndependent}
       style={{
         position: 'absolute',
         left: x - r,
@@ -677,12 +897,14 @@ function IridescentBubble({
       <div
         ref={wrapRef}
         className={`soap ${selected ? 'ring-selected' : ''} ${lod ? 'lod' : ''}`}
-        onPointerMove={handleMove}
+        onPointerMove={reducedMotion ? undefined : handleMove}
         onPointerLeave={handleLeave}
         style={{
           width: '100%',
           height: '100%',
-          animation: `driftFloat ${floatDuration}s ease-in-out ${floatDelay}s infinite`,
+          animation: reducedMotion
+            ? 'none'
+            : `driftFloat ${floatDuration}s ease-in-out ${floatDelay}s infinite`,
           ...varStyle
         }}
       >
@@ -764,6 +986,7 @@ function IridescentBubble({
       </div>
       {label && (
         <div
+          className="pointer-events-none"
           style={{
             textAlign: 'center',
             fontSize: 12,
@@ -774,6 +997,16 @@ function IridescentBubble({
           {label}
         </div>
       )}
-    </div>
+      <div className="pointer-events-none mt-1 flex min-w-max flex-wrap justify-center gap-1 text-[10px]">
+        <span className="rounded-full border bg-card/90 px-2 py-0.5 text-card-foreground">
+          {semantics.readinessLabel}
+        </span>
+        {semantics.requiresPersistentUrgencyCue ? (
+          <span className="rounded-full border border-amber-300 bg-amber-950/90 px-2 py-0.5 font-semibold text-amber-100">
+            {semantics.urgencyLabel}
+          </span>
+        ) : null}
+      </div>
+    </button>
   );
 }
