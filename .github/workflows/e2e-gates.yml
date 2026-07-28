@@ -57,8 +57,9 @@ jobs:
             const fs = require('fs');
             const results = JSON.parse(fs.readFileSync('e2e-gates-results.json', 'utf8'));
             const passed = results.suites?.[0]?.specs?.every(spec => spec.tests?.every(test => test.results?.every(result => result.status === 'passed'))) ?? false;
-            console.log('GATE_STATUS=' + (passed ? 'PASSED' : 'FAILED'));
-            console.log('GATE_STATUS=' + (passed ? 'PASSED' : 'FAILED') >> $GITHUB_OUTPUT);
+            const status = passed ? 'PASSED' : 'FAILED';
+            console.log('GATE_STATUS=' + status);
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, 'GATE_STATUS=' + status + '\\n');
           "
           
       - name: Upload gate results
