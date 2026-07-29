@@ -20,7 +20,7 @@ export async function setupA11yTesting(page: Page, config?: A11yTestConfig): Pro
   // Configure axe-core rules if provided
   if (config?.rules) {
     await page.evaluate((rules) => {
-      // @ts-ignore - axe is injected globally
+      // @ts-expect-error - axe is injected globally by axe-playwright
       window.axe.configure({ rules });
     }, config.rules);
   }
@@ -34,6 +34,10 @@ export async function expectNoA11yViolations(
   selector?: string,
   config?: A11yTestConfig
 ): Promise<void> {
+  // Navigation replaces the document, including any previously injected axe
+  // runtime. Inject immediately before every audit so the gate tests the page
+  // that is actually loaded.
+  await setupA11yTesting(page, config);
   await checkA11y(page, selector, {
     includeTags: config?.includeTags || ['wcag2a', 'wcag2aa', 'wcag21aa'],
     excludeTags: config?.excludeTags,
@@ -44,6 +48,7 @@ export async function expectNoA11yViolations(
  * Get accessibility violations for detailed analysis
  */
 export async function getA11yViolations(page: Page, selector?: string) {
+  await setupA11yTesting(page);
   return await getViolations(page, selector);
 }
 

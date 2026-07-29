@@ -151,7 +151,11 @@ export const OnboardingDataWizard: React.FC<OnboardingDataWizardProps> = ({
         </DialogHeader>
 
         <div className="space-y-6">
-          <Progress value={progress} className="h-2" />
+          <Progress
+            value={progress}
+            className="h-2"
+            aria-label={`Onboarding progress: step ${currentStep + 1} of ${STEPS.length}`}
+          />
 
           {/* Step 0: Welcome */}
           {currentStep === 0 && (

@@ -449,6 +449,9 @@ export const ListView: React.FC = () => {
               exit={{ opacity: 0 }}
               className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
               onClick={() => setShowKeyboardHelp(false)}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="keyboard-shortcuts-title"
             >
               <motion.div
                 initial={{ scale: 0.9, opacity: 0 }}
@@ -459,7 +462,9 @@ export const ListView: React.FC = () => {
               >
                 <div className="flex items-center gap-2 mb-4">
                   <Keyboard className="w-5 h-5 text-accent-flow" />
-                  <h3 className="text-lg font-semibold">Keyboard Shortcuts</h3>
+                  <h3 id="keyboard-shortcuts-title" className="text-lg font-semibold">
+                    Keyboard Shortcuts
+                  </h3>
                 </div>
                 
                 <div className="space-y-3 text-sm">
