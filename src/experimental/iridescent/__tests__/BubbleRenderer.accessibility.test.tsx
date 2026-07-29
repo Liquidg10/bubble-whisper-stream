@@ -312,5 +312,38 @@ describe('Adaptive Bubble renderer accessibility slice', () => {
     );
     expect(screen.getByRole('group', { name: 'Current readiness context' }))
       .toHaveClass('top-32', 'sm:top-16');
+    expect(screen.getByRole('combobox', { name: 'Current energy' }))
+      .toHaveClass('h-11', 'sm:h-8');
+    expect(screen.getByRole('combobox', { name: 'Available time' }))
+      .toHaveClass('h-11', 'sm:h-8');
+    expect(screen.getByText('All tasks (1)'))
+      .toHaveClass('min-h-11');
+  });
+
+  it('keeps the smallest rendered bubble at least 44px across zoom levels', () => {
+    setTasks([
+      task({
+        id: 'minimum-target-task',
+        title: 'Minimum touch target task',
+        priority: 0,
+        view: {
+          bubble: {
+            x: 0,
+            y: 0,
+            size: 0.1,
+          },
+        },
+      }),
+    ], createMockSettings({ bubbleDensity: 'high' }));
+
+    const { container } = render(<IridescentCanvas />);
+    const bubble = container.querySelector(
+      '[data-task-id="minimum-target-task"]',
+    );
+
+    expect(bubble).toHaveStyle({
+      width: '44px',
+      height: '44px',
+    });
   });
 });

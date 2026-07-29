@@ -66,7 +66,7 @@ export function AdaptiveTaskNavigator({
 }: AdaptiveTaskNavigatorProps) {
   return (
     <details className="absolute bottom-6 right-4 z-30 max-w-[min(24rem,calc(100%-2rem))] rounded-md border bg-card/95 text-card-foreground shadow-lg backdrop-blur-sm">
-      <summary className="cursor-pointer select-none px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <summary className="flex min-h-11 cursor-pointer select-none items-center px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         All tasks ({projections.length})
       </summary>
       <ol
@@ -225,7 +225,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
         id: bubble.id,
         x: (bubble.x * viewport.scale) + viewport.x + (viewport.width / 2),
         y: (bubble.y * viewport.scale) + viewport.y + (viewport.height / 2),
-        r: Math.max(20, bubble.size * 50 * viewport.scale),
+        r: Math.max(22, bubble.size * 50 * viewport.scale),
         label: bubble.content?.slice(0, 20) + (bubble.content?.length > 20 ? '...' : '') || `${bubble.type} bubble`,
         type: String(bubble.type || '').toLowerCase(),
         glow: getGlowColor(bubble, theme?.tokens.auraMapping),
@@ -713,7 +713,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
               const value = event.target.value;
               setCurrentEnergy(value === '' ? undefined : value as CurrentEnergy);
             }}
-            className="h-8 rounded border bg-background px-2 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="h-11 rounded border bg-background px-2 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-8"
           >
             <option value="">Not set</option>
             <option value="low">Low</option>
@@ -730,7 +730,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
               const value = event.target.value;
               setAvailableMinutes(value === '' ? undefined : Number(value));
             }}
-            className="h-8 rounded border bg-background px-2 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="h-11 rounded border bg-background px-2 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-8"
           >
             <option value="">Not set</option>
             <option value="10">10 minutes</option>
