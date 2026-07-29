@@ -303,6 +303,11 @@ describe('Adaptive Bubble renderer accessibility slice', () => {
       'left-4',
       'top-4',
     );
+    expect(screen.getByTestId('adaptive-bubble-layer')).toHaveClass(
+      'absolute',
+      'inset-0',
+      'z-0',
+    );
     expect(screen.getByTestId('adaptive-mode-controls')).toHaveClass(
       'left-4',
       'top-[4.5rem]',

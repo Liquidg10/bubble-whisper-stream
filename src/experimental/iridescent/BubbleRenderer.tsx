@@ -587,28 +587,33 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
       </p>
 
       {/* Render bubbles */}
-      {nodes.map((node, index) => {
-        const bubbleId = node.id;
-        const isSelected = selectedBubbles.has(bubbleId);
-        return (
-        <div className="iridescent-bubble" key={node.id}>
-          <IridescentBubble
-            {...node}
-            selected={isSelected}
-            onPointerDown={(e) => handlePointerDown(node.id, e)}
-            onClick={() => handleBubbleClick(node.id)}
-            onKeyDown={(event) => handleBubbleKeyDown(node.id, event)}
-            phase={index}
-            lod={!lodConfig.enableSpecular || dragging === node.id}
-            zIndex={index}
-            bubble={node.bubble}
-            readiness={node.readiness}
-            semantics={node.semantics}
-            reducedMotion={reducedMotion}
-          />
-        </div>
-        );
-      })}
+      <div
+        data-testid="adaptive-bubble-layer"
+        className="absolute inset-0 z-0"
+      >
+        {nodes.map((node, index) => {
+          const bubbleId = node.id;
+          const isSelected = selectedBubbles.has(bubbleId);
+          return (
+          <div className="iridescent-bubble" key={node.id}>
+            <IridescentBubble
+              {...node}
+              selected={isSelected}
+              onPointerDown={(e) => handlePointerDown(node.id, e)}
+              onClick={() => handleBubbleClick(node.id)}
+              onKeyDown={(event) => handleBubbleKeyDown(node.id, event)}
+              phase={index}
+              lod={!lodConfig.enableSpecular || dragging === node.id}
+              zIndex={index}
+              bubble={node.bubble}
+              readiness={node.readiness}
+              semantics={node.semantics}
+              reducedMotion={reducedMotion}
+            />
+          </div>
+          );
+        })}
+      </div>
 
       {/* Meniscus at intersections */}
         {(() => {
