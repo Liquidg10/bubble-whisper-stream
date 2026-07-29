@@ -29,6 +29,10 @@ import {
   getSafeBubbleRadius,
   recoverPersistedBubblePosition,
 } from './bubblePosition';
+import {
+  planBubbleVisibility,
+  type BubbleDensity,
+} from './bubbleCapacity';
 
 import {
   ZoomIn,
@@ -152,7 +156,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
   });
   const [declutterMode, setDeclutterMode] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
-  const [bubbleDensity, setBubbleDensity] = useState<'low' | 'medium' | 'high'>(
+  const [bubbleDensity, setBubbleDensity] = useState<BubbleDensity>(
     settings.bubbleDensity,
   );
   const [currentEnergy, setCurrentEnergy] = useState<CurrentEnergy | undefined>();
@@ -184,23 +188,38 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
     [availableMinutes, bubbles, currentEnergy],
   );
 
-  // Visual density may change what is drawn, but the navigator below keeps
-  // every canonical Task reachable in the same readiness order.
-  const filteredProjections = useMemo(() => {
-    let filtered = [...adaptiveProjections];
-    
-    // Apply focus mode filter
+  const densityCandidates = useMemo(() => {
     if (focusMode && selectedBubbles.size > 0) {
-      filtered = filtered.filter(({ task }) => selectedBubbles.has(task.id));
+      return adaptiveProjections.filter(
+        ({ task }) => selectedBubbles.has(task.id),
+      );
     }
-    
-    // Apply density to readiness order, never BubbleStore array order.
-    if (bubbleDensity === 'low') {
-      filtered = filtered.slice(0, Math.ceil(filtered.length * 0.3));
-    } else if (bubbleDensity === 'medium') {
-      filtered = filtered.slice(0, Math.ceil(filtered.length * 0.7));
-    }
-    
+
+    return adaptiveProjections;
+  }, [adaptiveProjections, focusMode, selectedBubbles]);
+
+  const densityPlan = useMemo(
+    () => planBubbleVisibility(
+      densityCandidates.length,
+      bubbleDensity,
+      {
+        width: viewport.width,
+        height: viewport.height,
+      },
+    ),
+    [
+      bubbleDensity,
+      densityCandidates.length,
+      viewport.height,
+      viewport.width,
+    ],
+  );
+
+  // Density and viewport capacity may change what is drawn, but the navigator
+  // below keeps every canonical Task reachable in the same readiness order.
+  const filteredProjections = useMemo(() => {
+    let filtered = densityCandidates.slice(0, densityPlan.visibleCount);
+
     // Apply declutter mode filter (remove smaller bubbles)
     if (declutterMode) {
       const visibleBubbles = filtered
@@ -217,12 +236,10 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
     
     return filtered;
   }, [
-    adaptiveProjections,
     bubbleById,
-    bubbleDensity,
+    densityCandidates,
+    densityPlan.visibleCount,
     declutterMode,
-    focusMode,
-    selectedBubbles,
   ]);
 
   const filteredBubbles = useMemo(
@@ -588,8 +605,17 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
     };
 
     updateViewport();
+    const resizeObserver = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(updateViewport);
+    if (canvasRef.current) {
+      resizeObserver?.observe(canvasRef.current);
+    }
     window.addEventListener('resize', updateViewport);
-    return () => window.removeEventListener('resize', updateViewport);
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', updateViewport);
+    };
   }, []);
 
   return (
@@ -631,6 +657,9 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
       {/* Render bubbles */}
       <div
         data-testid="adaptive-bubble-layer"
+        data-density-capacity={densityPlan.viewportCapacity}
+        data-density-limited={densityPlan.capacityLimited}
+        data-rendered-bubble-count={nodes.length}
         className="absolute inset-0 z-0"
       >
         {nodes.map((node, index) => {
@@ -857,6 +886,15 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
         <Badge variant="outline" className="bg-card/80 backdrop-blur-sm">
           Density: {bubbleDensity}
         </Badge>
+        {densityPlan.capacityLimited && (
+          <Badge
+            variant="outline"
+            className="bg-card/80 backdrop-blur-sm"
+            aria-label={`Showing ${nodes.length} of ${adaptiveProjections.length} tasks based on current density and available space`}
+          >
+            Showing {nodes.length}
+          </Badge>
+        )}
       </div>
 
       <AdaptiveTaskNavigator
