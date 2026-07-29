@@ -1,5 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const externalBaseURL = process.env.PLAYWRIGHT_TEST_BASE_URL;
+
 /**
  * P11 Accessibility CI Integration
  * Playwright configuration for automated accessibility testing
@@ -20,13 +22,23 @@ export default defineConfig({
     ...(process.env.CI ? [['junit', { outputFile: 'test-results/junit.xml' }]] : [])
   ],
   use: {
-    baseURL: process.env.PLAYWRIGHT_TEST_BASE_URL || 'http://localhost:5173',
+    baseURL: externalBaseURL || 'http://localhost:4173',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure'
   },
 
   projects: [
+    {
+      name: 'chromium-e2e',
+      use: {
+        ...devices['Desktop Chrome']
+      },
+      testMatch: [
+        '**/e2e/**/*.spec.ts',
+        '**/oauth/**/*.spec.ts'
+      ]
+    },
     {
       name: 'chromium-a11y',
       use: { 
@@ -76,7 +88,7 @@ export default defineConfig({
     }
   ],
 
-  webServer: {
+  webServer: externalBaseURL ? undefined : {
     command: 'npm run build && npm run preview',
     port: 4173,
     reuseExistingServer: !process.env.CI,

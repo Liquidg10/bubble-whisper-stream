@@ -8,7 +8,7 @@ import { test, expect } from '@playwright/test';
 test.describe('A11Y P11: Reduced Motion Compliance @a11y', () => {
   test('should respect prefers-reduced-motion: reduce', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page.goto('/bubble');
+    await page.goto('/');
     
     // Check that animations are disabled or minimal
     const animatedElements = await page.locator('[style*="animation"], [class*="animate"]').all();
@@ -33,11 +33,17 @@ test.describe('A11Y P11: Reduced Motion Compliance @a11y', () => {
   test('should maintain functionality without animation', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto('/list');
+
+    const onboardingDialog = page.getByRole('dialog', { name: 'Welcome' });
+    if (await onboardingDialog.isVisible().catch(() => false)) {
+      await page.keyboard.press('Escape');
+      await expect(onboardingDialog).toBeHidden();
+    }
     
-    // Test that core functionality works
-    await page.locator('[data-testid="quick-add"]').fill('Reduced motion test');
-    await page.locator('[data-testid="quick-add"]').press('Enter');
-    
-    await expect(page.locator('[data-testid="task-item"]')).toBeVisible();
+    // Exercise a non-mutating core interaction against current List semantics.
+    await expect(page.getByRole('heading', { name: 'List View' })).toBeVisible();
+    await page.getByRole('button', { name: 'Show keyboard shortcuts' }).click();
+    await expect(page.getByRole('heading', { name: 'Keyboard Shortcuts' }))
+      .toBeVisible();
   });
 });

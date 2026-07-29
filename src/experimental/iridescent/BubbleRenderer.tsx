@@ -467,6 +467,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
           variant="outline"
           size="sm"
           onClick={zoomIn}
+          aria-label="Zoom in"
           className="bg-card/80 backdrop-blur-sm"
         >
           <ZoomIn className="h-4 w-4" />
@@ -475,6 +476,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
           variant="outline"
           size="sm"
           onClick={zoomOut}
+          aria-label="Zoom out"
           className="bg-card/80 backdrop-blur-sm"
         >
           <ZoomOut className="h-4 w-4" />
@@ -483,6 +485,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
           variant="outline"
           size="sm"
           onClick={centerOnBubbles}
+          aria-label="Center bubbles"
           className="bg-card/80 backdrop-blur-sm"
         >
           <RotateCcw className="h-4 w-4" />
@@ -491,6 +494,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
           variant="outline"
           size="sm"
           onClick={() => setViewport(prev => ({ ...prev, scale: 1 }))}
+          aria-label="Reset zoom"
           className="bg-card/80 backdrop-blur-sm"
         >
           <Map className="h-4 w-4" />
@@ -503,6 +507,8 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
           variant={declutterMode ? "default" : "outline"}
           size="sm"
           onClick={() => setDeclutterMode(!declutterMode)}
+          aria-label={`${declutterMode ? 'Disable' : 'Enable'} declutter mode`}
+          aria-pressed={declutterMode}
           className="bg-card/80 backdrop-blur-sm"
         >
           <Filter className="h-4 w-4" />
@@ -511,6 +517,8 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
           variant={focusMode ? "default" : "outline"}
           size="sm"
           onClick={() => setFocusMode(!focusMode)}
+          aria-label={`${focusMode ? 'Disable' : 'Enable'} focus mode`}
+          aria-pressed={focusMode}
           className="bg-card/80 backdrop-blur-sm"
         >
           <Focus className="h-4 w-4" />
@@ -523,6 +531,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
             const current = densities.indexOf(bubbleDensity);
             setBubbleDensity(densities[(current + 1) % densities.length]);
           }}
+          aria-label={`Bubble density: ${bubbleDensity}. Change density`}
           className="bg-card/80 backdrop-blur-sm"
         >
           <Layers className="h-4 w-4" />

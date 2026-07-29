@@ -106,7 +106,7 @@ export function MatrixGrid({
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="font-semibold text-sm">{config.label}</h3>
-                <p className="text-xs opacity-75">{config.description}</p>
+                <p className="text-xs">{config.description}</p>
               </div>
               <div className="flex items-center gap-2">
                 <Badge variant="secondary" className="text-xs">

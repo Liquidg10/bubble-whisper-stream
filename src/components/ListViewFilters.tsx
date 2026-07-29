@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Search, Filter, X, SortAsc, SortDesc } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -142,6 +142,15 @@ export const ListViewFilters: React.FC<ListViewFiltersProps> = ({
           <TabsTrigger value="pending" className="text-xs">Pending</TabsTrigger>
           <TabsTrigger value="completed" className="text-xs">Completed</TabsTrigger>
         </TabsList>
+        <TabsContent value="all" className="sr-only">
+          Showing all tasks
+        </TabsContent>
+        <TabsContent value="pending" className="sr-only">
+          Showing pending tasks
+        </TabsContent>
+        <TabsContent value="completed" className="sr-only">
+          Showing completed tasks
+        </TabsContent>
       </Tabs>
 
       {/* Expanded Filters */}

@@ -65,9 +65,9 @@ export const AppShell: React.FC = () => {
   return (
     <div className="flex flex-col h-screen bg-background">
       {/* Header */}
-      <header className="flex items-center justify-between p-4 border-b border-border/50 bg-card/50 backdrop-blur">
-        <div className="flex items-center gap-3">
-          <h1 className="font-display text-2xl tracking-tight text-foreground">
+      <header className="relative flex flex-wrap items-center justify-between gap-2 p-3 sm:p-4 border-b border-border/50 bg-card/50 backdrop-blur">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+          <h1 className="whitespace-nowrap font-display text-xl sm:text-2xl tracking-tight text-foreground">
             Mind <em className="italic text-accent-void">Manual</em>
           </h1>
           <OnboardingProgressIndicator 
@@ -78,11 +78,11 @@ export const AppShell: React.FC = () => {
         </div>
         
         {/* View Mode Toggle - Center */}
-        <div className="absolute left-1/2 transform -translate-x-1/2">
+        <div className="order-3 flex w-full justify-center overflow-x-auto sm:absolute sm:left-1/2 sm:order-none sm:w-auto sm:-translate-x-1/2 sm:overflow-visible">
           <ViewModeToggle />
         </div>
         
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 w-full items-center justify-end gap-1 overflow-x-auto sm:w-auto sm:gap-2 sm:overflow-visible">
             <CleanHouseHeaderTimer />
             <PomodoroHeaderTimer />
             <HeaderVoiceCapture />
@@ -182,7 +182,7 @@ export const AppShell: React.FC = () => {
                   size="sm"
                   className={`flex flex-col items-center gap-1 h-12 px-3 min-w-[60px] ${
                     isActive 
-                      ? 'text-primary bg-primary/10' 
+                      ? 'text-foreground bg-primary/10'
                       : 'text-muted-foreground hover:text-foreground'
                   }`}
                 >

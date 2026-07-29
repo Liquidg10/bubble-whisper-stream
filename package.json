@@ -8,7 +8,13 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "lint:ratchet": "node scripts/check-eslint-ratchet.cjs",
+    "lint:cohesion": "node scripts/lint-assistant-cohesion.cjs",
+    "lint:cohesion:ratchet": "node scripts/check-assistant-cohesion-ratchet.cjs",
+    "preview": "vite preview",
+    "test:a11y": "playwright test tests/a11y/",
+    "test:a11y:ci": "playwright test tests/a11y/ci-release.spec.ts tests/a11y/target-size.spec.ts tests/a11y/keyboard-access.spec.ts tests/a11y/reduced-motion.spec.ts --project=chromium-a11y",
+    "test:e2e:ci": "playwright test tests/e2e/current-ui-smoke.spec.ts --project=chromium-e2e"
   },
   "dependencies": {
     "@automerge/automerge": "^3.1.2",
@@ -81,6 +87,7 @@
     "zustand": "^5.0.8"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.10.2",
     "@eslint/js": "^9.32.0",
     "@tailwindcss/typography": "^0.5.16",
     "@types/node": "^22.16.5",

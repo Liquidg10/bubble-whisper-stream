@@ -343,7 +343,10 @@ export default function KanbanView() {
         </DndContext>
 
         {/* Keyboard Shortcuts Help */}
-        <div className="mt-8 text-xs text-muted-foreground text-center">
+        <div
+          className="mt-8 text-xs text-muted-foreground text-center"
+          data-testid="keyboard-move-instructions"
+        >
           <p>
             <kbd className="px-1 py-0.5 bg-muted rounded text-xs">Arrow keys</kbd> to move tasks • 
             <kbd className="px-1 py-0.5 bg-muted rounded text-xs ml-1">Space</kbd> to select • 

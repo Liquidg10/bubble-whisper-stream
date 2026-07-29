@@ -43,6 +43,7 @@ export function ThemeToggle({
           'focus-visible:ring-2 focus-visible:ring-accent-void focus-visible:ring-offset-2',
           className
         )}
+        aria-label="Theme options loading"
         disabled
       >
         <Palette className="h-4 w-4" />
@@ -63,6 +64,7 @@ export function ThemeToggle({
         <Button
           variant={variant}
           size={size}
+          aria-label={`Choose theme. Current theme: ${currentTheme.name}`}
           className={cn(
             // Mobile-first: ensure ≥44px touch target
             'min-h-[44px] min-w-[44px] gap-2',

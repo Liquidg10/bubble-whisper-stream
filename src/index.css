@@ -100,7 +100,8 @@
     --popover: 194 42% 9%;
     --popover-foreground: var(--text-primary);
     --primary: var(--accent-void);
-    --primary-foreground: 30 40% 98%;
+    /* Bright coral needs deep-ink text to preserve AA contrast in dark mode. */
+    --primary-foreground: 195 60% 8%;
     --secondary: var(--bubble-active);
     --secondary-foreground: var(--text-primary);
     --muted: var(--bubble-idle);
@@ -122,7 +123,7 @@
     --text-primary: 195 55% 12%;            /* Deep ink teal */
     --text-secondary: 195 20% 34%;
 
-    --accent-void: 8 78% 56%;               /* Living Coral (deeper) */
+    --accent-void: 8 78% 45%;               /* Living Coral, darkened for AA text contrast */
     --accent-flow: 168 52% 40%;             /* Seafoam (deeper for contrast) */
     --accent-growth: 20 82% 60%;
 
@@ -191,7 +192,7 @@
       --bg-tide: 25 40% 92%;
       --text-primary: 195 55% 12%;
       --text-secondary: 195 20% 34%;
-      --accent-void: 8 78% 56%;
+      --accent-void: 8 78% 45%;
       --accent-flow: 168 52% 40%;
       --accent-growth: 20 82% 60%;
       --bubble-idle: 25 50% 94%;
@@ -255,7 +256,7 @@
     --popover: 194 42% 9%;
     --popover-foreground: var(--text-primary);
     --primary: var(--accent-void);
-    --primary-foreground: 30 40% 98%;
+    --primary-foreground: 195 60% 8%;
     --secondary: var(--bubble-active);
     --secondary-foreground: var(--text-primary);
     --muted: var(--bubble-idle);

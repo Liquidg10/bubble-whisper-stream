@@ -53,6 +53,8 @@ export const ProgressiveMilestoneCard: React.FC<ProgressiveMilestoneCardProps> =
                   size="sm"
                   onClick={() => setIsExpanded(!isExpanded)}
                   className="h-6 w-6 p-0"
+                  aria-label={`${isExpanded ? 'Hide' : 'Show'} examples for ${milestone.title}`}
+                  aria-expanded={isExpanded}
                 >
                   <Info className="h-3 w-3" />
                 </Button>
