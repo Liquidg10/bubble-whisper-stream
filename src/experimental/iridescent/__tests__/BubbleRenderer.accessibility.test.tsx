@@ -288,4 +288,29 @@ describe('Adaptive Bubble renderer accessibility slice', () => {
         .toHaveStyle({ animation: 'none' });
     });
   });
+
+  it('stacks mobile controls while preserving the desktop toolbar layout', () => {
+    setTasks([
+      task({
+        id: 'mobile-controls-task',
+        title: 'Mobile controls task',
+      }),
+    ], createMockSettings({ bubbleDensity: 'high' }));
+
+    render(<IridescentCanvas />);
+
+    expect(screen.getByTestId('adaptive-zoom-controls')).toHaveClass(
+      'left-4',
+      'top-4',
+    );
+    expect(screen.getByTestId('adaptive-mode-controls')).toHaveClass(
+      'left-4',
+      'top-[4.5rem]',
+      'sm:left-auto',
+      'sm:right-4',
+      'sm:top-4',
+    );
+    expect(screen.getByRole('group', { name: 'Current readiness context' }))
+      .toHaveClass('top-32', 'sm:top-16');
+  });
 });

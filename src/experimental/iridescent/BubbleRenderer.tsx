@@ -651,7 +651,10 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
       />
 
       {/* Zoom & Pan controls */}
-      <div className="absolute top-4 left-4 flex gap-2 z-10">
+      <div
+        data-testid="adaptive-zoom-controls"
+        className="absolute left-4 top-4 z-10 flex gap-2"
+      >
         <Button
           variant="outline"
           size="sm"
@@ -696,7 +699,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
 
       {/* User-controlled, transient readiness context. */}
       <div
-        className="absolute top-16 left-4 z-20 flex flex-wrap items-end gap-2 rounded-md border bg-card/90 p-2 text-card-foreground shadow-sm backdrop-blur-sm"
+        className="absolute left-4 top-32 z-20 flex flex-wrap items-end gap-2 rounded-md border bg-card/90 p-2 text-card-foreground shadow-sm backdrop-blur-sm sm:top-16"
         role="group"
         aria-label="Current readiness context"
       >
@@ -746,7 +749,10 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
       </div>
 
       {/* Declutter & Focus controls */}
-      <div className="absolute top-4 right-4 flex gap-2 z-10">
+      <div
+        data-testid="adaptive-mode-controls"
+        className="absolute left-4 top-[4.5rem] z-10 flex gap-2 sm:left-auto sm:right-4 sm:top-4"
+      >
         <Button
           variant={declutterMode ? "default" : "outline"}
           size="sm"
