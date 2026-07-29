@@ -1,11 +1,18 @@
-import React, { useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import React, { useEffect, useState } from 'react';
+import * as RadioGroupPrimitive from '@radix-ui/react-radio-group';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Progress } from '@/components/ui/progress';
-import { ChevronRight, ChevronLeft, Sparkles } from 'lucide-react';
+import { Check, ChevronRight, ChevronLeft, Sparkles } from 'lucide-react';
 import { selfModelV2Service } from '@/services/selfModelV2Service';
 import { useBubbleStore } from '@/stores/bubbleStore';
 
@@ -45,6 +52,7 @@ export const OnboardingDataWizard: React.FC<OnboardingDataWizardProps> = ({
   onComplete
 }) => {
   const [currentStep, setCurrentStep] = useState(0);
+  const [stepAnnouncement, setStepAnnouncement] = useState('');
   const [formData, setFormData] = useState<OnboardingData>({
     preferences: {
       primaryGoals: []
@@ -55,6 +63,12 @@ export const OnboardingDataWizard: React.FC<OnboardingDataWizardProps> = ({
   });
 
   const { addBubble } = useBubbleStore();
+
+  useEffect(() => {
+    setStepAnnouncement(
+      `Step ${currentStep + 1} of ${STEPS.length}: ${STEPS[currentStep].title}`,
+    );
+  }, [currentStep]);
 
   const handleNext = () => {
     if (currentStep < STEPS.length - 1) {
@@ -128,12 +142,27 @@ export const OnboardingDataWizard: React.FC<OnboardingDataWizardProps> = ({
     }
   };
 
-  const updateFormData = (section: keyof OnboardingData, data: any) => {
+  const updatePreferences = (
+    preferences: Partial<OnboardingData['preferences']>,
+  ) => {
     setFormData(prev => ({
       ...prev,
-      [section]: section === 'preferences' && typeof prev[section] === 'object' && prev[section] !== null
-        ? { ...prev[section], ...data }
-        : data
+      preferences: {
+        ...prev.preferences,
+        ...preferences,
+      },
+    }));
+  };
+
+  const updateFormData = <
+    Section extends Exclude<keyof OnboardingData, 'preferences'>,
+  >(
+    section: Section,
+    data: OnboardingData[Section],
+  ) => {
+    setFormData(prev => ({
+      ...prev,
+      [section]: data,
     }));
   };
 
@@ -147,8 +176,18 @@ export const OnboardingDataWizard: React.FC<OnboardingDataWizardProps> = ({
             <Sparkles className="h-5 w-5 text-primary" />
             {STEPS[currentStep].title}
           </DialogTitle>
-          <p className="text-sm text-muted-foreground">{STEPS[currentStep].subtitle}</p>
+          <DialogDescription>
+            {STEPS[currentStep].subtitle}
+          </DialogDescription>
         </DialogHeader>
+        <p
+          className="sr-only"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          {stepAnnouncement}
+        </p>
 
         <div className="space-y-6">
           <Progress
@@ -183,7 +222,7 @@ export const OnboardingDataWizard: React.FC<OnboardingDataWizardProps> = ({
                   id="name"
                   placeholder="Your name or nickname"
                   value={formData.preferences.name || ''}
-                  onChange={(e) => updateFormData('preferences', { name: e.target.value })}
+                  onChange={(e) => updatePreferences({ name: e.target.value })}
                 />
               </div>
               
@@ -193,7 +232,7 @@ export const OnboardingDataWizard: React.FC<OnboardingDataWizardProps> = ({
                   id="timezone"
                   placeholder="e.g., PST, EST, UTC+2"
                   value={formData.preferences.timeZone || ''}
-                  onChange={(e) => updateFormData('preferences', { timeZone: e.target.value })}
+                  onChange={(e) => updatePreferences({ timeZone: e.target.value })}
                 />
               </div>
 
@@ -203,7 +242,7 @@ export const OnboardingDataWizard: React.FC<OnboardingDataWizardProps> = ({
                   id="work-schedule"
                   placeholder="e.g., 9-5 weekdays, night shift, flexible"
                   value={formData.preferences.workSchedule || ''}
-                  onChange={(e) => updateFormData('preferences', { workSchedule: e.target.value })}
+                  onChange={(e) => updatePreferences({ workSchedule: e.target.value })}
                 />
               </div>
             </div>
@@ -217,25 +256,37 @@ export const OnboardingDataWizard: React.FC<OnboardingDataWizardProps> = ({
               </p>
               
               {formData.routines.map((routine, index) => (
-                <div key={index} className="grid grid-cols-2 gap-2">
-                  <Input
-                    placeholder="Routine (e.g., Morning coffee)"
-                    value={routine.name}
-                    onChange={(e) => {
-                      const updated = [...formData.routines];
-                      updated[index] = { ...updated[index], name: e.target.value };
-                      updateFormData('routines', updated);
-                    }}
-                  />
-                  <Input
-                    placeholder="Time (e.g., 7:30 AM)"
-                    value={routine.timeOfDay || ''}
-                    onChange={(e) => {
-                      const updated = [...formData.routines];
-                      updated[index] = { ...updated[index], timeOfDay: e.target.value };
-                      updateFormData('routines', updated);
-                    }}
-                  />
+                <div key={index} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <Label htmlFor={`routine-name-${index}`}>
+                      Routine {index + 1}
+                    </Label>
+                    <Input
+                      id={`routine-name-${index}`}
+                      placeholder="e.g., Morning coffee"
+                      value={routine.name}
+                      onChange={(e) => {
+                        const updated = [...formData.routines];
+                        updated[index] = { ...updated[index], name: e.target.value };
+                        updateFormData('routines', updated);
+                      }}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor={`routine-time-${index}`}>
+                      Time for routine {index + 1} (optional)
+                    </Label>
+                    <Input
+                      id={`routine-time-${index}`}
+                      placeholder="e.g., 7:30 AM"
+                      value={routine.timeOfDay || ''}
+                      onChange={(e) => {
+                        const updated = [...formData.routines];
+                        updated[index] = { ...updated[index], timeOfDay: e.target.value };
+                        updateFormData('routines', updated);
+                      }}
+                    />
+                  </div>
                 </div>
               ))}
               
@@ -258,7 +309,7 @@ export const OnboardingDataWizard: React.FC<OnboardingDataWizardProps> = ({
                   id="goals"
                   placeholder="e.g., Better work-life balance, stay organized, learn new skills..."
                   value={formData.preferences.primaryGoals?.join(', ') || ''}
-                  onChange={(e) => updateFormData('preferences', { 
+                  onChange={(e) => updatePreferences({
                     primaryGoals: e.target.value.split(',').map(g => g.trim()).filter(Boolean)
                   })}
                 />
@@ -280,24 +331,37 @@ export const OnboardingDataWizard: React.FC<OnboardingDataWizardProps> = ({
           {currentStep === 4 && (
             <div className="space-y-4">
               <div>
-                <Label>How do you prefer encouragement and reminders?</Label>
-                <div className="grid grid-cols-2 gap-2 mt-2">
+                <Label id="communication-style-label">
+                  How do you prefer encouragement and reminders?
+                </Label>
+                <RadioGroupPrimitive.Root
+                  aria-labelledby="communication-style-label"
+                  value={formData.preferences.communicationStyle ?? ''}
+                  onValueChange={(value) => updatePreferences({
+                    communicationStyle: value,
+                  })}
+                  className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2"
+                >
                   {[
                     { key: 'friend', label: 'Warm and supportive' },
                     { key: 'coach', label: 'Motivating and encouraging' },
                     { key: 'scientist', label: 'Curious and analytical' },
                     { key: 'future-you', label: 'Like wise future you' }
                   ].map(style => (
-                    <Button
+                    <RadioGroupPrimitive.Item
                       key={style.key}
-                      variant={formData.preferences.communicationStyle === style.key ? 'default' : 'outline'}
-                      onClick={() => updateFormData('preferences', { communicationStyle: style.key })}
-                      className="h-auto p-3 text-left"
+                      value={style.key}
+                      className="group flex min-h-12 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-left text-sm font-medium leading-tight text-foreground ring-offset-background transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground"
                     >
-                      {style.label}
-                    </Button>
+                      <span className="min-w-0 whitespace-normal break-words">
+                        {style.label}
+                      </span>
+                      <RadioGroupPrimitive.Indicator className="shrink-0">
+                        <Check className="h-4 w-4" aria-hidden="true" />
+                      </RadioGroupPrimitive.Indicator>
+                    </RadioGroupPrimitive.Item>
                   ))}
-                </div>
+                </RadioGroupPrimitive.Root>
               </div>
 
               <div>
