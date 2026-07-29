@@ -7,7 +7,10 @@ import { telemetryService } from './telemetryService';
 import { taskCanaryService } from './taskCanaryService';
 import { isFeatureEnabled, toggleFeatureFlag, type FeatureFlag } from '@/config/flags';
 
-interface DeploymentStage {
+export const P20_BROWSER_GATE_FAILURE =
+  'CI gate receipt required: browser clients cannot execute the P20 Playwright suite.';
+
+export interface DeploymentStage {
   name: string;
   percentage: number;
   duration: number; // hours
@@ -16,7 +19,7 @@ interface DeploymentStage {
   rollbackThreshold: number;
 }
 
-interface DeploymentPlan {
+export interface DeploymentPlan {
   name: string;
   stages: DeploymentStage[];
   currentStage: number;
@@ -242,52 +245,26 @@ class ProductionPipelineService {
    * Run P20 validation gates
    */
   private async runP20Gates(): Promise<{ passed: boolean; failures: string[] }> {
-    const failures: string[] = [];
-    
-    try {
-      // 1. Run real P20 test execution
-      const { execSync } = await import('child_process');
-      
-      const criticalGates = [
-        'tests/e2e/gates/task-roundtrip.spec.ts',
-        'tests/e2e/gates/accessibility.spec.ts',
-        'tests/e2e/gates/watch-health.spec.ts',
-        'tests/e2e/gates/auto-write-safety.spec.ts'
-      ];
+    // Playwright and CI receipts are trusted outside this browser-only client.
+    // The previous child_process import was externalized by Vite and produced
+    // misleading failures rather than executing any gate.
+    const failures: string[] = [P20_BROWSER_GATE_FAILURE];
 
-      for (const gate of criticalGates) {
-        try {
-          execSync(`npx playwright test ${gate} --reporter=line`, {
-            stdio: 'pipe',
-            timeout: 30000
-          });
-        } catch (error) {
-          failures.push(`P20 Gate failed: ${gate}`);
-        }
+    const criticalFlags: FeatureFlag[] = ['taskAdapter', 'viewSdk', 'listView'];
+    criticalFlags.forEach(flag => {
+      if (!isFeatureEnabled(flag)) {
+        failures.push(`Critical flag disabled: ${flag}`);
       }
+    });
 
-      // 2. Check critical feature flags
-      const criticalFlags: FeatureFlag[] = ['taskAdapter', 'viewSdk', 'listView'];
-      criticalFlags.forEach(flag => {
-        if (!isFeatureEnabled(flag)) {
-          failures.push(`Critical flag disabled: ${flag}`);
-        }
-      });
+    const readinessScore = telemetryService.getProductionReadinessScore();
+    if (readinessScore < 0.7) {
+      failures.push(`Production readiness score too low: ${(readinessScore * 100).toFixed(1)}%`);
+    }
 
-      // 3. Check telemetry health
-      const readinessScore = telemetryService.getProductionReadinessScore();
-      if (readinessScore < 0.7) {
-        failures.push(`Production readiness score too low: ${(readinessScore * 100).toFixed(1)}%`);
-      }
-
-      // 4. Validate target sizes programmatically
-      const targetSizeResults = await this.validateTargetSizes();
-      if (!targetSizeResults.passed) {
-        failures.push(...targetSizeResults.failures);
-      }
-
-    } catch (error) {
-      failures.push(`P20 validation execution failed: ${error.message}`);
+    const targetSizeResults = await this.validateTargetSizes();
+    if (!targetSizeResults.passed) {
+      failures.push(...targetSizeResults.failures);
     }
 
     return {
