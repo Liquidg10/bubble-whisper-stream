@@ -1,4 +1,11 @@
-import React, { useMemo, useRef, useState, useCallback, useEffect } from "react";
+import React, {
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+} from "react";
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { usePinchZoom } from '@/hooks/usePinchZoom';
@@ -18,6 +25,10 @@ import {
 import type { CurrentEnergy } from '@/services/readinessEngine';
 import type { TaskReadiness } from '@/types/task';
 import { PhotoBubbleIridescent } from './PhotoBubbleIridescent';
+import {
+  getSafeBubbleRadius,
+  recoverPersistedBubblePosition,
+} from './bubblePosition';
 
 import {
   ZoomIn,
@@ -132,7 +143,13 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
   const [confirm, setConfirm] = useState<{ x: number; y: number; a: string; b: string } | null>(null);
   const [toast, setToast] = useState(false);
   const [lastMerge, setLastMerge] = useState<LastMerge | null>(null);
-  const [viewport, setViewport] = useState({ x: 0, y: 0, scale: 1, width: 800, height: 600 });
+  const [viewport, setViewport] = useState({
+    x: 0,
+    y: 0,
+    scale: 1,
+    width: 0,
+    height: 0,
+  });
   const [declutterMode, setDeclutterMode] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [bubbleDensity, setBubbleDensity] = useState<'low' | 'medium' | 'high'>(
@@ -215,17 +232,41 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
     [bubbleById, filteredProjections],
   );
 
+  // Positions are persisted as viewport-agnostic, center-relative units. Repair
+  // stale or malformed coordinates after the actual canvas size is known so
+  // keyboard movement and future reloads operate on the visible position.
+  useEffect(() => {
+    if (viewport.width <= 0 || viewport.height <= 0) return;
+
+    const recoveredAt = Date.now();
+    bubbles.forEach((bubble) => {
+      const recovered = recoverPersistedBubblePosition(bubble, {
+        width: viewport.width,
+        height: viewport.height,
+      });
+      if (!recovered.adjusted) return;
+
+      void useBubbleStore.getState().updateBubble({
+        ...bubble,
+        x: recovered.x,
+        y: recovered.y,
+        updatedAt: recoveredAt,
+      });
+    });
+  }, [bubbles, viewport.height, viewport.width]);
+
   // Convert bubbles to nodes with viewport transformation
   const nodes: IridescentNode[] = useMemo(() => {
     return filteredProjections.flatMap((projection) => {
       const bubble = bubbleById.get(projection.task.id);
       if (!bubble) return [];
+      const recovered = recoverPersistedBubblePosition(bubble, viewport);
 
       return [{
         id: bubble.id,
-        x: (bubble.x * viewport.scale) + viewport.x + (viewport.width / 2),
-        y: (bubble.y * viewport.scale) + viewport.y + (viewport.height / 2),
-        r: Math.max(22, bubble.size * 50 * viewport.scale),
+        x: (recovered.x * viewport.scale) + viewport.x + (viewport.width / 2),
+        y: (recovered.y * viewport.scale) + viewport.y + (viewport.height / 2),
+        r: getSafeBubbleRadius(bubble.size, viewport.scale),
         label: bubble.content?.slice(0, 20) + (bubble.content?.length > 20 ? '...' : '') || `${bubble.type} bubble`,
         type: String(bubble.type || '').toLowerCase(),
         glow: getGlowColor(bubble, theme?.tokens.auraMapping),
@@ -533,10 +574,11 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
   });
 
   // Initialize viewport dimensions
-  useEffect(() => {
+  useLayoutEffect(() => {
     const updateViewport = () => {
       if (canvasRef.current) {
         const rect = canvasRef.current.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return;
         setViewport(prev => ({
           ...prev,
           width: rect.width,

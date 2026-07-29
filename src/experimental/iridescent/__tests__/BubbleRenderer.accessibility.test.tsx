@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axe from 'axe-core';
 import type { Task } from '@/types/task';
@@ -350,5 +350,118 @@ describe('Adaptive Bubble renderer accessibility slice', () => {
       width: '44px',
       height: '44px',
     });
+  });
+
+  it('repairs an off-screen saved position after a narrow viewport restore', async () => {
+    const updateBubble = vi.fn().mockResolvedValue(undefined);
+    setMockBubbleState({
+      bubbles: [
+        taskToBubble(task({
+          id: 'restored-position-task',
+          title: 'Restore my visible position',
+          view: {
+            bubble: {
+              x: 10_000,
+              y: -10_000,
+              size: 0.6,
+            },
+          },
+        })),
+      ],
+      settings: createMockSettings({ bubbleDensity: 'high' }),
+      updateBubble,
+    });
+    const rectSpy = vi.spyOn(
+      HTMLElement.prototype,
+      'getBoundingClientRect',
+    ).mockReturnValue({
+      x: 0,
+      y: 0,
+      top: 0,
+      right: 390,
+      bottom: 844,
+      left: 0,
+      width: 390,
+      height: 844,
+      toJSON: () => ({}),
+    });
+
+    const { container } = render(<IridescentCanvas />);
+
+    await waitFor(() => {
+      expect(updateBubble).toHaveBeenCalledWith(expect.objectContaining({
+        id: 'restored-position-task',
+        x: 170,
+        y: -397,
+      }));
+    });
+    expect(updateBubble).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[data-task-id="restored-position-task"]'))
+      .toHaveStyle({
+        left: '340px',
+        top: '0px',
+    });
+    expect(screen.getByRole('button', {
+      name: /^Restore my visible position/,
+    })).toBeVisible();
+
+    rectSpy.mockRestore();
+  });
+
+  it('does not persist already-valid positions during zoom or pan', async () => {
+    const user = userEvent.setup();
+    const updateBubble = vi.fn().mockResolvedValue(undefined);
+    setMockBubbleState({
+      bubbles: [
+        taskToBubble(task({
+          id: 'stable-position-task',
+          title: 'Keep my valid position',
+          view: {
+            bubble: {
+              x: 0,
+              y: 0,
+              size: 0.6,
+            },
+          },
+        })),
+      ],
+      settings: createMockSettings({ bubbleDensity: 'high' }),
+      updateBubble,
+    });
+    const rectSpy = vi.spyOn(
+      HTMLElement.prototype,
+      'getBoundingClientRect',
+    ).mockReturnValue({
+      x: 0,
+      y: 0,
+      top: 0,
+      right: 390,
+      bottom: 844,
+      left: 0,
+      width: 390,
+      height: 844,
+      toJSON: () => ({}),
+    });
+
+    render(<IridescentCanvas />);
+    const canvas = screen.getByRole('region', {
+      name: 'Adaptive Bubble view',
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Zoom in' }));
+    fireEvent(canvas, new MouseEvent('pointerdown', {
+      bubbles: true,
+      clientX: 200,
+      clientY: 400,
+    }));
+    fireEvent(canvas, new MouseEvent('pointermove', {
+      bubbles: true,
+      clientX: 220,
+      clientY: 420,
+    }));
+    fireEvent(canvas, new MouseEvent('pointerup', { bubbles: true }));
+
+    expect(updateBubble).not.toHaveBeenCalled();
+    rectSpy.mockRestore();
   });
 });
