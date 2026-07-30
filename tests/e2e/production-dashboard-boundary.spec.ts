@@ -8,6 +8,14 @@ async function closeOnboardingIfPresent(page: import('@playwright/test').Page) {
   }
 }
 
+async function closeGlimmerIfPresent(page: import('@playwright/test').Page) {
+  const dismiss = page.getByRole('button', { name: 'Dismiss glimmer' });
+  if (await dismiss.isVisible().catch(() => false)) {
+    await dismiss.click();
+    await expect(dismiss).toBeHidden();
+  }
+}
+
 test('production dashboard exposes an inert CI-receipt boundary in the browser', async ({ page }) => {
   const pageErrors: string[] = [];
   const consoleErrors: string[] = [];
@@ -19,6 +27,7 @@ test('production dashboard exposes an inert CI-receipt boundary in the browser',
   await page.goto('/dev/production');
   await page.waitForLoadState('networkidle');
   await closeOnboardingIfPresent(page);
+  await closeGlimmerIfPresent(page);
 
   await expect(page.getByRole('heading', { name: 'Production Dashboard' })).toBeVisible();
   await expect(
