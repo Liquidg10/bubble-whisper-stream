@@ -70,6 +70,16 @@ type BubbleVisualProperties = React.CSSProperties & {
   '--hy': string;
 };
 
+const COMPACT_ICON_BUTTON_CLASSES = [
+  'h-11',
+  'w-11',
+  'bg-card/80',
+  'p-0',
+  'backdrop-blur-sm',
+  'sm:h-9',
+  'sm:w-9',
+].join(' ');
+
 interface AdaptiveTaskNavigatorProps {
   projections: readonly AdaptiveBubbleProjection[];
   onTaskSelect: (taskId: string) => void;
@@ -735,7 +745,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
           variant="outline"
           size="sm"
           onClick={zoomIn}
-          className="bg-card/80 backdrop-blur-sm"
+          className={COMPACT_ICON_BUTTON_CLASSES}
           aria-label="Zoom in"
         >
           <ZoomIn className="h-4 w-4" />
@@ -744,7 +754,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
           variant="outline"
           size="sm"
           onClick={zoomOut}
-          className="bg-card/80 backdrop-blur-sm"
+          className={COMPACT_ICON_BUTTON_CLASSES}
           aria-label="Zoom out"
         >
           <ZoomOut className="h-4 w-4" />
@@ -753,7 +763,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
           variant="outline"
           size="sm"
           onClick={centerOnBubbles}
-          className="bg-card/80 backdrop-blur-sm"
+          className={COMPACT_ICON_BUTTON_CLASSES}
           aria-label="Center visible bubbles"
         >
           <RotateCcw className="h-4 w-4" />
@@ -762,7 +772,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
           variant="outline"
           size="sm"
           onClick={() => setViewport(prev => ({ ...prev, scale: 1 }))}
-          className="bg-card/80 backdrop-blur-sm"
+          className={COMPACT_ICON_BUTTON_CLASSES}
           aria-label="Reset zoom"
         >
           <MapIcon className="h-4 w-4" />
@@ -829,7 +839,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
           variant={declutterMode ? "default" : "outline"}
           size="sm"
           onClick={() => setDeclutterMode(!declutterMode)}
-          className="bg-card/80 backdrop-blur-sm"
+          className={COMPACT_ICON_BUTTON_CLASSES}
           aria-label="Toggle decluttered view"
           aria-pressed={declutterMode}
         >
@@ -839,7 +849,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
           variant={focusMode ? "default" : "outline"}
           size="sm"
           onClick={() => setFocusMode(!focusMode)}
-          className="bg-card/80 backdrop-blur-sm"
+          className={COMPACT_ICON_BUTTON_CLASSES}
           aria-label="Toggle focus mode"
           aria-pressed={focusMode}
         >
@@ -853,7 +863,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
             const current = densities.indexOf(bubbleDensity);
             setBubbleDensity(densities[(current + 1) % densities.length]);
           }}
-          className="bg-card/80 backdrop-blur-sm"
+          className={COMPACT_ICON_BUTTON_CLASSES}
           aria-label={`Change bubble density. Current density: ${bubbleDensity}`}
         >
           <Layers className="h-4 w-4" />
@@ -876,7 +886,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
           <Button
             variant="default"
             size="sm"
-            className="h-6 bg-bubble-selected/90 px-2 text-xs backdrop-blur-sm"
+            className="h-11 bg-bubble-selected/90 px-3 text-xs backdrop-blur-sm sm:h-6 sm:px-2"
             onClick={clearSelection}
             aria-label={`Clear ${selectedBubbles.size} selected tasks`}
           >
