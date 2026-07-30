@@ -43,6 +43,56 @@ async function seedOffscreenBubble(page: import('@playwright/test').Page) {
   }));
 }
 
+async function seedCapacityStressTasks(
+  page: import('@playwright/test').Page,
+) {
+  await page.evaluate(() => new Promise<void>((resolve, reject) => {
+    const request = indexedDB.open('BubbleUniverse', 4);
+    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      const database = request.result;
+      const transaction = database.transaction(['bubbles'], 'readwrite');
+      const store = transaction.objectStore('bubbles');
+      store.clear();
+
+      for (let index = 0; index < 40; index += 1) {
+        const leadingPositions = [-100, 0, 100];
+        store.put({
+          id: `capacity-task-${String(index).padStart(2, '0')}`,
+          type: 'Task',
+          content: `Capacity task ${String(index + 1).padStart(2, '0')}`,
+          createdAt: index + 1,
+          updatedAt: index + 1,
+          x: leadingPositions[index]
+            ?? (((index % 7) - 3) * 54),
+          y: index < leadingPositions.length
+            ? 0
+            : (Math.floor(index / 7) - 2) * 54,
+          size: 0.35,
+          tags: [],
+          completed: false,
+        });
+      }
+
+      transaction.oncomplete = () => {
+        database.close();
+        resolve();
+      };
+      transaction.onerror = () => reject(transaction.error);
+    };
+  }));
+}
+
+async function closeMilestoneIfPresent(
+  page: import('@playwright/test').Page,
+) {
+  const tryItNow = page.getByRole('button', { name: 'Try it now' });
+  if (await tryItNow.isVisible().catch(() => false)) {
+    await tryItNow.click();
+    await expect(tryItNow).toBeHidden();
+  }
+}
+
 async function readSavedBubblePosition(
   page: import('@playwright/test').Page,
 ) {
@@ -158,6 +208,109 @@ test.describe('current UI smoke gate', () => {
     await expect(page.getByRole('button', {
       name: /^Open Recovered coordinate task/,
     })).toBeVisible();
+  });
+
+  test('mobile density respects viewport capacity while all tasks stay reachable', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/');
+    await closeOnboardingIfPresent(page);
+    await seedCapacityStressTasks(page);
+
+    await page.reload();
+    await closeOnboardingIfPresent(page);
+    await closeMilestoneIfPresent(page);
+
+    const canvas = page.getByRole('region', { name: 'Adaptive Bubble view' });
+    const layer = page.getByTestId('adaptive-bubble-layer');
+    const bubbles = layer.locator('[data-adaptive-bubble]');
+
+    await expect(page.getByRole('button', {
+      name: 'Change bubble density. Current density: medium',
+    })).toBeVisible();
+    const compactCanvasControls = page.locator(
+      '[data-testid="adaptive-zoom-controls"] button, '
+      + '[data-testid="adaptive-mode-controls"] button',
+    );
+    await expect(compactCanvasControls).toHaveCount(7);
+    const compactControlSizes = await compactCanvasControls.evaluateAll(
+      (controls) => controls.map((control) => {
+        const rect = control.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+      }),
+    );
+    expect(compactControlSizes.every(({ width, height }) => (
+      width >= 44 && height >= 44
+    ))).toBe(true);
+    await expect(layer).toHaveAttribute('data-density-capacity', '2');
+    await expect(layer).toHaveAttribute('data-density-limited', 'true');
+    await expect(bubbles).toHaveCount(2);
+    await expect(layer).toHaveAttribute('data-rendered-bubble-count', '2');
+
+    await expect(bubbles.nth(0)).toHaveAttribute(
+      'data-task-id',
+      'capacity-task-00',
+    );
+    await expect(bubbles.nth(1)).toHaveAttribute(
+      'data-task-id',
+      'capacity-task-01',
+    );
+    const geometry = await page.evaluate(() => {
+      const box = (element: Element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          left: rect.left,
+          top: rect.top,
+          right: rect.right,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height,
+        };
+      };
+      const intersects = (
+        first: ReturnType<typeof box>,
+        second: ReturnType<typeof box>,
+      ) => first.left < second.right
+        && first.right > second.left
+        && first.top < second.bottom
+        && first.bottom > second.top;
+      const bubbleElements = Array.from(document.querySelectorAll(
+        '[data-adaptive-bubble]',
+      ));
+      const bubbleBoxes = bubbleElements.map(box);
+      const controls = Array.from(document.querySelectorAll(
+        'button:not([data-adaptive-bubble]), input, select, summary, a[href]',
+      )).filter((element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+      });
+      let pairwiseOverlaps = 0;
+      let controlOverlaps = 0;
+
+      for (let first = 0; first < bubbleBoxes.length; first += 1) {
+        for (let second = first + 1; second < bubbleBoxes.length; second += 1) {
+          if (intersects(bubbleBoxes[first], bubbleBoxes[second])) {
+            pairwiseOverlaps += 1;
+          }
+        }
+        controls.forEach((control) => {
+          if (intersects(bubbleBoxes[first], box(control))) {
+            controlOverlaps += 1;
+          }
+        });
+      }
+
+      return { pairwiseOverlaps, controlOverlaps };
+    });
+
+    expect(geometry).toEqual({
+      pairwiseOverlaps: 0,
+      controlOverlaps: 0,
+    });
+    await expect(canvas.getByText('All tasks (40)')).toBeVisible();
+    await canvas.getByText('All tasks (40)').click();
+    await expect(canvas.getByRole('list', {
+      name: 'All tasks by current readiness',
+    }).getByRole('button')).toHaveCount(40);
   });
 
   test('unknown routes report an honest not-found state', async ({ page }) => {

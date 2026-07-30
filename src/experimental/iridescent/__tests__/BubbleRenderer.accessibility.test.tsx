@@ -296,10 +296,16 @@ describe('Adaptive Bubble renderer accessibility slice', () => {
         title: 'Mobile controls task',
       }),
     ], createMockSettings({ bubbleDensity: 'high' }));
+    setMockBubbleState({
+      selectedBubbles: new Set(['mobile-controls-task']),
+    });
 
     render(<IridescentCanvas />);
 
-    expect(screen.getByTestId('adaptive-zoom-controls')).toHaveClass(
+    const zoomControls = screen.getByTestId('adaptive-zoom-controls');
+    const modeControls = screen.getByTestId('adaptive-mode-controls');
+
+    expect(zoomControls).toHaveClass(
       'left-4',
       'top-4',
     );
@@ -308,7 +314,7 @@ describe('Adaptive Bubble renderer accessibility slice', () => {
       'inset-0',
       'z-0',
     );
-    expect(screen.getByTestId('adaptive-mode-controls')).toHaveClass(
+    expect(modeControls).toHaveClass(
       'left-4',
       'top-[4.5rem]',
       'sm:left-auto',
@@ -323,6 +329,20 @@ describe('Adaptive Bubble renderer accessibility slice', () => {
       .toHaveClass('h-11', 'sm:h-8');
     expect(screen.getByText('All tasks (1)'))
       .toHaveClass('min-h-11');
+    [
+      ...within(zoomControls).getAllByRole('button'),
+      ...within(modeControls).getAllByRole('button'),
+    ].forEach((button) => {
+      expect(button).toHaveClass(
+        'h-11',
+        'w-11',
+        'sm:h-9',
+        'sm:w-9',
+      );
+    });
+    expect(screen.getByRole('button', {
+      name: 'Clear 1 selected tasks',
+    })).toHaveClass('h-11', 'sm:h-6');
   });
 
   it('keeps the smallest rendered bubble at least 44px across zoom levels', () => {
