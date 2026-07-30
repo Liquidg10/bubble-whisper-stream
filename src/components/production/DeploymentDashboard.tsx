@@ -9,7 +9,6 @@ import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { 
-  Play, 
   Pause, 
   SkipForward, 
   RotateCcw, 
@@ -20,7 +19,12 @@ import {
   TrendingUp,
   Users
 } from 'lucide-react';
-import { productionPipelineService } from '@/services/productionPipeline';
+import {
+  P20_BROWSER_GATE_FAILURE,
+  productionPipelineService,
+  type DeploymentPlan,
+  type DeploymentStage
+} from '@/services/productionPipeline';
 import { telemetryService } from '@/services/telemetryService';
 import { taskCanaryService } from '@/services/taskCanaryService';
 
@@ -29,9 +33,9 @@ interface DeploymentDashboardProps {
 }
 
 export function DeploymentDashboard({ className }: DeploymentDashboardProps) {
-  const [deployments, setDeployments] = useState<Record<string, any>>({});
-  const [metrics, setMetrics] = useState<any>(null);
-  const [canaryStats, setCanaryStats] = useState<any>(null);
+  const [deployments, setDeployments] = useState<Record<string, DeploymentPlan>>({});
+  const [metrics, setMetrics] = useState<ReturnType<typeof telemetryService.calculateStabilityMetrics> | null>(null);
+  const [canaryStats, setCanaryStats] = useState<ReturnType<typeof taskCanaryService.getCanaryStats> | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<string>('main');
 
   useEffect(() => {
@@ -53,13 +57,6 @@ export function DeploymentDashboard({ className }: DeploymentDashboardProps) {
   const handleCreatePlan = () => {
     productionPipelineService.createDeploymentPlan('main');
     setDeployments(productionPipelineService.getAllDeployments());
-  };
-
-  const handleStartDeployment = async () => {
-    if (currentDeployment) {
-      await productionPipelineService.startDeployment(selectedPlan);
-      setDeployments(productionPipelineService.getAllDeployments());
-    }
   };
 
   const handleAdvanceStage = async () => {
@@ -144,7 +141,7 @@ export function DeploymentDashboard({ className }: DeploymentDashboardProps) {
             <CardTitle>Deployment Progress</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {currentDeployment.stages.map((stage: any, index: number) => (
+            {currentDeployment.stages.map((stage: DeploymentStage, index: number) => (
               <div key={index} className="space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium">{stage.name}</span>
@@ -253,9 +250,12 @@ export function DeploymentDashboard({ className }: DeploymentDashboardProps) {
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-2">
               {currentDeployment.status === 'planning' && (
-                <Button onClick={handleStartDeployment} className="w-full">
-                  <Play className="h-4 w-4 mr-2" />
-                  Start Deployment
+                <Button
+                  className="w-full"
+                  disabled
+                  aria-describedby="p20-browser-gate-boundary"
+                >
+                  CI receipt required
                 </Button>
               )}
               
@@ -273,6 +273,15 @@ export function DeploymentDashboard({ className }: DeploymentDashboardProps) {
                 </Button>
               )}
             </div>
+
+            <p
+              id="p20-browser-gate-boundary"
+              className="text-xs text-muted-foreground"
+              role="status"
+            >
+              {P20_BROWSER_GATE_FAILURE} Run the critical suite in CI and
+              attach its receipt before starting a deployment.
+            </p>
             
             <div className="text-xs text-muted-foreground">
               Current Stage: {currentDeployment.stages[currentDeployment.currentStage]?.name || 'Not Started'}
