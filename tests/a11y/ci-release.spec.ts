@@ -59,4 +59,111 @@ test.describe('bounded accessibility release gate', () => {
       await expectNoWcagViolations(page);
     });
   }
+
+  test('first-run onboarding announces steps and exposes editable choices at 390px', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.addInitScript(() => {
+      const requestCounter = { count: 0 };
+      Object.defineProperty(window, '__wp03MicRequestCounter', {
+        value: requestCounter,
+        configurable: true,
+      });
+
+      const mediaDevices = navigator.mediaDevices ?? {};
+      Object.defineProperty(mediaDevices, 'getUserMedia', {
+        configurable: true,
+        value: async () => {
+          requestCounter.count += 1;
+          throw new DOMException('Blocked by WP03 test', 'NotAllowedError');
+        },
+      });
+      if (!navigator.mediaDevices) {
+        Object.defineProperty(navigator, 'mediaDevices', {
+          configurable: true,
+          value: mediaDevices,
+        });
+      }
+    });
+
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+
+    const dialog = page.getByRole('dialog');
+    const status = dialog.getByRole('status');
+    await expect(status).toHaveText('Step 1 of 5: Welcome');
+
+    await dialog.getByRole('button', { name: 'Next' }).click();
+    await expect(status).toHaveText('Step 2 of 5: Basic Info');
+
+    await dialog.getByRole('button', { name: 'Next' }).click();
+    await expect(status).toHaveText('Step 3 of 5: Daily Routine');
+    await dialog.getByRole('button', { name: 'Add Routine' }).click();
+    await expect(dialog.getByRole('textbox', {
+      name: 'Routine 1',
+      exact: true,
+    })).toBeVisible();
+    await expect(dialog.getByRole('textbox', {
+      name: 'Time for routine 1 (optional)',
+    })).toBeVisible();
+    await expectNoWcagViolations(page);
+
+    await dialog.getByRole('button', { name: 'Next' }).click();
+    await expect(status).toHaveText('Step 4 of 5: Goals & Challenges');
+    await dialog.getByRole('button', { name: 'Next' }).click();
+    await expect(status).toHaveText('Step 5 of 5: Communication Style');
+
+    const group = dialog.getByRole('radiogroup', {
+      name: 'How do you prefer encouragement and reminders?',
+    });
+    const preferred = group.getByRole('radio', { name: 'Warm and supportive' });
+    const alternative = group.getByRole('radio', {
+      name: 'Motivating and encouraging',
+    });
+    await preferred.click();
+    await expect(preferred).toHaveAttribute('aria-checked', 'true');
+    await expect(alternative).toHaveAttribute('aria-checked', 'false');
+
+    const overflowingLabels = await group.getByRole('radio').evaluateAll(
+      (options) => options
+        .filter((option) => option.scrollWidth > option.clientWidth)
+        .map((option) => option.textContent?.trim()),
+    );
+    expect(overflowingLabels).toEqual([]);
+    await expectNoWcagViolations(page);
+
+    await page.evaluate(() => {
+      const chords = [
+        { ctrlKey: true },
+        { altKey: true },
+        { metaKey: true },
+        { shiftKey: true },
+      ];
+      chords.forEach((modifier) => {
+        document.dispatchEvent(new KeyboardEvent('keydown', {
+          bubbles: true,
+          code: 'Space',
+          ...modifier,
+        }));
+        document.dispatchEvent(new KeyboardEvent('keyup', {
+          bubbles: true,
+          code: 'Space',
+          ...modifier,
+        }));
+      });
+      document.dispatchEvent(new KeyboardEvent('keydown', {
+        bubbles: true,
+        code: 'Space',
+      }));
+      document.dispatchEvent(new KeyboardEvent('keyup', {
+        bubbles: true,
+        code: 'Space',
+      }));
+    });
+
+    await expect.poll(() => page.evaluate(() => (
+      (window as Window & {
+        __wp03MicRequestCounter?: { count: number };
+      }).__wp03MicRequestCounter?.count ?? -1
+    ))).toBe(0);
+  });
 });
