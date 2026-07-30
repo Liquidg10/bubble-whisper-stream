@@ -227,6 +227,20 @@ test.describe('current UI smoke gate', () => {
     await expect(page.getByRole('button', {
       name: 'Change bubble density. Current density: medium',
     })).toBeVisible();
+    const compactCanvasControls = page.locator(
+      '[data-testid="adaptive-zoom-controls"] button, '
+      + '[data-testid="adaptive-mode-controls"] button',
+    );
+    await expect(compactCanvasControls).toHaveCount(7);
+    const compactControlSizes = await compactCanvasControls.evaluateAll(
+      (controls) => controls.map((control) => {
+        const rect = control.getBoundingClientRect();
+        return { width: rect.width, height: rect.height };
+      }),
+    );
+    expect(compactControlSizes.every(({ width, height }) => (
+      width >= 44 && height >= 44
+    ))).toBe(true);
     await expect(layer).toHaveAttribute('data-density-capacity', '2');
     await expect(layer).toHaveAttribute('data-density-limited', 'true');
     await expect(bubbles).toHaveCount(2);
