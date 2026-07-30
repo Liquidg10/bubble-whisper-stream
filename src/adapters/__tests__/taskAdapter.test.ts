@@ -5,7 +5,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { bubbleToTask, taskToBubble, validateRoundTrip } from '../taskAdapter';
 import { type BubbleType, type Bubble } from '@/types/bubble';
-import { type Task } from '@/types/task';
+import {
+  CANONICAL_TASK_CONTRACT_VERSION,
+  type Task,
+} from '@/types/task';
 
 describe('TaskAdapter', () => {
   describe('bubbleToTask', () => {
@@ -158,11 +161,17 @@ describe('TaskAdapter', () => {
       expect(bubble.type).toBe('Task');
       expect(bubble.content).toBe('Test Task');
       expect(bubble.caption).toBe('Test description');
+      expect(bubble.completed).toBe(true);
       expect(bubble.size).toBe(0.8); // 80/100
       expect(bubble.tags).toEqual([{ id: 'tag-1', name: 'urgent', emoji: '🚨' }]);
       expect(bubble.x).toBe(150);
       expect(bubble.y).toBe(250);
       expect(bubble.moodColor).toBe('#ff0000');
+      expect(bubble.metadata?.canonicalTask).toMatchObject({
+        schemaVersion: CANONICAL_TASK_CONTRACT_VERSION,
+        type: 'task',
+        completed: true,
+      });
     });
 
     it('sets horizon tags from atomic view', () => {
@@ -260,6 +269,7 @@ describe('TaskAdapter', () => {
       expect(result.errors).toHaveLength(0);
       expect(result.convertedBubble.id).toBe(originalBubble.id);
       expect(result.convertedBubble.content).toBe(originalBubble.content);
+      expect(result.convertedBubble.completed).toBe(true);
     });
 
     it('maintains priority mapping accuracy within ±1', () => {
@@ -333,6 +343,189 @@ describe('TaskAdapter', () => {
         expect(result.task).toBeDefined();
         expect(result.convertedBubble).toBeDefined();
       });
+    });
+  });
+
+  describe('Canonical Task Contract v0.1', () => {
+    it('survives JSON persistence and switching projections without semantic loss', () => {
+      const task: Task = {
+        id: 'contract-1',
+        type: 'event',
+        title: 'Prepare for the appointment',
+        description: 'Bring the notes',
+        completed: true,
+        priority: 73,
+        actionability: 'actionable',
+        energyFit: 'low',
+        estimatedMinutes: 25,
+        urgency: 3,
+        readiness: {
+          band: 'now',
+          source: 'computed',
+          score: 0.875,
+          reason: 'Fits current energy and available time',
+          factors: [{
+            key: 'energy',
+            score: 1,
+            weight: 0.4,
+            available: true,
+            explanation: 'Task energy fits the current energy.',
+          }],
+          evaluatedAt: 4000,
+          inputSnapshot: {
+            energyMatch: 0.9,
+            timeFit: 0.8,
+            contextFit: 1,
+            blocked: false,
+          },
+        },
+        domainLinks: [
+          {
+            id: 'link-health',
+            domainId: 'health',
+            label: 'Health',
+            userConfirmed: true,
+            source: 'user',
+            strength: 'primary',
+            createdAt: 3000,
+            updatedAt: 3500,
+          },
+          {
+            id: 'link-work-suggestion',
+            domainId: 'work',
+            label: 'Work',
+            userConfirmed: false,
+            source: 'assistant',
+          },
+        ],
+        tags: [{ id: 'tag-1', name: 'appointment' }],
+        createdAt: 1000,
+        updatedAt: 5000,
+        due: 6000,
+        start: 6100,
+        end: 6200,
+        view: {
+          bubble: { x: 12, y: -8, size: 0.73, colorHex: '#123456' },
+          atomic: { shell: 'today', domain: 'Health', angle: 1.25 },
+          list: { group: 'Next', order: 2 },
+          kanban: { boardId: 'main', columnId: 'doing', pos: 1 },
+          matrix: { urgency: 3, importance: 2, quadrant: 1 },
+          pinboard: { x: 5, y: 7, energy: 'low', ordering: 4 },
+          calendar: {
+            startTime: '2026-07-28T09:00:00.000Z',
+            durationMin: 30,
+            calendarId: 'primary',
+          },
+          email: {
+            to: ['care@example.com'],
+            subject: 'Appointment notes',
+          },
+        },
+        metadata: {
+          outliner: {
+            parentId: 'parent-1',
+            steps: [{
+              id: 'step-1',
+              title: 'Collect notes',
+              completed: true,
+              estimateMin: 10,
+              dependencies: ['step-0'],
+            }],
+          },
+          custom: {
+            preserveExactly: true,
+          },
+        },
+      };
+
+      const persistedBubble = JSON.parse(JSON.stringify(taskToBubble(task))) as Bubble;
+      const restoredTask = bubbleToTask(persistedBubble);
+
+      expect(persistedBubble.metadata?.canonicalTask?.schemaVersion)
+        .toBe(CANONICAL_TASK_CONTRACT_VERSION);
+      expect(restoredTask).toEqual(task);
+    });
+
+    it('lazily migrates a legacy Bubble while preserving completion and metadata', () => {
+      const legacyBubble: Bubble = {
+        id: 'legacy-1',
+        type: 'Task',
+        content: 'Legacy task',
+        completed: true,
+        tags: [],
+        createdAt: 0,
+        updatedAt: 0,
+        x: 0,
+        y: 0,
+        size: 0,
+        metadata: {
+          outliner: {
+            parentTaskId: 'legacy-parent',
+            stepId: 'legacy-step',
+            estimatedMinutes: 15,
+            dependsOn: 'previous-step',
+          },
+          focusSession: {
+            duration: 25,
+            stepsCompleted: 2,
+            log: ['Started', 'Finished'],
+          },
+        },
+      };
+
+      const migratedBubble = taskToBubble(bubbleToTask(legacyBubble));
+
+      expect(migratedBubble.completed).toBe(true);
+      expect(migratedBubble.createdAt).toBe(0);
+      expect(migratedBubble.updatedAt).toBe(0);
+      expect(migratedBubble.x).toBe(0);
+      expect(migratedBubble.y).toBe(0);
+      expect(migratedBubble.size).toBe(0);
+      expect(migratedBubble.metadata?.outliner).toEqual(legacyBubble.metadata?.outliner);
+      expect(migratedBubble.metadata?.focusSession).toEqual(legacyBubble.metadata?.focusSession);
+      expect(migratedBubble.metadata?.canonicalTask).toMatchObject({
+        schemaVersion: CANONICAL_TASK_CONTRACT_VERSION,
+        type: 'task',
+        completed: true,
+        estimatedMinutes: 15,
+      });
+    });
+
+    it('does not promote inferred domains into user-confirmed domain links', () => {
+      const legacyBubble: Bubble = {
+        id: 'legacy-domain',
+        type: 'Task',
+        content: 'Call the doctor about medication',
+        completed: false,
+        tags: [{ id: 'today', name: 'today' }],
+        createdAt: 1000,
+        updatedAt: 1000,
+        x: 0,
+        y: 0,
+        size: 0.5,
+      };
+
+      const task = bubbleToTask(legacyBubble);
+
+      expect(task.view?.atomic?.domain).toBe('Health');
+      expect(task.domainLinks).toBeUndefined();
+    });
+
+    it('prefers an explicit Bubble completion update over a stale envelope', () => {
+      const persistedBubble = taskToBubble({
+        id: 'completion-coherence',
+        type: 'task',
+        title: 'Completion coherence',
+        completed: false,
+        priority: 50,
+        tags: [],
+        createdAt: 1000,
+        updatedAt: 1000,
+      });
+
+      persistedBubble.completed = true;
+
+      expect(bubbleToTask(persistedBubble).completed).toBe(true);
     });
   });
 });

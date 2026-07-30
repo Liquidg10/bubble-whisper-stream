@@ -1,5 +1,12 @@
 // Core data model for the Bubble Universe cognitive companion
 
+import type {
+  CanonicalTaskContractV1,
+  TaskFinanceMetadata,
+  TaskMetadata,
+  TaskViewMetadata,
+} from './taskContract';
+
 export type BubbleType = 'Thought' | 'Task' | 'Memory' | 'Mood' | 'ReminderNote';
 
 export interface Tag {
@@ -25,13 +32,21 @@ export interface Reminder {
   snoozes: Snooze[];
 }
 
-export interface FinanceMetadata {
-  merchant?: string;
-  total?: number;
-  date?: string;
-  currency?: string;
-  category?: string;
-  receiptProcessed?: boolean;
+export type FinanceMetadata = TaskFinanceMetadata;
+
+export interface BubbleMetadata extends TaskMetadata {
+  finance?: FinanceMetadata;
+  canonicalTask?: CanonicalTaskContractV1;
+  atomic?: TaskViewMetadata['atomic'];
+  list?: TaskViewMetadata['list'];
+  kanban?: TaskViewMetadata['kanban'];
+  matrix?: TaskViewMetadata['matrix'];
+  pinboard?: TaskViewMetadata['pinboard'];
+  calendar?: TaskViewMetadata['calendar'] & {
+    start?: number;
+    end?: number;
+  };
+  email?: TaskViewMetadata['email'];
 }
 
 export interface Bubble {
@@ -51,21 +66,7 @@ export interface Bubble {
   location?: { lat: number; lon: number };
   reminderId?: string;     // link to Reminder
   completed?: boolean;
-  metadata?: {
-    finance?: FinanceMetadata;
-    outliner?: {
-      parentTaskId?: string;
-      stepId?: string;
-      estimatedMinutes?: number;
-      dependsOn?: string;
-    };
-    focusSession?: {
-      duration: number;
-      stepsCompleted: number;
-      log: string[];
-    };
-    [key: string]: any;
-  };
+  metadata?: BubbleMetadata;
 }
 
 // Self-model baseline
