@@ -125,9 +125,11 @@ export class VoiceHotkeyManager {
       return;
     }
 
-    // Don't capture if user is typing in an input field
-    if (this.isUserTyping(event.target)) {
-      devLog('Voice hotkey ignored - user typing in input field');
+    // Native and ARIA controls own Space while focused. Treating their
+    // activation key as microphone consent would break ordinary keyboard and
+    // assistive-technology interaction.
+    if (this.isInteractiveTarget(event.target)) {
+      devLog('Voice hotkey ignored - interactive control owns the key');
       return;
     }
 
@@ -197,41 +199,41 @@ export class VoiceHotkeyManager {
     }
   }
 
-  private isUserTyping(target: EventTarget | null): boolean {
+  private isInteractiveTarget(target: EventTarget | null): boolean {
     if (!target || !(target instanceof HTMLElement)) return false;
-    
-    const tagName = target.tagName.toLowerCase();
-    
-    // Primary check: is this a text input element?
-    const isTextInput = tagName === 'input' || tagName === 'textarea';
-    const isContentEditable = target.contentEditable === 'true';
-    const hasTextboxRole = target.getAttribute('role') === 'textbox';
-    
-    // If it's clearly a text input, block hotkey
-    if (isTextInput || isContentEditable || hasTextboxRole) {
-      devLog(`Voice hotkey blocked - text input detected: ${tagName}`);
-      return true;
-    }
-    
-    // Enhanced detection for AI Assistant chat area - check the exact element first
+
     if (target.closest('[data-ai-assistant]')) {
       devLog(`Voice hotkey blocked - inside AI Assistant container`);
       return true;
     }
-    
-    // Check if we're in any form field or input-like element
-    const inputSelectors = [
-      'input', 'textarea', '[contenteditable="true"]', 
-      '[role="textbox"]', '[role="combobox"]'
+
+    const interactiveSelectors = [
+      'button',
+      'a[href]',
+      'input',
+      'textarea',
+      'select',
+      'summary',
+      '[contenteditable="true"]',
+      '[role="button"]',
+      '[role="link"]',
+      '[role="textbox"]',
+      '[role="combobox"]',
+      '[role="checkbox"]',
+      '[role="radio"]',
+      '[role="switch"]',
+      '[role="menuitem"]',
+      '[role="option"]',
+      '[role="tab"]',
     ];
-    
-    for (const selector of inputSelectors) {
-      if (target.matches(selector) || target.closest(selector)) {
-        devLog(`Voice hotkey blocked - matches input selector: ${selector}`);
+
+    for (const selector of interactiveSelectors) {
+      if (target.closest(selector)) {
+        devLog(`Voice hotkey blocked - matches interactive selector: ${selector}`);
         return true;
       }
     }
-    
+
     return false;
   }
 

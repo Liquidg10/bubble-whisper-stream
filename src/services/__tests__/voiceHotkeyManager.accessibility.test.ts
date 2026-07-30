@@ -74,6 +74,30 @@ describe('VoiceHotkeyManager accessibility boundaries', () => {
   });
 
   it.each([
+    ['button', '<button><span>Open task</span></button>', 'span'],
+    ['link', '<a href="/tasks">Open tasks</a>', 'a'],
+    ['select', '<select><option>Low</option></select>', 'select'],
+    ['details summary', '<details><summary>All tasks</summary></details>', 'summary'],
+    ['ARIA radio', '<div role="radio" tabindex="0">Low energy</div>', '[role="radio"]'],
+  ])('leaves unmodified Space with the focused %s', (
+    _label,
+    markup,
+    targetSelector,
+  ) => {
+    document.body.innerHTML = markup;
+    const target = document.querySelector<HTMLElement>(targetSelector);
+    expect(target).not.toBeNull();
+
+    target?.dispatchEvent(new KeyboardEvent('keydown', {
+      bubbles: true,
+      code: 'Space',
+    }));
+
+    expect(onHotkeyPress).not.toHaveBeenCalled();
+    expect(voiceHotkeyManager.isHotkeyPressed()).toBe(false);
+  });
+
+  it.each([
     ['ARIA modal', 'aria-modal', 'true'],
     ['Radix open state', 'data-state', 'open'],
   ])('does not open voice capture while an %s dialog is open', (
