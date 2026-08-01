@@ -69,8 +69,8 @@ export const STARTER_LIFE_DOMAINS: readonly LifeDomainDefinition[] = [
 
 function normalizeText(value: string): string {
   return value
-    .toLocaleLowerCase()
     .normalize('NFKC')
+    .toLowerCase()
     .replace(/[^\p{Letter}\p{Number}]+/gu, ' ')
     .trim();
 }

@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   createConfirmedDomainLink,
   createUserDomainLink,
+  normalizeDomainId,
   pendingLinkToProposal,
   proposeLifeDomainLinks,
 } from '@/domain/lifeDomains';
@@ -117,5 +118,16 @@ describe('life domain proposals', () => {
     expect(createUserDomainLink('健康', { id: 'link-b', now: 1 }).domainId).toBe('健康');
     expect(createUserDomainLink('🎨', { id: 'link-c', now: 1 }).domainId).toBe('custom-1f3a8');
     expect(createUserDomainLink('🌊', { id: 'link-d', now: 1 }).domainId).toBe('custom-1f30a');
+  });
+
+  it('normalizes persisted domain IDs independently of the device locale', () => {
+    const localeLowerCase = vi
+      .spyOn(String.prototype, 'toLocaleLowerCase')
+      .mockReturnValue('fıtness');
+
+    expect(normalizeDomainId('Fitness')).toBe('fitness');
+    expect(localeLowerCase).not.toHaveBeenCalled();
+
+    localeLowerCase.mockRestore();
   });
 });
