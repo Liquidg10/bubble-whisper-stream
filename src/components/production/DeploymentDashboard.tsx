@@ -222,16 +222,16 @@ export function DeploymentDashboard({ className }: DeploymentDashboardProps) {
                     Phase {canaryStats.currentPhase || 'Planning'}
                   </div>
                   <div className="text-sm text-muted-foreground">
-                    {canaryStats.activeUsers || 0} active users
+                    {canaryStats.totalUsers} users in rollout
                   </div>
                 </div>
                 
                 <div className="space-y-2">
                   <div className="flex justify-between">
                     <span className="text-sm">Stability Score</span>
-                    <span className="text-sm">{(canaryStats.stabilityScore * 100).toFixed(1)}%</span>
+                    <span className="text-sm">{(canaryStats.stabilityMetrics.stabilityScore * 100).toFixed(1)}%</span>
                   </div>
-                  <Progress value={canaryStats.stabilityScore * 100} />
+                  <Progress value={canaryStats.stabilityMetrics.stabilityScore * 100} />
                 </div>
               </>
             ) : (
