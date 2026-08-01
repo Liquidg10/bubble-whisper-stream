@@ -122,6 +122,8 @@ interface BubbleStore {
   // Bubble actions
   addBubble: (bubble: Bubble) => Promise<void>;
   updateBubble: (bubble: Bubble) => Promise<void>;
+  /** Persistence-aware path for callers that await and surface save failures. */
+  updateBubbleStrict: (bubble: Bubble) => Promise<void>;
   deleteBubble: (id: string) => Promise<void>;
   clearAllBubbles: () => Promise<void>;
   
@@ -383,6 +385,18 @@ export const useBubbleStore = create<BubbleStore>()(
           }));
         } catch (error) {
           console.error('Failed to update bubble:', error);
+        }
+      },
+
+      updateBubbleStrict: async (bubble) => {
+        try {
+          await storageService.updateBubble(bubble);
+          set(state => ({
+            bubbles: state.bubbles.map(b => b.id === bubble.id ? bubble : b)
+          }));
+        } catch (error) {
+          console.error('Failed to update bubble:', error);
+          throw error;
         }
       },
 

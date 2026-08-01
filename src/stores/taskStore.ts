@@ -11,7 +11,7 @@ import { subscribeWithSelector } from 'zustand/middleware';
 import type { Task, TaskId, TaskType, TimeHorizon } from '@/types/task';
 import type { Bubble } from '@/types/bubble';
 import { useBubbleStore } from './bubbleStore';
-import { bubbleToTask, taskToBubble } from '@/adapters/taskAdapter';
+import { bubbleToTask, mergeTaskIntoBubble, taskToBubble } from '@/adapters/taskAdapter';
 import { logger } from '@/utils/logger';
 
 interface TaskStoreState {
@@ -121,10 +121,13 @@ export const useTaskStore = create<TaskStoreState>()(
           id, // Ensure ID doesn't change
           updatedAt: Date.now()
         };
-        const bubble = taskToBubble(updatedTask);
-        
         const bubbleStore = useBubbleStore.getState();
-        await bubbleStore.updateBubble(bubble);
+        const currentBubble = bubbleStore.bubbles.find(bubble => bubble.id === id);
+        if (!currentBubble) {
+          throw new Error(`Bubble ${id} not found`);
+        }
+        const bubble = mergeTaskIntoBubble(currentBubble, updatedTask);
+        await bubbleStore.updateBubbleStrict(bubble);
         
         // Refresh task list
         get().refreshFromBubbleStore();

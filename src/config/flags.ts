@@ -24,6 +24,9 @@ export const flags = {
   
   // Task System (P1 - Non-destructive)
   taskAdapter: process.env.NODE_ENV === 'development',
+
+  // Confirmable meaning links (AI/rules propose; the user decides)
+  meaningLinks: process.env.NODE_ENV === 'development',
   
   // ViewSDK (P2 - View contracts and event bus)
   viewSdk: process.env.NODE_ENV === 'development',

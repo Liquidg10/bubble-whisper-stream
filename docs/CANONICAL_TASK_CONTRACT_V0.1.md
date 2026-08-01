@@ -64,9 +64,15 @@ v0.1. They require a later idempotent event-ledger slice.
 
 ## Meaning and consent
 
-`Task.domainLinks` may contain user-created, imported, or assistant-suggested
-links. Downstream Ripple/Molecule behavior must use only links where
-`userConfirmed === true`.
+`Task.domainLinks` may contain user-created, imported, locally suggested, or
+assistant-suggested links. Provenance is retained as `user | rule | assistant |
+import`; proposal grounding is kept separate from an optional user-authored
+relationship reason. Downstream Ripple/Molecule behavior must use only links
+where `userConfirmed === true`.
+
+The confirmable Life Connections editor is documented in
+`docs/CONFIRMABLE_LIFE_CONNECTIONS_V0.1.md`. Its proposals remain transient;
+only an explicit Link action creates or confirms a canonical link.
 
 The legacy keyword classifier may continue to position the experimental
 Atomic view, but it does not populate canonical domain links.

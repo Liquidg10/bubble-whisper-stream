@@ -77,8 +77,12 @@ export interface TaskDomainLink {
   domainId: string;
   label?: string;
   userConfirmed: boolean;
-  source: 'user' | 'assistant' | 'import';
+  source: 'user' | 'rule' | 'assistant' | 'import';
   strength?: 'primary' | 'secondary';
+  /** User-editable explanation of how this task supports the domain. */
+  reason?: string;
+  /** Grounding shown before confirmation; never treated as user-authored meaning. */
+  suggestionReason?: string;
   createdAt?: number;
   updatedAt?: number;
 }

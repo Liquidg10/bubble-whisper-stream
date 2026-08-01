@@ -17,6 +17,8 @@ import { useToast } from '@/hooks/use-toast';
 import { TaskOutliner } from './TaskOutliner';
 import { isFeatureEnabled } from '@/config/flags';
 import { AccessibleConfirmDialog } from '@/components/AccessibleConfirmDialog';
+import { LifeConnectionsEditor } from '@/components/LifeConnectionsEditor';
+import { bubbleToTask, withBubbleDomainLinks } from '@/adapters/taskAdapter';
 
 interface BubbleDetailProps {
   bubble: Bubble | null;
@@ -29,7 +31,7 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { updateBubble, deleteBubble, addReminder } = useBubbleStore();
+  const { updateBubble, updateBubbleStrict, deleteBubble, addReminder } = useBubbleStore();
   const [editedBubble, setEditedBubble] = useState<Bubble | null>(null);
   const [showTagPicker, setShowTagPicker] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -42,20 +44,29 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
   // thought.
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [showOutliner, setShowOutliner] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const { toast } = useToast();
 
   // Auto-save debounced function
   const debouncedSave = useCallback(
     debounce(async (bubbleToSave: Bubble) => {
-      await updateBubble(bubbleToSave);
-      toast({ title: "Changes saved", duration: 1000 });
+      try {
+        await updateBubbleStrict(bubbleToSave);
+        setSaveError(null);
+        toast({ title: "Changes saved", duration: 1000 });
+      } catch {
+        const message = 'Changes are still here, but could not be saved. Please try again.';
+        setSaveError(message);
+        toast({ title: "Couldn't save changes", description: message, variant: 'destructive' });
+      }
     }, 1000),
-    [updateBubble, toast]
+    [updateBubbleStrict, toast]
   );
 
   React.useEffect(() => {
     if (bubble) {
       setEditedBubble({ ...bubble });
+      setSaveError(null);
     }
   }, [bubble]);
 
@@ -70,6 +81,7 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
 
   const colorScheme = getBubbleColorScheme(bubble.type, bubble.size);
   const typeIcon = getBubbleTypeIcon(bubble.type);
+  const canonicalTask = bubbleToTask(editedBubble);
 
   const handleDelete = async () => {
     await deleteBubble(bubble.id);
@@ -127,7 +139,12 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent 
-        className="max-w-md mx-auto max-h-[90vh] overflow-y-auto"
+        className="w-[calc(100vw-2rem)] max-w-md max-h-[90vh] overflow-x-hidden overflow-y-auto [&>*]:min-w-0"
+        onEscapeKeyDown={(event) => {
+          if ((document.activeElement as HTMLElement | null)?.dataset.lifeInlineEdit === 'dirty') {
+            event.preventDefault();
+          }
+        }}
         style={{ 
           backgroundColor: colorScheme.background,
           borderColor: colorScheme.border,
@@ -167,6 +184,12 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
         </DialogHeader>
 
         <div className="space-y-4">
+          {saveError && (
+            <p role="alert" className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+              {saveError}
+            </p>
+          )}
+
           {/* Photo Display */}
           {bubble.imageUri && (
             <div className="space-y-2">
@@ -246,6 +269,21 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
             </div>
           </div>
 
+          {isFeatureEnabled('meaningLinks') && (
+            <LifeConnectionsEditor
+              task={canonicalTask}
+              links={canonicalTask.domainLinks ?? []}
+              onChange={(domainLinks) => {
+                try {
+                  setEditedBubble(withBubbleDomainLinks(editedBubble, domainLinks));
+                  setSaveError(null);
+                } catch {
+                  setSaveError('This task was created by a newer data version and cannot be safely changed here.');
+                }
+              }}
+            />
+          )}
+
           {/* Tags */}
           <div>
             <div className="flex items-center justify-between mb-2">
@@ -290,7 +328,7 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
           </div>
 
           {/* Actions */}
-          <div className="flex gap-2 pt-4 border-t" style={{ borderTopColor: colorScheme.border }}>
+          <div className="flex flex-wrap gap-2 pt-4 border-t" style={{ borderTopColor: colorScheme.border }}>
             <Button 
               onClick={onClose} 
               className="flex-1"

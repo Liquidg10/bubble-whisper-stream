@@ -33,12 +33,14 @@ import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { crossViewUndoService } from '@/services/crossViewUndoService';
 import type { Task, TaskType, TaskTag } from '@/types/task';
+import { isFeatureEnabled } from '@/config/flags';
+import { LifeConnectionsEditor } from './LifeConnectionsEditor';
 
 interface TaskDetailProps {
   task: Task | null;
   isOpen: boolean;
   onClose: () => void;
-  onUpdate: (task: Task) => void;
+  onUpdate: (task: Task) => void | Promise<void>;
   onDelete?: (taskId: string) => void;
   view?: 'bubble' | 'atomic' | 'list' | 'kanban' | 'matrix';
 }
@@ -54,23 +56,31 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
   const [editedTask, setEditedTask] = useState<Task | null>(null);
   const [showTagPicker, setShowTagPicker] = useState(false);
   const [dueDateOpen, setDueDateOpen] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const { toast } = useToast();
 
   // Auto-save debounced function
   const debouncedSave = useCallback(
     debounce(async (taskToSave: Task) => {
-      onUpdate(taskToSave);
-      
-      // Add to undo stack
-      crossViewUndoService.addEntry({
-        view: view as any,
-        type: 'edit',
-        data: { taskId: taskToSave.id, previous: task, updated: taskToSave },
-        description: `Updated task: ${taskToSave.title}`,
-        compensationFn: async () => { if (task) await Promise.resolve(onUpdate(task)); }
-      });
+      try {
+        await onUpdate(taskToSave);
+        setSaveError(null);
 
-      toast({ title: "Changes saved", duration: 1000 });
+        // Add to undo stack only after persistence succeeds.
+        crossViewUndoService.addEntry({
+          view: view as any,
+          type: 'edit',
+          data: { taskId: taskToSave.id, previous: task, updated: taskToSave },
+          description: `Updated task: ${taskToSave.title}`,
+          compensationFn: async () => { if (task) await Promise.resolve(onUpdate(task)); }
+        });
+
+        toast({ title: "Changes saved", duration: 1000 });
+      } catch {
+        const message = 'Changes are still here, but could not be saved. Please try again.';
+        setSaveError(message);
+        toast({ title: "Couldn't save changes", description: message, variant: 'destructive' });
+      }
     }, 1000),
     [onUpdate, task, view, toast]
   );
@@ -78,6 +88,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
   useEffect(() => {
     if (task) {
       setEditedTask({ ...task });
+      setSaveError(null);
     }
   }, [task]);
 
@@ -140,7 +151,14 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent
+        className="w-[calc(100vw-2rem)] max-w-2xl max-h-[90vh] overflow-x-hidden overflow-y-auto [&>*]:min-w-0"
+        onEscapeKeyDown={(event) => {
+          if ((document.activeElement as HTMLElement | null)?.dataset.lifeInlineEdit === 'dirty') {
+            event.preventDefault();
+          }
+        }}
+      >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-3 pb-4 border-b border-border">
             <div className="flex items-center gap-2">
@@ -165,6 +183,12 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
         </DialogHeader>
 
         <div className="space-y-6 pt-4">
+          {saveError && (
+            <p role="alert" className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+              {saveError}
+            </p>
+          )}
+
           {/* Title */}
           <div>
             <label className="text-sm font-medium text-foreground mb-2 block">
@@ -303,6 +327,18 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
             </Popover>
           </div>
 
+          {isFeatureEnabled('meaningLinks') && (
+            <LifeConnectionsEditor
+              task={editedTask}
+              links={editedTask.domainLinks ?? []}
+              onChange={(domainLinks) => {
+                setEditedTask(current => current
+                  ? { ...current, domainLinks, updatedAt: Date.now() }
+                  : current);
+              }}
+            />
+          )}
+
           {/* Tags */}
           <div>
             <div className="flex items-center justify-between mb-3">
@@ -347,7 +383,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
           </div>
 
           {/* Actions */}
-          <div className="flex gap-3 pt-6 border-t border-border">
+          <div className="flex flex-wrap gap-3 pt-6 border-t border-border">
             <Button 
               onClick={onClose} 
               className="flex-1"
