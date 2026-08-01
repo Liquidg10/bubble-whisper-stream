@@ -332,10 +332,12 @@ export default function KanbanView() {
                 tasks={tasksByColumn[column.id] || []}
                 isDraggedOver={false}
                 onTaskKeyboardMove={handleKeyboardMove}
+                onTaskUpdate={viewSDK.actions.upsert}
                 onTaskSelect={setSelectedTaskId}
                 selectedTaskId={selectedTaskId}
                 onAddTask={handleAddTask}
                 onClearCompleted={handleClearCompleted}
+                onOpenDetail={setDetailTask}
                 onColumnSettings={handleColumnSettings}
               />
             ))}
