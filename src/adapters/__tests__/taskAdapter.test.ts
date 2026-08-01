@@ -3,7 +3,14 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { bubbleToTask, taskToBubble, validateRoundTrip } from '../taskAdapter';
+import {
+  bubbleToTask,
+  mergeTaskIntoBubble,
+  taskToBubble,
+  UnsupportedCanonicalTaskVersionError,
+  validateRoundTrip,
+  withBubbleDomainLinks,
+} from '../taskAdapter';
 import { type BubbleType, type Bubble } from '@/types/bubble';
 import {
   CANONICAL_TASK_CONTRACT_VERSION,
@@ -526,6 +533,131 @@ describe('TaskAdapter', () => {
       persistedBubble.completed = true;
 
       expect(bubbleToTask(persistedBubble).completed).toBe(true);
+    });
+
+    it('patches domain links without losing Bubble-only fields', () => {
+      const original: Bubble = {
+        id: 'rich-bubble',
+        type: 'Task',
+        content: 'Walk with family',
+        audioUri: 'local://audio.m4a',
+        imageUri: 'local://image.jpg',
+        caption: 'A trail',
+        createdAt: 100,
+        updatedAt: 200,
+        x: 12,
+        y: 34,
+        size: 0.7,
+        moodColor: '#123456',
+        mood: 'hopeful',
+        tags: [{ id: 'tag-1', name: 'outside' }],
+        location: { lat: 1, lon: 2 },
+        reminderId: 'reminder-1',
+        metadata: { customLegacyValue: { keep: true } },
+      };
+
+      const updated = withBubbleDomainLinks(original, [{
+        id: 'link-1',
+        domainId: 'family',
+        label: 'Family',
+        userConfirmed: true,
+        source: 'user',
+        strength: 'primary',
+      }], 300);
+
+      expect(updated).toMatchObject({
+        ...original,
+        updatedAt: 300,
+        metadata: expect.any(Object),
+      });
+      expect(updated.metadata?.customLegacyValue).toEqual({ keep: true });
+      expect(bubbleToTask(updated).domainLinks).toEqual([
+        expect.objectContaining({ domainId: 'family', userConfirmed: true }),
+      ]);
+      expect(original.metadata?.canonicalTask).toBeUndefined();
+    });
+
+    it('merges Task edits while preserving Bubble-only attachments and context', () => {
+      const original: Bubble = {
+        id: 'merge-rich-bubble',
+        type: 'Memory',
+        content: 'Original',
+        audioUri: 'local://audio.m4a',
+        imageUri: 'local://image.jpg',
+        createdAt: 100,
+        updatedAt: 200,
+        x: 1,
+        y: 2,
+        size: 0.4,
+        mood: 'calm',
+        tags: [],
+        location: { lat: 3, lon: 4 },
+        reminderId: 'reminder-2',
+      };
+      const updatedTask = {
+        ...bubbleToTask(original),
+        title: 'Updated',
+        updatedAt: 300,
+      };
+
+      const merged = mergeTaskIntoBubble(original, updatedTask);
+
+      expect(merged.content).toBe('Updated');
+      expect(merged.audioUri).toBe(original.audioUri);
+      expect(merged.imageUri).toBe(original.imageUri);
+      expect(merged.location).toEqual(original.location);
+      expect(merged.mood).toBe(original.mood);
+      expect(merged.reminderId).toBe(original.reminderId);
+    });
+
+    it('preserves unknown fields from a supported canonical envelope', () => {
+      const original = taskToBubble({
+        id: 'future-field',
+        type: 'task',
+        title: 'Supported envelope',
+        completed: false,
+        priority: 50,
+        tags: [],
+        createdAt: 1,
+        updatedAt: 1,
+      });
+      Object.assign(original.metadata!.canonicalTask!, {
+        futureCompatibleReceipt: { keep: true },
+      });
+
+      const updated = withBubbleDomainLinks(original, [], 2);
+
+      expect((updated.metadata?.canonicalTask as unknown as Record<string, unknown>)
+        .futureCompatibleReceipt).toEqual({ keep: true });
+    });
+
+    it('fails closed instead of overwriting a newer canonical schema', () => {
+      const original: Bubble = {
+        id: 'future-schema',
+        type: 'Task',
+        content: 'Newer data',
+        createdAt: 1,
+        updatedAt: 1,
+        x: 0,
+        y: 0,
+        size: 0.5,
+        tags: [],
+        metadata: {
+          canonicalTask: {
+            schemaVersion: 2,
+            type: 'task',
+            completed: false,
+            futureLedger: [{ id: 'event-1' }],
+          } as unknown as NonNullable<Bubble['metadata']>['canonicalTask'],
+        },
+      };
+
+      expect(() => withBubbleDomainLinks(original, [], 2))
+        .toThrow(UnsupportedCanonicalTaskVersionError);
+      expect(() => mergeTaskIntoBubble(original, bubbleToTask(original)))
+        .toThrow(UnsupportedCanonicalTaskVersionError);
+      expect((original.metadata?.canonicalTask as unknown as Record<string, unknown>)
+        .futureLedger).toEqual([{ id: 'event-1' }]);
     });
   });
 });

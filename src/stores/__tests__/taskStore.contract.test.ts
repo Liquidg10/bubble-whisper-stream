@@ -4,6 +4,7 @@ import { useBubbleStore } from '@/stores/bubbleStore';
 import { useTaskStore } from '@/stores/taskStore';
 import type { Bubble } from '@/types/bubble';
 import type { Task } from '@/types/task';
+import { storageService } from '@/services/storage';
 
 vi.mock('@/services/taskAwareAutoWriteService', () => ({
   taskAwareAutoWriteService: {
@@ -12,6 +13,7 @@ vi.mock('@/services/taskAwareAutoWriteService', () => ({
 }));
 
 const originalUpdateBubble = useBubbleStore.getState().updateBubble;
+const originalUpdateBubbleStrict = useBubbleStore.getState().updateBubbleStrict;
 
 function installInMemoryBubblePersistence(initialBubble: Bubble) {
   const updateBubble = vi.fn(async (bubble: Bubble) => {
@@ -25,6 +27,7 @@ function installInMemoryBubblePersistence(initialBubble: Bubble) {
   useBubbleStore.setState({
     bubbles: [initialBubble],
     updateBubble,
+    updateBubbleStrict: updateBubble,
   });
   useTaskStore.getState().refreshFromBubbleStore();
 
@@ -45,6 +48,7 @@ describe('TaskStore Canonical Task Contract v0.1', () => {
     useBubbleStore.setState({
       bubbles: [],
       updateBubble: originalUpdateBubble,
+      updateBubbleStrict: originalUpdateBubbleStrict,
     });
     useTaskStore.setState({
       tasks: [],
@@ -138,5 +142,78 @@ describe('TaskStore Canonical Task Contract v0.1', () => {
       domainLinks: task.domainLinks,
     });
     expect(useTaskStore.getState().getCompletedTasks()).toHaveLength(1);
+  });
+
+  it('preserves Bubble-only fields when a canonical link is edited through TaskStore', async () => {
+    const original: Bubble = {
+      id: 'store-rich-bubble',
+      type: 'Task',
+      content: 'Keep the context',
+      audioUri: 'local://voice.m4a',
+      imageUri: 'local://photo.jpg',
+      createdAt: 1000,
+      updatedAt: 2000,
+      x: 10,
+      y: 20,
+      size: 0.5,
+      mood: 'steady',
+      tags: [],
+      location: { lat: 1, lon: 2 },
+      reminderId: 'reminder-1',
+    };
+    installInMemoryBubblePersistence(original);
+
+    await useTaskStore.getState().updateTask(original.id, {
+      domainLinks: [{
+        id: 'link-1',
+        domainId: 'family',
+        label: 'Family',
+        userConfirmed: true,
+        source: 'user',
+      }],
+    });
+
+    expect(useBubbleStore.getState().bubbles[0]).toMatchObject({
+      audioUri: original.audioUri,
+      imageUri: original.imageUri,
+      location: original.location,
+      mood: original.mood,
+      reminderId: original.reminderId,
+      metadata: {
+        canonicalTask: {
+          domainLinks: [expect.objectContaining({ domainId: 'family' })],
+        },
+      },
+    });
+  });
+
+  it('propagates a rejected strict persistence write without changing in-memory state', async () => {
+    const original: Bubble = {
+      id: 'failed-write',
+      type: 'Task',
+      content: 'Original title',
+      createdAt: 1,
+      updatedAt: 1,
+      x: 0,
+      y: 0,
+      size: 0.5,
+      tags: [],
+    };
+    useBubbleStore.setState({
+      bubbles: [original],
+      updateBubble: originalUpdateBubble,
+      updateBubbleStrict: originalUpdateBubbleStrict,
+    });
+    const persistence = vi
+      .spyOn(storageService, 'updateBubble')
+      .mockRejectedValueOnce(new Error('IndexedDB unavailable'));
+
+    await expect(useBubbleStore.getState().updateBubbleStrict({
+      ...original,
+      content: 'Unsaved title',
+    })).rejects.toThrow('IndexedDB unavailable');
+
+    expect(useBubbleStore.getState().bubbles[0].content).toBe('Original title');
+    persistence.mockRestore();
   });
 });

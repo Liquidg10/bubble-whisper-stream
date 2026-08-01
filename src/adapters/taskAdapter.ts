@@ -17,6 +17,7 @@ import {
   CANONICAL_TASK_CONTRACT_VERSION,
   type CanonicalTaskContractV1,
   type Task,
+  type TaskDomainLink,
   type TaskMetadata,
   type TaskType,
   type TaskViewMetadata,
@@ -96,6 +97,44 @@ function getCanonicalEnvelope(metadata?: BubbleMetadata): CanonicalTaskContractV
   return envelope?.schemaVersion === CANONICAL_TASK_CONTRACT_VERSION
     ? envelope
     : undefined;
+}
+
+export class UnsupportedCanonicalTaskVersionError extends Error {
+  constructor(version: unknown) {
+    super(`Cannot safely edit canonical Task schema version ${String(version)}.`);
+    this.name = 'UnsupportedCanonicalTaskVersionError';
+  }
+}
+
+function getRawCanonicalEnvelope(metadata?: BubbleMetadata): Record<string, unknown> | undefined {
+  const envelope = metadata?.canonicalTask as unknown;
+  return envelope && typeof envelope === 'object'
+    ? envelope as Record<string, unknown>
+    : undefined;
+}
+
+function mergeCanonicalEnvelopeMetadata(
+  originalMetadata: BubbleMetadata | undefined,
+  projectedMetadata: BubbleMetadata | undefined,
+): BubbleMetadata | undefined {
+  const originalEnvelope = getRawCanonicalEnvelope(originalMetadata);
+  if (
+    originalEnvelope
+    && originalEnvelope.schemaVersion !== CANONICAL_TASK_CONTRACT_VERSION
+  ) {
+    throw new UnsupportedCanonicalTaskVersionError(originalEnvelope.schemaVersion);
+  }
+
+  const projectedEnvelope = projectedMetadata?.canonicalTask;
+  if (!originalEnvelope || !projectedEnvelope) return projectedMetadata;
+
+  return {
+    ...projectedMetadata,
+    canonicalTask: {
+      ...originalEnvelope,
+      ...projectedEnvelope,
+    } as unknown as CanonicalTaskContractV1,
+  };
 }
 
 /**
@@ -398,6 +437,51 @@ export function taskToBubble(task: Task): Bubble {
       },
     };
   }
+}
+
+/**
+ * Project a Task update without discarding Bubble-only fields that do not
+ * exist in the canonical Task facade yet (attachments, location, mood, and
+ * reminder linkage). This is the safe write path for TaskStore updates.
+ */
+export function mergeTaskIntoBubble(originalBubble: Bubble, task: Task): Bubble {
+  const projectedBubble = taskToBubble(task);
+
+  return {
+    ...originalBubble,
+    ...projectedBubble,
+    audioUri: originalBubble.audioUri,
+    imageUri: originalBubble.imageUri,
+    location: originalBubble.location,
+    reminderId: originalBubble.reminderId,
+    mood: originalBubble.mood,
+    metadata: mergeCanonicalEnvelopeMetadata(
+      originalBubble.metadata,
+      projectedBubble.metadata,
+    ),
+  };
+}
+
+/**
+ * Patch only canonical domain-link metadata from the active Bubble editor.
+ * Every Bubble-only field and direct visual edit stays byte-for-byte intact.
+ */
+export function withBubbleDomainLinks(
+  bubble: Bubble,
+  domainLinks: readonly TaskDomainLink[],
+  updatedAt: number = Date.now(),
+): Bubble {
+  const projectedBubble = taskToBubble({
+    ...bubbleToTask(bubble),
+    domainLinks: domainLinks.map(link => ({ ...link })),
+    updatedAt,
+  });
+
+  return {
+    ...bubble,
+    updatedAt,
+    metadata: mergeCanonicalEnvelopeMetadata(bubble.metadata, projectedBubble.metadata),
+  };
 }
 
 /**
