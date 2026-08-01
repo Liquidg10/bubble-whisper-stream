@@ -35,7 +35,10 @@ test.describe('A11Y P11: Reduced Motion Compliance @a11y', () => {
     await page.goto('/list');
 
     const onboardingDialog = page.getByRole('dialog', { name: 'Welcome' });
-    if (await onboardingDialog.isVisible().catch(() => false)) {
+    const onboardingAppeared = await onboardingDialog
+      .waitFor({ state: 'visible', timeout: 2_000 })
+      .then(() => true, () => false);
+    if (onboardingAppeared) {
       await page.keyboard.press('Escape');
       await expect(onboardingDialog).toBeHidden();
     }

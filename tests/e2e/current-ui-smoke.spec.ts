@@ -9,7 +9,10 @@ const CURRENT_ROUTES = [
 
 async function closeOnboardingIfPresent(page: import('@playwright/test').Page) {
   const dialog = page.getByRole('dialog', { name: 'Welcome' });
-  if (await dialog.isVisible().catch(() => false)) {
+  const onboardingAppeared = await dialog
+    .waitFor({ state: 'visible', timeout: 2_000 })
+    .then(() => true, () => false);
+  if (onboardingAppeared) {
     await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();
   }
