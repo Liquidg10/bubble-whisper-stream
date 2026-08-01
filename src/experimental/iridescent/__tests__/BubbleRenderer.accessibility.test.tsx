@@ -32,23 +32,6 @@ vi.mock('@/hooks/useLODSystem', () => ({
   }),
 }));
 
-vi.mock('@/components/MergeConfirmPortal', () => ({
-  MergeConfirmPortal: ({
-    isOpen,
-    onMerge,
-    onCancel,
-  }: {
-    isOpen: boolean;
-    onMerge: () => void;
-    onCancel: () => void;
-  }) => isOpen ? (
-    <div role="dialog" aria-label="Merge tasks">
-      <button type="button" onClick={onMerge}>Merge</button>
-      <button type="button" onClick={onCancel}>Keep separate</button>
-    </div>
-  ) : null,
-}));
-
 function task(overrides: Partial<Task>): Task {
   return {
     id: overrides.id ?? 'task-1',
@@ -472,9 +455,14 @@ describe('Adaptive Bubble renderer accessibility slice', () => {
 
     const { container } = render(<IridescentCanvas />);
 
-    await waitFor(() => expect(
-      container.querySelector('[data-task-id="restored-position-task"]'),
-    ).toHaveStyle({ left: '340px', top: '0px' }));
+    await waitFor(() => {
+      const restored = container.querySelector<HTMLElement>(
+        '[data-task-id="restored-position-task"]',
+      );
+      expect(restored).toHaveStyle({ left: '340px' });
+      expect(Number.parseFloat(restored?.style.top ?? '0'))
+        .toBeGreaterThanOrEqual(136);
+    });
     expect(updateBubble).not.toHaveBeenCalled();
     expect(mockUseBubbleStore.getState().bubbles[0]).toEqual(
       expect.objectContaining({ x: 10_000, y: -10_000 }),
@@ -608,6 +596,76 @@ describe('Adaptive Bubble renderer accessibility slice', () => {
     rectSpy.mockRestore();
   });
 
+  it('fits origin tasks around existing arranged tasks without rewriting coordinates', async () => {
+    const updateBubble = vi.fn().mockResolvedValue(undefined);
+    setMockBubbleState({
+      bubbles: [
+        taskToBubble(task({
+          id: 'arranged-center',
+          title: 'Arranged center',
+          view: { bubble: { x: 1, y: 0, size: 0.9 } },
+        })),
+        ...['origin-one', 'origin-two'].map(id => taskToBubble(task({
+          id,
+          title: id,
+          view: { bubble: { x: 0, y: 0, size: 0.9 } },
+        }))),
+      ],
+      settings: createMockSettings({ bubbleDensity: 'high' }),
+      updateBubble,
+    });
+    const rectSpy = vi.spyOn(
+      HTMLElement.prototype,
+      'getBoundingClientRect',
+    ).mockReturnValue({
+      x: 0,
+      y: 0,
+      top: 0,
+      right: 390,
+      bottom: 844,
+      left: 0,
+      width: 390,
+      height: 844,
+      toJSON: () => ({}),
+    });
+
+    const { container } = render(<IridescentCanvas />);
+
+    await waitFor(() => expect(
+      container.querySelectorAll('[data-adaptive-bubble]'),
+    ).toHaveLength(3));
+    const rendered = Array.from(
+      container.querySelectorAll<HTMLElement>('[data-adaptive-bubble]'),
+      bubble => ({
+        x: Number.parseFloat(bubble.style.left)
+          + (Number.parseFloat(bubble.style.width) / 2),
+        y: Number.parseFloat(bubble.style.top)
+          + (Number.parseFloat(bubble.style.height) / 2),
+        radius: Number.parseFloat(bubble.style.width) / 2,
+      }),
+    );
+    for (let left = 0; left < rendered.length; left += 1) {
+      for (let right = left + 1; right < rendered.length; right += 1) {
+        expect(Math.hypot(
+          rendered[left].x - rendered[right].x,
+          rendered[left].y - rendered[right].y,
+        )).toBeGreaterThanOrEqual(
+          rendered[left].radius + rendered[right].radius,
+        );
+      }
+    }
+    expect(updateBubble).not.toHaveBeenCalled();
+    expect(mockUseBubbleStore.getState().bubbles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'arranged-center', x: 1, y: 0 }),
+        expect.objectContaining({ id: 'origin-one', x: 0, y: 0 }),
+        expect.objectContaining({ id: 'origin-two', x: 0, y: 0 }),
+      ]),
+    );
+
+    rectSpy.mockRestore();
+  });
+
   it('reflows the same auto-placement cohort when tasks arrive one at a time', async () => {
     const first = taskToBubble(task({
       id: 'sequential-one',
@@ -693,6 +751,57 @@ describe('Adaptive Bubble renderer accessibility slice', () => {
     expect((mockUseBubbleStore.getState().bubbles as Bubble[]).every(
       bubble => bubble.x === 0 && bubble.y === 0,
     )).toBe(true);
+    rectSpy.mockRestore();
+  });
+
+  it('honors an external canonical move out of the auto-placement cohort', async () => {
+    const first = taskToBubble(task({
+      id: 'synced-position',
+      title: 'Synced position',
+      view: { bubble: { x: 0, y: 0, size: 0.6 } },
+    }));
+    const second = taskToBubble(task({
+      id: 'still-origin',
+      title: 'Still origin',
+      view: { bubble: { x: 0, y: 0, size: 0.6 } },
+    }));
+    const updateBubble = vi.fn().mockResolvedValue(undefined);
+    setMockBubbleState({
+      bubbles: [first, second],
+      settings: createMockSettings({ bubbleDensity: 'high' }),
+      updateBubble,
+    });
+    const rectSpy = vi.spyOn(
+      HTMLElement.prototype,
+      'getBoundingClientRect',
+    ).mockReturnValue({
+      x: 0,
+      y: 0,
+      top: 0,
+      right: 390,
+      bottom: 844,
+      left: 0,
+      width: 390,
+      height: 844,
+      toJSON: () => ({}),
+    });
+    const { container, rerender } = render(<IridescentCanvas />);
+
+    setMockBubbleState({
+      bubbles: [{ ...first, x: 120, y: 100 }, second],
+      updateBubble,
+    });
+    rerender(<IridescentCanvas />);
+
+    const moved = container.querySelector<HTMLElement>(
+      '[data-task-id="synced-position"]',
+    );
+    await waitFor(() => expect(Number.parseFloat(moved?.style.left ?? '0')
+      + (Number.parseFloat(moved?.style.width ?? '0') / 2)).toBe(315));
+    expect(Number.parseFloat(moved?.style.top ?? '0')
+      + (Number.parseFloat(moved?.style.height ?? '0') / 2)).toBe(522);
+    expect(updateBubble).not.toHaveBeenCalled();
+
     rectSpy.mockRestore();
   });
 
@@ -832,22 +941,38 @@ describe('Adaptive Bubble renderer accessibility slice', () => {
     rectSpy.mockRestore();
   });
 
-  it('merges from the drop coordinates without racing a stale position write', () => {
+  it('merges without a stale write and moves focus to the merged task', async () => {
     const updateBubble = vi.fn().mockResolvedValue(undefined);
-    const mergeBubbles = vi.fn();
+    const mergeA = taskToBubble(task({
+      id: 'merge-a',
+      title: 'Merge A',
+      view: { bubble: { x: -60, y: 0, size: 0.6 } },
+    }));
+    const mergeB = taskToBubble(task({
+      id: 'merge-b',
+      title: 'Merge B',
+      view: { bubble: { x: 60, y: 0, size: 0.6 } },
+    }));
+    const mergeBubbles = vi.fn((left: Bubble, right: Bubble) => {
+      const mergedBubble: Bubble = {
+        ...left,
+        id: 'merged-result',
+        content: `${left.content}\n\n${right.content}`,
+        x: (left.x + right.x) / 2,
+        y: (left.y + right.y) / 2,
+      };
+      setMockBubbleState({
+        bubbles: [mergedBubble],
+        lastOperation: {
+          type: 'merge',
+          originalBubbles: [left, right],
+          mergedBubble,
+          timestamp: 2000,
+        },
+      });
+    });
     setMockBubbleState({
-      bubbles: [
-        taskToBubble(task({
-          id: 'merge-a',
-          title: 'Merge A',
-          view: { bubble: { x: -60, y: 0, size: 0.6 } },
-        })),
-        taskToBubble(task({
-          id: 'merge-b',
-          title: 'Merge B',
-          view: { bubble: { x: 60, y: 0, size: 0.6 } },
-        })),
-      ],
+      bubbles: [mergeA, mergeB],
       settings: createMockSettings({ bubbleDensity: 'high' }),
       updateBubble,
       mergeBubbles,
@@ -888,7 +1013,14 @@ describe('Adaptive Bubble renderer accessibility slice', () => {
       pointerId: 31,
     }));
 
-    expect(screen.getByRole('dialog', { name: 'Merge tasks' })).toBeVisible();
+    const dialog = screen.getByRole('dialog', { name: 'Merge tasks' });
+    expect(dialog).toBeVisible();
+    const descriptionId = dialog.getAttribute('aria-describedby');
+    expect(descriptionId).toBeTruthy();
+    expect(document.getElementById(descriptionId!)).toHaveTextContent(
+      'Merge "Merge A" with "Merge B"?',
+    );
+    expect(screen.getByRole('button', { name: 'Merge' })).toHaveFocus();
     expect(updateBubble).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Merge' }));
 
@@ -897,10 +1029,18 @@ describe('Adaptive Bubble renderer accessibility slice', () => {
       expect.objectContaining({ id: 'merge-b', x: 60, y: 0 }),
     );
     expect(updateBubble).not.toHaveBeenCalled();
+    const mergedButton = await waitFor(() => {
+      const target = container.querySelector<HTMLButtonElement>(
+        '[data-task-id="merged-result"]',
+      );
+      expect(target).toBeInTheDocument();
+      return target!;
+    });
+    await waitFor(() => expect(mergedButton).toHaveFocus());
     rectSpy.mockRestore();
   });
 
-  it('restores the pre-drag position after keeping an overlapping task separate', async () => {
+  it('cancels with Escape, restores focus and view, and never writes', async () => {
     const updateBubble = vi.fn().mockResolvedValue(undefined);
     const mergeBubbles = vi.fn();
     setMockBubbleState({
@@ -939,6 +1079,9 @@ describe('Adaptive Bubble renderer accessibility slice', () => {
     const bubble = container.querySelector(
       '[data-task-id="separate-a"]',
     ) as HTMLButtonElement;
+    const originalLeft = bubble.style.left;
+    const originalTop = bubble.style.top;
+    bubble.focus();
 
     fireEvent(bubble, pointerEvent('pointerdown', {
       clientX: 140,
@@ -957,13 +1100,16 @@ describe('Adaptive Bubble renderer accessibility slice', () => {
     }));
 
     expect(updateBubble).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Keep separate' }));
-    await waitFor(() => expect(updateBubble).toHaveBeenCalledOnce());
-    expect(updateBubble).toHaveBeenCalledWith(expect.objectContaining({
-      id: 'separate-a',
-      x: -60,
-      y: 0,
-    }));
+    const dialog = screen.getByRole('dialog', { name: 'Merge tasks' });
+    expect(screen.getByRole('button', { name: 'Merge' })).toHaveFocus();
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    await waitFor(() => expect(
+      screen.queryByRole('dialog', { name: 'Merge tasks' }),
+    ).not.toBeInTheDocument());
+    await waitFor(() => expect(bubble).toHaveFocus());
+    expect(bubble.style.left).toBe(originalLeft);
+    expect(bubble.style.top).toBe(originalTop);
+    expect(updateBubble).not.toHaveBeenCalled();
     expect(mergeBubbles).not.toHaveBeenCalled();
     rectSpy.mockRestore();
   });

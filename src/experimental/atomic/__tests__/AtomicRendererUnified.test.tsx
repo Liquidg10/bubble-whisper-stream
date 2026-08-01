@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import axe from 'axe-core';
 import type { Bubble } from '@/types/bubble';
+import { withBubbleDomainLinks } from '@/adapters/taskAdapter';
+import { createUserDomainLink } from '@/domain/lifeDomains';
 import { AtomicRenderer } from '../AtomicRendererUnified';
 
 const toast = vi.hoisted(() => vi.fn());
@@ -39,8 +41,9 @@ function bubble(
   id: string,
   content: string,
   horizon: 'today' | 'week' | 'later' = 'today',
+  domains: string[] = ['Work'],
 ): Bubble {
-  return {
+  const base: Bubble = {
     id,
     type: 'Task',
     content,
@@ -51,6 +54,15 @@ function bubble(
     size: 0.8,
     tags: [{ id: `${id}-${horizon}`, name: horizon }],
   };
+  if (domains.length === 0) return base;
+  return withBubbleDomainLinks(
+    base,
+    domains.map((domain, index) => createUserDomainLink(domain, {
+      id: `${id}-domain-${index}`,
+      now: 1,
+    })),
+    1,
+  );
 }
 
 function pointerEvent(
@@ -78,9 +90,42 @@ function getWorldScale(worldLayer: HTMLElement): number {
 }
 
 function getWorldOffset(value: string): number {
-  const match = value.match(/calc\(50% \+ (-?[\d.]+)px\)/);
+  const match = value.match(/calc\(50% ([+-]) ([\d.]+)px\)/);
   if (!match) throw new Error(`Atomic world offset is not readable: ${value}`);
-  return Number(match[1]);
+  return Number(match[2]) * (match[1] === '-' ? -1 : 1);
+}
+
+function getWorldTranslation(worldLayer: HTMLElement): { x: number; y: number } {
+  const match = worldLayer.style.transform.match(
+    /translate\((-?[\d.]+)px, (-?[\d.]+)px\)/,
+  );
+  if (!match) throw new Error('Atomic world layer does not expose translation');
+  return { x: Number(match[1]), y: Number(match[2]) };
+}
+
+function worldToClient(
+  point: { x: number; y: number },
+  worldLayer: HTMLElement,
+): { x: number; y: number } {
+  const scale = getWorldScale(worldLayer);
+  const translation = getWorldTranslation(worldLayer);
+  return {
+    x: (VIEWPORT_RECT.width / 2) + translation.x + (point.x * scale),
+    y: (VIEWPORT_RECT.height / 2) + translation.y + (point.y * scale),
+  };
+}
+
+function contrastWithWhite(rgb: string): number {
+  const channels = rgb.match(/[\d.]+/g)?.slice(0, 3).map(Number);
+  if (!channels || channels.length !== 3) return 0;
+  const [red, green, blue] = channels.map((channel) => {
+    const value = channel / 255;
+    return value <= 0.04045
+      ? value / 12.92
+      : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  const luminance = (0.2126 * red) + (0.7152 * green) + (0.0722 * blue);
+  return 1.05 / (luminance + 0.05);
 }
 
 describe('AtomicRenderer interaction geometry', () => {
@@ -123,7 +168,7 @@ describe('AtomicRenderer interaction geometry', () => {
     });
     const worldLayer = await screen.findByTestId('atomic-world-layer');
     const moleculeWrapper = container.querySelector(
-      '[data-molecule-id="mol-Work"]',
+      '[data-molecule-id="mol-work"]',
     )?.parentElement as HTMLElement;
 
     expect(viewport.style.transform).toBe('');
@@ -160,11 +205,11 @@ describe('AtomicRenderer interaction geometry', () => {
 
   it('uses an accessible overview at fit and exposes 44px electron targets only at a workable zoom', async () => {
     const tasks = [
-      bubble('work', 'Work meeting'),
-      bubble('personal', 'Home chore'),
-      bubble('health', 'Doctor health appointment'),
-      bubble('learning', 'Study course'),
-      bubble('relationships', 'Friend family dinner'),
+      bubble('work', 'Work meeting', 'today', ['Work']),
+      bubble('personal', 'Home chore', 'today', ['Personal']),
+      bubble('health', 'Doctor health appointment', 'today', ['Health']),
+      bubble('learning', 'Study course', 'today', ['Learning']),
+      bubble('relationships', 'Friend family dinner', 'today', ['Relationships']),
     ];
     const { container } = render(
       <AtomicRenderer bubbles={tasks} reducedMotion />,
@@ -261,19 +306,299 @@ describe('AtomicRenderer interaction geometry', () => {
       clientY: 300,
     }));
     fireEvent(viewport, pointerEvent('pointermove', {
-      clientX: 530,
+      clientX: 550,
       clientY: 300,
     }));
 
-    expect(electron).toHaveStyle({ left: '108px' });
+    expect(electron).toHaveStyle({ left: '132px' });
     fireEvent(viewport, pointerEvent('pointerup', {
-      clientX: 530,
+      clientX: 550,
       clientY: 300,
     }));
 
     expect(onTimeHorizonUpdate).toHaveBeenCalledWith('drag', 0, 2);
-    expect(container.querySelector('[data-electron-id="elec-drag"]'))
+    expect(container.querySelector('[data-electron-id="elec-drag-work"]'))
       .toHaveAccessibleName(expect.stringContaining('Later horizon'));
+  });
+
+  it('projects only user-confirmed domain links and keeps each canonical task once in the navigator', async () => {
+    const inferredOnly = bubble(
+      'inferred-only',
+      'Work meeting keyword should not assign meaning',
+      'today',
+      [],
+    );
+    const linkedAcrossLife = withBubbleDomainLinks(
+      bubble('multi-linked', 'Call the school', 'today', []),
+      [
+        {
+          ...createUserDomainLink('Family', { id: 'family-link', now: 1 }),
+          domainId: '  family  ',
+        },
+        createUserDomainLink('Education', { id: 'education-link', now: 1 }),
+      ],
+      1,
+    );
+    const { container } = render(
+      <AtomicRenderer bubbles={[inferredOnly, linkedAcrossLife]} reducedMotion />,
+    );
+
+    expect(await screen.findByRole('button', {
+      name: /Family molecule, 1 task/,
+    })).toBeVisible();
+    expect(screen.getByRole('button', {
+      name: /Education molecule, 1 task/,
+    })).toBeVisible();
+    expect(container.querySelector('[data-molecule-id="mol-family"]'))
+      .toBeInTheDocument();
+    expect(container.querySelector('[data-molecule-id="mol-  family  "]'))
+      .not.toBeInTheDocument();
+    expect(container.querySelector('[data-electron-id^="elec-inferred-only-"]'))
+      .not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Tasks (2)'));
+    const navigator = screen.getByRole('list', {
+      name: 'Atomic tasks by life domain and time horizon',
+    });
+    expect(navigator.querySelectorAll('button')).toHaveLength(2);
+    expect(within(navigator).getByText('No confirmed life-domain link'))
+      .toBeVisible();
+  });
+
+  it('keeps dense sequential additions in fixed non-overlapping canvas slots', async () => {
+    const firstSeven = Array.from({ length: 7 }, (_, index) => ({
+      ...bubble(`dense-${index}`, `Dense task ${index + 1}`),
+      createdAt: index + 1,
+    }));
+    const { container, rerender } = render(
+      <AtomicRenderer bubbles={firstSeven} reducedMotion />,
+    );
+    await screen.findByRole('button', { name: /Dense task 7.*Today horizon/ });
+
+    const positionOf = (id: string) => {
+      const target = container.querySelector<HTMLElement>(
+        `[data-electron-id="elec-${id}-work"]`,
+      )!;
+      return {
+        x: Number.parseFloat(target.style.left),
+        y: Number.parseFloat(target.style.top),
+        width: Number.parseFloat(target.style.width),
+      };
+    };
+    const before = firstSeven.map(task => positionOf(task.id));
+    const eighth = {
+      ...bubble('dense-7', 'Dense task 8'),
+      createdAt: 8,
+    };
+    rerender(<AtomicRenderer bubbles={[...firstSeven, eighth]} reducedMotion />);
+    await screen.findByRole('button', { name: /Dense task 8.*Today horizon/ });
+
+    firstSeven.forEach((task, index) => {
+      expect(positionOf(task.id)).toEqual(before[index]);
+    });
+    const positions = [...firstSeven, eighth].map(task => positionOf(task.id));
+    positions.forEach((position, index) => {
+      positions.slice(index + 1).forEach((other) => {
+        const centerDistance = Math.hypot(
+          position.x - other.x,
+          position.y - other.y,
+        );
+        expect(centerDistance).toBeGreaterThanOrEqual(position.width - 0.01);
+      });
+    });
+  });
+
+  it('allocates a free destination slot for horizon moves and safely restores the prior slot on undo', async () => {
+    const onTimeHorizonUpdate = vi.fn();
+    const todayTasks = Array.from({ length: 7 }, (_, index) => ({
+      ...bubble(`today-${index}`, `Today task ${index + 1}`),
+      createdAt: index + 1,
+    }));
+    const weekAnchor = {
+      ...bubble('week-anchor', 'Week anchor', 'week'),
+      createdAt: 8,
+    };
+    const mover = {
+      ...bubble('horizon-mover', 'Horizon mover', 'week'),
+      createdAt: 9,
+    };
+    const { container } = render(
+      <AtomicRenderer
+        bubbles={[...todayTasks, weekAnchor, mover]}
+        onTimeHorizonUpdate={onTimeHorizonUpdate}
+        reducedMotion
+      />,
+    );
+    const moverElectron = await screen.findByRole('button', {
+      name: /Horizon mover.*Week horizon/,
+    });
+
+    const positionOf = (id: string) => {
+      const target = container.querySelector<HTMLElement>(
+        `[data-electron-id="elec-${id}-work"]`,
+      )!;
+      return {
+        x: Number.parseFloat(target.style.left),
+        y: Number.parseFloat(target.style.top),
+        width: Number.parseFloat(target.style.width),
+      };
+    };
+    const moverInitialPosition = positionOf(mover.id);
+    const weekAnchorInitialPosition = positionOf(weekAnchor.id);
+
+    fireEvent.keyDown(moverElectron, { key: 'ArrowLeft' });
+    await waitFor(() => expect(moverElectron)
+      .toHaveAccessibleName(expect.stringContaining('Today horizon')));
+
+    const todayPositions = [...todayTasks, mover].map(task => positionOf(task.id));
+    todayPositions.forEach((position, index) => {
+      todayPositions.slice(index + 1).forEach((other) => {
+        expect(Math.hypot(position.x - other.x, position.y - other.y))
+          .toBeGreaterThanOrEqual(position.width - 0.01);
+      });
+    });
+    expect(onTimeHorizonUpdate).toHaveBeenCalledWith(mover.id, 1, 0);
+
+    const latestToast = toast.mock.calls[toast.mock.calls.length - 1][0];
+    const undo = render(latestToast.action).getByRole('button', {
+      name: 'Undo moving Horizon mover to Today',
+    });
+    fireEvent.click(undo);
+
+    await waitFor(() => expect(moverElectron)
+      .toHaveAccessibleName(expect.stringContaining('Week horizon')));
+    expect(positionOf(mover.id)).toEqual(moverInitialPosition);
+    expect(positionOf(weekAnchor.id)).toEqual(weekAnchorInitialPosition);
+    expect(onTimeHorizonUpdate).toHaveBeenCalledWith(mover.id, 0, 1);
+  });
+
+  it('measures an electron drop from its owning molecule instead of a nearby domain', async () => {
+    const onTimeHorizonUpdate = vi.fn();
+    const { container } = render(
+      <AtomicRenderer
+        bubbles={[
+          bubble('owning-work', 'Owning Work task', 'today', ['Work']),
+          bubble('near-health', 'Nearby Health task', 'today', ['Health']),
+        ]}
+        onTimeHorizonUpdate={onTimeHorizonUpdate}
+        reducedMotion
+      />,
+    );
+    const worldLayer = await screen.findByTestId('atomic-world-layer');
+    for (let count = 0; count < 12 && getWorldScale(worldLayer) < 0.9; count += 1) {
+      fireEvent.click(screen.getByRole('button', {
+        name: 'Zoom in on Atomic view',
+      }));
+    }
+    const electron = await screen.findByRole('button', {
+      name: /Owning Work task.*Today horizon/,
+    });
+    const workWrapper = electron.parentElement as HTMLElement;
+    const healthMolecule = container.querySelector<HTMLElement>(
+      '[data-molecule-id="mol-health"]',
+    )!;
+    const healthWrapper = healthMolecule.parentElement as HTMLElement;
+    const startWorld = {
+      x: getWorldOffset(workWrapper.style.left) + 64,
+      y: getWorldOffset(workWrapper.style.top),
+    };
+    const healthWeekWorld = {
+      x: getWorldOffset(healthWrapper.style.left) + 116,
+      y: getWorldOffset(healthWrapper.style.top),
+    };
+    const start = worldToClient(startWorld, worldLayer);
+    const end = worldToClient(healthWeekWorld, worldLayer);
+    const viewport = screen.getByTestId('atomic-viewport');
+
+    fireEvent(electron, pointerEvent('pointerdown', {
+      clientX: start.x,
+      clientY: start.y,
+    }));
+    fireEvent(viewport, pointerEvent('pointermove', {
+      clientX: end.x,
+      clientY: end.y,
+    }));
+    fireEvent(viewport, pointerEvent('pointerup', {
+      clientX: end.x,
+      clientY: end.y,
+    }));
+
+    expect(onTimeHorizonUpdate).toHaveBeenCalledWith('owning-work', 0, 2);
+  });
+
+  it('keeps destructive molecule fusion disabled and truthfully labeled', async () => {
+    const onMoleculeMerge = vi.fn();
+    render(
+      <AtomicRenderer
+        bubbles={[
+          bubble('fusion-work', 'Fusion Work task', 'today', ['Work']),
+          bubble('fusion-health', 'Fusion Health task', 'today', ['Health']),
+        ]}
+        onMoleculeMerge={onMoleculeMerge}
+        reducedMotion
+      />,
+    );
+
+    const fuse = await screen.findByRole('button', {
+      name: 'Fuse unavailable until a non-destructive confirmed molecule contract exists',
+    });
+    expect(fuse).toBeDisabled();
+    fireEvent.click(fuse);
+    expect(onMoleculeMerge).not.toHaveBeenCalled();
+    expect(toast).not.toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Molecules fused',
+    }));
+  });
+
+  it('shows task identity on hover or focus and uses sufficient default contrast', async () => {
+    render(
+      <AtomicRenderer
+        bubbles={[bubble('identity', 'Budget review', 'week', ['Finance'])]}
+        reducedMotion
+      />,
+    );
+    const electron = await screen.findByRole('button', {
+      name: /Budget review.*Week horizon/,
+    });
+    expect(electron).toHaveAttribute('title', 'Budget review');
+    const visibleIdentity = within(electron).getByText('Budget review');
+    expect(visibleIdentity).toHaveClass(
+      'group-hover/electron:opacity-100',
+      'group-focus-visible/electron:opacity-100',
+    );
+    const marker = electron.querySelector<HTMLElement>('span[aria-hidden="true"]')!;
+    expect(contrastWithWhite(marker.style.backgroundColor))
+      .toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('does not suppress the next intentional activation after pointer cancellation', async () => {
+    const onBubbleSelect = vi.fn();
+    render(
+      <AtomicRenderer
+        bubbles={[bubble('cancel-click', 'Cancel then open')]}
+        onBubbleSelect={onBubbleSelect}
+        reducedMotion
+      />,
+    );
+    const electron = await screen.findByRole('button', {
+      name: /Cancel then open.*Today horizon/,
+    });
+    const viewport = screen.getByTestId('atomic-viewport');
+    fireEvent(electron, pointerEvent('pointerdown', {
+      clientX: 464,
+      clientY: 300,
+    }));
+    fireEvent(viewport, pointerEvent('pointermove', {
+      clientX: 550,
+      clientY: 300,
+    }));
+    fireEvent(viewport, pointerEvent('pointercancel', {
+      clientX: 550,
+      clientY: 300,
+    }));
+    fireEvent.click(electron);
+
+    expect(onBubbleSelect).toHaveBeenCalledOnce();
   });
 
   it('keeps an object drag owned by the pointer that started it', async () => {
@@ -303,12 +628,12 @@ describe('AtomicRenderer interaction geometry', () => {
       pointerId: 52,
     }));
     fireEvent(viewport, pointerEvent('pointermove', {
-      clientX: 530,
+      clientX: 550,
       clientY: 300,
       pointerId: 51,
     }));
     fireEvent(viewport, pointerEvent('pointerup', {
-      clientX: 530,
+      clientX: 550,
       clientY: 300,
       pointerId: 51,
     }));

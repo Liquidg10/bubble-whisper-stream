@@ -49,6 +49,17 @@ function wheelEvent(options: {
   } as unknown as React.WheelEvent;
 }
 
+function touchEvent(
+  points: Array<{ x: number; y: number }>,
+  target: EventTarget = document.createElement('div'),
+) {
+  return {
+    touches: points.map(({ x, y }) => ({ clientX: x, clientY: y })),
+    target,
+    preventDefault: vi.fn(),
+  } as unknown as React.TouchEvent;
+}
+
 describe('usePanZoom', () => {
   it('uses an eight-pixel intent threshold and pans in screen pixels at any zoom', () => {
     const captureTarget = {
@@ -143,5 +154,64 @@ describe('usePanZoom', () => {
     act(() => result.current.onWheel(wheelEvent({ deltaY: -100_000 })));
 
     expect(result.current.state.scale).toBeCloseTo(1.2, 8);
+  });
+
+  it('does not claim a one-finger pan that starts on an interactive child', () => {
+    const { result } = renderHook(() => usePanZoom({
+      getContainerRect: () => RECT,
+    }));
+    const bubble = document.createElement('button');
+    bubble.dataset.bubble = '';
+
+    act(() => result.current.onTouchStart(touchEvent(
+      [{ x: 80, y: 90 }],
+      bubble,
+    )));
+    act(() => result.current.onTouchMove(touchEvent(
+      [{ x: 120, y: 130 }],
+      bubble,
+    )));
+
+    expect(result.current.state).toMatchObject({
+      x: 0,
+      y: 0,
+      isDragging: false,
+      isPanning: false,
+    });
+  });
+
+  it('clears touch ownership when the browser cancels a canvas pan', () => {
+    const { result } = renderHook(() => usePanZoom({
+      getContainerRect: () => RECT,
+    }));
+    const canvas = document.createElement('div');
+
+    act(() => result.current.onTouchStart(touchEvent(
+      [{ x: 80, y: 90 }],
+      canvas,
+    )));
+    act(() => result.current.onTouchMove(touchEvent(
+      [{ x: 100, y: 105 }],
+      canvas,
+    )));
+    expect(result.current.state).toMatchObject({
+      x: 20,
+      y: 15,
+      isDragging: true,
+      isPanning: true,
+    });
+
+    act(() => result.current.onTouchCancel());
+    act(() => result.current.onTouchMove(touchEvent(
+      [{ x: 140, y: 145 }],
+      canvas,
+    )));
+
+    expect(result.current.state).toMatchObject({
+      x: 20,
+      y: 15,
+      isDragging: false,
+      isPanning: false,
+    });
   });
 });

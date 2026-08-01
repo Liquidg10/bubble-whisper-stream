@@ -79,7 +79,6 @@ interface MergeConfirmation {
   a: string;
   b: string;
   aPosition: { x: number; y: number };
-  aOriginalPosition: { x: number; y: number };
   bPosition: { x: number; y: number };
 }
 
@@ -97,6 +96,8 @@ const COMPACT_ICON_BUTTON_CLASSES = [
   'p-0',
   'backdrop-blur-sm',
 ].join(' ');
+const COMPACT_CONTROL_SAFE_TOP_INSET = 112;
+const DESKTOP_CONTROL_SAFE_TOP_INSET = 136;
 
 interface AdaptiveTaskNavigatorProps {
   projections: readonly AdaptiveBubbleProjection[];
@@ -287,17 +288,12 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
   const draggingRef = useRef<string | null>(null);
   const dragPreviewRef = useRef<typeof dragPreview>(null);
   const dragStartRef = useRef<{ x: number; y: number } | null>(null);
-  const dragOriginalPositionRef = useRef<{
-    id: string;
-    x: number;
-    y: number;
-  } | null>(null);
   const hasDraggedRef = useRef(false);
   const dragPointerIdRef = useRef<number | null>(null);
   const dragCaptureTargetRef = useRef<HTMLElement | null>(null);
+  const mergeReturnFocusRef = useRef<HTMLElement | null>(null);
   const panPointerIdRef = useRef<number | null>(null);
   const autoPlacedIdsRef = useRef(new Set<string>());
-  const collisionRecoveryCheckedRef = useRef(false);
 
   // BubbleStore hydrates settings from IndexedDB after the first render. Keep
   // this view state aligned with the persisted density once hydration lands.
@@ -384,7 +380,11 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
   );
 
   useLayoutEffect(() => {
-    if (viewport.width <= 0 || viewport.height <= 0) {
+    if (
+      isLoading
+      || viewport.width <= 0
+      || viewport.height <= 0
+    ) {
       return;
     }
 
@@ -393,80 +393,80 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
       if (!currentIds.has(id)) autoPlacedIdsRef.current.delete(id);
     });
     bubbles.forEach((bubble) => {
-      if (
+      const isAtCanonicalOrigin = (
         Number.isFinite(bubble.x)
-      && Number.isFinite(bubble.y)
-      && bubble.x === 0
-      && bubble.y === 0
-      ) {
+        && Number.isFinite(bubble.y)
+        && bubble.x === 0
+        && bubble.y === 0
+      );
+      if (isAtCanonicalOrigin) {
         autoPlacedIdsRef.current.add(bubble.id);
+      } else {
+        // Coordinates can change through sync or another view. Stop applying
+        // the local first-layout plan as soon as canonical data becomes
+        // explicitly positioned.
+        autoPlacedIdsRef.current.delete(bubble.id);
       }
     });
     const placementBubbles = bubbles.filter((bubble) => (
       autoPlacedIdsRef.current.has(bubble.id)
     ));
-    if (placementBubbles.length <= 1) {
-      setOriginPlacementById(current => (
-        current.size === 0
-          ? current
-          : new Map<string, { x: number; y: number }>()
-      ));
-      return;
-    }
     const dimensions = {
       width: viewport.width,
       height: viewport.height,
     };
-    const placementRadius = Math.max(
-      ...placementBubbles.map(bubble => getSafeBubbleRadius(bubble.size)),
-    );
+    const presentationInsets = {
+      top: compactControls
+        ? COMPACT_CONTROL_SAFE_TOP_INSET
+        : DESKTOP_CONTROL_SAFE_TOP_INSET,
+    };
+    const placementRadius = placementBubbles.length > 0
+      ? Math.max(
+        ...placementBubbles.map(bubble => getSafeBubbleRadius(bubble.size)),
+      )
+      : 0;
+    const originPlan = placementBubbles.length > 1
+      ? new Map(placementBubbles.map((bubble, index) => [
+        bubble.id,
+        placeOriginBubble(
+          bubble,
+          index,
+          placementBubbles.length,
+          dimensions,
+          placementRadius,
+          presentationInsets,
+        ),
+      ]))
+      : new Map<string, { x: number; y: number }>();
 
-    setOriginPlacementById(new Map(placementBubbles.map((bubble, index) => [
-      bubble.id,
-      placeOriginBubble(
-        bubble,
-        index,
-        placementBubbles.length,
-        dimensions,
-        placementRadius,
-      ),
-    ])));
-  }, [
-    bubbles,
-    viewport.height,
-    viewport.width,
-  ]);
-
-  useLayoutEffect(() => {
-    if (
-      collisionRecoveryCheckedRef.current
-      || isLoading
-      || bubbles.length === 0
-      || viewport.width <= 0
-      || viewport.height <= 0
-    ) {
-      return;
-    }
-
-    // The origin cohort is handled by the deterministic first-layout pass
-    // above. This separate, once-per-mount presentation repair clears stored
-    // overlap; active drag remains the explicit way to propose a merge.
-    const legacyCandidates = bubbles.filter(
+    // Preserve user-arranged tasks first, then fit new origin tasks around
+    // them. A single unified clearance pass prevents the two cohorts from
+    // producing a visually overlapping layout while keeping all repairs
+    // presentation-only.
+    const arrangedBubbles = bubbles.filter(
       bubble => !autoPlacedIdsRef.current.has(bubble.id),
     );
-    collisionRecoveryCheckedRef.current = true;
-    if (legacyCandidates.length < 2) return;
-
+    const layoutCandidates = [
+      ...arrangedBubbles,
+      ...placementBubbles.map((bubble) => {
+        const planned = originPlan.get(bubble.id);
+        return planned ? { ...bubble, ...planned } : bubble;
+      }),
+    ];
     const repairs = separateSeverelyOverlappingBubbles(
-      legacyCandidates,
-      { width: viewport.width, height: viewport.height },
-      { separateAllOverlaps: true },
+      layoutCandidates,
+      dimensions,
+      {
+        separateAllOverlaps: true,
+        insets: presentationInsets,
+      },
     );
-    if (repairs.size === 0) return;
 
+    setOriginPlacementById(originPlan);
     setLegacyRecoveryById(repairs);
   }, [
     bubbles,
+    compactControls,
     isLoading,
     viewport.height,
     viewport.width,
@@ -556,10 +556,6 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
       x: e.clientX - rect.left - node.x,
       y: e.clientY - rect.top - node.y
     });
-    dragOriginalPositionRef.current = {
-      id: nodeId,
-      ...screenToWorld(node, viewport, viewport),
-    };
     dragStartRef.current = { x: e.clientX, y: e.clientY };
     dragPointerIdRef.current = e.pointerId;
     dragCaptureTargetRef.current = captureTarget;
@@ -567,7 +563,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
     hasDraggedRef.current = false;
     setDragging(nodeId);
     setHasDragged(false);
-  }, [nodes, viewport]);
+  }, [nodes]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     const activeId = draggingRef.current;
@@ -614,7 +610,6 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
       : baseNode;
     if (!draggedNode) {
       draggingRef.current = null;
-      dragOriginalPositionRef.current = null;
       dragPointerIdRef.current = null;
       dragCaptureTargetRef.current = null;
       setDragging(null);
@@ -642,10 +637,6 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
             a: activeId,
             b: closest.id,
             aPosition: { x: preview.x, y: preview.y },
-            aOriginalPosition:
-              dragOriginalPositionRef.current?.id === activeId
-                ? dragOriginalPositionRef.current
-                : screenToWorld(baseNode, viewport, viewport),
             bPosition: screenToWorld(closest, viewport, viewport),
           };
         }
@@ -656,25 +647,26 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
       candidate => candidate.id === activeId,
     );
     if (bubble && preview && hasDraggedRef.current) {
-      autoPlacedIdsRef.current.delete(activeId);
-      setOriginPlacementById((currentPlan) => {
-        if (!currentPlan.has(activeId)) return currentPlan;
-        const nextPlan = new Map(currentPlan);
-        nextPlan.delete(activeId);
-        return nextPlan;
-      });
-      setLegacyRecoveryById((currentPlan) => {
-        if (!currentPlan.has(activeId)) return currentPlan;
-        const nextPlan = new Map(currentPlan);
-        nextPlan.delete(activeId);
-        return nextPlan;
-      });
       if (pendingMerge) {
         // Keep the transient drop position visible until the user decides.
         // Persisting before the decision can race the merge and resurrect a
         // deleted or stale task record.
+        mergeReturnFocusRef.current = dragCaptureTargetRef.current;
         setConfirm(pendingMerge);
       } else {
+        autoPlacedIdsRef.current.delete(activeId);
+        setOriginPlacementById((currentPlan) => {
+          if (!currentPlan.has(activeId)) return currentPlan;
+          const nextPlan = new Map(currentPlan);
+          nextPlan.delete(activeId);
+          return nextPlan;
+        });
+        setLegacyRecoveryById((currentPlan) => {
+          if (!currentPlan.has(activeId)) return currentPlan;
+          const nextPlan = new Map(currentPlan);
+          nextPlan.delete(activeId);
+          return nextPlan;
+        });
         const pendingPreview = preview;
         void useBubbleStore.getState().updateBubble({
           ...bubble,
@@ -694,7 +686,6 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
     }
 
     draggingRef.current = null;
-    dragOriginalPositionRef.current = null;
     dragStartRef.current = null;
     dragPointerIdRef.current = null;
     dragCaptureTargetRef.current = null;
@@ -709,7 +700,6 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
     }
     draggingRef.current = null;
     dragPreviewRef.current = null;
-    dragOriginalPositionRef.current = null;
     dragStartRef.current = null;
     dragPointerIdRef.current = null;
     dragCaptureTargetRef.current = null;
@@ -717,6 +707,25 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
     setDragging(null);
     setDragPreview(null);
     setHasDragged(false);
+  }, []);
+
+  const restoreFocusAfterMergeDecision = useCallback((taskId?: string) => {
+    const priorTarget = mergeReturnFocusRef.current;
+    mergeReturnFocusRef.current = null;
+    window.requestAnimationFrame(() => {
+      if (priorTarget?.isConnected) {
+        priorTarget.focus();
+        return;
+      }
+      const currentTarget = Array.from(
+        document.querySelectorAll<HTMLElement>('[data-task-id]'),
+      ).find(element => taskId && element.dataset.taskId === taskId);
+      if (currentTarget) {
+        currentTarget.focus();
+      } else {
+        canvasRef.current?.focus();
+      }
+    });
   }, []);
 
   const handleMerge = useCallback(() => {
@@ -729,16 +738,17 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
     if (bubbleA && bubbleB) {
       const positionedA = { ...bubbleA, ...confirm.aPosition };
       const positionedB = { ...bubbleB, ...confirm.bPosition };
+      mergeBubbles(positionedA, positionedB);
+      const mergedId = useBubbleStore.getState().lastOperation?.mergedBubble.id;
       setLastMerge({
         A: positionedA,
         B: positionedB,
-        mergedId: bubbleA.id,
+        mergedId: mergedId ?? bubbleA.id,
       });
-
-      mergeBubbles(positionedA, positionedB);
       dragPreviewRef.current = null;
       setDragPreview(null);
       setConfirm(null);
+      restoreFocusAfterMergeDecision(mergedId);
       setToast(true);
 
       setTimeout(() => {
@@ -746,32 +756,15 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
         setLastMerge(null);
       }, 6000);
     }
-  }, [confirm, mergeBubbles]);
+  }, [confirm, mergeBubbles, restoreFocusAfterMergeDecision]);
 
   const handleMergeCancel = useCallback(() => {
     if (!confirm) return;
-    const bubble = useBubbleStore.getState().bubbles.find(
-      candidate => candidate.id === confirm.a,
-    );
-    const pendingPreview = dragPreviewRef.current;
     setConfirm(null);
-    if (!bubble) {
-      dragPreviewRef.current = null;
-      setDragPreview(null);
-      return;
-    }
-
-    void useBubbleStore.getState().updateBubble({
-      ...bubble,
-      ...confirm.aOriginalPosition,
-      updatedAt: Date.now(),
-    }).finally(() => {
-      if (dragPreviewRef.current === pendingPreview) {
-        dragPreviewRef.current = null;
-        setDragPreview(null);
-      }
-    });
-  }, [confirm]);
+    dragPreviewRef.current = null;
+    setDragPreview(null);
+    restoreFocusAfterMergeDecision(confirm.a);
+  }, [confirm, restoreFocusAfterMergeDecision]);
 
   const handleUndo = useCallback(() => {
     if (!lastMerge) return;
@@ -1080,6 +1073,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
       ref={canvasRef}
       className={`relative w-full h-full overflow-hidden bg-universe cursor-grab active:cursor-grabbing ${className || ''}`}
       role="region"
+      tabIndex={-1}
       aria-label="Adaptive Bubble view"
       aria-describedby="adaptive-bubble-view-description"
       data-reduced-motion={reducedMotion}

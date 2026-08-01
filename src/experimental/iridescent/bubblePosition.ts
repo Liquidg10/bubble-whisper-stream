@@ -8,6 +8,13 @@ interface ViewportDimensions {
   height: number;
 }
 
+export interface ViewportInsets {
+  top?: number;
+  right?: number;
+  bottom?: number;
+  left?: number;
+}
+
 interface RecoveredBubblePosition {
   x: number;
   y: number;
@@ -26,15 +33,25 @@ function positiveFiniteOrZero(value: number): number {
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
+function resolveAxisBounds(
+  rawMinimum: number,
+  rawMaximum: number,
+): { minimum: number; maximum: number } {
+  if (rawMinimum <= rawMaximum) {
+    return { minimum: rawMinimum, maximum: rawMaximum };
+  }
+
+  // When the bubble plus reserved controls cannot fit, center it in the
+  // impossible interval. This minimizes total overflow without pretending
+  // that zero is a valid bound for an asymmetric safe area.
+  const fallback = (rawMinimum + rawMaximum) / 2;
+  return { minimum: fallback, maximum: fallback };
+}
+
 export function getSafeBubbleRadius(size: number, scale = 1): number {
   const safeSize = Math.min(positiveFiniteOrZero(size), MAXIMUM_BUBBLE_SIZE);
   const safeScale = positiveFiniteOrZero(scale) || 1;
   return Math.max(MINIMUM_BUBBLE_RADIUS, safeSize * 50 * safeScale);
-}
-
-function clamp(value: number, limit: number): number {
-  if (limit === 0) return 0;
-  return Math.min(limit, Math.max(-limit, value));
 }
 
 /**
@@ -46,16 +63,33 @@ function clamp(value: number, limit: number): number {
 export function recoverPersistedBubblePosition(
   bubble: Pick<Bubble, 'x' | 'y' | 'size'>,
   viewport: ViewportDimensions,
+  insets: ViewportInsets = {},
 ): RecoveredBubblePosition {
   const width = positiveFiniteOrZero(viewport.width);
   const height = positiveFiniteOrZero(viewport.height);
   const radius = getSafeBubbleRadius(bubble.size);
-  const xLimit = Math.max(0, (width / 2) - radius);
-  const yLimit = Math.max(0, (height / 2) - radius);
+  const leftInset = positiveFiniteOrZero(insets.left ?? 0);
+  const rightInset = positiveFiniteOrZero(insets.right ?? 0);
+  const topInset = positiveFiniteOrZero(insets.top ?? 0);
+  const bottomInset = positiveFiniteOrZero(insets.bottom ?? 0);
+  const horizontalBounds = resolveAxisBounds(
+    (-width / 2) + leftInset + radius,
+    (width / 2) - rightInset - radius,
+  );
+  const verticalBounds = resolveAxisBounds(
+    (-height / 2) + topInset + radius,
+    (height / 2) - bottomInset - radius,
+  );
   const finiteX = finiteOrZero(bubble.x);
   const finiteY = finiteOrZero(bubble.y);
-  const x = clamp(finiteX, xLimit);
-  const y = clamp(finiteY, yLimit);
+  const x = Math.min(
+    horizontalBounds.maximum,
+    Math.max(horizontalBounds.minimum, finiteX),
+  );
+  const y = Math.min(
+    verticalBounds.maximum,
+    Math.max(verticalBounds.minimum, finiteY),
+  );
 
   return {
     x,
@@ -79,13 +113,35 @@ export function placeOriginBubble(
   count: number,
   viewport: ViewportDimensions,
   placementRadius = getSafeBubbleRadius(bubble.size),
+  insets: ViewportInsets = {},
 ): { x: number; y: number } {
-  if (count <= 1) return { x: 0, y: 0 };
+  const horizontalOffset = (
+    positiveFiniteOrZero(insets.left ?? 0)
+    - positiveFiniteOrZero(insets.right ?? 0)
+  ) / 2;
+  const verticalOffset = (
+    positiveFiniteOrZero(insets.top ?? 0)
+    - positiveFiniteOrZero(insets.bottom ?? 0)
+  ) / 2;
+  if (count <= 1) {
+    const recovered = recoverPersistedBubblePosition(
+      { ...bubble, x: horizontalOffset, y: verticalOffset },
+      viewport,
+      insets,
+    );
+    return { x: recovered.x, y: recovered.y };
+  }
 
   const radius = getSafeBubbleRadius(bubble.size);
   const cellSize = (Math.max(radius, placementRadius) * 2)
     + DEFAULT_PLACEMENT_GAP;
-  const availableWidth = Math.max(cellSize, positiveFiniteOrZero(viewport.width) - (radius * 2));
+  const availableWidth = Math.max(
+    cellSize,
+    positiveFiniteOrZero(viewport.width)
+      - positiveFiniteOrZero(insets.left ?? 0)
+      - positiveFiniteOrZero(insets.right ?? 0)
+      - (radius * 2),
+  );
   const columns = Math.max(1, Math.min(count, Math.floor(availableWidth / cellSize)));
   const rows = Math.ceil(count / columns);
   const rowGroup = Math.floor(index / columns);
@@ -100,13 +156,14 @@ export function placeOriginBubble(
     ? count % columns
     : columns;
   const raw = {
-    x: (column - ((columnsInRow - 1) / 2)) * cellSize,
-    y: (row - ((rows - 1) / 2)) * cellSize,
+    x: ((column - ((columnsInRow - 1) / 2)) * cellSize) + horizontalOffset,
+    y: ((row - ((rows - 1) / 2)) * cellSize) + verticalOffset,
   };
 
   return recoverPersistedBubblePosition(
     { ...bubble, ...raw },
     viewport,
+    insets,
   );
 }
 
@@ -119,7 +176,10 @@ export function placeOriginBubble(
 export function separateSeverelyOverlappingBubbles(
   bubbles: readonly Pick<Bubble, 'id' | 'x' | 'y' | 'size'>[],
   viewport: ViewportDimensions,
-  options: { separateAllOverlaps?: boolean } = {},
+  options: {
+    separateAllOverlaps?: boolean;
+    insets?: ViewportInsets;
+  } = {},
 ): Map<string, { x: number; y: number }> {
   const placed: Array<{
     id: string;
@@ -130,7 +190,11 @@ export function separateSeverelyOverlappingBubbles(
   const repairs = new Map<string, { x: number; y: number }>();
 
   bubbles.forEach((bubble, bubbleIndex) => {
-    const recovered = recoverPersistedBubblePosition(bubble, viewport);
+    const recovered = recoverPersistedBubblePosition(
+      bubble,
+      viewport,
+      options.insets,
+    );
     const radius = getSafeBubbleRadius(bubble.size);
     const original = {
       id: bubble.id,
@@ -149,6 +213,9 @@ export function separateSeverelyOverlappingBubbles(
     });
 
     if (!isSeverelyStacked) {
+      if (recovered.adjusted) {
+        repairs.set(bubble.id, { x: recovered.x, y: recovered.y });
+      }
       placed.push(original);
       return;
     }
@@ -177,6 +244,7 @@ export function separateSeverelyOverlappingBubbles(
             y: original.y + (Math.sin(angle) * distance),
           },
           viewport,
+          options.insets,
         );
         const hasCollision = placed.some(existing => (
           Math.hypot(candidate.x - existing.x, candidate.y - existing.y)
@@ -187,6 +255,9 @@ export function separateSeverelyOverlappingBubbles(
     }
 
     if (!repaired) {
+      if (recovered.adjusted) {
+        repairs.set(bubble.id, { x: recovered.x, y: recovered.y });
+      }
       placed.push(original);
       return;
     }

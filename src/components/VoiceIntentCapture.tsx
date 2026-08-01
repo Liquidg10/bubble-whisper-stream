@@ -42,6 +42,11 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  const processRecordingRef = useRef<() => Promise<void>>(async () => {});
+  const isRecordingRef = useRef(false);
+  const isStartingRef = useRef(false);
+  const startRequestRef = useRef(0);
+  const heldPointerIdRef = useRef<number | null>(null);
 
   const getTagEmoji = (tag: string): string => {
     const emojiMap: Record<string, string> = {
@@ -161,8 +166,42 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
     }
   }, [voiceAutoCommit, confidenceThreshold, commitBubble, toast]);
 
+  // Browser speech recognition fallback — also routed through the shared
+  // voiceRouter and confidence gate.
+  const tryBrowserSpeechFallback = useCallback(async () => {
+    const SpeechRecognition = window.SpeechRecognition
+      || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      throw new Error('No speech recognition available');
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'en-US';
+      recognition.continuous = false;
+      recognition.interimResults = false;
+
+      recognition.onresult = async (event) => {
+        const text = event.results[0][0].transcript;
+        setTranscript(text);
+        await handleTranscript(text);
+        resolve();
+      };
+
+      recognition.onerror = () => reject(
+        new Error('Browser speech recognition failed'),
+      );
+      recognition.start();
+    });
+  }, [handleTranscript]);
+
   // Start recording
   const startRecording = useCallback(async () => {
+    if (isStartingRef.current || isRecordingRef.current) return;
+
+    let requestId: number | null = null;
+    let acquiredStream: MediaStream | null = null;
     try {
       if (!isFeatureEnabled('aiVision')) {
         toast({
@@ -172,8 +211,12 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
         });
         return;
       }
-      
-      const stream = await navigator.mediaDevices.getUserMedia({ 
+
+      requestId = startRequestRef.current + 1;
+      startRequestRef.current = requestId;
+      isStartingRef.current = true;
+
+      acquiredStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           sampleRate: 16000,
           channelCount: 1,
@@ -182,11 +225,18 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
           autoGainControl: true
         }
       });
-      
-      streamRef.current = stream;
+
+      // Releasing a held pointer (or toggling again from the keyboard) cancels
+      // the pending request. Permission may still resolve afterward, so close
+      // that stream without ever constructing or starting a recorder.
+      if (startRequestRef.current !== requestId) {
+        acquiredStream.getTracks().forEach(track => track.stop());
+        return;
+      }
+
       audioChunksRef.current = [];
-      
-      const mediaRecorder = new MediaRecorder(stream, {
+
+      const mediaRecorder = new MediaRecorder(acquiredStream, {
         mimeType: 'audio/webm;codecs=opus'
       });
       
@@ -196,12 +246,12 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
         }
       };
       
-      mediaRecorder.onstop = async () => {
-        await processRecording();
-      };
-      
-      mediaRecorderRef.current = mediaRecorder;
+      mediaRecorder.onstop = () => processRecordingRef.current();
+
       mediaRecorder.start();
+      mediaRecorderRef.current = mediaRecorder;
+      streamRef.current = acquiredStream;
+      isRecordingRef.current = true;
       setIsRecording(true);
       
       if (DEBUG) {
@@ -209,30 +259,46 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
       }
       
     } catch (error) {
+      if (acquiredStream && streamRef.current !== acquiredStream) {
+        acquiredStream.getTracks().forEach(track => track.stop());
+      }
+      if (requestId !== null && startRequestRef.current !== requestId) return;
       console.error('Failed to start recording:', error);
       toast({
         title: "Recording Failed",
         description: "Could not access microphone. Please check permissions.",
         variant: "destructive"
       });
+    } finally {
+      if (requestId !== null && startRequestRef.current === requestId) {
+        isStartingRef.current = false;
+      }
     }
   }, [toast]);
   
   // Stop recording
   const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-      
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-      }
-      
-      if (DEBUG) {
-        console.log('🛑 Voice recording stopped');
-      }
+    if (isStartingRef.current) {
+      startRequestRef.current += 1;
+      isStartingRef.current = false;
     }
-  }, [isRecording]);
+
+    const mediaRecorder = mediaRecorderRef.current;
+    if (!mediaRecorder || !isRecordingRef.current) return;
+
+    mediaRecorderRef.current = null;
+    isRecordingRef.current = false;
+    mediaRecorder.stop();
+    setIsRecording(false);
+
+    const stream = streamRef.current;
+    streamRef.current = null;
+    stream?.getTracks().forEach(track => track.stop());
+
+    if (DEBUG) {
+      console.log('🛑 Voice recording stopped');
+    }
+  }, []);
   
   // Process recorded audio
   const processRecording = useCallback(async () => {
@@ -286,34 +352,11 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
     } finally {
       setIsProcessing(false);
     }
-  }, [handleTranscript, toast]);
+  }, [handleTranscript, toast, tryBrowserSpeechFallback]);
 
-  // Browser speech recognition fallback — also routed through the shared voiceRouter +
-  // confidence gate (previously created bubbles unconditionally, bypassing the gate).
-  const tryBrowserSpeechFallback = useCallback(async () => {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-
-    if (!SpeechRecognition) {
-      throw new Error('No speech recognition available');
-    }
-    
-    return new Promise<void>((resolve, reject) => {
-      const recognition = new SpeechRecognition();
-      recognition.lang = 'en-US';
-      recognition.continuous = false;
-      recognition.interimResults = false;
-
-      recognition.onresult = async (event) => {
-        const text = event.results[0][0].transcript;
-        setTranscript(text);
-        await handleTranscript(text);
-        resolve();
-      };
-
-      recognition.onerror = () => reject(new Error('Browser speech recognition failed'));
-      recognition.start();
-    });
-  }, [handleTranscript]);
+  useEffect(() => {
+    processRecordingRef.current = processRecording;
+  }, [processRecording]);
 
   // Resolve a pending medium-confidence / kill-switch confirmation
   const handleConfirmation = useCallback(async (confirmed: boolean) => {
@@ -325,34 +368,68 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
   }, [pendingIntent, commitBubble]);
 
   // Button handlers
-  const handleMouseDown = useCallback(() => {
-    if (recordingMode === 'hold' && !isRecording && !awaitingConfirmation) {
-      startRecording();
+  const handlePointerDown = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    if (
+      recordingMode !== 'hold'
+      || awaitingConfirmation
+      || event.button !== 0
+      || event.isPrimary === false
+      || heldPointerIdRef.current !== null
+      || isStartingRef.current
+      || isRecordingRef.current
+    ) {
+      return;
     }
-  }, [recordingMode, isRecording, awaitingConfirmation, startRecording]);
 
-  const handleMouseUp = useCallback(() => {
-    if (recordingMode === 'hold' && isRecording) {
-      stopRecording();
+    heldPointerIdRef.current = event.pointerId;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    void startRecording();
+  }, [recordingMode, awaitingConfirmation, startRecording]);
+
+  const handlePointerRelease = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    if (heldPointerIdRef.current !== event.pointerId) return;
+
+    heldPointerIdRef.current = null;
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
     }
-  }, [recordingMode, isRecording, stopRecording]);
+    stopRecording();
+  }, [stopRecording]);
 
-  const handleClick = useCallback(() => {
-    if (recordingMode === 'toggle' && !awaitingConfirmation) {
-      if (isRecording) {
+  const handleLostPointerCapture = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+    if (heldPointerIdRef.current !== event.pointerId) return;
+    heldPointerIdRef.current = null;
+    stopRecording();
+  }, [stopRecording]);
+
+  const handleClick = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+    // Native keyboard and assistive-technology button activation dispatches a
+    // click with detail 0. Treat that activation as start/stop even when the
+    // pointer interaction is configured as press-and-hold.
+    const keyboardActivation = event.detail === 0;
+    if (
+      (recordingMode === 'toggle' || keyboardActivation)
+      && !awaitingConfirmation
+    ) {
+      if (isRecordingRef.current || isStartingRef.current) {
         stopRecording();
       } else {
-        startRecording();
+        void startRecording();
       }
     }
-  }, [recordingMode, isRecording, awaitingConfirmation, startRecording, stopRecording]);
+  }, [recordingMode, awaitingConfirmation, startRecording, stopRecording]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-      }
+      startRequestRef.current += 1;
+      isStartingRef.current = false;
+      isRecordingRef.current = false;
+      heldPointerIdRef.current = null;
+      mediaRecorderRef.current = null;
+      const stream = streamRef.current;
+      streamRef.current = null;
+      stream?.getTracks().forEach(track => track.stop());
     };
   }, []);
 
@@ -380,9 +457,11 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
         size="lg"
         variant={getButtonVariant()}
         className="h-16 w-16 rounded-full transition-all duration-200 transform hover:scale-105 active:scale-95"
-        onMouseDown={handleMouseDown}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
+        onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerRelease}
+        onPointerCancel={handlePointerRelease}
+        onPointerLeave={handlePointerRelease}
+        onLostPointerCapture={handleLostPointerCapture}
         onClick={handleClick}
         disabled={isProcessing || awaitingConfirmation}
         aria-label={getStatusText()}

@@ -36,6 +36,12 @@ const WHEEL_ZOOM_REFERENCE_DELTA = 100;
 const MAX_WHEEL_DELTA = WHEEL_ZOOM_REFERENCE_DELTA;
 const WHEEL_LINE_PIXELS = 40;
 
+function isCanvasInteractionTarget(target: EventTarget | null): boolean {
+  return target instanceof Element && Boolean(target.closest(
+    '[data-bubble], [data-molecule], [data-electron], button, [data-panel], .ui-overlay',
+  ));
+}
+
 export function wheelScaleFactor(
   deltaY: number,
   deltaMode: number,
@@ -149,17 +155,7 @@ export function usePanZoom({
   const onPanStart = useCallback((event: React.PointerEvent) => {
     if (event.pointerType === 'touch' || event.button !== 0) return;
 
-    const target = event.target as HTMLElement;
-    if (
-      target.closest('[data-bubble]')
-      || target.closest('[data-molecule]')
-      || target.closest('[data-electron]')
-      || target.closest('button')
-      || target.closest('[data-panel]')
-      || target.closest('.ui-overlay')
-    ) {
-      return;
-    }
+    if (isCanvasInteractionTarget(event.target)) return;
 
     const current = stateRef.current;
     panStartRef.current = {
@@ -295,6 +291,9 @@ export function usePanZoom({
     }
 
     if (event.touches.length === 1) {
+      // A one-finger pan may claim only empty canvas. Task and control gestures
+      // keep ownership of their touch sequence, matching the pointer path.
+      if (isCanvasInteractionTarget(event.target)) return;
       lastTouchRef.current = {
         x: event.touches[0].clientX,
         y: event.touches[0].clientY,
@@ -365,6 +364,12 @@ export function usePanZoom({
     updateState({ isDragging: false, isPanning: false });
   }, [updateState]);
 
+  const onTouchCancel = useCallback(() => {
+    lastPinchRef.current = null;
+    lastTouchRef.current = null;
+    updateState({ isDragging: false, isPanning: false });
+  }, [updateState]);
+
   const cursor = state.isPanning ? 'grabbing' : 'grab';
 
   return {
@@ -376,6 +381,7 @@ export function usePanZoom({
     onTouchStart,
     onTouchMove,
     onTouchEnd,
+    onTouchCancel,
     zoomIn,
     zoomOut,
     resetZoom,

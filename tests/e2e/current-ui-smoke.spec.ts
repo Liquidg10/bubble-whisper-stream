@@ -139,6 +139,23 @@ async function seedAtomicDomainTasks(
           size: 0.5,
           tags: [{ id: `domain-${domain}`, name: domain }],
           completed: false,
+          metadata: {
+            canonicalTask: {
+              schemaVersion: 1,
+              type: 'task',
+              completed: false,
+              domainLinks: [{
+                id: `confirmed-domain-${domain}`,
+                domainId: domain,
+                label: domain[0].toUpperCase() + domain.slice(1),
+                userConfirmed: true,
+                source: 'user',
+                strength: 'primary',
+                createdAt: index + 1,
+                updatedAt: index + 1,
+              }],
+            },
+          },
         }));
 
       transaction.oncomplete = () => {
@@ -199,6 +216,37 @@ async function bubbleIsInsideCanvas(page: import('@playwright/test').Page) {
       <= canvasBox.x + canvasBox.width + tolerance
     && bubbleBox.y + bubbleBox.height
       <= canvasBox.y + canvasBox.height + tolerance;
+}
+
+async function bubbleAvoidsCanvasControls(
+  page: import('@playwright/test').Page,
+) {
+  return page.evaluate(() => {
+    const bubble = document.querySelector(
+      '[data-task-id="coordinate-recovery-e2e"]',
+    );
+    const canvas = document.querySelector(
+      '[aria-label="Adaptive Bubble view"]',
+    );
+    if (!bubble || !canvas) return false;
+    const bubbleBox = bubble.getBoundingClientRect();
+    const controls = Array.from(canvas.querySelectorAll(
+      'button:not([data-adaptive-bubble]), input, select, summary, a[href]',
+    )).filter((element) => {
+      if (element.closest('details:not([open])') && element.tagName !== 'SUMMARY') {
+        return false;
+      }
+      const rect = element.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    });
+    return controls.every((control) => {
+      const controlBox = control.getBoundingClientRect();
+      return bubbleBox.right <= controlBox.left
+        || bubbleBox.left >= controlBox.right
+        || bubbleBox.bottom <= controlBox.top
+        || bubbleBox.top >= controlBox.bottom;
+    });
+  });
 }
 
 test.describe('current UI smoke gate', () => {
@@ -324,6 +372,7 @@ test.describe('current UI smoke gate', () => {
     const bubble = page.locator('[data-task-id="coordinate-recovery-e2e"]');
     await expect(bubble).toBeVisible();
     await expect.poll(() => bubbleIsInsideCanvas(page)).toBe(true);
+    await expect.poll(() => bubbleAvoidsCanvasControls(page)).toBe(true);
     await expect.poll(() => readSavedBubblePosition(page)).toEqual({
       x: 10_000,
       y: -10_000,
@@ -331,6 +380,7 @@ test.describe('current UI smoke gate', () => {
 
     await page.setViewportSize({ width: 844, height: 390 });
     await expect.poll(() => bubbleIsInsideCanvas(page)).toBe(true);
+    await expect.poll(() => bubbleAvoidsCanvasControls(page)).toBe(true);
     await expect.poll(() => readSavedBubblePosition(page)).toEqual({
       x: 10_000,
       y: -10_000,

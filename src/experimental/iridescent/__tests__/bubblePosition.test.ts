@@ -116,6 +116,30 @@ describe('persisted Adaptive Bubble position recovery', () => {
       adjusted: true,
     });
   });
+
+  it('preserves a positive safe bound in a short asymmetric viewport', () => {
+    expect(recoverPersistedBubblePosition(
+      { ...standardBubble, x: -500, y: -500 },
+      { width: 200, height: 262 },
+      { left: 80, top: 112 },
+    )).toEqual({
+      x: 10,
+      y: 11,
+      adjusted: true,
+    });
+  });
+
+  it('uses the least-overflow center when controls and target cannot fit', () => {
+    expect(recoverPersistedBubblePosition(
+      standardBubble,
+      { width: 100, height: 100 },
+      { left: 80, right: 40, top: 80, bottom: 40 },
+    )).toEqual({
+      x: 20,
+      y: 20,
+      adjusted: true,
+    });
+  });
 });
 
 describe('default Adaptive Bubble placement', () => {
@@ -184,6 +208,23 @@ describe('default Adaptive Bubble placement', () => {
       (placementRadius * 2) + 12,
     );
   });
+
+  it('keeps a dense first row below compact canvas controls', () => {
+    const viewport = { width: 390, height: 596 };
+    const insets = { top: 112 };
+    const minimumCenterY = (-viewport.height / 2) + insets.top + 30;
+    const firstRow = [0, 1].map(index => placeOriginBubble(
+      standardBubble,
+      index,
+      40,
+      viewport,
+      30,
+      insets,
+    ));
+
+    expect(firstRow.every(({ y }) => y >= minimumCenterY)).toBe(true);
+    expect(Math.abs(firstRow[1].x - firstRow[0].x)).toBeGreaterThanOrEqual(72);
+  });
 });
 
 describe('legacy Adaptive Bubble stack recovery', () => {
@@ -244,5 +285,15 @@ describe('legacy Adaptive Bubble stack recovery', () => {
 
     expect(repairs.has('one')).toBe(false);
     expect(repairs.has('two')).toBe(true);
+  });
+
+  it('returns a presentation repair for a task hidden under canvas controls', () => {
+    const repairs = separateSeverelyOverlappingBubbles(
+      [{ id: 'under-controls', x: 0, y: -280, size: 0.6 }],
+      { width: 390, height: 596 },
+      { insets: { top: 112 } },
+    );
+
+    expect(repairs.get('under-controls')).toEqual({ x: 0, y: -156 });
   });
 });

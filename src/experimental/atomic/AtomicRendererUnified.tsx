@@ -42,7 +42,7 @@ import {
   stopAnimation,
   subscribeToMotionState,
 } from '@/lib/motion';
-import { classifyDomain, getAllDomains } from '@/lib/classifyDomain';
+import { bubbleToTask } from '@/adapters/taskAdapter';
 import {
   getHorizon,
   getHorizonDisplayName,
@@ -56,6 +56,7 @@ interface Electron {
   moleculeId: string;
   shell: number;
   angle: number;
+  canvasSlot: number | null;
   content: string;
   originalBubble?: Bubble;
 }
@@ -100,36 +101,30 @@ const EMPTY_DRAG_STATE: DragState = {
   type: null,
 };
 
-const DOMAIN_PRESETS = getAllDomains().map((domain, index) => ({
-  name: domain,
-  nucleus: {
-    protons: index + 3,
-    neutrons: index + 3,
-    domain,
-  },
-}));
-
 const SHELL_CONFIG = [
   {
     name: 'Today',
-    radius: 60,
-    color: '#EF4444',
-    highContrastColor: '#B91C1C',
+    radius: 64,
+    color: '#B91C1C',
+    highContrastColor: '#7F1D1D',
     maxElectrons: 8,
+    canvasSlots: 8,
   },
   {
     name: 'Week',
-    radius: 100,
-    color: '#F59E0B',
-    highContrastColor: '#92400E',
+    radius: 116,
+    color: '#92400E',
+    highContrastColor: '#78350F',
     maxElectrons: 18,
+    canvasSlots: 14,
   },
   {
     name: 'Later',
-    radius: 140,
-    color: '#10B981',
-    highContrastColor: '#047857',
+    radius: 168,
+    color: '#047857',
+    highContrastColor: '#065F46',
     maxElectrons: 32,
+    canvasSlots: 21,
   },
 ] as const;
 
@@ -170,51 +165,174 @@ function shellIndexForBubble(bubble: Bubble): number {
   return index < 0 ? 0 : index;
 }
 
+function getConfirmedDomainLinks(bubble: Bubble) {
+  const seenDomainIds = new Set<string>();
+  return (bubbleToTask(bubble).domainLinks ?? []).flatMap((link) => {
+    const domainId = link.domainId.trim();
+    if (!link.userConfirmed || !domainId || seenDomainIds.has(domainId)) {
+      return [];
+    }
+    seenDomainIds.add(domainId);
+    return [{ ...link, domainId }];
+  });
+}
+
+function angleForCanvasSlot(shell: number, canvasSlot: number | null): number {
+  if (canvasSlot === null) return 0;
+  return (Math.PI * 2 * canvasSlot) / SHELL_CONFIG[shell].canvasSlots;
+}
+
+function nextAvailableCanvasSlot(
+  shell: number,
+  occupiedSlots: Set<number>,
+  preferredSlot: number | null | undefined,
+): number | null {
+  const canvasSlots = SHELL_CONFIG[shell].canvasSlots;
+  if (
+    preferredSlot !== null
+    && preferredSlot !== undefined
+    && preferredSlot >= 0
+    && preferredSlot < canvasSlots
+    && !occupiedSlots.has(preferredSlot)
+  ) {
+    occupiedSlots.add(preferredSlot);
+    return preferredSlot;
+  }
+
+  for (let slot = 0; slot < canvasSlots; slot += 1) {
+    if (!occupiedSlots.has(slot)) {
+      occupiedSlots.add(slot);
+      return slot;
+    }
+  }
+  return null;
+}
+
+function moveCanonicalTaskToShell(
+  molecules: Molecule[],
+  bubbleId: string,
+  targetShell: number,
+  preferredSlots = new Map<string, number | null>(),
+): Molecule[] {
+  return molecules.map((molecule) => {
+    if (!molecule.electrons.some(
+      electron => electron.originalBubble?.id === bubbleId,
+    )) {
+      return molecule;
+    }
+
+    const occupiedSlots = new Set(
+      molecule.electrons
+        .filter(electron => (
+          electron.originalBubble?.id !== bubbleId
+          && electron.shell === targetShell
+          && electron.canvasSlot !== null
+        ))
+        .map(electron => electron.canvasSlot as number),
+    );
+
+    return {
+      ...molecule,
+      electrons: molecule.electrons.map((electron) => {
+        if (electron.originalBubble?.id !== bubbleId) return electron;
+        const preferredSlot = preferredSlots.has(electron.id)
+          ? preferredSlots.get(electron.id)
+          : electron.canvasSlot;
+        const canvasSlot = nextAvailableCanvasSlot(
+          targetShell,
+          occupiedSlots,
+          preferredSlot,
+        );
+        return {
+          ...electron,
+          shell: targetShell,
+          canvasSlot,
+          angle: angleForCanvasSlot(targetShell, canvasSlot),
+        };
+      }),
+    };
+  });
+}
+
 function buildMolecules(
   inputBubbles: Bubble[],
   previousMolecules: Molecule[],
 ): Molecule[] {
-  const bubblesByDomain = new Map<string, Bubble[]>();
+  const bubblesByDomain = new Map<string, { label: string; bubbles: Bubble[] }>();
   inputBubbles.forEach((bubble) => {
-    const domain = classifyDomain(bubble);
-    const domainBubbles = bubblesByDomain.get(domain) ?? [];
-    domainBubbles.push(bubble);
-    bubblesByDomain.set(domain, domainBubbles);
+    getConfirmedDomainLinks(bubble).forEach((link) => {
+      const existing = bubblesByDomain.get(link.domainId) ?? {
+        label: link.label?.trim() || link.domainId,
+        bubbles: [],
+      };
+      existing.bubbles.push(bubble);
+      bubblesByDomain.set(link.domainId, existing);
+    });
   });
 
-  const domains = Array.from(bubblesByDomain.keys());
-  const layout = calculateMoleculePositions(domains);
+  const domainIds = Array.from(bubblesByDomain.keys());
+  const layout = calculateMoleculePositions(domainIds);
   const previousById = new Map(
     previousMolecules.map(molecule => [molecule.id, molecule]),
   );
-  const domainSetChanged = previousMolecules.length !== domains.length
-    || domains.some(domain => !previousById.has(`mol-${domain}`));
+  const domainSetChanged = previousMolecules.length !== domainIds.length
+    || domainIds.some(domainId => !previousById.has(`mol-${domainId}`));
 
-  return domains.map((domain, domainIndex) => {
-    const id = `mol-${domain}`;
+  return domainIds.map((domainId, domainIndex) => {
+    const id = `mol-${domainId}`;
     const previous = previousById.get(id);
-    const domainPreset = DOMAIN_PRESETS.find(preset => preset.name === domain)
-      ?? DOMAIN_PRESETS[0];
-    const domainBubbles = bubblesByDomain.get(domain) ?? [];
+    const domainGroup = bubblesByDomain.get(domainId)!;
+    const domainBubbles = [...domainGroup.bubbles].sort((left, right) => (
+      left.createdAt - right.createdAt || left.id.localeCompare(right.id)
+    ));
     const previousElectrons = new Map(
       (previous?.electrons ?? []).map(electron => [electron.id, electron]),
     );
-    const angleStep = (Math.PI * 2) / Math.max(6, domainBubbles.length);
+    const occupiedSlotsByShell = SHELL_CONFIG.map(() => new Set<number>());
+    const reservedSlots = new Map<string, number>();
+
+    domainBubbles.forEach((bubble) => {
+      const shell = shellIndexForBubble(bubble);
+      const electronId = `elec-${encodeURIComponent(bubble.id)}-${encodeURIComponent(domainId)}`;
+      const previousElectron = previousElectrons.get(electronId);
+      if (
+        previousElectron?.shell !== shell
+        || previousElectron.canvasSlot === null
+        || previousElectron.canvasSlot < 0
+        || previousElectron.canvasSlot >= SHELL_CONFIG[shell].canvasSlots
+        || occupiedSlotsByShell[shell].has(previousElectron.canvasSlot)
+      ) {
+        return;
+      }
+      occupiedSlotsByShell[shell].add(previousElectron.canvasSlot);
+      reservedSlots.set(electronId, previousElectron.canvasSlot);
+    });
 
     return {
       id,
       x: domainSetChanged ? layout[domainIndex].x : previous?.x ?? layout[domainIndex].x,
       y: domainSetChanged ? layout[domainIndex].y : previous?.y ?? layout[domainIndex].y,
-      nucleus: domainPreset.nucleus,
+      nucleus: {
+        protons: domainIndex + 3,
+        neutrons: domainIndex + 3,
+        domain: domainGroup.label,
+      },
       selected: previous?.selected ?? false,
-      electrons: domainBubbles.map((bubble, electronIndex) => {
-        const electronId = `elec-${bubble.id}`;
-        const previousElectron = previousElectrons.get(electronId);
+      electrons: domainBubbles.map((bubble) => {
+        const shell = shellIndexForBubble(bubble);
+        const electronId = `elec-${encodeURIComponent(bubble.id)}-${encodeURIComponent(domainId)}`;
+        const canvasSlot = reservedSlots.get(electronId)
+          ?? nextAvailableCanvasSlot(
+            shell,
+            occupiedSlotsByShell[shell],
+            undefined,
+          );
         return {
           id: electronId,
           moleculeId: id,
-          shell: shellIndexForBubble(bubble),
-          angle: previousElectron?.angle ?? (electronIndex * angleStep),
+          shell,
+          angle: angleForCanvasSlot(shell, canvasSlot),
+          canvasSlot,
           content: bubble.content || '',
           originalBubble: bubble,
         };
@@ -259,8 +377,10 @@ function getMoleculeBounds(molecules: Molecule[]) {
 }
 
 function closestShellIndex(distanceFromNucleus: number): number {
-  if (distanceFromNucleus <= 80) return 0;
-  if (distanceFromNucleus <= 120) return 1;
+  const todayWeekBoundary = (SHELL_CONFIG[0].radius + SHELL_CONFIG[1].radius) / 2;
+  const weekLaterBoundary = (SHELL_CONFIG[1].radius + SHELL_CONFIG[2].radius) / 2;
+  if (distanceFromNucleus <= todayWeekBoundary) return 0;
+  if (distanceFromNucleus <= weekLaterBoundary) return 1;
   return 2;
 }
 
@@ -277,20 +397,17 @@ function pointerMoved(
 }
 
 interface AtomicTaskNavigatorProps {
-  molecules: readonly Molecule[];
+  bubbles: readonly Bubble[];
   onOpenTask: (bubble: Bubble) => void;
-  onHorizonChange: (electron: Electron, targetShell: number) => void;
+  onHorizonChange: (bubble: Bubble, targetShell: number) => void;
 }
 
 function AtomicTaskNavigator({
-  molecules,
+  bubbles,
   onOpenTask,
   onHorizonChange,
 }: AtomicTaskNavigatorProps) {
-  const taskCount = molecules.reduce(
-    (count, molecule) => count + molecule.electrons.length,
-    0,
-  );
+  const taskCount = bubbles.length;
 
   return (
     <details
@@ -305,35 +422,39 @@ function AtomicTaskNavigator({
         aria-label="Atomic tasks by life domain and time horizon"
         className="max-h-64 space-y-1 overflow-y-auto border-t p-2"
       >
-        {molecules.flatMap(molecule => molecule.electrons.map((electron) => {
-          const bubble = electron.originalBubble;
-          const label = electron.content || 'Untitled task';
+        {bubbles.map((bubble) => {
+          const label = bubble.content || 'Untitled task';
+          const confirmedDomains = getConfirmedDomainLinks(bubble)
+            .map(link => link.label?.trim() || link.domainId);
+          const domainDescription = confirmedDomains.length > 0
+            ? confirmedDomains.join(', ')
+            : 'No confirmed life-domain link';
           return (
             <li
-              key={electron.id}
+              key={bubble.id}
               className="flex min-w-64 items-center gap-2 rounded-md p-1 hover:bg-muted"
             >
               <button
                 type="button"
                 className="min-h-11 min-w-0 flex-1 rounded-md px-2 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={() => {
-                  if (bubble) onOpenTask(bubble);
+                  onOpenTask(bubble);
                 }}
-                aria-label={`Open ${label} from the ${molecule.nucleus.domain} life domain.`}
+                aria-label={`Open ${label}. ${domainDescription}.`}
               >
                 <span className="block truncate font-medium">{label}</span>
                 <span className="block text-xs text-muted-foreground">
-                  {molecule.nucleus.domain}
+                  {domainDescription}
                 </span>
               </button>
-              <label className="sr-only" htmlFor={`atomic-horizon-${electron.id}`}>
+              <label className="sr-only" htmlFor={`atomic-horizon-${bubble.id}`}>
                 Time horizon for {label}
               </label>
               <select
-                id={`atomic-horizon-${electron.id}`}
-                value={electron.shell}
+                id={`atomic-horizon-${bubble.id}`}
+                value={shellIndexForBubble(bubble)}
                 onChange={event => onHorizonChange(
-                  electron,
+                  bubble,
                   Number(event.target.value),
                 )}
                 className="h-11 rounded-md border bg-background px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -346,7 +467,7 @@ function AtomicTaskNavigator({
               </select>
             </li>
           );
-        }))}
+        })}
       </ul>
     </details>
   );
@@ -356,7 +477,6 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
   bubbles = [],
   onBubbleSelect,
   onTimeHorizonUpdate,
-  onMoleculeMerge,
   reducedMotion = false,
   highContrast = false,
   className,
@@ -414,6 +534,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     onTouchStart,
     onTouchMove,
     onTouchEnd,
+    onTouchCancel,
     zoomIn,
     zoomOut,
     setViewportTransform,
@@ -583,16 +704,23 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       return;
     }
 
+    const bubbleId = electron.originalBubble?.id;
+    const originalSlots = new Map<string, number | null>();
+    if (bubbleId) {
+      atomicStateRef.current.molecules.forEach((molecule) => {
+        molecule.electrons.forEach((candidate) => {
+          if (candidate.originalBubble?.id === bubbleId) {
+            originalSlots.set(candidate.id, candidate.canvasSlot);
+          }
+        });
+      });
+    }
+
     updateAtomicState(previous => ({
       ...previous,
-      molecules: previous.molecules.map(molecule => ({
-        ...molecule,
-        electrons: molecule.electrons.map(candidate => (
-          candidate.id === electron.id
-            ? { ...candidate, shell: safeTarget }
-            : candidate
-        )),
-      })),
+      molecules: bubbleId
+        ? moveCanonicalTaskToShell(previous.molecules, bubbleId, safeTarget)
+        : previous.molecules,
     }));
 
     if (electron.originalBubble) {
@@ -619,14 +747,14 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           onClick={() => {
             updateAtomicState(previous => ({
               ...previous,
-              molecules: previous.molecules.map(molecule => ({
-                ...molecule,
-                electrons: molecule.electrons.map(candidate => (
-                  candidate.id === electron.id
-                    ? { ...candidate, shell: originalShell }
-                    : candidate
-                )),
-              })),
+              molecules: bubbleId
+                ? moveCanonicalTaskToShell(
+                  previous.molecules,
+                  bubbleId,
+                  originalShell,
+                  originalSlots,
+                )
+                : previous.molecules,
             }));
             if (electron.originalBubble) {
               onTimeHorizonUpdate?.(
@@ -823,22 +951,17 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         .flatMap(molecule => molecule.electrons)
         .find(candidate => candidate.id === dragState.electronId);
       if (electron) {
-        let closestMolecule: Molecule | null = null;
-        let minimumDistance = Number.POSITIVE_INFINITY;
-        state.molecules.forEach((molecule) => {
-          const distance = Math.hypot(
-            dragState.currentWorld!.x - molecule.x,
-            dragState.currentWorld!.y - molecule.y,
+        const owningMolecule = state.molecules.find(
+          molecule => molecule.id === dragState.moleculeId,
+        );
+        if (owningMolecule) {
+          const distanceFromOwningNucleus = Math.hypot(
+            dragState.currentWorld.x - owningMolecule.x,
+            dragState.currentWorld.y - owningMolecule.y,
           );
-          if (distance < minimumDistance) {
-            minimumDistance = distance;
-            closestMolecule = molecule;
-          }
-        });
-        if (closestMolecule) {
           updateElectronShell(
             electron,
-            closestShellIndex(minimumDistance),
+            closestShellIndex(distanceFromOwningNucleus),
             'drag',
           );
           if (
@@ -866,12 +989,14 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       }
     }
 
-    if (dragState.moved) {
+    if (!cancelled && dragState.moved) {
       suppressClickRef.current = `${dragState.type}:${
         dragState.type === 'electron'
           ? dragState.electronId
           : dragState.moleculeId
       }`;
+    } else if (cancelled) {
+      suppressClickRef.current = null;
     }
     setDragState({ ...EMPTY_DRAG_STATE });
     const captureTarget = dragState.captureTarget;
@@ -961,32 +1086,6 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     );
     return true;
   }, [updateAtomicState]);
-
-  const handleFusion = useCallback(() => {
-    const selected = atomicStateRef.current.selectedMolecules;
-    if (selected.length !== 2) {
-      toast({
-        title: 'Select two molecules',
-        description: `Fusion needs exactly two selected molecules; ${selected.length} selected.`,
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    onMoleculeMerge?.(selected[0], selected[1]);
-    updateAtomicState(previous => ({
-      ...previous,
-      selectedMolecules: [],
-      molecules: previous.molecules.map(molecule => ({
-        ...molecule,
-        selected: false,
-      })),
-    }));
-    toast({
-      title: 'Molecules fused',
-      description: 'The selected molecules were sent to the experimental fusion action.',
-    });
-  }, [onMoleculeMerge, toast, updateAtomicState]);
 
   const toggleMotion = useCallback(() => {
     if (prefersReducedMotion) return;
@@ -1087,9 +1186,9 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         <Button
           variant="outline"
           className="h-11 w-11 p-0"
-          onClick={handleFusion}
-          aria-label="Fuse two selected molecules"
-          title="Fuse two selected molecules"
+          disabled
+          aria-label="Fuse unavailable until a non-destructive confirmed molecule contract exists"
+          title="Fusion is unavailable until it can preserve every canonical task"
         >
           <Zap aria-hidden="true" className="h-4 w-4" />
         </Button>
@@ -1127,6 +1226,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         onTouchStart={handleCanvasTouchStart}
         onTouchMove={handleCanvasTouchMove}
         onTouchEnd={handleCanvasTouchEnd}
+        onTouchCancel={onTouchCancel}
         style={{ cursor, touchAction: 'none' }}
       >
         <p id="atomic-view-instructions" className="sr-only">
@@ -1164,6 +1264,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                 const count = molecule.electrons.filter(
                   electron => electron.shell === shellIndex,
                 ).length;
+                const shownCount = Math.min(count, shell.canvasSlots);
                 const shellColor = highContrast
                   ? shell.highContrastColor
                   : shell.color;
@@ -1185,13 +1286,17 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                     }}
                   >
                     <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs text-muted-foreground">
-                      {count}/{shell.maxElectrons}
+                      {count > shell.canvasSlots
+                        ? `${shownCount} shown · ${count - shownCount} in Tasks`
+                        : `${count}/${shell.maxElectrons}`}
                     </span>
                   </div>
                 );
               }) : null}
 
-              {showElectronControls ? molecule.electrons.map((electron) => {
+              {showElectronControls ? molecule.electrons
+                .filter(electron => electron.canvasSlot !== null)
+                .map((electron) => {
                 const isDragging = atomicState.dragState.isDragging
                   && atomicState.dragState.type === 'electron'
                   && atomicState.dragState.electronId === electron.id;
@@ -1227,7 +1332,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                     data-electron="true"
                     data-electron-id={electron.id}
                     data-minimum-screen-target={MINIMUM_TARGET_SIZE}
-                    className={`absolute z-10 flex cursor-grab items-center justify-center rounded-full bg-transparent !p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                    className={`group/electron absolute z-10 flex cursor-grab items-center justify-center rounded-full bg-transparent !p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                       isDragging ? 'z-50 cursor-grabbing' : ''
                     }`}
                     style={{
@@ -1238,6 +1343,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                     }}
                     aria-label={`${label}. ${molecule.nucleus.domain} molecule. ${shell.name} horizon. Open with Enter; use arrow keys to change horizon.`}
                     aria-keyshortcuts="Enter Space ArrowUp ArrowDown ArrowLeft ArrowRight"
+                    title={label}
                     onPointerDown={event => startElectronDrag(molecule, electron, event)}
                     onClick={() => {
                       if (shouldSuppressClick(`electron:${electron.id}`)) return;
@@ -1280,9 +1386,16 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                         fontSize: 12 * visualScaleCompensation,
                       }}
                     >
-                      {electron.originalBubble?.type === 'Task'
-                        ? '✓'
-                        : label.charAt(0).toUpperCase()}
+                      {label.charAt(0).toUpperCase()}
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      className={`pointer-events-none absolute left-1/2 top-full z-50 mt-1 max-w-40 -translate-x-1/2 whitespace-nowrap rounded bg-foreground px-2 py-1 text-xs font-medium text-background opacity-0 shadow-lg group-hover/electron:opacity-100 group-focus-visible/electron:opacity-100 ${
+                        motionEnabled ? 'transition-opacity' : ''
+                      }`}
+                      style={{ fontSize: 12 * visualScaleCompensation }}
+                    >
+                      {label}
                     </span>
                   </button>
                 );
@@ -1390,10 +1503,21 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       )}
 
       <AtomicTaskNavigator
-        molecules={atomicState.molecules}
+        bubbles={bubbles}
         onOpenTask={(bubble) => onBubbleSelect?.(bubble)}
-        onHorizonChange={(electron, targetShell) => {
-          updateElectronShell(electron, targetShell, 'keyboard');
+        onHorizonChange={(bubble, targetShell) => {
+          const linkedElectron = atomicStateRef.current.molecules
+            .flatMap(molecule => molecule.electrons)
+            .find(electron => electron.originalBubble?.id === bubble.id);
+          updateElectronShell(linkedElectron ?? {
+            id: `task-${bubble.id}`,
+            moleculeId: '',
+            shell: shellIndexForBubble(bubble),
+            angle: 0,
+            canvasSlot: null,
+            content: bubble.content || '',
+            originalBubble: bubble,
+          }, targetShell, 'keyboard');
         }}
       />
 

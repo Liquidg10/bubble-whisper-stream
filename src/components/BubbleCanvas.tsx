@@ -70,6 +70,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
     onTouchStart,
     onTouchMove,
     onTouchEnd,
+    onTouchCancel,
     zoomIn,
     zoomOut,
     resetZoom,
@@ -487,6 +488,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchCancel}
         style={{
           cursor,
           touchAction: 'none'
