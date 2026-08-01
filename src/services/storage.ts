@@ -5,6 +5,7 @@ import { Bubble, Reminder, Tag, SelfModel, Settings } from '@/types/bubble';
 // IndexedDB wrapper for local storage
 class StorageService {
   private db: IDBDatabase | null = null;
+  private initializationPromise: Promise<void> | null = null;
   private readonly dbName = 'BubbleUniverse';
   private readonly dbVersion = 4;
 
@@ -13,101 +14,114 @@ class StorageService {
   }
 
   async initialize(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const request = indexedDB.open(this.dbName, 4); // Upgrade to v4 for SelfModelV2
+    if (this.db) return;
 
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => {
-        this.db = request.result;
-        resolve();
-      };
+    if (!this.initializationPromise) {
+      this.initializationPromise = new Promise((resolve, reject) => {
+        const request = indexedDB.open(this.dbName, this.dbVersion);
 
-      request.onupgradeneeded = (event) => {
-        const db = (event.target as IDBOpenDBRequest).result;
+        request.onerror = () => reject(request.error ?? new Error('Failed to open IndexedDB'));
+        request.onsuccess = () => {
+          this.db = request.result;
+          resolve();
+        };
 
-        // Bubbles store
-        if (!db.objectStoreNames.contains('bubbles')) {
-          const bubbleStore = db.createObjectStore('bubbles', { keyPath: 'id' });
-          bubbleStore.createIndex('createdAt', 'createdAt');
-          bubbleStore.createIndex('type', 'type');
-          bubbleStore.createIndex('updatedAt', 'updatedAt');
-        }
+        request.onupgradeneeded = (event) => {
+          const db = (event.target as IDBOpenDBRequest).result;
 
-        // Reminders store
-        if (!db.objectStoreNames.contains('reminders')) {
-          const reminderStore = db.createObjectStore('reminders', { keyPath: 'id' });
-          reminderStore.createIndex('scheduledAt', 'scheduledAt');
-          reminderStore.createIndex('status', 'status');
-          reminderStore.createIndex('bubbleId', 'bubbleId');
-        }
+          // Bubbles store
+          if (!db.objectStoreNames.contains('bubbles')) {
+            const bubbleStore = db.createObjectStore('bubbles', { keyPath: 'id' });
+            bubbleStore.createIndex('createdAt', 'createdAt');
+            bubbleStore.createIndex('type', 'type');
+            bubbleStore.createIndex('updatedAt', 'updatedAt');
+          }
 
-        // Tags store
-        if (!db.objectStoreNames.contains('tags')) {
-          db.createObjectStore('tags', { keyPath: 'id' });
-        }
+          // Reminders store
+          if (!db.objectStoreNames.contains('reminders')) {
+            const reminderStore = db.createObjectStore('reminders', { keyPath: 'id' });
+            reminderStore.createIndex('scheduledAt', 'scheduledAt');
+            reminderStore.createIndex('status', 'status');
+            reminderStore.createIndex('bubbleId', 'bubbleId');
+          }
 
-        // Settings store
-        if (!db.objectStoreNames.contains('settings')) {
-          db.createObjectStore('settings', { keyPath: 'id' });
-        }
+          // Tags store
+          if (!db.objectStoreNames.contains('tags')) {
+            db.createObjectStore('tags', { keyPath: 'id' });
+          }
 
-        // Self model store
-        if (!db.objectStoreNames.contains('selfModel')) {
-          db.createObjectStore('selfModel', { keyPath: 'id' });
-        }
+          // Settings store
+          if (!db.objectStoreNames.contains('settings')) {
+            db.createObjectStore('settings', { keyPath: 'id' });
+          }
 
-        // Schema version tracking
-        if (!db.objectStoreNames.contains('meta')) {
-          db.createObjectStore('meta', { keyPath: 'key' });
-        }
+          // Self model store
+          if (!db.objectStoreNames.contains('selfModel')) {
+            db.createObjectStore('selfModel', { keyPath: 'id' });
+          }
 
-        // Phase 2: Add new object stores
-        if (!db.objectStoreNames.contains('cbt_entries')) {
-          const cbtStore = db.createObjectStore('cbt_entries', { keyPath: 'id' });
-          cbtStore.createIndex('createdAt', 'createdAt', { unique: false });
-          cbtStore.createIndex('bubbleId', 'bubbleId', { unique: false });
-        }
+          // Schema version tracking
+          if (!db.objectStoreNames.contains('meta')) {
+            db.createObjectStore('meta', { keyPath: 'key' });
+          }
 
-        if (!db.objectStoreNames.contains('glimmers')) {
-          const glimmerStore = db.createObjectStore('glimmers', { keyPath: 'id' });
-          glimmerStore.createIndex('createdAt', 'createdAt', { unique: false });
-        }
+          // Phase 2: Add new object stores
+          if (!db.objectStoreNames.contains('cbt_entries')) {
+            const cbtStore = db.createObjectStore('cbt_entries', { keyPath: 'id' });
+            cbtStore.createIndex('createdAt', 'createdAt', { unique: false });
+            cbtStore.createIndex('bubbleId', 'bubbleId', { unique: false });
+          }
 
-        // SelfModelV2 stores
-        if (!db.objectStoreNames.contains('self_model_v2')) {
-          db.createObjectStore('self_model_v2', { keyPath: 'id' });
-        }
+          if (!db.objectStoreNames.contains('glimmers')) {
+            const glimmerStore = db.createObjectStore('glimmers', { keyPath: 'id' });
+            glimmerStore.createIndex('createdAt', 'createdAt', { unique: false });
+          }
 
-        if (!db.objectStoreNames.contains('self_model_audits')) {
-          const auditStore = db.createObjectStore('self_model_audits', { keyPath: 'id' });
-          auditStore.createIndex('at', 'at', { unique: false });
-          auditStore.createIndex('layer', 'layer', { unique: false });
-        }
+          // SelfModelV2 stores
+          if (!db.objectStoreNames.contains('self_model_v2')) {
+            db.createObjectStore('self_model_v2', { keyPath: 'id' });
+          }
 
-        if (!db.objectStoreNames.contains('monthly_reviews')) {
-          db.createObjectStore('monthly_reviews', { keyPath: 'id' });
-        }
+          if (!db.objectStoreNames.contains('self_model_audits')) {
+            const auditStore = db.createObjectStore('self_model_audits', { keyPath: 'id' });
+            auditStore.createIndex('at', 'at', { unique: false });
+            auditStore.createIndex('layer', 'layer', { unique: false });
+          }
 
-        // Legacy store (keep for migration)
-        if (!db.objectStoreNames.contains('self_model_audit')) {
-          const auditStore = db.createObjectStore('self_model_audit', { keyPath: 'id' });
-          auditStore.createIndex('at', 'at', { unique: false });
-          auditStore.createIndex('layer', 'layer', { unique: false });
-        }
+          if (!db.objectStoreNames.contains('monthly_reviews')) {
+            db.createObjectStore('monthly_reviews', { keyPath: 'id' });
+          }
 
-        if (!db.objectStoreNames.contains('pattern_hints')) {
-          const hintStore = db.createObjectStore('pattern_hints', { keyPath: 'id' });
-          hintStore.createIndex('key', 'key', { unique: false });
-          hintStore.createIndex('lastUpdated', 'lastUpdated', { unique: false });
-        }
+          // Legacy store (keep for migration)
+          if (!db.objectStoreNames.contains('self_model_audit')) {
+            const auditStore = db.createObjectStore('self_model_audit', { keyPath: 'id' });
+            auditStore.createIndex('at', 'at', { unique: false });
+            auditStore.createIndex('layer', 'layer', { unique: false });
+          }
 
-        if (!db.objectStoreNames.contains('consent_records')) {
-          const consentStore = db.createObjectStore('consent_records', { keyPath: 'id' });
-          consentStore.createIndex('feature', 'feature', { unique: false });
-          consentStore.createIndex('timestamp', 'timestamp', { unique: false });
-        }
-      };
-    });
+          if (!db.objectStoreNames.contains('pattern_hints')) {
+            const hintStore = db.createObjectStore('pattern_hints', { keyPath: 'id' });
+            hintStore.createIndex('key', 'key', { unique: false });
+            hintStore.createIndex('lastUpdated', 'lastUpdated', { unique: false });
+          }
+
+          if (!db.objectStoreNames.contains('consent_records')) {
+            const consentStore = db.createObjectStore('consent_records', { keyPath: 'id' });
+            consentStore.createIndex('feature', 'feature', { unique: false });
+            consentStore.createIndex('timestamp', 'timestamp', { unique: false });
+          }
+        };
+      });
+    }
+
+    const initialization = this.initializationPromise;
+    try {
+      await initialization;
+    } finally {
+      if (this.initializationPromise === initialization) {
+        this.initializationPromise = null;
+      }
+    }
   }
 
   // Bubbles CRUD
@@ -309,8 +323,11 @@ class StorageService {
     await this.promisifyRequest(tx.objectStore('pattern_hints').put(hint));
   }
 
-  getDatabase(): IDBDatabase {
-    if (!this.db) throw new Error('Database not initialized');
+  async getDatabase(): Promise<IDBDatabase> {
+    if (!this.db) {
+      await this.initialize();
+    }
+    if (!this.db) throw new Error('Database initialization did not produce a connection');
     return this.db;
   }
 }
