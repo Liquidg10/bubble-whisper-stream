@@ -166,34 +166,43 @@ export function RadialCapture({ onCapture, className }: RadialCaptureProps) {
   // Radial menu items
   const menuItems = [
     { icon: Mic, label: 'Voice', action: startVoiceCapture, angle: -90 },
-    { icon: Type, label: 'Text', action: startTextCapture, angle: -30 },
-    { icon: Palette, label: 'Sketch', action: startSketchCapture, angle: 30 },
-    { icon: Camera, label: 'Photo', action: startPhotoCapture, angle: 90 },
+    { icon: Type, label: 'Text', action: startTextCapture, angle: -65 },
+    { icon: Palette, label: 'Sketch', action: startSketchCapture, angle: -40 },
+    { icon: Camera, label: 'Photo', action: startPhotoCapture, angle: -15 },
   ];
 
   return (
     <>
       {/* Main FAB */}
-      <div className={cn("fixed bottom-32 left-6 z-50", className)}>
+      <div
+        data-shell-control="radial-capture"
+        className={cn("fixed bottom-32 left-6 z-50", className)}
+      >
         <button
           className={cn(
             "w-14 h-14 rounded-full bg-gradient-aurora shadow-glow-medium",
             "flex items-center justify-center text-text-primary",
-            "transition-all duration-bubble hover:scale-110 active:scale-95",
-            "border-2 border-accent-void/30",
-            isOpen && "rotate-45"
+            "transition-all duration-bubble hover:scale-110 active:scale-95 motion-reduce:transform-none motion-reduce:transition-none",
+            "border-2 border-accent-void/30"
           )}
           onClick={() => setIsOpen(!isOpen)}
           aria-label="Capture thought"
+          aria-expanded={isOpen}
+          aria-controls="radial-capture-menu"
         >
-          <Plus size={24} />
+          {isOpen ? <X size={24} /> : <Plus size={24} />}
         </button>
 
         {/* Radial Menu */}
         {isOpen && (
-          <div className="absolute -translate-x-1/2 -translate-y-1/2 top-1/2 left-1/2">
+          <div
+            id="radial-capture-menu"
+            role="group"
+            aria-label="Capture options"
+            className="absolute -translate-x-1/2 -translate-y-1/2 top-1/2 left-1/2"
+          >
             {menuItems.map((item, index) => {
-              const radius = 90;
+              const radius = 128;
               const radian = (item.angle * Math.PI) / 180;
               const x = Math.cos(radian) * radius;
               const y = Math.sin(radian) * radius;
@@ -204,7 +213,7 @@ export function RadialCapture({ onCapture, className }: RadialCaptureProps) {
                   className={cn(
                     "absolute w-12 h-12 rounded-full bg-bubble-active/95 backdrop-blur",
                     "flex items-center justify-center text-text-primary",
-                    "transition-all duration-bubble hover:scale-110 hover:bg-bubble-selected",
+                    "transition-all duration-bubble hover:scale-110 hover:bg-bubble-selected motion-reduce:transition-none",
                     "border border-accent-void/30 shadow-glow-medium z-50"
                   )}
                   style={{
@@ -374,11 +383,11 @@ export function RadialCapture({ onCapture, className }: RadialCaptureProps) {
         @keyframes fadeIn {
           from {
             opacity: 0;
-            transform: translate(0, 0) scale(0.8);
+            transform: translate(-50%, -50%) scale(0.8);
           }
           to {
             opacity: 1;
-            transform: var(--transform) scale(1);
+            transform: translate(-50%, -50%) scale(1);
           }
         }
       `}</style>

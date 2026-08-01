@@ -1,35 +1,61 @@
 /**
- * Unified Atomic Renderer - Single source of truth for atomic view
- * Features: unified interactions, shell snapping with undo, multi-select, motion control
+ * Experimental Atomic renderer.
+ *
+ * Atomic layout is view-local and center-relative. The stationary viewport owns
+ * input and measurement; only the inner world layer is transformed.
  */
 
-import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { Bubble } from '@/types/bubble';
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import type { Bubble } from '@/types/bubble';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
-import { 
-  Undo2, Zap, RotateCcw, Home, Calendar, Clock, Plus, 
-  ZoomIn, ZoomOut, Move, Shuffle, Target, MousePointer2,
-  Play, Pause
+import {
+  Pause,
+  Play,
+  Shuffle,
+  Target,
+  Zap,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { usePanZoom } from '@/hooks/usePanZoom';
-import { startAnimation, stopAnimation, toggleAnimation, isMotionEnabled, subscribeToMotionState } from '@/lib/motion';
+import { useIsMobile } from '@/hooks/use-mobile';
+import {
+  fitViewportToWorldBounds,
+  screenToWorld as canvasScreenToWorld,
+  type CanvasDimensions,
+  type CanvasPoint,
+} from '@/lib/canvasGeometry';
+import {
+  isMotionEnabled,
+  isReducedMotionPreferred,
+  startAnimation,
+  stopAnimation,
+  subscribeToMotionState,
+} from '@/lib/motion';
 import { classifyDomain, getAllDomains } from '@/lib/classifyDomain';
-import { getHorizon, getHorizonDisplayName, ringIndexToHorizon } from '@/lib/horizon';
+import {
+  getHorizon,
+  getHorizonDisplayName,
+  ringIndexToHorizon,
+} from '@/lib/horizon';
 import { calculateMoleculePositions } from '@/experimental/atomic/positioning';
-import { useMoleculePositionPersistence } from '@/hooks/useMoleculePositionPersistence';
 import { hapticsService } from '@/services/haptics';
-import { TaskCard, TaskCardConfigs } from '@/components/TaskCard';
 
-// Atomic structures
 interface Electron {
   id: string;
   moleculeId: string;
-  shell: number; // 0=today, 1=week, 2=later
+  shell: number;
   angle: number;
-  phase: number;
   content: string;
   originalBubble?: Bubble;
 }
@@ -45,52 +71,93 @@ interface Molecule {
   };
   electrons: Electron[];
   selected: boolean;
-  pulseActive: boolean;
+}
+
+interface DragState {
+  isDragging: boolean;
+  type: 'electron' | 'molecule' | null;
+  pointerId?: number;
+  pointerType?: string;
+  captureTarget?: HTMLElement;
+  electronId?: string;
+  moleculeId?: string;
+  originalShell?: number;
+  grabOffset?: CanvasPoint;
+  startPointerWorld?: CanvasPoint;
+  currentWorld?: CanvasPoint;
+  originalMoleculePosition?: CanvasPoint;
+  moved?: boolean;
 }
 
 interface AtomicState {
   molecules: Molecule[];
   selectedMolecules: string[];
-  dragState: {
-    isDragging: boolean;
-    type?: 'electron' | 'molecule';
-    electronId?: string;
-    moleculeId?: string;
-    lastMousePos?: { x: number; y: number };
-    hoveredShell?: number;
-    originalShell?: number; // Store the electron's starting shell
-    dragOffset?: { x: number; y: number }; // Visual drag offset
-    currentMousePos?: { x: number; y: number }; // Real-time mouse position
-    dragStartPos?: { x: number; y: number }; // Initial drag position for absolute positioning
-  };
-  undoStack: AtomicState[];
+  dragState: DragState;
 }
 
-// Domain configuration using canonical classification
+const EMPTY_DRAG_STATE: DragState = {
+  isDragging: false,
+  type: null,
+};
+
 const DOMAIN_PRESETS = getAllDomains().map((domain, index) => ({
   name: domain,
-  color: ['#3B82F6', '#10B981', '#EF4444', '#8B5CF6', '#EC4899', '#F59E0B', '#6B7280'][index] || '#6B7280',
-  nucleus: { protons: index + 3, neutrons: index + 3, domain }
+  nucleus: {
+    protons: index + 3,
+    neutrons: index + 3,
+    domain,
+  },
 }));
 
-// Shell configuration mapped to horizons
 const SHELL_CONFIG = [
-  { name: 'Today', radius: 60, color: '#EF4444', icon: Home, maxElectrons: 8 },
-  { name: 'Week', radius: 100, color: '#F59E0B', icon: Calendar, maxElectrons: 18 },
-  { name: 'Later', radius: 140, color: '#10B981', icon: Clock, maxElectrons: 32 }
-];
+  {
+    name: 'Today',
+    radius: 60,
+    color: '#EF4444',
+    highContrastColor: '#B91C1C',
+    maxElectrons: 8,
+  },
+  {
+    name: 'Week',
+    radius: 100,
+    color: '#F59E0B',
+    highContrastColor: '#92400E',
+    maxElectrons: 18,
+  },
+  {
+    name: 'Later',
+    radius: 140,
+    color: '#10B981',
+    highContrastColor: '#047857',
+    maxElectrons: 32,
+  },
+] as const;
 
-// Animation configuration
+const HORIZONS = ['today', 'week', 'later'] as const;
+const MAX_SHELL_RADIUS = SHELL_CONFIG[SHELL_CONFIG.length - 1].radius;
+const MOLECULE_FIT_RADIUS = MAX_SHELL_RADIUS + 36;
+const MINIMUM_TARGET_SIZE = 44;
+const DRAG_THRESHOLD = 8;
+const ELECTRON_WORKING_SCALE = 0.9;
+const MINIMUM_ATOMIC_SCALE = 0.14;
+const COMPACT_VIEWPORT_HEIGHT = 420;
+const WIDE_VIEWPORT_WIDTH = 768;
+const SHORT_WIDE_VERTICAL_OFFSET = 24;
+
 const ANIMATION_CONFIG = {
-  ELECTRON_SPEED: 0.012, // Balanced electron orbit speed
-  SHELL_SPEED_MULTIPLIERS: [1.2, 1.0, 0.8], // Today faster, Later slower
-  MAX_ELECTRONS_FOR_FAST_ANIMATION: 50 // Reduce speed further with many electrons
-};
+  electronSpeed: 0.012,
+  shellSpeedMultipliers: [1.2, 1, 0.8],
+  maxElectronsForFastAnimation: 50,
+} as const;
 
 interface AtomicRendererProps {
   bubbles?: Bubble[];
   onBubbleSelect?: (bubble: Bubble) => void;
-  onTimeHorizonUpdate?: (bubbleId: string, fromRing: number, toRing: number) => void;
+  onTimeHorizonUpdate?: (
+    bubbleId: string,
+    fromRing: number,
+    toRing: number,
+  ) => void;
   onMoleculeCreate?: (domain: string) => void;
   onMoleculeMerge?: (aId: string, bId: string) => void;
   reducedMotion?: boolean;
@@ -98,43 +165,250 @@ interface AtomicRendererProps {
   className?: string;
 }
 
-export const AtomicRenderer: React.FC<AtomicRendererProps> = ({ 
-  bubbles = [], 
-  onBubbleSelect, 
+function shellIndexForBubble(bubble: Bubble): number {
+  const index = HORIZONS.indexOf(getHorizon(bubble) ?? 'today');
+  return index < 0 ? 0 : index;
+}
+
+function buildMolecules(
+  inputBubbles: Bubble[],
+  previousMolecules: Molecule[],
+): Molecule[] {
+  const bubblesByDomain = new Map<string, Bubble[]>();
+  inputBubbles.forEach((bubble) => {
+    const domain = classifyDomain(bubble);
+    const domainBubbles = bubblesByDomain.get(domain) ?? [];
+    domainBubbles.push(bubble);
+    bubblesByDomain.set(domain, domainBubbles);
+  });
+
+  const domains = Array.from(bubblesByDomain.keys());
+  const layout = calculateMoleculePositions(domains);
+  const previousById = new Map(
+    previousMolecules.map(molecule => [molecule.id, molecule]),
+  );
+  const domainSetChanged = previousMolecules.length !== domains.length
+    || domains.some(domain => !previousById.has(`mol-${domain}`));
+
+  return domains.map((domain, domainIndex) => {
+    const id = `mol-${domain}`;
+    const previous = previousById.get(id);
+    const domainPreset = DOMAIN_PRESETS.find(preset => preset.name === domain)
+      ?? DOMAIN_PRESETS[0];
+    const domainBubbles = bubblesByDomain.get(domain) ?? [];
+    const previousElectrons = new Map(
+      (previous?.electrons ?? []).map(electron => [electron.id, electron]),
+    );
+    const angleStep = (Math.PI * 2) / Math.max(6, domainBubbles.length);
+
+    return {
+      id,
+      x: domainSetChanged ? layout[domainIndex].x : previous?.x ?? layout[domainIndex].x,
+      y: domainSetChanged ? layout[domainIndex].y : previous?.y ?? layout[domainIndex].y,
+      nucleus: domainPreset.nucleus,
+      selected: previous?.selected ?? false,
+      electrons: domainBubbles.map((bubble, electronIndex) => {
+        const electronId = `elec-${bubble.id}`;
+        const previousElectron = previousElectrons.get(electronId);
+        return {
+          id: electronId,
+          moleculeId: id,
+          shell: shellIndexForBubble(bubble),
+          angle: previousElectron?.angle ?? (electronIndex * angleStep),
+          content: bubble.content || '',
+          originalBubble: bubble,
+        };
+      }),
+    };
+  });
+}
+
+function getElectronOrbitOffset(
+  electron: Electron,
+  animationStep: number,
+  motionEnabled: boolean,
+): CanvasPoint {
+  const shell = SHELL_CONFIG[electron.shell] ?? SHELL_CONFIG[0];
+  const speed = ANIMATION_CONFIG.shellSpeedMultipliers[electron.shell] ?? 1;
+  const angle = electron.angle + (motionEnabled ? animationStep * speed : 0);
+  return {
+    x: Math.cos(angle) * shell.radius,
+    y: Math.sin(angle) * shell.radius,
+  };
+}
+
+function getMoleculeBounds(molecules: Molecule[]) {
+  if (molecules.length === 0) {
+    return { minX: -1, maxX: 1, minY: -1, maxY: 1 };
+  }
+
+  return molecules.reduce(
+    (bounds, molecule) => ({
+      minX: Math.min(bounds.minX, molecule.x - MOLECULE_FIT_RADIUS),
+      maxX: Math.max(bounds.maxX, molecule.x + MOLECULE_FIT_RADIUS),
+      minY: Math.min(bounds.minY, molecule.y - MOLECULE_FIT_RADIUS),
+      maxY: Math.max(bounds.maxY, molecule.y + MOLECULE_FIT_RADIUS),
+    }),
+    {
+      minX: Number.POSITIVE_INFINITY,
+      maxX: Number.NEGATIVE_INFINITY,
+      minY: Number.POSITIVE_INFINITY,
+      maxY: Number.NEGATIVE_INFINITY,
+    },
+  );
+}
+
+function closestShellIndex(distanceFromNucleus: number): number {
+  if (distanceFromNucleus <= 80) return 0;
+  if (distanceFromNucleus <= 120) return 1;
+  return 2;
+}
+
+function pointerMoved(
+  start: CanvasPoint,
+  current: CanvasPoint,
+  viewportScale: number,
+): boolean {
+  const worldDistance = Math.hypot(
+    current.x - start.x,
+    current.y - start.y,
+  );
+  return worldDistance * Math.max(0.01, viewportScale) >= DRAG_THRESHOLD;
+}
+
+interface AtomicTaskNavigatorProps {
+  molecules: readonly Molecule[];
+  onOpenTask: (bubble: Bubble) => void;
+  onHorizonChange: (electron: Electron, targetShell: number) => void;
+}
+
+function AtomicTaskNavigator({
+  molecules,
+  onOpenTask,
+  onHorizonChange,
+}: AtomicTaskNavigatorProps) {
+  const taskCount = molecules.reduce(
+    (count, molecule) => count + molecule.electrons.length,
+    0,
+  );
+
+  return (
+    <details
+      data-panel
+      data-testid="atomic-task-navigator"
+      className="absolute right-4 top-4 z-40 max-w-[min(20rem,calc(100%-7rem))] rounded-md border bg-card/95 text-card-foreground shadow-lg backdrop-blur-sm"
+    >
+      <summary className="flex min-h-11 cursor-pointer select-none items-center px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        Tasks ({taskCount})
+      </summary>
+      <ul
+        aria-label="Atomic tasks by life domain and time horizon"
+        className="max-h-64 space-y-1 overflow-y-auto border-t p-2"
+      >
+        {molecules.flatMap(molecule => molecule.electrons.map((electron) => {
+          const bubble = electron.originalBubble;
+          const label = electron.content || 'Untitled task';
+          return (
+            <li
+              key={electron.id}
+              className="flex min-w-64 items-center gap-2 rounded-md p-1 hover:bg-muted"
+            >
+              <button
+                type="button"
+                className="min-h-11 min-w-0 flex-1 rounded-md px-2 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => {
+                  if (bubble) onOpenTask(bubble);
+                }}
+                aria-label={`Open ${label} from the ${molecule.nucleus.domain} life domain.`}
+              >
+                <span className="block truncate font-medium">{label}</span>
+                <span className="block text-xs text-muted-foreground">
+                  {molecule.nucleus.domain}
+                </span>
+              </button>
+              <label className="sr-only" htmlFor={`atomic-horizon-${electron.id}`}>
+                Time horizon for {label}
+              </label>
+              <select
+                id={`atomic-horizon-${electron.id}`}
+                value={electron.shell}
+                onChange={event => onHorizonChange(
+                  electron,
+                  Number(event.target.value),
+                )}
+                className="h-11 rounded-md border bg-background px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {SHELL_CONFIG.map((shell, shellIndex) => (
+                  <option key={shell.name} value={shellIndex}>
+                    {shell.name}
+                  </option>
+                ))}
+              </select>
+            </li>
+          );
+        }))}
+      </ul>
+    </details>
+  );
+}
+
+export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
+  bubbles = [],
+  onBubbleSelect,
   onTimeHorizonUpdate,
-  onMoleculeCreate,
   onMoleculeMerge,
   reducedMotion = false,
   highContrast = false,
-  className 
+  className,
 }) => {
-  const canvasRef = useRef<HTMLDivElement>(null);
-  const { toast } = useToast();
-  const { updateDomainBubblesPosition, lockPosition, unlockPosition } = useMoleculePositionPersistence();
-  
-  // Animation performance cache
-  const animationRef = useRef<{ electronCount?: number }>();
-  
-  // State management
-  const [atomicState, setAtomicState] = useState<AtomicState>({
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const atomicStateRef = useRef<AtomicState>({
     molecules: [],
     selectedMolecules: [],
-    dragState: {
-      isDragging: false,
-      type: null
-    },
-    undoStack: []
+    dragState: EMPTY_DRAG_STATE,
   });
-  
-  const [viewport, setViewport] = useState({ width: 800, height: 600, scale: 1, x: 0, y: 0 });
-  const [motionState, setMotionState] = useState(isMotionEnabled());
-  const [animationStep, setAnimationStep] = useState(0);
+  const dragStateRef = useRef<DragState>(EMPTY_DRAG_STATE);
+  const dimensionsRef = useRef<CanvasDimensions>({ width: 0, height: 0 });
+  const viewportTransformRef = useRef({ x: 0, y: 0, scale: 1 });
+  const lastAutoFitKeyRef = useRef('');
+  const suppressClickRef = useRef<string | null>(null);
+  const { toast } = useToast();
+  const isMobile = useIsMobile();
 
-  // Pan/zoom setup
+  const [atomicState, setAtomicState] = useState<AtomicState>(
+    atomicStateRef.current,
+  );
+  const [dimensions, setDimensions] = useState<CanvasDimensions>({
+    width: 0,
+    height: 0,
+  });
+  const [motionState, setMotionState] = useState(isMotionEnabled());
+  const [atomicMotionRequested, setAtomicMotionRequested] = useState(false);
+  const [systemReducedMotion, setSystemReducedMotion] = useState(
+    isReducedMotionPreferred(),
+  );
+  const [animationStep, setAnimationStep] = useState(0);
+  const [movementAnnouncement, setMovementAnnouncement] = useState('');
+
+  const updateAtomicState = useCallback((
+    updater: (previous: AtomicState) => AtomicState,
+  ) => {
+    setAtomicState((previous) => {
+      const next = updater(previous);
+      atomicStateRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const setDragState = useCallback((dragState: DragState) => {
+    dragStateRef.current = dragState;
+    updateAtomicState(previous => ({ ...previous, dragState }));
+  }, [updateAtomicState]);
+
   const {
     state: panZoomState,
     onPanStart,
-    onPanMove, 
+    onPanMove,
     onPanEnd,
     onWheel,
     onTouchStart,
@@ -142,849 +416,1024 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     onTouchEnd,
     zoomIn,
     zoomOut,
-    resetZoom,
-    cursor
+    setViewportTransform,
+    cursor,
   } = usePanZoom({
-    getContainerRect: () => canvasRef.current?.getBoundingClientRect() || null,
-    onStateChange: (state) => {
-      setViewport(prev => ({
-        ...prev,
-        x: state.x,
-        y: state.y,
-        scale: state.scale
-      }));
-    }
+    minScale: MINIMUM_ATOMIC_SCALE,
+    maxScale: 2.5,
+    getContainerRect: () => (
+      viewportRef.current?.getBoundingClientRect() ?? null
+    ),
   });
+  viewportTransformRef.current = {
+    x: panZoomState.x,
+    y: panZoomState.y,
+    scale: panZoomState.scale,
+  };
+  atomicStateRef.current = atomicState;
+  dimensionsRef.current = dimensions;
 
-  // Convert an absolute screen point to canvas world coordinates.
-  // Must mirror the render transform: translate(pan) scale(scale) with transformOrigin: center.
-  const screenToWorld = useCallback((screenX: number, screenY: number, rect: DOMRect) => {
-    const cx = rect.width / 2;
-    const cy = rect.height / 2;
-    return {
-      x: cx + (screenX - rect.left - cx - panZoomState.x) / panZoomState.scale,
-      y: cy + (screenY - rect.top - cy - panZoomState.y) / panZoomState.scale,
-    };
-  }, [panZoomState.x, panZoomState.y, panZoomState.scale]);
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return;
 
-  // Debounced molecule converter to prevent rapid re-conversions
-  const debouncedConvertRef = useRef<NodeJS.Timeout>();
-  const lastConversionRef = useRef<Bubble[]>([]);
-  
-  const convertBubblesToMolecules = useCallback((inputBubbles: Bubble[]): Molecule[] => {
-    // Position tolerance - ignore tiny changes
-    const POSITION_TOLERANCE = 5;
-    
-    // Check if we need to rebuild at all
-    const bubblesChanged = inputBubbles.length !== lastConversionRef.current.length ||
-      inputBubbles.some((bubble, i) => {
-        const lastBubble = lastConversionRef.current[i];
-        if (!lastBubble) return true;
-        
-        const positionChanged = Math.abs((bubble.x || 0) - (lastBubble.x || 0)) > POSITION_TOLERANCE ||
-                               Math.abs((bubble.y || 0) - (lastBubble.y || 0)) > POSITION_TOLERANCE;
-        return bubble.id !== lastBubble.id || 
-               bubble.content !== lastBubble.content ||
-               positionChanged;
-      });
-    
-    if (!bubblesChanged && atomicState.molecules.length > 0) {
-      // Return existing molecules with preserved animation state
-      return atomicState.molecules;
-    }
-    
-    lastConversionRef.current = inputBubbles;
-    const moleculeMap = new Map<string, Molecule>();
-    
-    // Preserve existing molecule positions and animation states
-    const existingMolecules = new Map<string, Molecule>();
-    atomicState.molecules.forEach(mol => {
-      existingMolecules.set(mol.id, mol);
-    });
-    
-    // Step 1: Collect all unique domains first
-    const uniqueDomains = [...new Set(inputBubbles.map(bubble => classifyDomain(bubble)))];
-    
-    // Step 2: Calculate global positions for new domains only
-    const newDomains = uniqueDomains.filter(domain => !existingMolecules.has(`mol-${domain}`));
-    const globalPositions = newDomains.length > 0 ? calculateMoleculePositions(newDomains) : [];
-    const domainPositionMap = new Map<string, { x: number; y: number }>();
-    
-    newDomains.forEach((domain, index) => {
-      const position = globalPositions[index];
-      if (position) {
-        domainPositionMap.set(domain, { x: position.x, y: position.y });
-      }
-    });
-
-    inputBubbles.forEach((bubble, index) => {
-      const domain = classifyDomain(bubble);
-      const domainPreset = DOMAIN_PRESETS.find(p => p.name === domain) || DOMAIN_PRESETS[0];
-      const horizon = getHorizon(bubble);
-      const shellIndex = horizon ? ['today', 'week', 'later'].indexOf(horizon) : 0;
-
-      let molecule = moleculeMap.get(domain);
-      if (!molecule) {
-        // Check if we have an existing molecule to preserve
-        const existingMolecule = existingMolecules.get(`mol-${domain}`);
-        
-        if (existingMolecule) {
-          // Preserve existing molecule position and state
-          molecule = {
-            ...existingMolecule,
-            electrons: [] // Will be rebuilt below
-          };
-        } else {
-          // Create new molecule with calculated position
-          let finalPosition = domainPositionMap.get(domain);
-          
-          // Check if bubble has a stored position that doesn't conflict
-          const domainBubbles = inputBubbles.filter(b => classifyDomain(b) === domain);
-          const representativeBubble = domainBubbles[0];
-          
-          if (representativeBubble && representativeBubble.x && representativeBubble.y) {
-            const storedPosition = { x: representativeBubble.x, y: representativeBubble.y };
-            
-            // Only use stored position if no conflicts
-            const hasConflict = Array.from(domainPositionMap.values()).some(pos => {
-              const distance = Math.hypot(storedPosition.x - pos.x, storedPosition.y - pos.y);
-              return distance < 350;
-            });
-            
-            if (!hasConflict) {
-              finalPosition = storedPosition;
-            }
-          }
-          
-          if (!finalPosition) {
-            finalPosition = { x: 600, y: 375 };
-          }
-          
-          molecule = {
-            id: `mol-${domain}`,
-            x: finalPosition.x,
-            y: finalPosition.y,
-            nucleus: domainPreset.nucleus,
-            electrons: [],
-            selected: false,
-            pulseActive: false
-          };
+    const measure = () => {
+      const rect = viewport.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      setDimensions((previous) => {
+        if (previous.width === rect.width && previous.height === rect.height) {
+          return previous;
         }
-        
-        moleculeMap.set(domain, molecule);
-      }
+        return { width: rect.width, height: rect.height };
+      });
+    };
 
-      // Add electron with horizon-based shell assignment
-      const existingElectron = existingMolecules.get(`mol-${domain}`)?.electrons.find(e => e.id === `elec-${bubble.id}`);
-      const electronsInShell = molecule.electrons.filter(e => e.shell === shellIndex).length;
-      const angleStep = (2 * Math.PI) / Math.max(6, electronsInShell + 1);
-      
-      const electron: Electron = {
-        id: `elec-${bubble.id}`,
-        moleculeId: molecule.id,
-        shell: existingElectron?.shell ?? shellIndex, // Use horizon-based shell, not adjusted
-        angle: existingElectron?.angle ?? (electronsInShell * angleStep + Math.random() * 0.1),
-        phase: existingElectron?.phase ?? Math.random() * 2 * Math.PI,
-        content: bubble.content || '',
-        originalBubble: bubble
-      };
+    measure();
+    const observer = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(measure);
+    observer?.observe(viewport);
+    window.addEventListener('resize', measure);
 
-      molecule.electrons.push(electron);
-    });
-
-    return Array.from(moleculeMap.values());
-  }, [atomicState.molecules]);
-
-  // Optimized molecule update - immediate during idle, skip during drag
-  useEffect(() => {
-    // Skip conversion during drag operations to maintain animation smoothness
-    if (atomicState.dragState.isDragging) return;
-    
-    // Remove debounce for immediate responsiveness
-    setAtomicState(prev => ({
-      ...prev,
-      molecules: convertBubblesToMolecules(bubbles)
-    }));
-  }, [bubbles, convertBubblesToMolecules, atomicState.dragState.isDragging]);
-
-  // Motion control
-  useEffect(() => {
-    const unsubscribe = subscribeToMotionState(setMotionState);
-    return unsubscribe;
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', measure);
+    };
   }, []);
 
-  // Optimized animation loop - cache electron count during drag
   useEffect(() => {
-    if (!motionState || reducedMotion) return;
+    updateAtomicState(previous => ({
+      ...previous,
+      molecules: buildMolecules(bubbles, previous.molecules),
+    }));
+  }, [bubbles, updateAtomicState]);
 
-    // Only recalculate electron count when not dragging
-    const totalElectrons = atomicState.dragState.isDragging 
-      ? (animationRef.current?.electronCount || 50) // Use cached value during drag
-      : atomicState.molecules.reduce((sum, mol) => sum + mol.electrons.length, 0);
-    
-    const speedMultiplier = totalElectrons > ANIMATION_CONFIG.MAX_ELECTRONS_FOR_FAST_ANIMATION ? 0.5 : 1.0;
+  useEffect(() => subscribeToMotionState(setMotionState), []);
 
-    // Cache the electron count for drag operations
-    if (!atomicState.dragState.isDragging) {
-      if (!animationRef.current) animationRef.current = {};
-      animationRef.current.electronCount = totalElectrons;
-    }
+  useEffect(() => {
+    const query = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const updatePreference = () => setSystemReducedMotion(query.matches);
+    updatePreference();
+    query.addEventListener('change', updatePreference);
+    return () => query.removeEventListener('change', updatePreference);
+  }, []);
 
+  const prefersReducedMotion = reducedMotion || systemReducedMotion;
+  // Electrons stay still by default so their targets remain predictable.
+  // Motion is an explicit, local sensory choice and the global/OS settings
+  // still act as a ceiling.
+  const motionEnabled = atomicMotionRequested
+    && motionState
+    && !prefersReducedMotion;
+  const electronCount = useMemo(
+    () => atomicState.molecules.reduce(
+      (count, molecule) => count + molecule.electrons.length,
+      0,
+    ),
+    [atomicState.molecules],
+  );
+
+  useEffect(() => {
+    if (!motionEnabled) return;
+    const speedMultiplier = electronCount
+      > ANIMATION_CONFIG.maxElectronsForFastAnimation
+      ? 0.5
+      : 1;
     const animate = () => {
-      setAnimationStep(prev => prev + (ANIMATION_CONFIG.ELECTRON_SPEED * speedMultiplier));
+      setAnimationStep(previous => (
+        previous + (ANIMATION_CONFIG.electronSpeed * speedMultiplier)
+      ));
     };
 
     startAnimation(animate);
+    return () => stopAnimation(animate);
+  }, [electronCount, motionEnabled]);
 
-    return () => {
-      stopAnimation(animate);
-    };
-  }, [motionState, reducedMotion, atomicState.molecules, atomicState.dragState.isDragging]);
-
-  // Unified drag start handler for both mouse and touch
-  const getEventCoordinates = useCallback((event: React.MouseEvent | React.TouchEvent) => {
-    if ('touches' in event) {
-      const touch = event.touches[0];
-      return { x: touch.clientX, y: touch.clientY };
+  const fitMolecules = useCallback(() => {
+    const currentDimensions = dimensionsRef.current;
+    const molecules = atomicStateRef.current.molecules;
+    if (
+      currentDimensions.width <= 0
+      || currentDimensions.height <= 0
+      || molecules.length === 0
+    ) {
+      return;
     }
-    return { x: event.clientX, y: event.clientY };
-  }, []);
 
-  // Drag handlers with unified event handling
-  const handleElectronDragStart = useCallback((electron: Electron, event: React.MouseEvent | React.TouchEvent) => {
-    event.stopPropagation();
-    event.preventDefault();
-    
-    console.log('Electron drag start:', {
-      electronId: electron.id,
-      currentShell: electron.shell,
-      shellName: SHELL_CONFIG[electron.shell]?.name
-    });
-    
-    const coords = getEventCoordinates(event);
-    
-    // Haptic feedback for touch interactions
-    if ('touches' in event && hapticsService.isAvailable()) {
-      hapticsService.trigger('light');
-    }
-    
-    // Calculate the electron's current orbital position to use as drag start reference
-    const shell = SHELL_CONFIG[electron.shell];
-    const electronMotion = reducedMotion ? 0 : electron.phase + (animationStep * 0.3);
-    const angle = electron.angle + electronMotion;
-    const electronOrbitalX = Math.cos(angle) * shell.radius;
-    const electronOrbitalY = Math.sin(angle) * shell.radius;
-    
-    setAtomicState(prev => ({
-      ...prev,
-      dragState: {
-        isDragging: true,
-        type: 'electron',
-        electronId: electron.id,
-        lastMousePos: coords,
-        currentMousePos: coords,
-        originalShell: electron.shell,
-        dragStartPos: { x: electronOrbitalX, y: electronOrbitalY }, // Store electron's orbital position
-        dragOffset: { x: electronOrbitalX, y: electronOrbitalY } // Start with current orbital position
-      }
-    }));
-  }, [getEventCoordinates, reducedMotion, animationStep]);
+    const fittedTransform = fitViewportToWorldBounds(
+      getMoleculeBounds(molecules),
+      currentDimensions,
+      { padding: 56, minScale: MINIMUM_ATOMIC_SCALE, maxScale: 1 },
+    );
 
-  const handleMoleculeDragStart = useCallback((molecule: Molecule, event: React.MouseEvent | React.TouchEvent) => {
-    event.stopPropagation();
-    event.preventDefault();
-    
-    // Lock position during selection/drag to prevent oscillations
-    lockPosition(molecule.id);
-    
-    const coords = getEventCoordinates(event);
-    
-    // Haptic feedback for touch interactions
-    if ('touches' in event && hapticsService.isAvailable()) {
-      hapticsService.trigger('light');
-    }
-    
-    // Prevent position updates during drag
-    setAtomicState(prev => ({
-      ...prev,
-      dragState: {
-        isDragging: true,
-        type: 'molecule',
-        moleculeId: molecule.id,
-        lastMousePos: coords
-      }
-    }));
-  }, [lockPosition, getEventCoordinates]);
+    // A short landscape canvas needs the molecule field slightly above center
+    // so the persistent bottom capture control does not cover the lower row.
+    const y = currentDimensions.width >= WIDE_VIEWPORT_WIDTH
+      && currentDimensions.height < COMPACT_VIEWPORT_HEIGHT
+      ? fittedTransform.y - SHORT_WIDE_VERTICAL_OFFSET
+      : fittedTransform.y;
 
-  // Global mouse and touch handlers
+    setViewportTransform({ ...fittedTransform, y });
+  }, [setViewportTransform]);
+
+  const moleculeLayoutKey = useMemo(
+    () => atomicState.molecules.map(molecule => molecule.id).join('|'),
+    [atomicState.molecules],
+  );
+
   useEffect(() => {
-    const getEventCoords = (event: MouseEvent | TouchEvent) => {
-      if ('touches' in event) {
-        const touch = event.touches[0];
-        return { x: touch.clientX, y: touch.clientY };
-      }
-      return { x: event.clientX, y: event.clientY };
-    };
-
-    const handleDragMove = (event: MouseEvent | TouchEvent) => {
-      if (!atomicState.dragState.isDragging) return;
-      
-      // Prevent default for touch to avoid scrolling
-      if ('touches' in event) {
-        event.preventDefault();
-      }
-      
-      const coords = getEventCoords(event);
-      const deltaX = coords.x - (atomicState.dragState.lastMousePos?.x || 0);
-      const deltaY = coords.y - (atomicState.dragState.lastMousePos?.y || 0);
-      
-      if (atomicState.dragState.type === 'electron') {
-        // Handle electron shell snapping
-        const electronId = atomicState.dragState.electronId;
-        const rect = canvasRef.current?.getBoundingClientRect();
-        if (!rect || !electronId) return;
-        
-        // Transform coordinates to account for pan/zoom
-        const { x: mouseX, y: mouseY } = screenToWorld(coords.x, coords.y, rect);
-
-        // Calculate drag offset for visual feedback
-        const { x: startMouseX, y: startMouseY } = screenToWorld(atomicState.dragState.lastMousePos?.x || 0, atomicState.dragState.lastMousePos?.y || 0, rect);
-        const dragOffsetX = mouseX - startMouseX;
-        const dragOffsetY = mouseY - startMouseY;
-        
-        // Store drag offset for visual feedback only - no shell updates during drag
-        setAtomicState(prev => ({
-          ...prev,
-          dragState: {
-            ...prev.dragState,
-            lastMousePos: coords,
-            currentMousePos: coords,
-            dragOffset: { x: dragOffsetX, y: dragOffsetY }
-          }
-        }));
-      } else if (atomicState.dragState.type === 'molecule') {
-        // Handle molecule dragging
-        const moleculeId = atomicState.dragState.moleculeId;
-        if (!moleculeId) return;
-
-        setAtomicState(prev => ({
-          ...prev,
-          molecules: prev.molecules.map(mol => {
-            if (mol.id === moleculeId) {
-              const newX = mol.x + deltaX / viewport.scale;
-              const newY = mol.y + deltaY / viewport.scale;
-              
-              // Queue position update for after drag ends
-              return { ...mol, x: newX, y: newY };
-            }
-            return mol;
-          }),
-          dragState: {
-            ...prev.dragState,
-            lastMousePos: coords
-          }
-        }));
-      }
-    };
-
-    const handleDragEnd = () => {
-      if (!atomicState.dragState.isDragging) return;
-
-      // Handle electron shell snapping with undo and toast
-      if (atomicState.dragState.type === 'electron' && atomicState.dragState.electronId) {
-        const electronId = atomicState.dragState.electronId;
-        const electron = atomicState.molecules
-          .flatMap(m => m.electrons)
-          .find(e => e.id === electronId);
-        
-        if (electron?.originalBubble && onTimeHorizonUpdate) {
-          const originalShell = atomicState.dragState.originalShell ?? electron.shell;
-          
-          // Calculate final shell based on drag physics - where the electron actually is
-          const rect = canvasRef.current?.getBoundingClientRect();
-          let targetShell = originalShell; // Default to no change
-          
-          if (rect && atomicState.dragState.currentMousePos) {
-            const { x: mouseX, y: mouseY } = screenToWorld(atomicState.dragState.currentMousePos.x, atomicState.dragState.currentMousePos.y, rect);
-            
-            // Find the closest molecule to determine final shell
-            let minDistance = Infinity;
-            let closestMolecule = null;
-            
-            for (const mol of atomicState.molecules) {
-              const distance = Math.sqrt((mouseX - mol.x) ** 2 + (mouseY - mol.y) ** 2);
-              if (distance < minDistance) {
-                minDistance = distance;
-                closestMolecule = mol;
-              }
-            }
-            
-            if (closestMolecule) {
-              // Use distance to determine shell - pure physics
-              if (minDistance <= 80) {
-                targetShell = 0; // Today shell
-              } else if (minDistance <= 120) {
-                targetShell = 1; // Week shell  
-              } else {
-                targetShell = 2; // Later shell
-              }
-            }
-          }
-          const originalHorizon = ringIndexToHorizon(originalShell);
-          const targetHorizon = ringIndexToHorizon(targetShell);
-          
-          console.log('Electron drop:', {
-            bubbleId: electron.originalBubble.id,
-            originalShell,
-            originalShellName: SHELL_CONFIG[originalShell]?.name,
-            targetShell,
-            targetShellName: SHELL_CONFIG[targetShell]?.name,
-            willUpdate: originalShell !== targetShell
-          });
-          
-          if (originalShell !== targetShell) {
-            // Update the electron's shell in the atomic state
-            setAtomicState(prevState => ({
-              ...prevState,
-              molecules: prevState.molecules.map(mol => ({
-                ...mol,
-                electrons: mol.electrons.map(e => 
-                  e.id === electronId ? { ...e, shell: targetShell } : e
-                )
-              }))
-            }));
-            
-            // Call the horizon update callback
-            onTimeHorizonUpdate(electron.originalBubble.id, originalShell, targetShell);
-            
-            // Haptic feedback for successful shell change
-            if (hapticsService.isAvailable()) {
-              hapticsService.trigger('medium');
-            }
-            
-            // Show toast with undo
-            toast({
-              title: `Moved to ${getHorizonDisplayName(targetHorizon)}`,
-              description: `Bubble moved from ${SHELL_CONFIG[originalShell]?.name || 'unassigned'} to ${SHELL_CONFIG[targetShell]?.name}`,
-              action: (
-                <Button 
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    // Revert shell change in atomic state
-                    setAtomicState(prevState => ({
-                      ...prevState,
-                      molecules: prevState.molecules.map(mol => ({
-                        ...mol,
-                        electrons: mol.electrons.map(e => 
-                          e.id === electronId ? { ...e, shell: originalShell } : e
-                        )
-                      }))
-                    }));
-                    // Call the horizon update callback for undo
-                    onTimeHorizonUpdate(electron.originalBubble!.id, targetShell, originalShell);
-                  }}
-                >
-                  Undo
-                </Button>
-              )
-            });
-          }
-        }
-      }
-
-      // Handle molecule position persistence after drag ends
-      if (atomicState.dragState.moleculeId) {
-        const draggedMolecule = atomicState.molecules.find(m => m.id === atomicState.dragState.moleculeId);
-        if (draggedMolecule) {
-          // Update bubble position after drag completes
-          updateDomainBubblesPosition(draggedMolecule.electrons, draggedMolecule.x, draggedMolecule.y);
-        }
-        unlockPosition(atomicState.dragState.moleculeId);
-      }
-
-      // Reset drag state
-      setAtomicState(prev => ({
-        ...prev,
-        dragState: {
-          isDragging: false,
-          type: null,
-          hoveredShell: null,
-          lastMousePos: null
-        }
-      }));
-    };
-
-    if (atomicState.dragState.isDragging) {
-      document.addEventListener('mousemove', handleDragMove);
-      document.addEventListener('mouseup', handleDragEnd);
-      document.addEventListener('touchmove', handleDragMove, { passive: false });
-      document.addEventListener('touchend', handleDragEnd);
-      document.addEventListener('touchcancel', handleDragEnd);
-      
-      return () => {
-        document.removeEventListener('mousemove', handleDragMove);
-        document.removeEventListener('mouseup', handleDragEnd);
-        document.removeEventListener('touchmove', handleDragMove);
-        document.removeEventListener('touchend', handleDragEnd);
-        document.removeEventListener('touchcancel', handleDragEnd);
-      };
+    if (!moleculeLayoutKey || dimensions.width <= 0 || dimensions.height <= 0) {
+      return;
     }
-  }, [atomicState.dragState, viewport, onTimeHorizonUpdate, toast]);
+    const key = `${dimensions.width}x${dimensions.height}:${moleculeLayoutKey}`;
+    if (lastAutoFitKeyRef.current === key) return;
+    lastAutoFitKeyRef.current = key;
+    fitMolecules();
+  }, [dimensions.height, dimensions.width, fitMolecules, moleculeLayoutKey]);
 
-  // Multi-select handling
-  const handleMoleculeSelect = useCallback((moleculeId: string, isShiftClick: boolean = false) => {
-    // Prevent selection during drag to avoid position conflicts
-    if (atomicState.dragState.isDragging) {
+  const clientPointToWorld = useCallback((clientPoint: CanvasPoint) => {
+    const rect = viewportRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    const currentDimensions = dimensionsRef.current.width > 0
+      && dimensionsRef.current.height > 0
+      ? dimensionsRef.current
+      : { width: rect.width, height: rect.height };
+
+    return canvasScreenToWorld(
+      {
+        x: clientPoint.x - rect.left,
+        y: clientPoint.y - rect.top,
+      },
+      viewportTransformRef.current,
+      currentDimensions,
+    );
+  }, []);
+
+  const updateElectronShell = useCallback((
+    electron: Electron,
+    targetShell: number,
+    source: 'drag' | 'keyboard' | 'undo',
+  ) => {
+    const safeTarget = Math.max(0, Math.min(SHELL_CONFIG.length - 1, targetShell));
+    const originalShell = electron.shell;
+    if (safeTarget === originalShell) {
+      setMovementAnnouncement(
+        `${electron.content || 'Task'} is already in ${SHELL_CONFIG[originalShell].name}.`,
+      );
       return;
     }
 
-    setAtomicState(prev => {
-      let newSelection: string[];
-      
-      if (isShiftClick) {
-        if (prev.selectedMolecules.includes(moleculeId)) {
-          newSelection = prev.selectedMolecules.filter(id => id !== moleculeId);
-        } else {
-          newSelection = [...prev.selectedMolecules, moleculeId];
-        }
-      } else {
-        newSelection = [moleculeId];
-      }
-      
-      return {
-        ...prev,
-        selectedMolecules: newSelection,
-        molecules: prev.molecules.map(mol => ({
-          ...mol,
-          selected: newSelection.includes(mol.id)
-        }))
-      };
-    });
-  }, [atomicState.dragState.isDragging]);
-
-  // Fusion handling (requires exactly 2 molecules)
-  const handleFusion = useCallback(() => {
-    if (atomicState.selectedMolecules.length !== 2) {
-      toast({
-        title: "Fusion Error",
-        description: `Select exactly 2 molecules for fusion (currently ${atomicState.selectedMolecules.length} selected)`,
-        variant: "destructive"
-      });
-      return;
-    }
-
-    const [aId, bId] = atomicState.selectedMolecules;
-    onMoleculeMerge?.(aId, bId);
-    
-    setAtomicState(prev => ({
-      ...prev,
-      selectedMolecules: []
+    updateAtomicState(previous => ({
+      ...previous,
+      molecules: previous.molecules.map(molecule => ({
+        ...molecule,
+        electrons: molecule.electrons.map(candidate => (
+          candidate.id === electron.id
+            ? { ...candidate, shell: safeTarget }
+            : candidate
+        )),
+      })),
     }));
 
+    if (electron.originalBubble) {
+      onTimeHorizonUpdate?.(
+        electron.originalBubble.id,
+        originalShell,
+        safeTarget,
+      );
+    }
+
+    const targetHorizon = ringIndexToHorizon(safeTarget);
+    const originalHorizon = ringIndexToHorizon(originalShell);
+    setMovementAnnouncement(
+      `${electron.content || 'Task'} moved to ${getHorizonDisplayName(targetHorizon)} by ${source}.`,
+    );
     toast({
-      title: "Molecules Fused",
-      description: "Two molecules have been combined successfully",
-      action: (
-        <Button variant="outline" size="sm" onClick={() => console.log('Undo fusion')}>
+      title: `Moved to ${getHorizonDisplayName(targetHorizon)}`,
+      description: `${electron.content || 'Task'} moved from ${getHorizonDisplayName(originalHorizon)}.`,
+      action: source === 'undo' ? undefined : (
+        <Button
+          variant="outline"
+          size="sm"
+          aria-label={`Undo moving ${electron.content || 'task'} to ${getHorizonDisplayName(targetHorizon)}`}
+          onClick={() => {
+            updateAtomicState(previous => ({
+              ...previous,
+              molecules: previous.molecules.map(molecule => ({
+                ...molecule,
+                electrons: molecule.electrons.map(candidate => (
+                  candidate.id === electron.id
+                    ? { ...candidate, shell: originalShell }
+                    : candidate
+                )),
+              })),
+            }));
+            if (electron.originalBubble) {
+              onTimeHorizonUpdate?.(
+                electron.originalBubble.id,
+                safeTarget,
+                originalShell,
+              );
+            }
+            setMovementAnnouncement(
+              `${electron.content || 'Task'} returned to ${getHorizonDisplayName(originalHorizon)}.`,
+            );
+          }}
+        >
           Undo
         </Button>
-      )
+      ),
     });
-  }, [atomicState.selectedMolecules, onMoleculeMerge, toast]);
+  }, [onTimeHorizonUpdate, toast, updateAtomicState]);
 
-  // Fission handling
-  const handleFission = useCallback(() => {
-    if (atomicState.selectedMolecules.length !== 1) {
+  const startElectronDrag = useCallback((
+    molecule: Molecule,
+    electron: Electron,
+    event: React.PointerEvent<HTMLButtonElement>,
+  ) => {
+    if (
+      dragStateRef.current.isDragging
+      || (event.pointerType === 'mouse' && event.button !== 0)
+      || (event.pointerType === 'touch' && event.isPrimary === false)
+    ) {
+      return;
+    }
+    const pointerWorld = clientPointToWorld({
+      x: event.clientX,
+      y: event.clientY,
+    });
+    if (!pointerWorld) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+
+    const orbit = getElectronOrbitOffset(
+      electron,
+      animationStep,
+      motionEnabled,
+    );
+    const electronWorld = {
+      x: molecule.x + orbit.x,
+      y: molecule.y + orbit.y,
+    };
+    const dragState: DragState = {
+      isDragging: true,
+      type: 'electron',
+      pointerId: event.pointerId,
+      pointerType: event.pointerType,
+      captureTarget: event.currentTarget,
+      electronId: electron.id,
+      moleculeId: molecule.id,
+      originalShell: electron.shell,
+      grabOffset: {
+        x: electronWorld.x - pointerWorld.x,
+        y: electronWorld.y - pointerWorld.y,
+      },
+      startPointerWorld: pointerWorld,
+      currentWorld: electronWorld,
+      moved: false,
+    };
+    setDragState(dragState);
+    if (event.pointerType === 'touch' && hapticsService.isAvailable()) {
+      hapticsService.trigger('light');
+    }
+  }, [animationStep, clientPointToWorld, motionEnabled, setDragState]);
+
+  const startMoleculeDrag = useCallback((
+    molecule: Molecule,
+    event: React.PointerEvent<HTMLButtonElement>,
+  ) => {
+    if (
+      dragStateRef.current.isDragging
+      || (event.pointerType === 'mouse' && event.button !== 0)
+      || (event.pointerType === 'touch' && event.isPrimary === false)
+    ) {
+      return;
+    }
+    const pointerWorld = clientPointToWorld({
+      x: event.clientX,
+      y: event.clientY,
+    });
+    if (!pointerWorld) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+
+    setDragState({
+      isDragging: true,
+      type: 'molecule',
+      pointerId: event.pointerId,
+      pointerType: event.pointerType,
+      captureTarget: event.currentTarget,
+      moleculeId: molecule.id,
+      grabOffset: {
+        x: molecule.x - pointerWorld.x,
+        y: molecule.y - pointerWorld.y,
+      },
+      startPointerWorld: pointerWorld,
+      currentWorld: { x: molecule.x, y: molecule.y },
+      originalMoleculePosition: { x: molecule.x, y: molecule.y },
+      moved: false,
+    });
+    if (event.pointerType === 'touch' && hapticsService.isAvailable()) {
+      hapticsService.trigger('light');
+    }
+  }, [clientPointToWorld, setDragState]);
+
+  const handleObjectPointerMove = useCallback((
+    event: React.PointerEvent<HTMLElement>,
+  ) => {
+    const dragState = dragStateRef.current;
+    if (
+      !dragState.isDragging
+      || dragState.pointerId !== event.pointerId
+      || !dragState.grabOffset
+      || !dragState.startPointerWorld
+    ) {
+      return;
+    }
+
+    const pointerWorld = clientPointToWorld({
+      x: event.clientX,
+      y: event.clientY,
+    });
+    if (!pointerWorld) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    const currentWorld = {
+      x: pointerWorld.x + dragState.grabOffset.x,
+      y: pointerWorld.y + dragState.grabOffset.y,
+    };
+    const nextDragState = {
+      ...dragState,
+      currentWorld,
+      moved: dragState.moved
+        || pointerMoved(
+          dragState.startPointerWorld,
+          pointerWorld,
+          viewportTransformRef.current.scale,
+        ),
+    };
+    dragStateRef.current = nextDragState;
+
+    updateAtomicState(previous => ({
+      ...previous,
+      molecules: dragState.type === 'molecule' && nextDragState.moved
+        ? previous.molecules.map(molecule => (
+            molecule.id === dragState.moleculeId
+              ? { ...molecule, x: currentWorld.x, y: currentWorld.y }
+              : molecule
+          ))
+        : previous.molecules,
+      dragState: nextDragState,
+    }));
+  }, [clientPointToWorld, updateAtomicState]);
+
+  const finishObjectDrag = useCallback((
+    event: React.PointerEvent<HTMLElement>,
+    cancelled: boolean,
+  ) => {
+    const dragState = dragStateRef.current;
+    if (!dragState.isDragging || dragState.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    const state = atomicStateRef.current;
+    if (cancelled && dragState.type === 'molecule') {
+      const original = dragState.originalMoleculePosition;
+      if (original) {
+        updateAtomicState(previous => ({
+          ...previous,
+          molecules: previous.molecules.map(molecule => (
+            molecule.id === dragState.moleculeId
+              ? { ...molecule, x: original.x, y: original.y }
+              : molecule
+          )),
+        }));
+      }
+    } else if (
+      !cancelled
+      && dragState.type === 'electron'
+      && dragState.electronId
+      && dragState.currentWorld
+      && dragState.moved
+    ) {
+      const electron = state.molecules
+        .flatMap(molecule => molecule.electrons)
+        .find(candidate => candidate.id === dragState.electronId);
+      if (electron) {
+        let closestMolecule: Molecule | null = null;
+        let minimumDistance = Number.POSITIVE_INFINITY;
+        state.molecules.forEach((molecule) => {
+          const distance = Math.hypot(
+            dragState.currentWorld!.x - molecule.x,
+            dragState.currentWorld!.y - molecule.y,
+          );
+          if (distance < minimumDistance) {
+            minimumDistance = distance;
+            closestMolecule = molecule;
+          }
+        });
+        if (closestMolecule) {
+          updateElectronShell(
+            electron,
+            closestShellIndex(minimumDistance),
+            'drag',
+          );
+          if (
+            dragState.pointerType === 'touch'
+            && hapticsService.isAvailable()
+          ) {
+            hapticsService.trigger('medium');
+          }
+        }
+      }
+    } else if (
+      !cancelled
+      && dragState.type === 'molecule'
+      && dragState.moleculeId
+      && dragState.currentWorld
+      && dragState.moved
+    ) {
+      const molecule = state.molecules.find(
+        candidate => candidate.id === dragState.moleculeId,
+      );
+      if (molecule) {
+        setMovementAnnouncement(
+          `${molecule.nucleus.domain} molecule moved. This experimental layout change is view-only and is not saved.`,
+        );
+      }
+    }
+
+    if (dragState.moved) {
+      suppressClickRef.current = `${dragState.type}:${
+        dragState.type === 'electron'
+          ? dragState.electronId
+          : dragState.moleculeId
+      }`;
+    }
+    setDragState({ ...EMPTY_DRAG_STATE });
+    const captureTarget = dragState.captureTarget;
+    if (captureTarget?.hasPointerCapture?.(event.pointerId)) {
+      captureTarget.releasePointerCapture?.(event.pointerId);
+    }
+  }, [setDragState, updateAtomicState, updateElectronShell]);
+
+  const handleViewportPointerMove = useCallback((
+    event: React.PointerEvent<HTMLDivElement>,
+  ) => {
+    if (dragStateRef.current.isDragging) {
+      handleObjectPointerMove(event);
+      return;
+    }
+    onPanMove(event);
+  }, [handleObjectPointerMove, onPanMove]);
+
+  const handleViewportPointerEnd = useCallback((
+    event: React.PointerEvent<HTMLDivElement>,
+    cancelled: boolean,
+  ) => {
+    if (dragStateRef.current.isDragging) {
+      finishObjectDrag(event, cancelled);
+      return;
+    }
+    onPanEnd(event);
+  }, [finishObjectDrag, onPanEnd]);
+
+  const shouldSuppressClick = useCallback((key: string) => {
+    if (suppressClickRef.current !== key) return false;
+    suppressClickRef.current = null;
+    return true;
+  }, []);
+
+  const selectMolecule = useCallback((
+    moleculeId: string,
+    additive = false,
+  ) => {
+    updateAtomicState((previous) => {
+      const selectedMolecules = additive
+        ? previous.selectedMolecules.includes(moleculeId)
+          ? previous.selectedMolecules.filter(id => id !== moleculeId)
+          : [...previous.selectedMolecules, moleculeId]
+        : [moleculeId];
+      return {
+        ...previous,
+        selectedMolecules,
+        molecules: previous.molecules.map(molecule => ({
+          ...molecule,
+          selected: selectedMolecules.includes(molecule.id),
+        })),
+      };
+    });
+  }, [updateAtomicState]);
+
+  const moveMoleculeWithKeyboard = useCallback((
+    molecule: Molecule,
+    event: React.KeyboardEvent<HTMLButtonElement>,
+  ) => {
+    const direction = {
+      ArrowUp: { x: 0, y: -1, label: 'up' },
+      ArrowDown: { x: 0, y: 1, label: 'down' },
+      ArrowLeft: { x: -1, y: 0, label: 'left' },
+      ArrowRight: { x: 1, y: 0, label: 'right' },
+    }[event.key];
+    if (!direction) return false;
+    event.preventDefault();
+    event.stopPropagation();
+    const screenStep = event.shiftKey ? 1 : 10;
+    const worldStep = screenStep
+      / Math.max(0.01, viewportTransformRef.current.scale);
+    updateAtomicState(previous => ({
+      ...previous,
+      molecules: previous.molecules.map(candidate => (
+        candidate.id === molecule.id
+          ? {
+              ...candidate,
+              x: candidate.x + (direction.x * worldStep),
+              y: candidate.y + (direction.y * worldStep),
+            }
+          : candidate
+      )),
+    }));
+    setMovementAnnouncement(
+      `${molecule.nucleus.domain} molecule moved ${direction.label} ${screenStep} ${screenStep === 1 ? 'pixel' : 'pixels'}. This view-only position is not saved.`,
+    );
+    return true;
+  }, [updateAtomicState]);
+
+  const handleFusion = useCallback(() => {
+    const selected = atomicStateRef.current.selectedMolecules;
+    if (selected.length !== 2) {
       toast({
-        title: "Fission Error",
-        description: `Select exactly 1 molecule for fission (currently ${atomicState.selectedMolecules.length} selected)`,
-        variant: "destructive"
+        title: 'Select two molecules',
+        description: `Fusion needs exactly two selected molecules; ${selected.length} selected.`,
+        variant: 'destructive',
       });
       return;
     }
 
+    onMoleculeMerge?.(selected[0], selected[1]);
+    updateAtomicState(previous => ({
+      ...previous,
+      selectedMolecules: [],
+      molecules: previous.molecules.map(molecule => ({
+        ...molecule,
+        selected: false,
+      })),
+    }));
     toast({
-      title: "Molecule Split",
-      description: "Molecule has been split successfully",
-      action: (
-        <Button variant="outline" size="sm" onClick={() => console.log('Undo fission')}>
-          Undo
-        </Button>
-      )
+      title: 'Molecules fused',
+      description: 'The selected molecules were sent to the experimental fusion action.',
     });
-  }, [atomicState.selectedMolecules, toast]);
+  }, [onMoleculeMerge, toast, updateAtomicState]);
 
-  // Motion toggle
   const toggleMotion = useCallback(() => {
-    toggleAnimation();
-  }, []);
+    if (prefersReducedMotion) return;
+    setAtomicMotionRequested(previous => !previous);
+  }, [prefersReducedMotion]);
+
+  const handleCanvasTouchStart = useCallback((event: React.TouchEvent) => {
+    if (dragStateRef.current.isDragging) return;
+    const target = event.target as HTMLElement;
+    if (target.closest('[data-electron], [data-molecule]')) return;
+    onTouchStart(event);
+  }, [onTouchStart]);
+
+  const handleCanvasTouchMove = useCallback((event: React.TouchEvent) => {
+    if (dragStateRef.current.isDragging) return;
+    const target = event.target as HTMLElement;
+    if (target.closest('[data-electron], [data-molecule]')) return;
+    onTouchMove(event);
+  }, [onTouchMove]);
+
+  const handleCanvasTouchEnd = useCallback((event: React.TouchEvent) => {
+    if (dragStateRef.current.isDragging) return;
+    const target = event.target as HTMLElement;
+    if (target.closest('[data-electron], [data-molecule]')) return;
+    onTouchEnd(event);
+  }, [onTouchEnd]);
+
+  const minimumWorldTargetSize = MINIMUM_TARGET_SIZE
+    / Math.max(0.01, panZoomState.scale);
+  const visualScaleCompensation = 1 / Math.min(1, panZoomState.scale);
+  const electronTargetSize = Math.max(MINIMUM_TARGET_SIZE, minimumWorldTargetSize);
+  const nucleusVisualSize = 48 * visualScaleCompensation;
+  const nucleusTargetSize = Math.max(nucleusVisualSize, minimumWorldTargetSize);
+  const showElectronControls = panZoomState.scale >= ELECTRON_WORKING_SCALE;
+  const compactControls = isMobile || (
+    dimensions.height > 0
+    && dimensions.height < COMPACT_VIEWPORT_HEIGHT
+  );
+  const motionStatus = prefersReducedMotion
+    ? 'Motion off: reduced-motion preference'
+    : !motionState
+      ? 'Motion off: sensory setting'
+      : motionEnabled
+        ? 'Motion on'
+        : 'Motion off by default';
+  const motionButtonLabel = prefersReducedMotion
+    ? 'Motion disabled by reduced-motion preference'
+    : !motionState
+      ? 'Motion disabled by sensory setting'
+      : motionEnabled
+        ? 'Pause Atomic motion'
+        : 'Play optional Atomic motion';
+  const atomicControlCards = (
+    <>
+      <Card className="flex gap-1 p-2">
+        <Button
+          variant="outline"
+          className="h-11 w-11 p-0"
+          onClick={toggleMotion}
+          disabled={prefersReducedMotion || !motionState}
+          aria-label={motionButtonLabel}
+          aria-pressed={motionEnabled}
+          title={motionButtonLabel}
+        >
+          {motionEnabled
+            ? <Pause aria-hidden="true" className="h-4 w-4" />
+            : <Play aria-hidden="true" className="h-4 w-4" />}
+        </Button>
+        <Button
+          variant="outline"
+          className="h-11 w-11 p-0"
+          onClick={zoomIn}
+          aria-label="Zoom in on Atomic view"
+          title="Zoom in"
+        >
+          <ZoomIn aria-hidden="true" className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="outline"
+          className="h-11 w-11 p-0"
+          onClick={zoomOut}
+          aria-label="Zoom out of Atomic view"
+          title="Zoom out"
+        >
+          <ZoomOut aria-hidden="true" className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="outline"
+          className="h-11 w-11 p-0"
+          onClick={fitMolecules}
+          aria-label="Fit all molecules in Atomic view"
+          title="Fit all molecules"
+        >
+          <Target aria-hidden="true" className="h-4 w-4" />
+        </Button>
+      </Card>
+      <Card className="flex gap-1 p-2">
+        <Button
+          variant="outline"
+          className="h-11 w-11 p-0"
+          onClick={handleFusion}
+          aria-label="Fuse two selected molecules"
+          title="Fuse two selected molecules"
+        >
+          <Zap aria-hidden="true" className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="outline"
+          className="h-11 w-11 p-0"
+          disabled
+          aria-label="Split molecule unavailable in experimental Atomic view"
+          title="Molecule splitting is not implemented yet"
+        >
+          <Shuffle aria-hidden="true" className="h-4 w-4" />
+        </Button>
+      </Card>
+    </>
+  );
 
   return (
-    <div className={`relative w-full h-full overflow-hidden bg-background ${className}`}>
-      {/* Canvas */}
+    <div
+      className={`relative h-full w-full overflow-hidden bg-background ${className ?? ''}`}
+      data-reduced-motion={prefersReducedMotion}
+      data-high-contrast={highContrast}
+    >
       <div
-        ref={canvasRef}
-        className="absolute inset-0"
-        style={{
-          transform: `translate(${panZoomState.x}px, ${panZoomState.y}px) scale(${panZoomState.scale})`,
-          transformOrigin: 'center',
-          cursor
-        }}
+        ref={viewportRef}
+        data-testid="atomic-viewport"
+        className="absolute inset-0 overflow-hidden"
+        role="region"
+        aria-label="Atomic view (experimental)"
+        aria-describedby="atomic-view-instructions"
         onWheel={onWheel}
         onPointerDown={onPanStart}
-        onPointerMove={onPanMove}
-        onPointerUp={onPanEnd}
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
+        onPointerMove={handleViewportPointerMove}
+        onPointerUp={event => handleViewportPointerEnd(event, false)}
+        onPointerCancel={event => handleViewportPointerEnd(event, true)}
+        onTouchStart={handleCanvasTouchStart}
+        onTouchMove={handleCanvasTouchMove}
+        onTouchEnd={handleCanvasTouchEnd}
+        style={{ cursor, touchAction: 'none' }}
       >
-        {/* Molecules */}
-        {atomicState.molecules.map((molecule) => (
-          <div
-            key={molecule.id}
-            data-molecule="true"
-            className="absolute group"
-            style={{
-              left: molecule.x + viewport.width / 2,
-              top: molecule.y + viewport.height / 2,
-              transform: 'translate(-50%, -50%)'
-            }}
-          >
-            {/* Electron shells */}
-            {SHELL_CONFIG.map((shell, shellIndex) => {
-              const electronsInShell = molecule.electrons.filter(e => e.shell === shellIndex);
-              const isHovered = atomicState.dragState.hoveredShell === shellIndex;
-              
-              return (
-                <div
-                  key={shellIndex}
-                  className={`absolute rounded-full border-2 transition-all duration-200 ${
-                    isHovered ? 'border-yellow-400 shadow-lg shadow-yellow-400/50' : 'border-white/30'
-                  }`}
-                  style={{
-                    width: shell.radius * 2,
-                    height: shell.radius * 2,
-                    borderColor: shell.color,
-                    left: -shell.radius,
-                    top: -shell.radius,
-                    borderStyle: 'dashed'
-                  }}
-                >
-                  {/* Shell capacity indicator */}
-                  <div className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-xs text-muted-foreground">
-                    {electronsInShell.length}/{shell.maxElectrons}
-                  </div>
-                </div>
-              );
-            })}
+        <p id="atomic-view-instructions" className="sr-only">
+          Experimental Atomic view. Drag empty space to pan and use the zoom
+          controls to change scale. At overview scale, use the Tasks navigator
+          to open a task or change its Today, Week, or Later horizon. When
+          zoomed in, electron buttons open tasks with Enter or Space and arrow
+          keys change horizon. Molecule buttons select a life domain; arrow
+          keys move its view-only position. Molecule positions are not saved,
+          and orbit motion is off until you explicitly play it.
+        </p>
+        <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+          {movementAnnouncement}
+        </p>
 
-            {/* Electrons */}
-            {molecule.electrons.map((electron, electronIndex) => {
-              const shell = SHELL_CONFIG[electron.shell];
-              const shellSpeedMultiplier = ANIMATION_CONFIG.SHELL_SPEED_MULTIPLIERS[electron.shell] || 1.0;
-              const electronMotion = reducedMotion ? 0 : electron.phase + (animationStep * shellSpeedMultiplier);
-              const angle = electron.angle + electronMotion;
-              
-              const isDragging = atomicState.dragState.isDragging && 
-                               atomicState.dragState.type === 'electron' && 
-                               atomicState.dragState.electronId === electron.id;
-              
-              let x, y;
-              
-              if (isDragging && atomicState.dragState.dragOffset) {
-                // During drag: use absolute positioning - completely override orbital calculations
-                x = atomicState.dragState.dragOffset.x;
-                y = atomicState.dragState.dragOffset.y;
-              } else {
-                // Normal orbital positioning
-                const electronMotion = reducedMotion ? 0 : electron.phase + (animationStep * 0.3);
-                const angle = electron.angle + electronMotion;
-                x = Math.cos(angle) * shell.radius;
-                y = Math.sin(angle) * shell.radius;
-              }
-
-              const isTaskBubble = electron.originalBubble?.type === 'Task';
-              const electronSize = isTaskBubble && shell.radius > 80 ? 48 : 24;
-              
-              return (
-                <div
-                  key={electron.id}
-                  data-electron="true"
-                  className={`absolute cursor-move transition-transform duration-150 group-hover:shadow-lg
-                    ${isDragging ? 'scale-125 shadow-lg shadow-yellow-400/50 z-50' : ''}
-                    ${isTaskBubble ? 'hover:scale-110' : 'hover:scale-125'}`}
-                  style={{
-                    left: x - electronSize / 2,
-                    top: y - electronSize / 2,
-                    width: electronSize,
-                    height: electronSize,
-                    transform: isDragging ? 'scale(1.25)' : undefined,
-                    zIndex: isDragging ? 1000 : undefined
-                  }}
-                  onMouseDown={(e) => handleElectronDragStart(electron, e)}
-                  onTouchStart={(e) => handleElectronDragStart(electron, e)}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (electron.originalBubble) {
-                      onBubbleSelect?.(electron.originalBubble);
-                    }
-                  }}
-                  title={`${electron.content.slice(0, 30)}${electron.content.length > 30 ? '...' : ''}`}
-                >
-                  {isTaskBubble && electronSize >= 48 ? (
-                    /* Large task electrons show TaskCard */
-                    <TaskCard
-                      task={{
-                        id: electron.originalBubble.id,
-                        type: 'task',
-                        title: electron.content || 'Untitled Task',
-                        description: '',
-                        completed: electron.originalBubble.completed || false,
-                        priority: 50,
-                        tags: electron.originalBubble.tags,
-                        createdAt: electron.originalBubble.createdAt,
-                        updatedAt: electron.originalBubble.updatedAt,
-                        view: {}
-                      }}
-                      viewConfig={TaskCardConfigs.atomic}
-                      onUpdate={(updatedTask) => {
-                        // Handle task updates through atomic view
-                        if (electron.originalBubble) {
-                          const updatedBubble = {
-                            ...electron.originalBubble,
-                            content: updatedTask.title,
-                            completed: updatedTask.completed,
-                            tags: updatedTask.tags,
-                            updatedAt: Date.now()
-                          };
-                          onBubbleSelect?.(updatedBubble);
-                        }
-                      }}
-                      style={{ 
-                        transform: 'scale(0.7)',
-                        transformOrigin: 'center'
-                      }}
-                    />
-                  ) : (
-                    /* Regular electrons - simple visual representation */
-                    <div
-                      className={`w-full h-full rounded-full border-2 border-white flex items-center justify-center text-xs text-white font-bold`}
-                      style={{
-                        backgroundColor: shell.color,
-                      }}
-                    >
-                      {isTaskBubble ? '✓' : electron.content.charAt(0).toUpperCase()}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-
-            {/* Nucleus */}
+        <div
+          data-testid="atomic-world-layer"
+          className="absolute inset-0"
+          style={{
+            transform: `translate(${panZoomState.x}px, ${panZoomState.y}px) scale(${panZoomState.scale})`,
+            transformOrigin: 'center',
+            willChange: 'transform',
+          }}
+        >
+          {atomicState.molecules.map((molecule) => (
             <div
-              className={`absolute w-12 h-12 rounded-full border-2 border-white/50 cursor-move
-                ${molecule.selected ? 'bg-yellow-500/80 shadow-lg shadow-yellow-500/50' : 'bg-blue-500/80'}
-                transition-all duration-200 hover:scale-110`}
+              key={molecule.id}
+              className="group absolute h-0 w-0"
               style={{
-                left: '50%',
-                top: '50%',
-                transform: 'translate(-50%, -50%)'
-              }}
-              onMouseDown={(e) => handleMoleculeDragStart(molecule, e)}
-              onTouchStart={(e) => handleMoleculeDragStart(molecule, e)}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleMoleculeSelect(molecule.id, e.shiftKey);
+                left: `calc(50% + ${molecule.x}px)`,
+                top: `calc(50% + ${molecule.y}px)`,
               }}
             >
-              <div className="absolute inset-0 flex items-center justify-center text-white text-xs font-bold">
-                {molecule.nucleus.protons}p
-              </div>
-              <div className="absolute -bottom-8 left-1/2 transform -translate-x-1/2 text-xs text-center text-muted-foreground">
-                {molecule.nucleus.domain}
-              </div>
-            </div>
+              {showElectronControls ? SHELL_CONFIG.map((shell, shellIndex) => {
+                const count = molecule.electrons.filter(
+                  electron => electron.shell === shellIndex,
+                ).length;
+                const shellColor = highContrast
+                  ? shell.highContrastColor
+                  : shell.color;
+                return (
+                  <div
+                    key={shell.name}
+                    aria-hidden="true"
+                    className={`pointer-events-none absolute rounded-full border-2 ${
+                      motionEnabled ? 'transition-colors duration-200' : ''
+                    }`}
+                    style={{
+                      width: shell.radius * 2,
+                      height: shell.radius * 2,
+                      left: -shell.radius,
+                      top: -shell.radius,
+                      borderColor: shellColor,
+                      borderStyle: 'dashed',
+                      opacity: highContrast ? 1 : 0.7,
+                    }}
+                  >
+                    <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs text-muted-foreground">
+                      {count}/{shell.maxElectrons}
+                    </span>
+                  </div>
+                );
+              }) : null}
 
-            {/* Selection indicator */}
-            {molecule.selected && (
-              <div className="absolute -inset-4 rounded-full border-2 border-yellow-400 animate-pulse" />
-            )}
-          </div>
-        ))}
-      </div>
+              {showElectronControls ? molecule.electrons.map((electron) => {
+                const isDragging = atomicState.dragState.isDragging
+                  && atomicState.dragState.type === 'electron'
+                  && atomicState.dragState.electronId === electron.id;
+                const orbit = getElectronOrbitOffset(
+                  electron,
+                  animationStep,
+                  motionEnabled,
+                );
+                const electronWorld = isDragging
+                  && atomicState.dragState.currentWorld
+                  ? atomicState.dragState.currentWorld
+                  : {
+                      x: molecule.x + orbit.x,
+                      y: molecule.y + orbit.y,
+                    };
+                const localPosition = {
+                  x: electronWorld.x - molecule.x,
+                  y: electronWorld.y - molecule.y,
+                };
+                const shell = SHELL_CONFIG[electron.shell] ?? SHELL_CONFIG[0];
+                const shellColor = highContrast
+                  ? shell.highContrastColor
+                  : shell.color;
+                const label = electron.content || 'Untitled task';
+                const visualSize = (
+                  electron.originalBubble?.type === 'Task' ? 32 : 26
+                ) * visualScaleCompensation;
 
-      {/* UI Controls */}
-      <div className="absolute top-4 left-4 flex flex-col gap-2">
-        <Card className="p-2">
-          <div className="flex gap-1">
-            <Button size="sm" variant="outline" onClick={toggleMotion}>
-              {motionState ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-            </Button>
-            <Button size="sm" variant="outline" onClick={zoomIn}>
-              <ZoomIn className="w-4 h-4" />
-            </Button>
-            <Button size="sm" variant="outline" onClick={zoomOut}>
-              <ZoomOut className="w-4 h-4" />
-            </Button>
-            <Button size="sm" variant="outline" onClick={resetZoom}>
-              <Target className="w-4 h-4" />
-            </Button>
-          </div>
-        </Card>
+                return (
+                  <button
+                    key={electron.id}
+                    type="button"
+                    data-electron="true"
+                    data-electron-id={electron.id}
+                    data-minimum-screen-target={MINIMUM_TARGET_SIZE}
+                    className={`absolute z-10 flex cursor-grab items-center justify-center rounded-full bg-transparent !p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                      isDragging ? 'z-50 cursor-grabbing' : ''
+                    }`}
+                    style={{
+                      left: localPosition.x - (electronTargetSize / 2),
+                      top: localPosition.y - (electronTargetSize / 2),
+                      width: electronTargetSize,
+                      height: electronTargetSize,
+                    }}
+                    aria-label={`${label}. ${molecule.nucleus.domain} molecule. ${shell.name} horizon. Open with Enter; use arrow keys to change horizon.`}
+                    aria-keyshortcuts="Enter Space ArrowUp ArrowDown ArrowLeft ArrowRight"
+                    onPointerDown={event => startElectronDrag(molecule, electron, event)}
+                    onClick={() => {
+                      if (shouldSuppressClick(`electron:${electron.id}`)) return;
+                      if (electron.originalBubble) {
+                        onBubbleSelect?.(electron.originalBubble);
+                      }
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        if (electron.originalBubble) {
+                          onBubbleSelect?.(electron.originalBubble);
+                        }
+                        return;
+                      }
+                      if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        updateElectronShell(electron, electron.shell - 1, 'keyboard');
+                      } else if (
+                        event.key === 'ArrowDown'
+                        || event.key === 'ArrowRight'
+                      ) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        updateElectronShell(electron, electron.shell + 1, 'keyboard');
+                      }
+                    }}
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={`flex items-center justify-center rounded-full border-2 border-white text-xs font-bold text-white shadow-sm ${
+                        motionEnabled ? 'transition-transform hover:scale-110' : ''
+                      } ${isDragging ? 'scale-110 shadow-lg' : ''}`}
+                      style={{
+                        width: visualSize,
+                        height: visualSize,
+                        backgroundColor: shellColor,
+                        fontSize: 12 * visualScaleCompensation,
+                      }}
+                    >
+                      {electron.originalBubble?.type === 'Task'
+                        ? '✓'
+                        : label.charAt(0).toUpperCase()}
+                    </span>
+                  </button>
+                );
+              }) : null}
 
-        <Card className="p-2">
-          <div className="flex gap-1">
-            <Button size="sm" variant="outline" onClick={handleFusion}>
-              <Zap className="w-4 h-4" />
-            </Button>
-            <Button size="sm" variant="outline" onClick={handleFission}>
-              <Shuffle className="w-4 h-4" />
-            </Button>
-            <Button size="sm" variant="outline">
-              <Undo2 className="w-4 h-4" />
-            </Button>
-          </div>
-        </Card>
-      </div>
+              <button
+                type="button"
+                data-molecule="true"
+                data-molecule-id={molecule.id}
+                data-minimum-screen-target={MINIMUM_TARGET_SIZE}
+                className="absolute z-20 flex cursor-grab items-center justify-center rounded-full bg-transparent !p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                style={{
+                  left: -(nucleusTargetSize / 2),
+                  top: -(nucleusTargetSize / 2),
+                  width: nucleusTargetSize,
+                  height: nucleusTargetSize,
+                }}
+                aria-label={`${molecule.nucleus.domain} molecule, ${molecule.electrons.length} ${molecule.electrons.length === 1 ? 'task' : 'tasks'}${molecule.selected ? ', selected' : ''}. Press Enter to select; use arrow keys to move the view-only position.`}
+                aria-pressed={molecule.selected}
+                aria-keyshortcuts="Enter Space ArrowUp ArrowDown ArrowLeft ArrowRight"
+                onPointerDown={event => startMoleculeDrag(molecule, event)}
+                onClick={(event) => {
+                  if (shouldSuppressClick(`molecule:${molecule.id}`)) return;
+                  selectMolecule(molecule.id, event.shiftKey);
+                }}
+                onKeyDown={(event) => {
+                  if (moveMoleculeWithKeyboard(molecule, event)) return;
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    selectMolecule(molecule.id, event.shiftKey);
+                  }
+                }}
+              >
+                <span
+                  aria-hidden="true"
+                  className={`flex items-center justify-center rounded-full border-2 border-white/70 font-bold text-white ${
+                    molecule.selected
+                      ? 'bg-yellow-500 shadow-lg shadow-yellow-500/50'
+                      : 'bg-blue-600'
+                  } ${motionEnabled ? 'transition-transform hover:scale-110' : ''}`}
+                  style={{
+                    width: nucleusVisualSize,
+                    height: nucleusVisualSize,
+                    fontSize: 12 * visualScaleCompensation,
+                  }}
+                >
+                  {molecule.nucleus.protons}p
+                </span>
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute top-full mt-1 whitespace-nowrap text-xs text-muted-foreground"
+                  style={{ fontSize: 12 * visualScaleCompensation }}
+                >
+                  {molecule.nucleus.domain}
+                </span>
+              </button>
 
-      {/* Selection status */}
-      {atomicState.selectedMolecules.length > 0 && (
-        <div className="absolute top-4 right-4">
-          <Badge variant="outline">
-            {atomicState.selectedMolecules.length} selected
-          </Badge>
-        </div>
-      )}
-
-      {/* Time Horizons Legend */}
-      <Card className="absolute bottom-24 right-4 p-3">
-        <h3 className="text-sm font-medium mb-2">Time Horizons</h3>
-        <div className="space-y-1">
-          {SHELL_CONFIG.map((shell, index) => (
-            <div key={index} className="flex items-center gap-2 text-sm">
-              <div 
-                className="w-3 h-3 rounded-full border"
-                style={{ backgroundColor: shell.color }}
-              />
-              <span>{shell.name}</span>
+              {molecule.selected ? (
+                <div
+                  aria-hidden="true"
+                  className={`pointer-events-none absolute -inset-4 rounded-full border-2 border-yellow-400 ${
+                    motionEnabled ? 'animate-pulse' : ''
+                  }`}
+                />
+              ) : null}
             </div>
           ))}
         </div>
-      </Card>
+      </div>
 
-      {/* Draggable overlays with pointer-events handling */}
-      <style>{`
-        [data-panel] {
-          pointer-events: auto;
-        }
-        [data-panel] > * {
-          pointer-events: none;
-        }
-        [data-panel] button {
-          pointer-events: auto;
-        }
-      `}</style>
+      {compactControls ? (
+        <details
+          data-panel
+          data-testid="atomic-mobile-view-controls"
+          className="absolute left-4 top-4 z-40 rounded-md border bg-card/95 text-card-foreground shadow-lg backdrop-blur-sm"
+        >
+          <summary className="flex min-h-11 cursor-pointer select-none items-center px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            {showElectronControls ? 'View' : 'Overview'}
+          </summary>
+          <div className="absolute left-0 top-14 flex w-max max-w-[calc(100vw-2rem)] flex-col gap-2 rounded-md border bg-card/95 p-2 shadow-xl backdrop-blur-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline">Experimental Atomic view</Badge>
+              <Badge variant="secondary" aria-live="polite">
+                {motionStatus}
+              </Badge>
+            </div>
+            <div className="flex flex-col gap-2">{atomicControlCards}</div>
+          </div>
+        </details>
+      ) : (
+        <div
+          data-panel
+          data-testid="atomic-desktop-view-controls"
+          className="absolute left-4 top-4 z-30 flex max-w-[calc(100%-2rem)] flex-col gap-2"
+        >
+          <div className="flex items-center gap-2">
+            <Badge variant="outline">Experimental Atomic view</Badge>
+            <Badge variant="secondary" aria-live="polite">
+              {motionStatus}
+            </Badge>
+          </div>
+          {atomicControlCards}
+        </div>
+      )}
+
+      <AtomicTaskNavigator
+        molecules={atomicState.molecules}
+        onOpenTask={(bubble) => onBubbleSelect?.(bubble)}
+        onHorizonChange={(electron, targetShell) => {
+          updateElectronShell(electron, targetShell, 'keyboard');
+        }}
+      />
+
+      {atomicState.selectedMolecules.length > 0 ? (
+        <Badge className="absolute right-4 top-16 z-30" variant="outline">
+          {atomicState.selectedMolecules.length} selected
+        </Badge>
+      ) : null}
+
+      {!showElectronControls && electronCount > 0 ? (
+        <p data-testid="atomic-overview-hint" className="sr-only" role="status">
+          Overview. Zoom in to move task electrons, or use the Tasks navigator.
+        </p>
+      ) : null}
+
+      {!compactControls ? (
+        <Card
+          data-panel
+          className="absolute bottom-[calc(env(safe-area-inset-bottom)+7rem)] right-4 z-30 p-3"
+          aria-label="Time horizon legend"
+        >
+          <h3 className="mb-2 text-sm font-medium">Time horizons</h3>
+          <ul className="space-y-1">
+            {SHELL_CONFIG.map(shell => (
+              <li key={shell.name} className="flex items-center gap-2 text-sm">
+                <span
+                  aria-hidden="true"
+                  className="h-3 w-3 rounded-full border"
+                  style={{
+                    backgroundColor: highContrast
+                      ? shell.highContrastColor
+                      : shell.color,
+                  }}
+                />
+                <span>{shell.name}</span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
     </div>
   );
 };

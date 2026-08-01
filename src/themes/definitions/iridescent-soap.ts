@@ -138,7 +138,7 @@ export const iridescentSoapTheme: Theme = {
       .soap { position: relative; border-radius: 999px; }
       .soap.lod .soap-spec.a, .soap.lod .soap-spec.b { opacity:.5; }
       .soap.lod .soap-aura { box-shadow:none !important; }
-      @keyframes driftFloat { 0%,100% { transform: translateY(0px) } 50% { transform: translateY(-14px) } }
+      @keyframes driftFloat { 0%,100% { transform: translateY(0px) } 50% { transform: translateY(-4px) } }
       .soap::after { content:""; position:absolute; inset:-6%; border-radius:999px; background: radial-gradient(circle, rgba(255,255,255,.08) 0%, transparent 65%); filter: blur(8px); }
       .soap-rim { position:absolute; inset:-0.05%; border-radius:999px; -webkit-mask: radial-gradient(circle, transparent 66.2%, black 66.22%); mask: radial-gradient(circle, transparent 66.2%, black 66.22%); filter: saturate(1.02) brightness(1.02); }
       .soap:hover .soap-rim { filter: saturate(1.15) brightness(1.06); }

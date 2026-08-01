@@ -9,6 +9,7 @@ import React, {
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { usePinchZoom } from '@/hooks/usePinchZoom';
+import { wheelScaleFactor } from '@/hooks/usePanZoom';
 import { useLODSystem } from '@/hooks/useLODSystem';
 import type { Bubble } from '@/types/bubble';
 import type { BubbleCanvasProps, ThemeTokens } from '@/themes/ThemeTypes';
@@ -24,10 +25,19 @@ import {
 } from '@/services/adaptiveBubbleContract';
 import type { CurrentEnergy } from '@/services/readinessEngine';
 import type { TaskReadiness } from '@/types/task';
+import {
+  centerViewportOnWorldPoint,
+  panViewportByScreenDelta,
+  screenToWorld,
+  worldToScreen,
+  zoomViewportAtPoint,
+} from '@/lib/canvasGeometry';
 import { PhotoBubbleIridescent } from './PhotoBubbleIridescent';
 import {
   getSafeBubbleRadius,
+  placeOriginBubble,
   recoverPersistedBubblePosition,
+  separateSeverelyOverlappingBubbles,
 } from './bubblePosition';
 import {
   planBubbleVisibility,
@@ -63,6 +73,16 @@ interface LastMerge {
   mergedId: string;
 }
 
+interface MergeConfirmation {
+  x: number;
+  y: number;
+  a: string;
+  b: string;
+  aPosition: { x: number; y: number };
+  aOriginalPosition: { x: number; y: number };
+  bPosition: { x: number; y: number };
+}
+
 type BubbleVisualProperties = React.CSSProperties & {
   '--cx': string;
   '--cy': string;
@@ -76,27 +96,38 @@ const COMPACT_ICON_BUTTON_CLASSES = [
   'bg-card/80',
   'p-0',
   'backdrop-blur-sm',
-  'sm:h-9',
-  'sm:w-9',
 ].join(' ');
 
 interface AdaptiveTaskNavigatorProps {
   projections: readonly AdaptiveBubbleProjection[];
   onTaskSelect: (taskId: string) => void;
+  compact?: boolean;
 }
 
 export function AdaptiveTaskNavigator({
   projections,
   onTaskSelect,
+  compact = false,
 }: AdaptiveTaskNavigatorProps) {
   return (
-    <details className="absolute bottom-6 right-4 z-30 max-w-[min(24rem,calc(100%-2rem))] rounded-md border bg-card/95 text-card-foreground shadow-lg backdrop-blur-sm">
-      <summary className="flex min-h-11 cursor-pointer select-none items-center px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-        All tasks ({projections.length})
+    <details
+      data-panel
+      className={`absolute z-30 rounded-md border bg-card/95 text-card-foreground shadow-lg backdrop-blur-sm ${
+        compact
+          ? 'right-4 top-4 max-w-[min(24rem,calc(100%-13rem))]'
+          : 'bottom-6 right-24 max-w-[min(24rem,calc(100%-8rem))]'
+      }`}
+    >
+      <summary
+        aria-label={`All tasks (${projections.length})`}
+        className="flex min-h-11 cursor-pointer select-none items-center whitespace-nowrap px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <span className={compact ? 'sr-only' : undefined}>All </span>
+        tasks ({projections.length})
       </summary>
       <ol
         aria-label="All tasks by current readiness"
-        className="max-h-64 space-y-1 overflow-y-auto border-t p-2"
+        className="max-h-40 space-y-1 overflow-y-auto border-t p-2 sm:max-h-64"
       >
         {projections.map(({ task, semantics }) => (
           <li key={task.id}>
@@ -118,6 +149,71 @@ export function AdaptiveTaskNavigator({
   );
 }
 
+interface ReadinessContextFieldsProps {
+  currentEnergy: CurrentEnergy | undefined;
+  availableMinutes: number | undefined;
+  onEnergyChange: (energy: CurrentEnergy | undefined) => void;
+  onAvailableMinutesChange: (minutes: number | undefined) => void;
+  showKeyboardHelp?: boolean;
+}
+
+function ReadinessContextFields({
+  currentEnergy,
+  availableMinutes,
+  onEnergyChange,
+  onAvailableMinutesChange,
+  showKeyboardHelp = false,
+}: ReadinessContextFieldsProps) {
+  return (
+    <>
+      <label className="flex flex-col gap-1 text-xs">
+        <span>Energy</span>
+        <select
+          aria-label="Current energy"
+          value={currentEnergy ?? ''}
+          onChange={(event) => {
+            const value = event.target.value;
+            onEnergyChange(value === '' ? undefined : value as CurrentEnergy);
+          }}
+          className="h-11 rounded border bg-background px-2 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <option value="">Not set</option>
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+        </select>
+      </label>
+      <label className="flex flex-col gap-1 text-xs">
+        <span>Time available</span>
+        <select
+          aria-label="Available time"
+          value={availableMinutes ?? ''}
+          onChange={(event) => {
+            const value = event.target.value;
+            onAvailableMinutesChange(value === '' ? undefined : Number(value));
+          }}
+          className="h-11 rounded border bg-background px-2 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <option value="">Not set</option>
+          <option value="10">10 minutes</option>
+          <option value="30">30 minutes</option>
+          <option value="60">1 hour</option>
+          <option value="120">2 hours</option>
+        </select>
+      </label>
+      {showKeyboardHelp && (
+        <p
+          data-testid="keyboard-move-instructions"
+          className="max-w-40 self-center text-xs text-muted-foreground"
+        >
+          Keyboard: focus a bubble, then use arrow keys to move it. Hold Shift
+          for precise movement.
+        </p>
+      )}
+    </>
+  );
+}
+
 // Utility functions
 function overlapRatio(a: IridescentNode, b: IridescentNode): number {
   const d = Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
@@ -136,6 +232,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
   const {
     bubbles,
     settings,
+    isLoading,
     selectedBubbles,
     toggleSelection,
     clearSelection,
@@ -143,18 +240,23 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
     undoLastMerge,
   } = useBubbleStore();
   const { getLODConfig } = useLODSystem();
-  const isMobile = useIsMobile();
   const systemPrefersReducedMotion = useReducedMotion();
+  const isMobile = useIsMobile();
   const lodConfig = getLODConfig();
   const reducedMotion = settings.reducedMotion || systemPrefersReducedMotion;
   
   const [dragging, setDragging] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [dragPreview, setDragPreview] = useState<{
+    id: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const [hasDragged, setHasDragged] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const [viewportStart, setViewportStart] = useState({ x: 0, y: 0 });
-  const [confirm, setConfirm] = useState<{ x: number; y: number; a: string; b: string } | null>(null);
+  const [confirm, setConfirm] = useState<MergeConfirmation | null>(null);
   const [toast, setToast] = useState(false);
   const [lastMerge, setLastMerge] = useState<LastMerge | null>(null);
   const [viewport, setViewport] = useState({
@@ -172,8 +274,30 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
   const [currentEnergy, setCurrentEnergy] = useState<CurrentEnergy | undefined>();
   const [availableMinutes, setAvailableMinutes] = useState<number | undefined>();
   const [movementAnnouncement, setMovementAnnouncement] = useState('');
+  const [originPlacementById, setOriginPlacementById] = useState(
+    () => new Map<string, { x: number; y: number }>(),
+  );
+  const [legacyRecoveryById, setLegacyRecoveryById] = useState(
+    () => new Map<string, { x: number; y: number }>(),
+  );
+  const compactControls = isMobile
+    || (viewport.height > 0 && viewport.height < 420);
   
   const canvasRef = useRef<HTMLDivElement>(null);
+  const draggingRef = useRef<string | null>(null);
+  const dragPreviewRef = useRef<typeof dragPreview>(null);
+  const dragStartRef = useRef<{ x: number; y: number } | null>(null);
+  const dragOriginalPositionRef = useRef<{
+    id: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const hasDraggedRef = useRef(false);
+  const dragPointerIdRef = useRef<number | null>(null);
+  const dragCaptureTargetRef = useRef<HTMLElement | null>(null);
+  const panPointerIdRef = useRef<number | null>(null);
+  const autoPlacedIdsRef = useRef(new Set<string>());
+  const collisionRecoveryCheckedRef = useRef(false);
 
   // BubbleStore hydrates settings from IndexedDB after the first render. Keep
   // this view state aligned with the persisted density once hydration lands.
@@ -259,40 +383,124 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
     [bubbleById, filteredProjections],
   );
 
-  // Positions are persisted as viewport-agnostic, center-relative units. Repair
-  // stale or malformed coordinates after the actual canvas size is known so
-  // keyboard movement and future reloads operate on the visible position.
-  useEffect(() => {
-    if (viewport.width <= 0 || viewport.height <= 0) return;
+  useLayoutEffect(() => {
+    if (viewport.width <= 0 || viewport.height <= 0) {
+      return;
+    }
 
-    const recoveredAt = Date.now();
-    bubbles.forEach((bubble) => {
-      const recovered = recoverPersistedBubblePosition(bubble, {
-        width: viewport.width,
-        height: viewport.height,
-      });
-      if (!recovered.adjusted) return;
-
-      void useBubbleStore.getState().updateBubble({
-        ...bubble,
-        x: recovered.x,
-        y: recovered.y,
-        updatedAt: recoveredAt,
-      });
+    const currentIds = new Set(bubbles.map(bubble => bubble.id));
+    autoPlacedIdsRef.current.forEach((id) => {
+      if (!currentIds.has(id)) autoPlacedIdsRef.current.delete(id);
     });
-  }, [bubbles, viewport.height, viewport.width]);
+    bubbles.forEach((bubble) => {
+      if (
+        Number.isFinite(bubble.x)
+      && Number.isFinite(bubble.y)
+      && bubble.x === 0
+      && bubble.y === 0
+      ) {
+        autoPlacedIdsRef.current.add(bubble.id);
+      }
+    });
+    const placementBubbles = bubbles.filter((bubble) => (
+      autoPlacedIdsRef.current.has(bubble.id)
+    ));
+    if (placementBubbles.length <= 1) {
+      setOriginPlacementById(current => (
+        current.size === 0
+          ? current
+          : new Map<string, { x: number; y: number }>()
+      ));
+      return;
+    }
+    const dimensions = {
+      width: viewport.width,
+      height: viewport.height,
+    };
+    const placementRadius = Math.max(
+      ...placementBubbles.map(bubble => getSafeBubbleRadius(bubble.size)),
+    );
+
+    setOriginPlacementById(new Map(placementBubbles.map((bubble, index) => [
+      bubble.id,
+      placeOriginBubble(
+        bubble,
+        index,
+        placementBubbles.length,
+        dimensions,
+        placementRadius,
+      ),
+    ])));
+  }, [
+    bubbles,
+    viewport.height,
+    viewport.width,
+  ]);
+
+  useLayoutEffect(() => {
+    if (
+      collisionRecoveryCheckedRef.current
+      || isLoading
+      || bubbles.length === 0
+      || viewport.width <= 0
+      || viewport.height <= 0
+    ) {
+      return;
+    }
+
+    // The origin cohort is handled by the deterministic first-layout pass
+    // above. This separate, once-per-mount presentation repair clears stored
+    // overlap; active drag remains the explicit way to propose a merge.
+    const legacyCandidates = bubbles.filter(
+      bubble => !autoPlacedIdsRef.current.has(bubble.id),
+    );
+    collisionRecoveryCheckedRef.current = true;
+    if (legacyCandidates.length < 2) return;
+
+    const repairs = separateSeverelyOverlappingBubbles(
+      legacyCandidates,
+      { width: viewport.width, height: viewport.height },
+      { separateAllOverlaps: true },
+    );
+    if (repairs.size === 0) return;
+
+    setLegacyRecoveryById(repairs);
+  }, [
+    bubbles,
+    isLoading,
+    viewport.height,
+    viewport.width,
+  ]);
+
+  // Automatic first layout, viewport clamping, and legacy-stack recovery are
+  // presentation-only. They must never rewrite canonical coordinates merely
+  // because the same task was opened on a smaller screen. A deliberate drag
+  // or keyboard move below is the point where a position becomes persisted.
+
+  const getDisplayPosition = useCallback((bubble: Bubble) => {
+    const planned = legacyRecoveryById.get(bubble.id)
+      ?? originPlacementById.get(bubble.id);
+    return recoverPersistedBubblePosition(
+      planned ? { ...bubble, ...planned } : bubble,
+      viewport,
+    );
+  }, [legacyRecoveryById, originPlacementById, viewport]);
 
   // Convert bubbles to nodes with viewport transformation
   const nodes: IridescentNode[] = useMemo(() => {
     return filteredProjections.flatMap((projection) => {
       const bubble = bubbleById.get(projection.task.id);
       if (!bubble) return [];
-      const recovered = recoverPersistedBubblePosition(bubble, viewport);
+      const recovered = getDisplayPosition(bubble);
+      const worldPosition = dragPreview?.id === bubble.id
+        ? dragPreview
+        : recovered;
+      const screenPosition = worldToScreen(worldPosition, viewport, viewport);
 
       return [{
         id: bubble.id,
-        x: (recovered.x * viewport.scale) + viewport.x + (viewport.width / 2),
-        y: (recovered.y * viewport.scale) + viewport.y + (viewport.height / 2),
+        x: screenPosition.x,
+        y: screenPosition.y,
         r: getSafeBubbleRadius(bubble.size, viewport.scale),
         label: bubble.content?.slice(0, 20) + (bubble.content?.length > 20 ? '...' : '') || `${bubble.type} bubble`,
         type: String(bubble.type || '').toLowerCase(),
@@ -302,7 +510,14 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
         semantics: projection.semantics,
       }];
     });
-  }, [bubbleById, filteredProjections, theme?.tokens.auraMapping, viewport]);
+  }, [
+    bubbleById,
+    dragPreview,
+    filteredProjections,
+    getDisplayPosition,
+    theme?.tokens.auraMapping,
+    viewport,
+  ]);
 
   function getGlowColor(
     bubble: Bubble,
@@ -321,113 +536,242 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
   }
 
   const handlePointerDown = useCallback((nodeId: string, e: React.PointerEvent) => {
+    if (
+      e.button !== 0
+      || draggingRef.current !== null
+      || (e.pointerType === 'touch' && e.isPrimary === false)
+    ) {
+      return;
+    }
     e.stopPropagation();
     const node = nodes.find(n => n.id === nodeId);
     if (!node) return;
 
-    // Bring selected bubble to front by updating z-order
-    const updatedNodes = [...nodes];
-    const nodeIndex = updatedNodes.findIndex(n => n.id === nodeId);
-    if (nodeIndex >= 0) {
-      const [selectedNode] = updatedNodes.splice(nodeIndex, 1);
-      updatedNodes.push(selectedNode);
-    }
-
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
-    
+
+    const captureTarget = e.currentTarget as HTMLElement;
+    captureTarget.setPointerCapture?.(e.pointerId);
     setDragOffset({
       x: e.clientX - rect.left - node.x,
       y: e.clientY - rect.top - node.y
     });
+    dragOriginalPositionRef.current = {
+      id: nodeId,
+      ...screenToWorld(node, viewport, viewport),
+    };
+    dragStartRef.current = { x: e.clientX, y: e.clientY };
+    dragPointerIdRef.current = e.pointerId;
+    dragCaptureTargetRef.current = captureTarget;
+    draggingRef.current = nodeId;
+    hasDraggedRef.current = false;
     setDragging(nodeId);
     setHasDragged(false);
-  }, [nodes]);
+  }, [nodes, viewport]);
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
-    if (!dragging) return;
-    
-    // Mark that we have dragged to prevent click events
-    setHasDragged(true);
-    
-    // Update bubble position in store
-    const bubble = bubbles.find(b => b.id === dragging);
-    if (!bubble) return;
+    const activeId = draggingRef.current;
+    if (!activeId || dragPointerIdRef.current !== e.pointerId) return;
 
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
-    
-    // Calculate new position in canvas coordinates, then convert to bubble coordinates
-    const canvasX = e.clientX - rect.left - dragOffset.x;
-    const canvasY = e.clientY - rect.top - dragOffset.y;
-    
-    // Convert back to bubble coordinate space
-    const newX = (canvasX - viewport.x - (viewport.width / 2)) / viewport.scale;
-    const newY = (canvasY - viewport.y - (viewport.height / 2)) / viewport.scale;
-    
-    const updatedBubble = { ...bubble, x: newX, y: newY, updatedAt: Date.now() };
-    useBubbleStore.getState().updateBubble(updatedBubble);
-  }, [bubbles, dragOffset, dragging, viewport]);
+
+    const start = dragStartRef.current;
+    if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) >= 8) {
+      hasDraggedRef.current = true;
+      setHasDragged(true);
+    }
+
+    const worldPosition = screenToWorld(
+      {
+        x: e.clientX - rect.left - dragOffset.x,
+        y: e.clientY - rect.top - dragOffset.y,
+      },
+      viewport,
+      viewport,
+    );
+    const preview = { id: activeId, ...worldPosition };
+    dragPreviewRef.current = preview;
+    setDragPreview(preview);
+  }, [dragOffset, viewport]);
 
   const handlePointerUp = useCallback((e: React.PointerEvent) => {
-    if (!dragging) return;
-    
-    const draggedNode = nodes.find(n => n.id === dragging);
+    const activeId = draggingRef.current;
+    if (!activeId || dragPointerIdRef.current !== e.pointerId) return;
+
+    const capturedTarget = dragCaptureTargetRef.current;
+    if (capturedTarget?.hasPointerCapture?.(e.pointerId)) {
+      capturedTarget.releasePointerCapture(e.pointerId);
+    }
+
+    const preview = dragPreviewRef.current;
+    const baseNode = nodes.find(n => n.id === activeId);
+    const previewScreen = preview
+      ? worldToScreen(preview, viewport, viewport)
+      : null;
+    const draggedNode = baseNode && previewScreen
+      ? { ...baseNode, x: previewScreen.x, y: previewScreen.y }
+      : baseNode;
     if (!draggedNode) {
+      draggingRef.current = null;
+      dragOriginalPositionRef.current = null;
+      dragPointerIdRef.current = null;
+      dragCaptureTargetRef.current = null;
       setDragging(null);
       return;
     }
 
-    // Check for merge candidates
-    const candidates = nodes.filter(n => n.id !== dragging && overlapRatio(draggedNode, n) > (theme?.behavior.mergeThreshold || 0.06));
-    
+    let pendingMerge: MergeConfirmation | null = null;
+    if (preview && hasDraggedRef.current) {
+      const candidates = nodes.filter(node => (
+        node.id !== activeId
+        && overlapRatio(draggedNode, node)
+          > (theme?.behavior.mergeThreshold ?? 0.06)
+      ));
       if (candidates.length > 0) {
-        const closest = candidates.reduce((best, curr) => 
-          dist(draggedNode, curr) < dist(draggedNode, best) ? curr : best
-        );
-        
-        // Convert canvas coords to screen coords for portal
+        const closest = candidates.reduce((best, candidate) => (
+          dist(draggedNode, candidate) < dist(draggedNode, best)
+            ? candidate
+            : best
+        ));
         const canvasRect = canvasRef.current?.getBoundingClientRect();
         if (canvasRect) {
-          const midX = (draggedNode.x + closest.x) / 2;
-          const midY = (draggedNode.y + closest.y) / 2;
-          
-          const screenX = canvasRect.left + midX;
-          const screenY = canvasRect.top + midY;
-          
-          setConfirm({ x: screenX, y: screenY, a: dragging, b: closest.id });
+          pendingMerge = {
+            x: canvasRect.left + ((draggedNode.x + closest.x) / 2),
+            y: canvasRect.top + ((draggedNode.y + closest.y) / 2),
+            a: activeId,
+            b: closest.id,
+            aPosition: { x: preview.x, y: preview.y },
+            aOriginalPosition:
+              dragOriginalPositionRef.current?.id === activeId
+                ? dragOriginalPositionRef.current
+                : screenToWorld(baseNode, viewport, viewport),
+            bPosition: screenToWorld(closest, viewport, viewport),
+          };
         }
       }
-    
+    }
+
+    const bubble = useBubbleStore.getState().bubbles.find(
+      candidate => candidate.id === activeId,
+    );
+    if (bubble && preview && hasDraggedRef.current) {
+      autoPlacedIdsRef.current.delete(activeId);
+      setOriginPlacementById((currentPlan) => {
+        if (!currentPlan.has(activeId)) return currentPlan;
+        const nextPlan = new Map(currentPlan);
+        nextPlan.delete(activeId);
+        return nextPlan;
+      });
+      setLegacyRecoveryById((currentPlan) => {
+        if (!currentPlan.has(activeId)) return currentPlan;
+        const nextPlan = new Map(currentPlan);
+        nextPlan.delete(activeId);
+        return nextPlan;
+      });
+      if (pendingMerge) {
+        // Keep the transient drop position visible until the user decides.
+        // Persisting before the decision can race the merge and resurrect a
+        // deleted or stale task record.
+        setConfirm(pendingMerge);
+      } else {
+        const pendingPreview = preview;
+        void useBubbleStore.getState().updateBubble({
+          ...bubble,
+          x: preview.x,
+          y: preview.y,
+          updatedAt: Date.now(),
+        }).finally(() => {
+          if (dragPreviewRef.current === pendingPreview) {
+            dragPreviewRef.current = null;
+            setDragPreview(null);
+          }
+        });
+      }
+    } else {
+      dragPreviewRef.current = null;
+      setDragPreview(null);
+    }
+
+    draggingRef.current = null;
+    dragOriginalPositionRef.current = null;
+    dragStartRef.current = null;
+    dragPointerIdRef.current = null;
+    dragCaptureTargetRef.current = null;
     setDragging(null);
-  }, [dragging, nodes, theme?.behavior.mergeThreshold]);
+  }, [nodes, theme?.behavior.mergeThreshold, viewport]);
+
+  const handlePointerCancel = useCallback((e: React.PointerEvent) => {
+    if (dragPointerIdRef.current !== e.pointerId) return;
+    const capturedTarget = dragCaptureTargetRef.current;
+    if (capturedTarget?.hasPointerCapture?.(e.pointerId)) {
+      capturedTarget.releasePointerCapture(e.pointerId);
+    }
+    draggingRef.current = null;
+    dragPreviewRef.current = null;
+    dragOriginalPositionRef.current = null;
+    dragStartRef.current = null;
+    dragPointerIdRef.current = null;
+    dragCaptureTargetRef.current = null;
+    hasDraggedRef.current = false;
+    setDragging(null);
+    setDragPreview(null);
+    setHasDragged(false);
+  }, []);
 
   const handleMerge = useCallback(() => {
     if (!confirm) return;
-    
-    const bubbleA = bubbles.find(b => b.id === confirm.a);
-    const bubbleB = bubbles.find(b => b.id === confirm.b);
-    
+
+    const currentBubbles = useBubbleStore.getState().bubbles;
+    const bubbleA = currentBubbles.find(bubble => bubble.id === confirm.a);
+    const bubbleB = currentBubbles.find(bubble => bubble.id === confirm.b);
+
     if (bubbleA && bubbleB) {
-      const nodeA = nodes.find(n => n.id === confirm.a)!;
-      const nodeB = nodes.find(n => n.id === confirm.b)!;
-      
-      setLastMerge({ 
-        A: { ...bubbleA, x: nodeA.x - 400, y: nodeA.y - 300 }, 
-        B: { ...bubbleB, x: nodeB.x - 400, y: nodeB.y - 300 },
-        mergedId: bubbleA.id
+      const positionedA = { ...bubbleA, ...confirm.aPosition };
+      const positionedB = { ...bubbleB, ...confirm.bPosition };
+      setLastMerge({
+        A: positionedA,
+        B: positionedB,
+        mergedId: bubbleA.id,
       });
-      
-      mergeBubbles(bubbleA, bubbleB);
+
+      mergeBubbles(positionedA, positionedB);
+      dragPreviewRef.current = null;
+      setDragPreview(null);
       setConfirm(null);
       setToast(true);
-      
+
       setTimeout(() => {
         setToast(false);
         setLastMerge(null);
       }, 6000);
     }
-  }, [confirm, bubbles, nodes, mergeBubbles]);
+  }, [confirm, mergeBubbles]);
+
+  const handleMergeCancel = useCallback(() => {
+    if (!confirm) return;
+    const bubble = useBubbleStore.getState().bubbles.find(
+      candidate => candidate.id === confirm.a,
+    );
+    const pendingPreview = dragPreviewRef.current;
+    setConfirm(null);
+    if (!bubble) {
+      dragPreviewRef.current = null;
+      setDragPreview(null);
+      return;
+    }
+
+    void useBubbleStore.getState().updateBubble({
+      ...bubble,
+      ...confirm.aOriginalPosition,
+      updatedAt: Date.now(),
+    }).finally(() => {
+      if (dragPreviewRef.current === pendingPreview) {
+        dragPreviewRef.current = null;
+        setDragPreview(null);
+      }
+    });
+  }, [confirm]);
 
   const handleUndo = useCallback(() => {
     if (!lastMerge) return;
@@ -446,7 +790,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
 
   const handleBubbleClick = useCallback((nodeId: string) => {
     // Only handle click if we haven't dragged.
-    if (hasDragged) return;
+    if (hasDragged || hasDraggedRef.current) return;
     handleTaskSelect(nodeId);
   }, [handleTaskSelect, hasDragged]);
 
@@ -469,46 +813,90 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
     const bubble = bubbleById.get(nodeId);
     if (!bubble) return;
 
-    const step = event.shiftKey ? 1 : 10;
+    const screenStep = event.shiftKey ? 1 : 10;
+    const worldStep = screenStep / viewport.scale;
+    const currentPosition = getDisplayPosition(bubble);
+    autoPlacedIdsRef.current.delete(nodeId);
+    setOriginPlacementById((currentPlan) => {
+      if (!currentPlan.has(nodeId)) return currentPlan;
+      const nextPlan = new Map(currentPlan);
+      nextPlan.delete(nodeId);
+      return nextPlan;
+    });
+    setLegacyRecoveryById((currentPlan) => {
+      if (!currentPlan.has(nodeId)) return currentPlan;
+      const nextPlan = new Map(currentPlan);
+      nextPlan.delete(nodeId);
+      return nextPlan;
+    });
     useBubbleStore.getState().updateBubble({
       ...bubble,
-      x: bubble.x + direction.x * step,
-      y: bubble.y + direction.y * step,
+      x: currentPosition.x + direction.x * worldStep,
+      y: currentPosition.y + direction.y * worldStep,
       updatedAt: Date.now(),
     });
     setMovementAnnouncement(
-      `${bubble.content || 'Task'} moved ${direction.label} ${step} ${step === 1 ? 'unit' : 'units'}.`,
+      `${bubble.content || 'Task'} moved ${direction.label} ${screenStep} ${screenStep === 1 ? 'pixel' : 'pixels'}.`,
     );
-  }, [bubbleById]);
+  }, [
+    bubbleById,
+    getDisplayPosition,
+    viewport,
+  ]);
 
   // Zoom controls
   const zoomIn = useCallback(() => {
-    setViewport(prev => ({ ...prev, scale: Math.min(prev.scale * 1.2, 3) }));
+    setViewport((previous) => ({
+      ...previous,
+      ...zoomViewportAtPoint(
+        previous,
+        1.2,
+        { x: previous.width / 2, y: previous.height / 2 },
+        previous,
+        0.1,
+        3,
+      ),
+    }));
   }, []);
 
   const zoomOut = useCallback(() => {
-    setViewport(prev => ({ ...prev, scale: Math.max(prev.scale / 1.2, 0.1) }));
+    setViewport((previous) => ({
+      ...previous,
+      ...zoomViewportAtPoint(
+        previous,
+        1 / 1.2,
+        { x: previous.width / 2, y: previous.height / 2 },
+        previous,
+        0.1,
+        3,
+      ),
+    }));
   }, []);
 
   const centerOnBubbles = useCallback(() => {
     if (filteredBubbles.length === 0) return;
     
-    // Calculate bounds of all bubbles
-    const minX = Math.min(...filteredBubbles.map(b => b.x));
-    const maxX = Math.max(...filteredBubbles.map(b => b.x));
-    const minY = Math.min(...filteredBubbles.map(b => b.y));
-    const maxY = Math.max(...filteredBubbles.map(b => b.y));
+    const displayPositions = filteredBubbles.map(getDisplayPosition);
+    const minX = Math.min(...displayPositions.map(position => position.x));
+    const maxX = Math.max(...displayPositions.map(position => position.x));
+    const minY = Math.min(...displayPositions.map(position => position.y));
+    const maxY = Math.max(...displayPositions.map(position => position.y));
     
     const centerX = (minX + maxX) / 2;
     const centerY = (minY + maxY) / 2;
     
-    setViewport(prev => ({
-      ...prev,
-      x: -centerX * prev.scale,
-      y: -centerY * prev.scale,
-      scale: 1
+    setViewport((previous) => ({
+      ...previous,
+      ...centerViewportOnWorldPoint(
+        previous,
+        { x: centerX, y: centerY },
+        1,
+      ),
     }));
-  }, [filteredBubbles]);
+  }, [
+    filteredBubbles,
+    getDisplayPosition,
+  ]);
 
   // Handle mouse wheel zoom
   const handleWheel = useCallback((e: React.WheelEvent) => {
@@ -517,64 +905,77 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
     const rect = canvasRef.current?.getBoundingClientRect();
     if (!rect) return;
     
-    const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
-    
-    // Calculate zoom
-    const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1;
-    const newScale = Math.min(Math.max(viewport.scale * zoomFactor, 0.1), 3);
-    
-    // Zoom towards mouse position
-    const dx = mouseX - viewport.width / 2;
-    const dy = mouseY - viewport.height / 2;
-    
-    setViewport(prev => ({
-      ...prev,
-      scale: newScale,
-      x: prev.x - dx * (zoomFactor - 1),
-      y: prev.y - dy * (zoomFactor - 1)
+    const dimensions = { width: rect.width, height: rect.height };
+    const focalPoint = {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    };
+
+    const scaleFactor = wheelScaleFactor(
+      e.deltaY,
+      e.deltaMode,
+      dimensions.height,
+    );
+    if (scaleFactor === 1) return;
+
+    setViewport((previous) => ({
+      ...previous,
+      ...zoomViewportAtPoint(
+        previous,
+        scaleFactor,
+        focalPoint,
+        dimensions,
+        0.1,
+        3,
+      ),
+      ...dimensions,
     }));
-  }, [viewport]);
+  }, []);
 
   // Mobile pinch zoom and pan handlers
   const handlePinchZoom = useCallback((scaleFactor: number, center: { x: number; y: number }) => {
-    const newScale = Math.max(0.1, Math.min(3, viewport.scale * scaleFactor));
-    
-    // Calculate world position of touch center
-    const worldX = (center.x - viewport.width / 2) / viewport.scale + viewport.x;
-    const worldY = (center.y - viewport.height / 2) / viewport.scale + viewport.y;
-    
-    // Calculate new viewport position to keep touch center fixed
-    const newX = worldX - (center.x - viewport.width / 2) / newScale;
-    const newY = worldY - (center.y - viewport.height / 2) / newScale;
-    
-    setViewport(prev => ({
-      ...prev,
-      x: newX,
-      y: newY,
-      scale: newScale
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const dimensions = { width: rect.width, height: rect.height };
+    setViewport((previous) => ({
+      ...previous,
+      ...zoomViewportAtPoint(
+        previous,
+        scaleFactor,
+        { x: center.x - rect.left, y: center.y - rect.top },
+        dimensions,
+        0.1,
+        3,
+      ),
+      ...dimensions,
     }));
-  }, [viewport]);
+  }, []);
 
   const handlePan = useCallback((delta: { x: number; y: number }) => {
-    setViewport(prev => ({
-      ...prev,
-      x: prev.x - delta.x / prev.scale,
-      y: prev.y - delta.y / prev.scale
+    setViewport((previous) => ({
+      ...previous,
+      ...panViewportByScreenDelta(previous, delta),
     }));
   }, []);
 
   // Canvas pan handlers for mouse/touch
   const handleCanvasPointerDown = useCallback((e: React.PointerEvent) => {
+    if (e.pointerType === 'touch' || e.button !== 0) return;
     // Only start panning if clicking on empty canvas (not on a bubble)
     const target = e.target as HTMLElement;
-    if (target.closest('.iridescent-bubble') || dragging) return;
-    
+    if (
+      target.closest('.iridescent-bubble')
+      || target.closest('button, input, select, textarea, a, summary, [role="button"], [data-panel]')
+      || draggingRef.current
+    ) return;
+
+    panPointerIdRef.current = e.pointerId;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
     setIsPanning(true);
     setPanStart({ x: e.clientX, y: e.clientY });
     setViewportStart({ x: viewport.x, y: viewport.y });
     e.preventDefault();
-  }, [viewport.x, viewport.y, dragging]);
+  }, [viewport.x, viewport.y]);
 
   const handleCanvasPointerMove = useCallback((e: React.PointerEvent) => {
     if (isPanning && !dragging) {
@@ -583,22 +984,68 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
       
       setViewport(prev => ({
         ...prev,
-        x: viewportStart.x + deltaX / prev.scale,
-        y: viewportStart.y + deltaY / prev.scale
+        x: viewportStart.x + deltaX,
+        y: viewportStart.y + deltaY
       }));
     }
   }, [isPanning, panStart, viewportStart, dragging]);
 
-  const handleCanvasPointerUp = useCallback(() => {
+  const handleCanvasPointerUp = useCallback((e: React.PointerEvent) => {
+    if (
+      panPointerIdRef.current === e.pointerId
+      && e.currentTarget.hasPointerCapture?.(e.pointerId)
+    ) {
+      e.currentTarget.releasePointerCapture?.(e.pointerId);
+    }
+    panPointerIdRef.current = null;
     setIsPanning(false);
   }, []);
 
   // Bind mobile gestures
-  const mobileGestures = usePinchZoom({
+  const {
+    onTouchStart: handlePinchTouchStart,
+    onTouchMove: handlePinchTouchMove,
+    onTouchEnd: handlePinchTouchEnd,
+    onTouchCancel: handlePinchTouchCancel,
+  } = usePinchZoom({
     onZoom: handlePinchZoom,
     onPan: handlePan,
-    enabled: isMobile
+    enabled: true
   });
+
+  const handleCanvasTouchStart = useCallback((event: React.TouchEvent) => {
+    if (draggingRef.current) return;
+    const target = event.target as HTMLElement;
+    if (
+      event.touches.length === 1
+      && target.closest('.iridescent-bubble, button, input, select, textarea, a, summary, [data-panel]')
+    ) {
+      return;
+    }
+    handlePinchTouchStart(event);
+  }, [handlePinchTouchStart]);
+
+  const handleCanvasTouchMove = useCallback((event: React.TouchEvent) => {
+    if (draggingRef.current) return;
+    const target = event.target as HTMLElement;
+    if (
+      event.touches.length === 1
+      && target.closest('.iridescent-bubble, button, input, select, textarea, a, summary, [data-panel]')
+    ) {
+      return;
+    }
+    handlePinchTouchMove(event);
+  }, [handlePinchTouchMove]);
+
+  const handleCanvasTouchEnd = useCallback((event: React.TouchEvent) => {
+    if (draggingRef.current) return;
+    handlePinchTouchEnd(event);
+  }, [handlePinchTouchEnd]);
+
+  const handleCanvasTouchCancel = useCallback(() => {
+    if (draggingRef.current) return;
+    handlePinchTouchCancel();
+  }, [handlePinchTouchCancel]);
 
   // Initialize viewport dimensions
   useLayoutEffect(() => {
@@ -636,18 +1083,25 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
       aria-label="Adaptive Bubble view"
       aria-describedby="adaptive-bubble-view-description"
       data-reduced-motion={reducedMotion}
+      data-viewport-scale={viewport.scale}
       onPointerDown={handleCanvasPointerDown}
       onPointerMove={(e) => {
         handleCanvasPointerMove(e);
         handlePointerMove(e);
       }}
       onPointerUp={(e) => {
-        handleCanvasPointerUp();
+        handleCanvasPointerUp(e);
         handlePointerUp(e);
       }}
-      onPointerCancel={handleCanvasPointerUp}
+      onPointerCancel={(e) => {
+        handleCanvasPointerUp(e);
+        handlePointerCancel(e);
+      }}
       onWheel={handleWheel}
-      {...(isMobile ? mobileGestures : {})}
+      onTouchStart={handleCanvasTouchStart}
+      onTouchMove={handleCanvasTouchMove}
+      onTouchEnd={handleCanvasTouchEnd}
+      onTouchCancel={handleCanvasTouchCancel}
       style={{ 
         background: 'var(--bg-universe)', 
         position: 'relative',
@@ -731,16 +1185,14 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
         isOpen={!!confirm}
         screenPosition={confirm ? { x: confirm.x, y: confirm.y } : { x: 0, y: 0 }}
         onMerge={handleMerge}
-        onCancel={() => setConfirm(null)}
+        onCancel={handleMergeCancel}
         bubble1Label={confirm ? nodes.find(n => n.id === confirm.a)?.label || 'Bubble' : ''}
         bubble2Label={confirm ? nodes.find(n => n.id === confirm.b)?.label || 'Bubble' : ''}
       />
 
       {/* Zoom & Pan controls */}
-      <div
-        data-testid="adaptive-zoom-controls"
-        className="absolute left-4 top-4 z-10 flex gap-2"
-      >
+      {!compactControls && (
+      <div data-testid="adaptive-zoom-controls" className="absolute left-4 top-4 z-10 flex gap-2">
         <Button
           variant="outline"
           size="sm"
@@ -771,69 +1223,117 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
         <Button
           variant="outline"
           size="sm"
-          onClick={() => setViewport(prev => ({ ...prev, scale: 1 }))}
+          onClick={() => setViewport((previous) => ({
+            ...previous,
+            x: 0,
+            y: 0,
+            scale: 1,
+          }))}
           className={COMPACT_ICON_BUTTON_CLASSES}
           aria-label="Reset zoom"
         >
           <MapIcon className="h-4 w-4" />
         </Button>
       </div>
+      )}
+
+      {/* Compact mobile canvas controls stay out of the task field until opened. */}
+      {compactControls && (
+      <details
+        data-panel
+        data-testid="adaptive-mobile-view-controls"
+        className="absolute left-4 top-4 z-30 rounded-md border bg-card/95 text-card-foreground shadow-sm backdrop-blur-sm"
+      >
+        <summary className="flex min-h-11 cursor-pointer select-none items-center px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          View
+        </summary>
+        <div className="absolute left-0 top-14 grid grid-cols-4 gap-2 rounded-md border bg-card/95 p-2 shadow-lg backdrop-blur-sm">
+          <Button variant="outline" size="sm" onClick={zoomIn} className={COMPACT_ICON_BUTTON_CLASSES} aria-label="Zoom in">
+            <ZoomIn className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" size="sm" onClick={zoomOut} className={COMPACT_ICON_BUTTON_CLASSES} aria-label="Zoom out">
+            <ZoomOut className="h-4 w-4" />
+          </Button>
+          <Button variant="outline" size="sm" onClick={centerOnBubbles} className={COMPACT_ICON_BUTTON_CLASSES} aria-label="Center visible bubbles">
+            <RotateCcw className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setViewport((previous) => ({ ...previous, x: 0, y: 0, scale: 1 }))}
+            className={COMPACT_ICON_BUTTON_CLASSES}
+            aria-label="Reset zoom"
+          >
+            <MapIcon className="h-4 w-4" />
+          </Button>
+          <Button variant={declutterMode ? 'default' : 'outline'} size="sm" onClick={() => setDeclutterMode(!declutterMode)} className={COMPACT_ICON_BUTTON_CLASSES} aria-label="Toggle decluttered view" aria-pressed={declutterMode}>
+            <Filter className="h-4 w-4" />
+          </Button>
+          <Button variant={focusMode ? 'default' : 'outline'} size="sm" onClick={() => setFocusMode(!focusMode)} className={COMPACT_ICON_BUTTON_CLASSES} aria-label="Toggle focus mode" aria-pressed={focusMode}>
+            <Focus className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const densities: BubbleDensity[] = ['low', 'medium', 'high'];
+              const current = densities.indexOf(bubbleDensity);
+              setBubbleDensity(densities[(current + 1) % densities.length]);
+            }}
+            className={COMPACT_ICON_BUTTON_CLASSES}
+            aria-label={`Change bubble density. Current density: ${bubbleDensity}`}
+          >
+            <Layers className="h-4 w-4" />
+          </Button>
+        </div>
+      </details>
+      )}
 
       {/* User-controlled, transient readiness context. */}
+      {compactControls && (
+      <details
+        data-panel
+        className="absolute left-20 top-4 z-30 rounded-md border bg-card/95 text-card-foreground shadow-sm backdrop-blur-sm"
+      >
+        <summary className="flex min-h-11 cursor-pointer select-none items-center px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          Right now
+        </summary>
+        <div
+          className="absolute left-0 top-14 flex w-56 flex-wrap items-end gap-2 rounded-md border bg-card/95 p-2 shadow-lg backdrop-blur-sm"
+          role="group"
+          aria-label="Current readiness context"
+        >
+          <ReadinessContextFields
+            currentEnergy={currentEnergy}
+            availableMinutes={availableMinutes}
+            onEnergyChange={setCurrentEnergy}
+            onAvailableMinutesChange={setAvailableMinutes}
+          />
+        </div>
+      </details>
+      )}
+      {!compactControls && (
       <div
-        className="absolute left-4 top-32 z-20 flex flex-wrap items-end gap-2 rounded-md border bg-card/90 p-2 text-card-foreground shadow-sm backdrop-blur-sm sm:top-16"
+        className="absolute left-4 top-16 z-20 flex flex-wrap items-end gap-2 rounded-md border bg-card/90 p-2 text-card-foreground shadow-sm backdrop-blur-sm"
         role="group"
         aria-label="Current readiness context"
       >
         <span className="self-center text-xs font-medium">Right now</span>
-        <label className="flex flex-col gap-1 text-xs">
-          <span>Energy</span>
-          <select
-            aria-label="Current energy"
-            value={currentEnergy ?? ''}
-            onChange={(event) => {
-              const value = event.target.value;
-              setCurrentEnergy(value === '' ? undefined : value as CurrentEnergy);
-            }}
-            className="h-11 rounded border bg-background px-2 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-8"
-          >
-            <option value="">Not set</option>
-            <option value="low">Low</option>
-            <option value="medium">Medium</option>
-            <option value="high">High</option>
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-xs">
-          <span>Time available</span>
-          <select
-            aria-label="Available time"
-            value={availableMinutes ?? ''}
-            onChange={(event) => {
-              const value = event.target.value;
-              setAvailableMinutes(value === '' ? undefined : Number(value));
-            }}
-            className="h-11 rounded border bg-background px-2 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:h-8"
-          >
-            <option value="">Not set</option>
-            <option value="10">10 minutes</option>
-            <option value="30">30 minutes</option>
-            <option value="60">1 hour</option>
-            <option value="120">2 hours</option>
-          </select>
-        </label>
-        <p
-          data-testid="keyboard-move-instructions"
-          className="hidden max-w-40 self-center text-xs text-muted-foreground sm:block"
-        >
-          Keyboard: focus a bubble, then use arrow keys to move it. Hold Shift
-          for precise movement.
-        </p>
+        <ReadinessContextFields
+          currentEnergy={currentEnergy}
+          availableMinutes={availableMinutes}
+          onEnergyChange={setCurrentEnergy}
+          onAvailableMinutesChange={setAvailableMinutes}
+          showKeyboardHelp
+        />
       </div>
+      )}
 
       {/* Declutter & Focus controls */}
+      {!compactControls && (
       <div
         data-testid="adaptive-mode-controls"
-        className="absolute left-4 top-[4.5rem] z-10 flex gap-2 sm:left-auto sm:right-4 sm:top-4"
+        className="absolute right-4 top-4 z-10 flex gap-2"
       >
         <Button
           variant={declutterMode ? "default" : "outline"}
@@ -869,9 +1369,11 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
           <Layers className="h-4 w-4" />
         </Button>
       </div>
+      )}
 
       {/* Status indicators */}
-      <div className="absolute bottom-6 left-6 flex gap-2 z-30">
+      {!compactControls && (
+      <div data-shell-control="adaptive-status" className="absolute bottom-6 left-6 z-30 flex max-w-[calc(100%-2rem)] flex-wrap gap-2">
         {declutterMode && (
           <Badge variant="secondary" className="bg-card/80 backdrop-blur-sm">
             Decluttered
@@ -906,14 +1408,16 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
           </Badge>
         )}
       </div>
+      )}
 
       <AdaptiveTaskNavigator
         projections={adaptiveProjections}
         onTaskSelect={handleTaskSelect}
+        compact={compactControls}
       />
 
       {/* Performance Stats (Development) */}
-      {process.env.NODE_ENV === 'development' && (
+      {process.env.NODE_ENV === 'development' && !compactControls && (
         <div className="absolute bottom-20 right-4 text-xs text-muted-foreground bg-card/80 
                        backdrop-blur px-2 py-1 rounded border">
           Rendering: {nodes.length}/{adaptiveProjections.length} tasks ({filteredBubbles.length} visible)
@@ -1019,7 +1523,7 @@ function IridescentBubble({
   return (
     <button
       type="button"
-      className="rounded-full bg-transparent p-0 text-inherit focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background"
+      className="rounded-full bg-transparent !p-0 text-inherit focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background"
       aria-label={semantics.accessibleSummary}
       aria-pressed={selected}
       data-adaptive-bubble
@@ -1131,12 +1635,10 @@ function IridescentBubble({
       </div>
       {label && (
         <div
-          className="pointer-events-none"
+          className="pointer-events-none mt-1 rounded bg-card/95 px-1.5 py-0.5 text-center text-xs font-medium text-card-foreground shadow-sm"
           style={{
-            textAlign: 'center',
-            fontSize: 12,
-            color: 'rgba(255,255,255,.85)',
-            marginTop: 4
+            maxWidth: Math.max(96, r * 2.5),
+            marginInline: 'auto',
           }}
         >
           {label}

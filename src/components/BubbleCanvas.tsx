@@ -55,6 +55,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
   const isMobile = useIsMobile();
   const { toast } = useToast();
   const { getLODConfig, setDragState, setMultiSelectState } = useLODSystem();
+  const mergeThreshold = currentTheme?.behavior?.mergeThreshold ?? 0.1;
   
   // Initialize micro-celebrations
   useMicroCelebrations();
@@ -95,8 +96,8 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
       const canvasRect = canvasRef.current?.getBoundingClientRect();
       if (!canvasRect) return { x: bubbleX, y: bubbleY };
       
-      const screenX = canvasRect.left + (bubbleX + panZoomState.x) * panZoomState.scale + canvasRect.width / 2;
-      const screenY = canvasRect.top + (bubbleY + panZoomState.y) * panZoomState.scale + canvasRect.height / 2;
+      const screenX = canvasRect.left + (canvasRect.width / 2) + panZoomState.x + (bubbleX * panZoomState.scale);
+      const screenY = canvasRect.top + (canvasRect.height / 2) + panZoomState.y + (bubbleY * panZoomState.scale);
       
       return { x: screenX, y: screenY };
     }
@@ -190,6 +191,12 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
     };
 
     updateCanvasSize();
+    const resizeObserver = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(updateCanvasSize);
+    if (canvasRef.current) {
+      resizeObserver?.observe(canvasRef.current);
+    }
     window.addEventListener('resize', updateCanvasSize);
     
     // Setup global keyboard handler for spacebar
@@ -210,6 +217,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
     
     return () => {
       window.removeEventListener('resize', updateCanvasSize);
+      resizeObserver?.disconnect();
       cleanupKeyboard();
       stopAnimation(floatStep);
     };
@@ -226,7 +234,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
       const collision = checkBubblesOverlapping(
         draggedBubble, 
         otherBubble, 
-        currentTheme?.behavior?.mergeThreshold || 0.1
+        mergeThreshold
       );
       
       if (collision.isOverlapping) {
@@ -238,8 +246,8 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
         const canvasRect = canvasRef.current?.getBoundingClientRect();
         
         if (canvasRect) {
-          const screenX = canvasRect.left + (midpoint.x + panZoomState.x) * panZoomState.scale + canvasRect.width / 2;
-          const screenY = canvasRect.top + (midpoint.y + panZoomState.y) * panZoomState.scale + canvasRect.height / 2;
+          const screenX = canvasRect.left + (canvasRect.width / 2) + panZoomState.x + (midpoint.x * panZoomState.scale);
+          const screenY = canvasRect.top + (canvasRect.height / 2) + panZoomState.y + (midpoint.y * panZoomState.scale);
           
           setMergePopoverPosition({ x: screenX, y: screenY });
           setShowMergePopover(true);
@@ -247,7 +255,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
         break;
       }
     }
-  }, [bubbles, currentTheme?.behavior?.mergeThreshold || 0.1, setMergeCandidate, panZoomState]);
+  }, [bubbles, mergeThreshold, setMergeCandidate, panZoomState]);
 
   // Handle merge confirmation
   const handleMergeConfirm = useCallback(() => {
@@ -365,8 +373,8 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
 
     // Viewport culling
     const visibleBubbles = filteredBubbles.filter(bubble => {
-      const bubbleScreenX = (bubble.x + panZoomState.x) * panZoomState.scale + canvasSize.width / 2;
-      const bubbleScreenY = (bubble.y + panZoomState.y) * panZoomState.scale + canvasSize.height / 2;
+      const bubbleScreenX = (canvasSize.width / 2) + panZoomState.x + (bubble.x * panZoomState.scale);
+      const bubbleScreenY = (canvasSize.height / 2) + panZoomState.y + (bubble.y * panZoomState.scale);
       const bubbleSize = Math.max(60 * bubble.size * panZoomState.scale, 20);
       
       return bubbleScreenX + bubbleSize > 0 && 
@@ -383,8 +391,8 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
       const unselected = visibleBubbles.filter(bubble => !selectedBubbles.has(bubble.id));
       
       // Sort unselected by distance from viewport center
-      const centerX = -panZoomState.x;
-      const centerY = -panZoomState.y;
+      const centerX = -panZoomState.x / panZoomState.scale;
+      const centerY = -panZoomState.y / panZoomState.scale;
       
       unselected.sort((a, b) => {
         const distA = Math.sqrt((a.x - centerX) ** 2 + (a.y - centerY) ** 2);
@@ -445,8 +453,11 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
     const centerX = (bounds.minX + bounds.maxX) / 2;
     const centerY = (bounds.minY + bounds.maxY) / 2;
 
-    centerOnPoint({ x: centerX, y: centerY });
-  }, [bubbles, centerOnPoint]);
+    centerOnPoint({
+      x: (canvasSize.width / 2) + centerX,
+      y: (canvasSize.height / 2) + centerY,
+    });
+  }, [bubbles, canvasSize.height, canvasSize.width, centerOnPoint]);
 
   // Auto-center on first load
   useEffect(() => {
@@ -478,11 +489,17 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
         onTouchEnd={onTouchEnd}
         style={{
           cursor,
-          transform: `translate(${panZoomState.x}px, ${panZoomState.y}px) scale(${panZoomState.scale})`,
-          transformOrigin: 'center',
           touchAction: 'none'
         }}
       >
+        <div
+          data-testid="default-bubble-world-layer"
+          className="absolute inset-0"
+          style={{
+            transform: `translate(${panZoomState.x}px, ${panZoomState.y}px) scale(${panZoomState.scale})`,
+            transformOrigin: 'center',
+          }}
+        >
         {/* Universe Background Grid */}
         <div 
           className="absolute inset-0 opacity-10"
@@ -491,7 +508,6 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
               radial-gradient(circle at 1px 1px, hsl(var(--accent-void)) 1px, transparent 0)
             `,
             backgroundSize: '50px 50px',
-            transform: `translate(${panZoomState.x % 50}px, ${panZoomState.y % 50}px)`,
           }}
         />
         
@@ -507,8 +523,8 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
               data-bubble
               style={{
                 position: 'absolute',
-                left: bubble.x,
-                top: bubble.y,
+                left: (canvasSize.width / 2) + bubble.x,
+                top: (canvasSize.height / 2) + bubble.y,
                 transform: 'translate(-50%, -50%) translateY(var(--float-y, 0px))',
               }}
               className={`${!settings.reducedMotion ? 'float-motion' : ''}`}
@@ -544,6 +560,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
             onKeepSeparate={handleMergeCancel}
           />
         )}
+        </div>
       </div>
 
 
@@ -555,6 +572,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
           onClick={zoomIn}
           className="bg-card/80 backdrop-blur-sm"
           title="Zoom in"
+          aria-label="Zoom in"
         >
           <ZoomIn className="h-4 w-4" />
         </Button>
@@ -564,6 +582,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
           onClick={zoomOut}
           className="bg-card/80 backdrop-blur-sm"
           title="Zoom out"
+          aria-label="Zoom out"
         >
           <ZoomOut className="h-4 w-4" />
         </Button>
@@ -573,6 +592,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
           onClick={centerOnBubbles}
           className="bg-card/80 backdrop-blur-sm"
           title="Center on bubbles"
+          aria-label="Center on bubbles"
         >
           <RotateCcw className="h-4 w-4" />
         </Button>
@@ -582,6 +602,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
           onClick={resetZoom}
           className="bg-card/80 backdrop-blur-sm"
           title="Reset zoom to 1:1"
+          aria-label="Reset zoom"
         >
           <Map className="h-4 w-4" />
         </Button>
@@ -595,6 +616,8 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
           size="sm"
           onClick={() => setDeclutterMode(!declutterMode)}
           className="bg-card/80 backdrop-blur-sm"
+          aria-label="Toggle decluttered view"
+          aria-pressed={declutterMode}
         >
           <Filter className="h-4 w-4" />
         </Button>
@@ -603,6 +626,8 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
           size="sm"
           onClick={() => setFocusMode(!focusMode)}
           className="bg-card/80 backdrop-blur-sm"
+          aria-label="Toggle focus mode"
+          aria-pressed={focusMode}
         >
           <Focus className="h-4 w-4" />
         </Button>
@@ -615,6 +640,7 @@ function DefaultBubbleCanvas({ onBubbleSelect, onBubbleEdit, className }: Bubble
             setBubbleDensity(densities[(current + 1) % densities.length]);
           }}
           className="bg-card/80 backdrop-blur-sm"
+          aria-label={`Change bubble density. Current density: ${bubbleDensity}`}
         >
           <Layers className="h-4 w-4" />
         </Button>

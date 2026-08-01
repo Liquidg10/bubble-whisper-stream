@@ -14,13 +14,15 @@ import { voiceRouter, IntentResult } from '@/intent/voiceRouter';
 interface VoiceIntentCaptureProps {
   onBubbleCreated?: (bubble: Bubble) => void;
   className?: string;
+  compact?: boolean;
 }
 
 const DEBUG = localStorage.getItem('DEBUG') === 'true';
 
 export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
-  onBubbleCreated, 
-  className 
+  onBubbleCreated,
+  className,
+  compact = false,
 }) => {
   const { toast } = useToast();
   const { addBubble, settings } = useBubbleStore();
@@ -367,8 +369,12 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
     return 'default';
   };
 
+  const showCompactPanel = isRecording
+    || isProcessing
+    || awaitingConfirmation;
+
   return (
-    <div className={`flex flex-col items-center gap-3 ${className}`}>
+    <div className={`relative flex flex-col items-center gap-3 ${className ?? ''}`}>
       {/* Main capture button */}
       <Button
         size="lg"
@@ -391,8 +397,12 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
       </Button>
       
       {/* Status and controls */}
-      <div className="flex flex-col items-center gap-2">
-        <span className="text-xs text-muted-foreground font-medium">
+      <div
+        className={compact
+          ? `${showCompactPanel ? 'flex' : 'hidden'} absolute bottom-20 right-0 w-72 flex-col items-center gap-2 rounded-lg border bg-card/95 p-3 text-card-foreground shadow-lg backdrop-blur-sm`
+          : 'flex flex-col items-center gap-2'}
+      >
+        <span className="text-xs text-muted-foreground font-medium" aria-live="polite">
           {getStatusText()}
         </span>
         
@@ -462,6 +472,11 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
           </Badge>
         )}
       </div>
+      {compact && !showCompactPanel && (
+        <span className="sr-only" aria-live="polite">
+          {getStatusText()}
+        </span>
+      )}
     </div>
   );
 };
