@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import { Bubble, Tag } from '@/types/bubble';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Slider } from '@/components/ui/slider';
@@ -19,6 +20,7 @@ import { isFeatureEnabled } from '@/config/flags';
 import { AccessibleConfirmDialog } from '@/components/AccessibleConfirmDialog';
 import { LifeConnectionsEditor } from '@/components/LifeConnectionsEditor';
 import { bubbleToTask, withBubbleDomainLinks } from '@/adapters/taskAdapter';
+import { useTaskStore } from '@/stores/taskStore';
 
 interface BubbleDetailProps {
   bubble: Bubble | null;
@@ -31,7 +33,8 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
   isOpen,
   onClose,
 }) => {
-  const { updateBubble, updateBubbleStrict, deleteBubble, addReminder } = useBubbleStore();
+  const { updateBubbleStrict, deleteBubble, addReminder } = useBubbleStore();
+  const updateTask = useTaskStore(state => state.updateTask);
   const [editedBubble, setEditedBubble] = useState<Bubble | null>(null);
   const [showTagPicker, setShowTagPicker] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -45,48 +48,127 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [showOutliner, setShowOutliner] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [completionError, setCompletionError] = useState<string | null>(null);
+  const [completionStatus, setCompletionStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [isAuxiliarySaving, setIsAuxiliarySaving] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
+  const skipNextAutoSave = React.useRef(false);
+  const writeQueueRef = React.useRef<Promise<void>>(Promise.resolve());
+  const isMountedRef = React.useRef(true);
+  const editedBubbleRef = React.useRef<Bubble | null>(null);
+  const dirtyBubbleRef = React.useRef<Bubble | null>(null);
+  const loadedBubbleIdRef = React.useRef<string | null>(null);
+  const wasOpenRef = React.useRef(false);
   const { toast } = useToast();
 
+  const enqueueWrite = React.useCallback(<T,>(operation: () => Promise<T>): Promise<T> => {
+    const result = writeQueueRef.current.then(operation, operation);
+    writeQueueRef.current = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }, []);
+
   // Auto-save debounced function
-  const debouncedSave = useCallback(
-    debounce(async (bubbleToSave: Bubble) => {
+  const debouncedSave = React.useMemo(
+    () => debounce(async (bubbleToSave: Bubble) => {
       try {
-        await updateBubbleStrict(bubbleToSave);
-        setSaveError(null);
-        toast({ title: "Changes saved", duration: 1000 });
+        await enqueueWrite(() => updateBubbleStrict(bubbleToSave));
+        if (dirtyBubbleRef.current === bubbleToSave) {
+          dirtyBubbleRef.current = null;
+        }
+        if (isMountedRef.current) {
+          setSaveError(null);
+          toast({ title: "Changes saved", duration: 1000 });
+        }
+        return true;
       } catch {
         const message = 'Changes are still here, but could not be saved. Please try again.';
-        setSaveError(message);
-        toast({ title: "Couldn't save changes", description: message, variant: 'destructive' });
+        if (isMountedRef.current) {
+          setSaveError(message);
+          toast({ title: "Couldn't save changes", description: message, variant: 'destructive' });
+        }
+        return false;
       }
     }, 1000),
-    [updateBubbleStrict, toast]
+    [enqueueWrite, updateBubbleStrict, toast]
   );
 
   React.useEffect(() => {
-    if (bubble) {
+    const shouldLoad = Boolean(
+      bubble
+      && isOpen
+      && (!wasOpenRef.current || loadedBubbleIdRef.current !== bubble.id),
+    );
+    wasOpenRef.current = isOpen;
+
+    if (bubble && shouldLoad) {
+      loadedBubbleIdRef.current = bubble.id;
+      skipNextAutoSave.current = true;
+      dirtyBubbleRef.current = null;
       setEditedBubble({ ...bubble });
       setSaveError(null);
+      setCompletionError(null);
+      setCompletionStatus('idle');
+      setIsAuxiliarySaving(false);
+      setIsClosing(false);
     }
-  }, [bubble]);
+  }, [bubble, isOpen]);
+
+  React.useEffect(() => {
+    editedBubbleRef.current = editedBubble;
+  }, [editedBubble]);
 
   // Auto-save when editedBubble changes
   React.useEffect(() => {
     if (editedBubble && bubble && editedBubble !== bubble) {
+      if (skipNextAutoSave.current) {
+        skipNextAutoSave.current = false;
+        return;
+      }
+      dirtyBubbleRef.current = editedBubble;
       debouncedSave(editedBubble);
     }
   }, [editedBubble, bubble, debouncedSave]);
+
+  React.useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      // Route changes can unmount the modal without using its Done button. Flush
+      // the last local edit so that a fast close never silently drops it.
+      if (dirtyBubbleRef.current) debouncedSave(dirtyBubbleRef.current);
+      void debouncedSave.flush();
+    };
+  }, [debouncedSave]);
 
   if (!bubble || !editedBubble) return null;
 
   const colorScheme = getBubbleColorScheme(bubble.type, bubble.size);
   const typeIcon = getBubbleTypeIcon(bubble.type);
   const canonicalTask = bubbleToTask(editedBubble);
+  const isEditorBusy = completionStatus === 'saving' || isAuxiliarySaving || isClosing;
 
   const handleDelete = async () => {
+    debouncedSave.cancel();
+    await writeQueueRef.current;
     await deleteBubble(bubble.id);
     onClose();
     hapticsService.trigger('warning');
+  };
+
+  const handleClose = async () => {
+    if (isClosing) return;
+    setIsClosing(true);
+    if (dirtyBubbleRef.current) debouncedSave(dirtyBubbleRef.current);
+    const didSave = await debouncedSave.flush();
+    await writeQueueRef.current;
+    if (didSave === false || dirtyBubbleRef.current) {
+      setIsClosing(false);
+      return;
+    }
+    onClose();
   };
 
   const handlePlayTTS = async () => {
@@ -106,6 +188,8 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
   };
 
   const handleAddReminder = async () => {
+    if (isEditorBusy) return;
+    setIsAuxiliarySaving(true);
     const reminderTime = Date.now() + (60 * 60 * 1000); // 1 hour from now
     const reminder = {
       id: crypto.randomUUID(),
@@ -116,9 +200,108 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
       snoozes: [],
     };
     
-    await addReminder(reminder);
-    setEditedBubble({ ...editedBubble, reminderId: reminder.id });
-    hapticsService.success();
+    try {
+      await addReminder(reminder);
+      const latestBubble = editedBubbleRef.current;
+      if (!latestBubble) throw new Error(`Bubble ${bubble.id} is no longer available`);
+      const updatedBubble = { ...latestBubble, reminderId: reminder.id, updatedAt: Date.now() };
+      await enqueueWrite(() => updateBubbleStrict(updatedBubble));
+      dirtyBubbleRef.current = null;
+      skipNextAutoSave.current = true;
+      setEditedBubble(updatedBubble);
+      setSaveError(null);
+      hapticsService.success();
+    } catch (error) {
+      console.error('Failed to add reminder:', error);
+      const message = 'Reminder could not be saved. Please try again.';
+      setSaveError(message);
+      toast({ title: 'Reminder not saved', description: message, variant: 'destructive' });
+    } finally {
+      setIsAuxiliarySaving(false);
+    }
+  };
+
+  const handleReceiptUpdate = async (receiptBubble: Bubble) => {
+    const latestBubble = editedBubbleRef.current;
+    if (!latestBubble) throw new Error(`Bubble ${receiptBubble.id} is no longer available`);
+
+    const tagByName = new Map<string, Tag>();
+    for (const tag of [...latestBubble.tags, ...receiptBubble.tags]) {
+      tagByName.set(tag.name.toLocaleLowerCase(), tag);
+    }
+
+    const updatedBubble: Bubble = {
+      ...latestBubble,
+      tags: [...tagByName.values()],
+      metadata: {
+        ...latestBubble.metadata,
+        finance: receiptBubble.metadata?.finance,
+      },
+      updatedAt: Date.now(),
+    };
+
+    try {
+      await enqueueWrite(() => updateBubbleStrict(updatedBubble));
+      dirtyBubbleRef.current = null;
+      skipNextAutoSave.current = true;
+      setEditedBubble(updatedBubble);
+      setSaveError(null);
+    } catch (error) {
+      const message = 'Receipt details could not be saved. Please try again.';
+      setSaveError(message);
+      throw error;
+    }
+  };
+
+  const handleCompletionChange = async (checked: boolean | 'indeterminate') => {
+    if (checked === 'indeterminate' || isEditorBusy) return;
+
+    // Cancel the detail autosave queued when the modal opened. Completion is
+    // persisted below through TaskStore's strict canonical write, including
+    // any edits currently visible in the modal.
+    const completionSnapshot = editedBubble;
+    debouncedSave.cancel();
+    setCompletionStatus('saving');
+    setSaveError(null);
+    setCompletionError(null);
+    try {
+      await enqueueWrite(() => updateTask(bubble.id, {
+        ...bubbleToTask(completionSnapshot),
+        completed: checked,
+      }));
+
+      const persistedBubble = useBubbleStore
+        .getState()
+        .bubbles
+        .find(candidate => candidate.id === bubble.id);
+
+      if (!persistedBubble) {
+        throw new Error(`Task ${bubble.id} was not available after completion update`);
+      }
+
+      skipNextAutoSave.current = true;
+      dirtyBubbleRef.current = null;
+      setEditedBubble({ ...persistedBubble });
+      setCompletionStatus('saved');
+      setSaveError(null);
+      setCompletionError(null);
+      hapticsService.success();
+    } catch (error) {
+      console.error('Failed to update task completion:', error);
+      const message = 'Completion could not be saved. Your task is still here; please try again.';
+      setCompletionStatus('error');
+      setCompletionError(message);
+      dirtyBubbleRef.current = completionSnapshot;
+      toast({
+        title: 'Completion not saved',
+        description: message,
+        variant: 'destructive',
+      });
+      // The completion write included any pending editor changes. If that write
+      // fails, retry those changes without changing completion so they are not
+      // stranded by the canceled debounce.
+      debouncedSave(completionSnapshot);
+    }
   };
 
   const formatDate = (timestamp: number) => {
@@ -137,7 +320,12 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open && !isEditorBusy) void handleClose();
+      }}
+    >
       <DialogContent 
         className="w-[calc(100vw-2rem)] max-w-md max-h-[90vh] overflow-x-hidden overflow-y-auto [&>*]:min-w-0"
         onEscapeKeyDown={(event) => {
@@ -183,10 +371,19 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4">
+        <fieldset
+          disabled={isEditorBusy}
+          aria-busy={isEditorBusy}
+          className="min-w-0 space-y-4 border-0 p-0"
+        >
           {saveError && (
             <p role="alert" className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
               {saveError}
+            </p>
+          )}
+          {completionError && (
+            <p role="alert" className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+              {completionError}
             </p>
           )}
 
@@ -214,11 +411,9 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
           {/* Receipt Scanner - Only for photo bubbles */}
           {bubble.imageUri && (
             <ReceiptScanner
-              bubble={bubble}
-              onUpdate={(updatedBubble) => {
-                setEditedBubble(updatedBubble);
-                updateBubble(updatedBubble);
-              }}
+              bubble={editedBubble}
+              onUpdate={handleReceiptUpdate}
+              onBusyChange={setIsAuxiliarySaving}
             />
           )}
 
@@ -238,6 +433,48 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
               rows={4}
             />
           </div>
+
+          {/* Canonical task completion */}
+          {bubble.type === 'Task' && (
+            <div
+              className="flex min-h-11 items-center gap-3 rounded-lg border px-3"
+              style={{ borderColor: colorScheme.border }}
+            >
+              <Checkbox
+                id={`task-completed-${bubble.id}`}
+                checked={editedBubble.completed ?? false}
+                disabled={isEditorBusy}
+                onCheckedChange={handleCompletionChange}
+                className="h-5 w-5"
+                aria-label="Completed"
+                aria-describedby={`task-completion-help-${bubble.id} task-completion-status-${bubble.id}`}
+              />
+              <label
+                htmlFor={`task-completed-${bubble.id}`}
+                className="flex min-h-11 flex-1 cursor-pointer flex-col justify-center py-2"
+              >
+                <span className="text-sm font-medium" style={{ color: colorScheme.text }}>
+                  Completed
+                </span>
+                <span
+                  id={`task-completion-help-${bubble.id}`}
+                  className="text-xs"
+                  style={{ color: `${colorScheme.text}99` }}
+                >
+                  Updates this task in every view.
+                </span>
+              </label>
+              <span
+                id={`task-completion-status-${bubble.id}`}
+                className="sr-only"
+                aria-live="polite"
+              >
+                {completionStatus === 'saving' && 'Saving completion status'}
+                {completionStatus === 'saved' && 'Completion status saved'}
+                {completionStatus === 'error' && 'Completion status was not saved'}
+              </span>
+            </div>
+          )}
 
           {/* Size/Priority */}
           <div>
@@ -330,7 +567,7 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
           {/* Actions */}
           <div className="flex flex-wrap gap-2 pt-4 border-t" style={{ borderTopColor: colorScheme.border }}>
             <Button 
-              onClick={onClose} 
+              onClick={() => void handleClose()}
               className="flex-1"
               style={{ 
                 backgroundColor: colorScheme.accent,
@@ -377,7 +614,7 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
               <Trash2 className="h-4 w-4" />
             </Button>
           </div>
-        </div>
+        </fieldset>
 
         {showTagPicker && (
           <TagPicker
@@ -432,13 +669,54 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
 };
 
 // Debounce utility function
-function debounce<T extends (...args: any[]) => any>(
+type DebouncedFunction<T extends (...args: never[]) => Promise<boolean>> = ((
+  ...args: Parameters<T>
+) => void) & {
+  cancel: () => void;
+  flush: () => Promise<boolean | undefined>;
+};
+
+function debounce<T extends (...args: never[]) => Promise<boolean>>(
   func: T,
   wait: number
-): (...args: Parameters<T>) => void {
-  let timeout: NodeJS.Timeout;
-  return (...args: Parameters<T>) => {
-    clearTimeout(timeout);
-    timeout = setTimeout(() => func(...args), wait);
+): DebouncedFunction<T> {
+  let timeout: NodeJS.Timeout | undefined;
+  let pendingArgs: Parameters<T> | undefined;
+  let inFlight: Promise<boolean> | null = null;
+
+  const invoke = (): Promise<boolean | undefined> => {
+    if (!pendingArgs) return inFlight ?? Promise.resolve(undefined);
+
+    const args = pendingArgs;
+    pendingArgs = undefined;
+    timeout = undefined;
+    const operation = func(...args);
+    inFlight = operation;
+    void operation.finally(() => {
+      if (inFlight === operation) inFlight = null;
+    });
+    return operation;
   };
+
+  const debounced = (...args: Parameters<T>) => {
+    if (timeout) clearTimeout(timeout);
+    pendingArgs = args;
+    timeout = setTimeout(() => {
+      void invoke();
+    }, wait);
+  };
+
+  debounced.cancel = () => {
+    if (timeout) clearTimeout(timeout);
+    timeout = undefined;
+    pendingArgs = undefined;
+  };
+
+  debounced.flush = () => {
+    if (timeout) clearTimeout(timeout);
+    timeout = undefined;
+    return invoke();
+  };
+
+  return debounced;
 }

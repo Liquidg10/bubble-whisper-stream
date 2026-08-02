@@ -76,16 +76,10 @@ export default function MatrixView() {
       }
     });
     
-    await taskStore.updateTask(task.id, {
-      view: {
-        ...task.view,
-        matrix: {
-          urgency,
-          importance,
-          quadrant
-        }
-      }
-    });
+    // Persist the complete canonical task emitted by TaskCard/TaskDetail. Writing
+    // only the matrix projection here silently discarded completion and edits
+    // made through the live Matrix route.
+    await taskStore.updateTask(task.id, updatedTask);
     
     ViewBus.emit('task.moved', ViewBusHelpers.createTaskMovedEvent(
       task.id,

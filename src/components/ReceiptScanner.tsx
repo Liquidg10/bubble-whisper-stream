@@ -15,7 +15,8 @@ import { Bubble, FinanceMetadata } from '@/types/bubble';
 
 interface ReceiptScannerProps {
   bubble: Bubble;
-  onUpdate?: (updatedBubble: Bubble) => void;
+  onUpdate?: (updatedBubble: Bubble) => void | Promise<void>;
+  onBusyChange?: (busy: boolean) => void;
   className?: string;
 }
 
@@ -24,6 +25,7 @@ const DEBUG = localStorage.getItem('DEBUG') === 'true';
 export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   bubble,
   onUpdate,
+  onBusyChange,
   className
 }) => {
   const { updateBubble } = useBubbleStore();
@@ -68,6 +70,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
     if (!bubble.imageUri || !isFeatureActive || !isOCRAvailable) return;
     
     setIsScanning(true);
+    onBusyChange?.(true);
     setScanResult(null);
     
     try {
@@ -116,7 +119,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
       if (receiptData.confidence > 0.7) {
         await saveFinanceData(newFinanceData, true);
       }
-      
+
       toast({
         title: "Receipt Scanned",
         description: `Extracted data with ${Math.round(receiptData.confidence * 100)}% confidence`,
@@ -136,6 +139,7 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
       });
     } finally {
       setIsScanning(false);
+      onBusyChange?.(false);
     }
   };
 
@@ -179,8 +183,13 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
         console.log('💰 Receipt assigned to envelope:', selectedEnvelope);
       }
       
-      await updateBubble(updatedBubble);
-      onUpdate?.(updatedBubble);
+      if (onUpdate) {
+        // A parent editor can own serialization with its other full-Bubble
+        // writes. Falling back keeps the standalone developer surface working.
+        await onUpdate(updatedBubble);
+      } else {
+        await updateBubble(updatedBubble);
+      }
       
       if (DEBUG) {
         console.log('💾 Finance data saved:', data);
@@ -197,13 +206,18 @@ export const ReceiptScanner: React.FC<ReceiptScannerProps> = ({
   };
 
   const handleEditSave = async () => {
-    await saveFinanceData(financeData, !hasFinanceData);
-    setIsEditing(false);
-    
-    toast({
-      title: "Receipt Updated",
-      description: "Finance data saved successfully"
-    });
+    onBusyChange?.(true);
+    try {
+      await saveFinanceData(financeData, !hasFinanceData);
+      setIsEditing(false);
+
+      toast({
+        title: "Receipt Updated",
+        description: "Finance data saved successfully"
+      });
+    } finally {
+      onBusyChange?.(false);
+    }
   };
 
   const handleFieldChange = (field: keyof FinanceMetadata, value: string | number) => {

@@ -24,6 +24,7 @@ interface KanbanColumnProps {
   tasks: Task[];
   isDraggedOver: boolean;
   onTaskKeyboardMove: (taskId: TaskId, direction: 'up' | 'down' | 'left' | 'right') => void;
+  onTaskUpdate: (task: Task) => void | Promise<void>;
   onTaskSelect: (taskId: TaskId) => void;
   selectedTaskId: TaskId | null;
   onAddTask?: (columnId: string) => void;
@@ -37,6 +38,7 @@ export function KanbanColumn({
   tasks, 
   isDraggedOver, 
   onTaskKeyboardMove,
+  onTaskUpdate,
   onTaskSelect,
   selectedTaskId,
   onAddTask,
@@ -116,9 +118,7 @@ export function KanbanColumn({
                   viewConfig={TaskCardConfigs.kanban}
                   isSelected={selectedTaskId === task.id}
                   position={index}
-                  onUpdate={(updatedTask) => {
-                    // Handle task updates through parent view
-                  }}
+                  onUpdate={onTaskUpdate}
                   onKeyboardMove={onTaskKeyboardMove}
                    onSelect={onTaskSelect}
                    onOpenDetail={onOpenDetail}

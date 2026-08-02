@@ -63,14 +63,14 @@ export interface TaskCardProps {
   isFocused?: boolean;
   
   // Interaction handlers
-  onUpdate?: (task: Task) => void;
+  onUpdate?: (task: Task) => void | Promise<void>;
   onDelete?: (taskId: TaskId) => void;
   onSelect?: (taskId: TaskId) => void;
   onKeyboardMove?: (taskId: TaskId, direction: 'up' | 'down' | 'left' | 'right') => void;
   
   // View-specific handlers
   onEdit?: (taskId: TaskId) => void;
-  onComplete?: (taskId: TaskId, completed: boolean) => void;
+  onComplete?: (taskId: TaskId, completed: boolean) => void | Promise<void>;
   onPriorityChange?: (taskId: TaskId, priority: number) => void;
   onOpenDetail?: (task: Task) => void;
   
@@ -88,6 +88,11 @@ export function validateTask(task: Task): { isValid: boolean; sanitized: Task; i
   
   try {
     const sanitized: Task = {
+      // Preserve canonical fields that this defensive validator does not need
+      // to transform (readiness, energy fit, urgency, domain links, metadata,
+      // and view-specific extensions). Completion updates must never collapse
+      // a task back to the older, smaller card shape.
+      ...task,
       id: task?.id || `corrupted-${Date.now()}`,
       type: task?.type || 'task',
       title: typeof task?.title === 'string' ? task.title : '[Corrupted Title]',
@@ -243,7 +248,23 @@ export function TaskCard({
   
   // Auto-save state
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [isCompletionSaving, setIsCompletionSaving] = useState(false);
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout>();
+  const updateQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const latestTaskRef = useRef(task);
+
+  const enqueueUpdate = useCallback(<T,>(operation: () => Promise<T>): Promise<T> => {
+    const result = updateQueueRef.current.then(operation, operation);
+    updateQueueRef.current = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }, []);
+
+  useEffect(() => {
+    latestTaskRef.current = task;
+  }, [task]);
   
   // Refs for focus management
   const cardRef = useRef<HTMLDivElement>(null);
@@ -279,22 +300,26 @@ export function TaskCard({
       clearTimeout(autoSaveTimeoutRef.current);
     }
     
-    autoSaveTimeoutRef.current = setTimeout(() => {
-      if (hasUnsavedChanges && (editTitle !== task.title || editDescription !== task.description)) {
+    autoSaveTimeoutRef.current = setTimeout(async () => {
+      autoSaveTimeoutRef.current = undefined;
+      if (editTitle !== task.title || editDescription !== (task.description || '')) {
         try {
-          const updatedTask: Task = {
-            ...task,
-            title: editTitle.trim() || '[Untitled]',
-            description: editDescription.trim() || undefined,
-            updatedAt: Date.now()
-          };
-          
-          onUpdate?.(updatedTask);
+          const updatedTask = await enqueueUpdate(async () => {
+            const nextTask: Task = {
+              ...latestTaskRef.current,
+              title: editTitle.trim() || '[Untitled]',
+              description: editDescription.trim() || undefined,
+              updatedAt: Date.now()
+            };
+            await onUpdate?.(nextTask);
+            latestTaskRef.current = nextTask;
+            return nextTask;
+          });
           setHasUnsavedChanges(false);
           
           // Add to undo stack (if service available) - but only for actual changes
           try {
-            if (crossViewUndoService && typeof crossViewUndoService.addEntry === 'function' && hasUnsavedChanges) {
+            if (crossViewUndoService && typeof crossViewUndoService.addEntry === 'function') {
               crossViewUndoService.addEntry({
                 view: 'bubble',
                 type: 'edit',
@@ -316,7 +341,7 @@ export function TaskCard({
         }
       }
     }, 1000); // 1 second debounce
-  }, [hasUnsavedChanges, editTitle, editDescription, task, onUpdate, toast]);
+  }, [editTitle, editDescription, task, onUpdate, toast, enqueueUpdate]);
 
   // Trigger auto-save when content changes
   useEffect(() => {
@@ -352,6 +377,7 @@ export function TaskCard({
   // Event handlers
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     try {
+      if (isCompletionSaving) return;
       if (isEditing) {
         switch (e.key) {
           case 'Enter':
@@ -403,7 +429,7 @@ export function TaskCard({
       console.error('Keyboard event error:', error);
       setErrorState({ hasError: true, error: error as Error });
     }
-  }, [isEditing, task.id, task.title, task.description, onSelect, onKeyboardMove]);
+  }, [isCompletionSaving, isEditing, task.id, task.title, task.description, onSelect, onKeyboardMove]);
 
   const handleClick = useCallback((e: React.MouseEvent) => {
     try {
@@ -416,16 +442,37 @@ export function TaskCard({
     }
   }, [isEditing, onSelect, task.id]);
 
-  const handleComplete = useCallback(() => {
+  const handleComplete = useCallback(async () => {
+    if (isCompletionSaving) return;
+
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+      autoSaveTimeoutRef.current = undefined;
+    }
+
+    const hasPendingEdits = editTitle !== task.title || editDescription !== (task.description || '');
+    setIsCompletionSaving(true);
     try {
-      const updatedTask: Task = {
-        ...task,
-        completed: !task.completed,
-        updatedAt: Date.now()
-      };
-      
-      onUpdate?.(updatedTask);
-      onComplete?.(task.id, !task.completed);
+      // Any already-running title/description save completes first. The combined
+      // task snapshot then wins, so neither the edit nor completion can revert
+      // the other when persistence is slow.
+      const targetCompleted = !task.completed;
+      const updatedTask = await enqueueUpdate(async () => {
+        const nextTask: Task = {
+          ...latestTaskRef.current,
+          ...(hasPendingEdits ? {
+            title: editTitle.trim() || '[Untitled]',
+            description: editDescription.trim() || undefined,
+          } : {}),
+          completed: targetCompleted,
+          updatedAt: Date.now()
+        };
+        await onUpdate?.(nextTask);
+        await onComplete?.(task.id, targetCompleted);
+        latestTaskRef.current = nextTask;
+        return nextTask;
+      });
+      setHasUnsavedChanges(false);
       
       // Add to undo stack (if service available) - only for completion state changes
       try {
@@ -444,12 +491,18 @@ export function TaskCard({
     } catch (error) {
       console.error('Complete task error:', error);
       toast({
-        title: "Error",
-        description: "Failed to update task completion status",
+        title: "Completion not saved",
+        description: "Your task is unchanged. Please try again.",
         variant: "destructive"
       });
+      if (hasPendingEdits) {
+        setHasUnsavedChanges(true);
+        debouncedSave();
+      }
+    } finally {
+      setIsCompletionSaving(false);
     }
-  }, [task, onUpdate, onComplete, toast]);
+  }, [isCompletionSaving, editTitle, editDescription, task, onUpdate, onComplete, toast, enqueueUpdate, debouncedSave]);
 
   const handleDelete = useCallback(() => {
     try {
@@ -501,16 +554,20 @@ export function TaskCard({
     }
   }, [task, onDelete, toast]);
 
-  const handlePriorityChange = useCallback((newPriority: number) => {
+  const handlePriorityChange = useCallback(async (newPriority: number) => {
+    if (isCompletionSaving) return;
+
     try {
-      const updatedTask: Task = {
-        ...task,
-        priority: Math.max(0, Math.min(100, newPriority)),
-        updatedAt: Date.now()
-      };
-      
-      onUpdate?.(updatedTask);
-      onPriorityChange?.(task.id, newPriority);
+      await enqueueUpdate(async () => {
+        const updatedTask: Task = {
+          ...latestTaskRef.current,
+          priority: Math.max(0, Math.min(100, newPriority)),
+          updatedAt: Date.now()
+        };
+        await onUpdate?.(updatedTask);
+        onPriorityChange?.(task.id, newPriority);
+        latestTaskRef.current = updatedTask;
+      });
       
     } catch (error) {
       console.error('Priority change error:', error);
@@ -520,7 +577,35 @@ export function TaskCard({
         variant: "destructive"
       });
     }
-  }, [task, onUpdate, onPriorityChange, toast]);
+  }, [isCompletionSaving, task, onUpdate, onPriorityChange, toast, enqueueUpdate]);
+
+  const handleIntelligentTaskUpdate = useCallback(async (updatedTask: Task) => {
+    if (isCompletionSaving) return;
+
+    try {
+      await enqueueUpdate(async () => {
+        const currentTask = latestTaskRef.current;
+        const nextTask: Task = {
+          ...currentTask,
+          ...updatedTask,
+          // Intelligence actions do not own completion or priority. Preserve
+          // the latest values written by the card coordinator.
+          completed: currentTask.completed,
+          priority: currentTask.priority,
+          updatedAt: Date.now(),
+        };
+        await onUpdate?.(nextTask);
+        latestTaskRef.current = nextTask;
+      });
+    } catch (error) {
+      console.error('Intelligent task update error:', error);
+      toast({
+        title: "Update not saved",
+        description: "Your task is unchanged. Please try again.",
+        variant: "destructive"
+      });
+    }
+  }, [isCompletionSaving, onUpdate, toast, enqueueUpdate]);
 
   // Render error state
   if (errorState.hasError && !errorState.corrupted) {
@@ -577,15 +662,19 @@ export function TaskCard({
         )}
         style={{ ...style, ...dragStyle }}
         onClick={handleClick}
-        onDoubleClick={() => onOpenDetail?.(task)}
+        onDoubleClick={() => {
+          if (!isCompletionSaving) onOpenDetail?.(task);
+        }}
         onKeyDown={handleKeyDown}
         tabIndex={0}
         role="button"
         aria-label={`Task: ${task.title}`}
+        aria-busy={isCompletionSaving}
       >
         <div className="flex items-center gap-1 p-2">
           <Checkbox 
             checked={task.completed} 
+            disabled={isCompletionSaving}
             onCheckedChange={handleComplete}
             className="flex-shrink-0"
           />
@@ -629,17 +718,21 @@ export function TaskCard({
       tabIndex={0}
       role="button"
       aria-label={`Task: ${task.title}. Press Enter to select, E to edit.`}
+      aria-busy={isCompletionSaving}
       onKeyDown={handleKeyDown}
       onClick={handleClick}
-      onDoubleClick={() => onOpenDetail?.(task)}
+      onDoubleClick={() => {
+        if (!isCompletionSaving) onOpenDetail?.(task);
+      }}
     >
       <CardContent className="p-3">
         <div className="flex items-start gap-2">
           {/* Drag Handle */}
           {viewConfig.showDragHandle && (
             <button
-              {...sortableProps?.attributes}
-              {...sortableProps?.listeners}
+              {...(isCompletionSaving ? {} : sortableProps?.attributes)}
+              {...(isCompletionSaving ? {} : sortableProps?.listeners)}
+              disabled={isCompletionSaving}
               className={cn(
                 'opacity-0 group-hover:opacity-100 transition-opacity touch-manipulation',
                 'flex items-center justify-center w-6 h-6 rounded hover:bg-muted',
@@ -657,6 +750,7 @@ export function TaskCard({
             <div className="flex items-center gap-2 mb-2">
               <Checkbox
                 checked={task.completed}
+                disabled={isCompletionSaving}
                 onCheckedChange={handleComplete}
                 className="data-[state=checked]:bg-success data-[state=checked]:border-success"
                 aria-label={`Mark task ${task.completed ? 'incomplete' : 'complete'}`}
@@ -666,6 +760,7 @@ export function TaskCard({
                 <Input
                   ref={titleInputRef}
                   value={editTitle}
+                  disabled={isCompletionSaving}
                   onChange={(e) => setEditTitle(e.target.value)}
                   className="text-sm font-medium"
                   placeholder="Task title..."
@@ -687,6 +782,7 @@ export function TaskCard({
                 {isEditing ? (
                   <Textarea
                     value={editDescription}
+                    disabled={isCompletionSaving}
                     onChange={(e) => setEditDescription(e.target.value)}
                     className="text-xs resize-none"
                     placeholder="Task description..."
@@ -744,6 +840,7 @@ export function TaskCard({
                 <Button
                   variant="ghost"
                   size="sm"
+                  disabled={isCompletionSaving}
                   className={cn(
                     'h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity',
                     'focus:opacity-100'
@@ -793,13 +890,16 @@ export function TaskCard({
 
         {/* Intelligent Task Integration */}
         {!viewConfig.compact && (
-          <div className="mt-3 pt-3 border-t border-border/50">
+          <fieldset
+            disabled={isCompletionSaving}
+            className="mt-3 border-0 border-t border-border/50 p-0 pt-3"
+          >
             <IntelligentTaskIntegration 
               task={task}
-              onTaskUpdate={onUpdate}
+              onTaskUpdate={handleIntelligentTaskUpdate}
               compact={viewConfig.compact}
             />
-          </div>
+          </fieldset>
         )}
       </CardContent>
     </Card>
