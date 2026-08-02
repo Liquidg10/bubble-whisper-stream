@@ -87,7 +87,10 @@ class SelfModelV2Service {
       version: 1
     };
     
-    await this.updateSelfModel(defaultModel);
+    // First-run bootstrap is not a user change. Persist it directly so the
+    // audited update path cannot recurse back through getSelfModel().
+    const createTransaction = this.db!.transaction(['self_model_v2'], 'readwrite');
+    await this.promisifyRequest(createTransaction.objectStore('self_model_v2').put(defaultModel));
     return defaultModel;
   }
 

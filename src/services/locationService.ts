@@ -35,41 +35,54 @@ interface LocationServiceEvents {
 }
 
 class LocationService {
-  private apiKey: string | null = null;
   private lastKnownLocation: LocationContext | null = null;
   private eventListeners: Map<keyof LocationServiceEvents, Function[]> = new Map();
   private watchId: number | null = null;
   private placesService: any = null; // Use any for now to avoid google types
+  private googleMapsLoadPromise: Promise<boolean> | null = null;
 
-  constructor() {
-    this.initializeGoogleMaps();
-  }
-
-  private async initializeGoogleMaps() {
+  private async initializeGoogleMaps(): Promise<boolean> {
     // Check if Google Maps is already loaded
-    if (typeof window !== 'undefined' && (window as any).google?.maps) {
+    if (typeof window !== 'undefined' && (window as any).google?.maps?.places?.PlacesService) {
       this.initializePlacesService();
-      return;
+      return this.placesService !== null;
     }
 
-    // Load Google Maps API
-    try {
-      await this.loadGoogleMapsScript();
-      this.initializePlacesService();
-    } catch (error) {
-      console.warn('Failed to load Google Maps API:', error);
+    const apiKey = this.getApiKey();
+    if (!apiKey || typeof window === 'undefined') {
+      return false;
     }
+
+    if (!this.googleMapsLoadPromise) {
+      this.googleMapsLoadPromise = this.loadGoogleMapsScript(apiKey)
+        .then(() => {
+          this.initializePlacesService();
+          return this.placesService !== null;
+        })
+        .catch((error) => {
+          console.warn('Failed to load Google Maps API:', error);
+          return false;
+        });
+    }
+
+    const loadPromise = this.googleMapsLoadPromise;
+    const loaded = await loadPromise;
+    if (!loaded && this.googleMapsLoadPromise === loadPromise) {
+      this.googleMapsLoadPromise = null;
+    }
+    return loaded;
   }
 
-  private loadGoogleMapsScript(): Promise<void> {
+  private loadGoogleMapsScript(apiKey: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      if (typeof window !== 'undefined' && (window as any).google) {
+      if (typeof window !== 'undefined' && (window as any).google?.maps?.places?.PlacesService) {
         resolve();
         return;
       }
 
       const script = document.createElement('script');
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${this.getApiKey()}&libraries=places`;
+      script.dataset.bubbleGoogleMaps = 'true';
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places`;
       script.async = true;
       script.defer = true;
       script.onload = () => resolve();
@@ -79,18 +92,18 @@ class LocationService {
   }
 
   private initializePlacesService() {
-    if (typeof window !== 'undefined' && (window as any).google?.maps) {
+    if (typeof window !== 'undefined' && (window as any).google?.maps?.places?.PlacesService) {
       const map = new (window as any).google.maps.Map(document.createElement('div'));
       this.placesService = new (window as any).google.maps.places.PlacesService(map);
     }
   }
 
-  private getApiKey(): string {
-    if (!this.apiKey) {
-      // This should be loaded from environment/config
-      this.apiKey = 'YOUR_GOOGLE_MAPS_API_KEY'; // This will be replaced by the actual key
+  private getApiKey(): string | null {
+    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY?.trim();
+    if (!apiKey || apiKey === 'YOUR_GOOGLE_MAPS_API_KEY') {
+      return null;
     }
-    return this.apiKey;
+    return apiKey;
   }
 
   async requestLocationPermission(): Promise<boolean> {
@@ -195,8 +208,7 @@ class LocationService {
     radius: number = 100,
     types: string[] = ['establishment']
   ): Promise<PlaceResult[]> {
-    if (!this.placesService) {
-      console.warn('Places service not initialized');
+    if (!this.placesService && !(await this.initializeGoogleMaps())) {
       return [];
     }
 
@@ -241,8 +253,7 @@ class LocationService {
   }
 
   async getPlaceDetails(placeId: string): Promise<PlaceResult | null> {
-    if (!this.placesService) {
-      console.warn('Places service not initialized');
+    if (!this.placesService && !(await this.initializeGoogleMaps())) {
       return null;
     }
 
