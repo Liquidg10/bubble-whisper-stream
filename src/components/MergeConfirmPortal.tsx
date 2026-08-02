@@ -19,12 +19,22 @@ export function MergeConfirmPortal({
   bubble1Label,
   bubble2Label
 }: MergeConfirmPortalProps) {
+  const descriptionId = React.useId();
   if (!isOpen) return null;
 
   return createPortal(
     <div
+      role="dialog"
+      aria-label="Merge tasks"
+      aria-describedby={descriptionId}
       className="fixed z-[9999] bg-card/95 backdrop-blur-sm border border-border 
                  rounded-lg p-4 shadow-glow-strong pointer-events-auto"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          onCancel();
+        }
+      }}
       style={{
         left: Math.max(16, Math.min(screenPosition.x - 140, window.innerWidth - 296)),
         top: Math.max(16, Math.min(screenPosition.y - 48, window.innerHeight - 112)),
@@ -32,7 +42,7 @@ export function MergeConfirmPortal({
       }}
     >
       <div className="text-center">
-        <p className="text-sm text-text-primary mb-3">
+        <p id={descriptionId} className="text-sm text-text-primary mb-3">
           Merge "{bubble1Label}" with "{bubble2Label}"?
         </p>
         <div className="flex gap-2 justify-center">

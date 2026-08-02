@@ -53,7 +53,9 @@ export default function Index() {
     width: window.innerWidth,
     height: window.innerHeight,
   });
-  const [currentConflict, setCurrentConflict] = useState<any>(null);
+  const [currentConflict, setCurrentConflict] = useState<
+    React.ComponentProps<typeof ConflictResolutionDialog>['conflict']
+  >(null);
   const [showConflictDialog, setShowConflictDialog] = useState(false);
 
   // UI Layout management
@@ -75,7 +77,7 @@ export default function Index() {
       
       {/* Progressive Milestone Card */}
       {currentMilestone && shouldShowMilestone && (
-        <div className="absolute top-20 left-1/2 transform -translate-x-1/2 z-30 w-96">
+        <div className="absolute inset-x-2 top-4 z-[60] sm:left-1/2 sm:right-auto sm:top-20 sm:w-96 sm:-translate-x-1/2">
           <ProgressiveMilestoneCard
             milestone={currentMilestone}
             isVisible={shouldShowMilestone}
@@ -106,12 +108,21 @@ export default function Index() {
           }}
         />
       )}
-      <RadialCapture />
+      <RadialCapture className="!absolute !bottom-1 !left-4" />
       
-      {/* Smart Task Quick Add */}
-      <div className="absolute bottom-28 left-4 z-20 max-w-md">
-        <SmartTaskQuickAdd />
-      </div>
+      {/* Keep capture available without permanently covering the task field. */}
+      <details
+        data-panel
+        data-shell-control="quick-add"
+        className="group absolute bottom-1 left-1/2 z-40 -translate-x-1/2 rounded-md border bg-card/95 text-card-foreground shadow-lg backdrop-blur-sm [@media(max-height:420px)]:left-24 [@media(max-height:420px)]:translate-x-0"
+      >
+        <summary className="flex min-h-11 cursor-pointer select-none items-center justify-center px-4 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          Add task
+        </summary>
+        <div className="absolute bottom-14 left-1/2 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 rounded-md border bg-card/95 p-3 shadow-xl backdrop-blur-sm [@media(max-height:420px)]:left-0 [@media(max-height:420px)]:translate-x-0">
+          <SmartTaskQuickAdd />
+        </div>
+      </details>
       <NotificationSystem />
       <GlimmerNotifications />
       <JoyMomentumIntegration />
@@ -145,9 +156,13 @@ export default function Index() {
       
 
       {/* Voice Intent Capture - Floating Bottom Center */}
-      {isFeatureEnabled('voiceCapture') && (
-        <div className="fixed bottom-24 left-1/2 transform -translate-x-1/2 z-50">
+      {isFeatureEnabled('voiceCapture') && !isMobile && (
+        <div
+          data-shell-control="voice-capture"
+          className="absolute bottom-1 right-4 z-50"
+        >
           <VoiceIntentCapture
+            compact
             onBubbleCreated={(bubble) => {
               console.log('Voice bubble created:', bubble);
             }}

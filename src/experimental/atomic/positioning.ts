@@ -2,150 +2,220 @@ import type { Bubble } from '@/types/bubble';
 import { classifyDomain } from '@/lib/classifyDomain';
 import { logger } from '@/utils/logger';
 
-// Configuration for molecule positioning
-const MOLECULE_CONFIG = {
-  MIN_DISTANCE: 350, // Minimum distance between molecules (nucleus + largest shell + padding)
-  MAX_SHELL_RADIUS: 140, // From SHELL_CONFIG in AtomicRenderer
-  PADDING: 60, // Additional padding between molecules
-  MAX_ITERATIONS: 150, // Maximum attempts to find non-overlapping position
-  CANVAS_BOUNDS: { minX: 50, maxX: 1200, minY: 50, maxY: 700 }
-};
+const MAX_LAYOUT_RINGS = 2;
+const MOLECULE_RADIUS = 200;
+const MINIMUM_CENTER_SPACING = MOLECULE_RADIUS * 2;
+const MAX_MOLECULES = 1 + (3 * MAX_LAYOUT_RINGS * (MAX_LAYOUT_RINGS + 1));
 
-interface MoleculePosition {
+/**
+ * Atomic layout coordinates are center-relative world units. The renderer owns
+ * the screen-space center and viewport transform; this module only assigns
+ * deterministic world positions.
+ */
+export const MOLECULE_LAYOUT_CONFIG = {
+  moleculeRadius: MOLECULE_RADIUS,
+  minimumCenterSpacing: MINIMUM_CENTER_SPACING,
+  maxRings: MAX_LAYOUT_RINGS,
+  maxMolecules: MAX_MOLECULES,
+  centerBounds: {
+    minX: -(MAX_LAYOUT_RINGS * MINIMUM_CENTER_SPACING),
+    maxX: MAX_LAYOUT_RINGS * MINIMUM_CENTER_SPACING,
+    minY: -(MAX_LAYOUT_RINGS * MINIMUM_CENTER_SPACING),
+    maxY: MAX_LAYOUT_RINGS * MINIMUM_CENTER_SPACING,
+  },
+} as const;
+
+export interface MoleculePosition {
   x: number;
   y: number;
-  radius: number; // Bounding radius (nucleus + largest shell + padding)
+  radius: number;
 }
 
-export function suggestOptimalPosition(newBubble: Bubble, existingBubbles: Bubble[], storedPosition?: { x: number; y: number }): { x: number; y: number } {
-  // Use stored position if available and valid
-  if (storedPosition && 
-      storedPosition.x >= MOLECULE_CONFIG.CANVAS_BOUNDS.minX && 
-      storedPosition.x <= MOLECULE_CONFIG.CANVAS_BOUNDS.maxX &&
-      storedPosition.y >= MOLECULE_CONFIG.CANVAS_BOUNDS.minY && 
-      storedPosition.y <= MOLECULE_CONFIG.CANVAS_BOUNDS.maxY) {
-    logger.debug(`Using stored position`, storedPosition);
+interface Point {
+  x: number;
+  y: number;
+}
+
+const COORDINATE_PRECISION = 6;
+const SPACING_EPSILON = 0.001;
+
+function normalizeCoordinate(value: number): number {
+  if (Math.abs(value) < Number.EPSILON * 100) return 0;
+  return Number(value.toFixed(COORDINATE_PRECISION));
+}
+
+function createLayoutSlots(): Point[] {
+  const slots: Point[] = [{ x: 0, y: 0 }];
+
+  for (let ring = 1; ring <= MOLECULE_LAYOUT_CONFIG.maxRings; ring += 1) {
+    const slotCount = ring * 6;
+    const ringRadius = ring * MOLECULE_LAYOUT_CONFIG.minimumCenterSpacing;
+
+    for (let index = 0; index < slotCount; index += 1) {
+      const angle = (-Math.PI / 2) + ((Math.PI * 2 * index) / slotCount);
+      slots.push({
+        x: normalizeCoordinate(Math.cos(angle) * ringRadius),
+        y: normalizeCoordinate(Math.sin(angle) * ringRadius),
+      });
+    }
+  }
+
+  return slots;
+}
+
+const LAYOUT_SLOTS = createLayoutSlots();
+
+function createSymmetricRingSlots(count: number, radius: number): Point[] {
+  return Array.from({ length: count }, (_, index) => {
+    const angle = (-Math.PI / 2) + ((Math.PI * 2 * index) / count);
+    return {
+      x: normalizeCoordinate(Math.cos(angle) * radius),
+      y: normalizeCoordinate(Math.sin(angle) * radius),
+    };
+  });
+}
+
+/**
+ * Keep partial domain sets visually balanced around the origin. Seven domains
+ * retain the canonical center-plus-hex layout; additional experimental domains
+ * use a symmetric subset of the second ring.
+ */
+function createSymmetricLayoutSlots(count: number): Point[] {
+  if (count === 0) return [];
+  if (count === 1) return [{ x: 0, y: 0 }];
+  if (count <= 6) {
+    return createSymmetricRingSlots(
+      count,
+      MOLECULE_LAYOUT_CONFIG.minimumCenterSpacing,
+    );
+  }
+
+  const innerLayout = LAYOUT_SLOTS.slice(0, 7);
+  const outerCount = count - innerLayout.length;
+  if (outerCount === 0) return innerLayout;
+
+  return [
+    ...innerLayout,
+    ...createSymmetricRingSlots(
+      outerCount,
+      MOLECULE_LAYOUT_CONFIG.minimumCenterSpacing * 2,
+    ),
+  ];
+}
+
+function isWithinCenterBounds(point: Point): boolean {
+  const { centerBounds } = MOLECULE_LAYOUT_CONFIG;
+  return Number.isFinite(point.x)
+    && Number.isFinite(point.y)
+    && point.x >= centerBounds.minX
+    && point.x <= centerBounds.maxX
+    && point.y >= centerBounds.minY
+    && point.y <= centerBounds.maxY;
+}
+
+function distance(a: Point, b: Point): number {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function finiteBubblePositions(bubbles: Bubble[]): Point[] {
+  return bubbles
+    .map(({ x, y }) => ({ x, y }))
+    .filter(isWithinCenterBounds);
+}
+
+function selectDeterministicSlot(target: Point, existingPositions: Point[]): Point {
+  const candidates = LAYOUT_SLOTS.map((slot, index) => {
+    const clearance = existingPositions.length === 0
+      ? Number.POSITIVE_INFINITY
+      : Math.min(...existingPositions.map(existing => distance(slot, existing)));
+
+    return {
+      slot,
+      index,
+      clearance,
+      targetDistance: distance(slot, target),
+    };
+  });
+
+  const available = candidates.filter(({ clearance }) => (
+    clearance + SPACING_EPSILON >= MOLECULE_LAYOUT_CONFIG.minimumCenterSpacing
+  ));
+
+  if (available.length > 0) {
+    available.sort((a, b) => (
+      a.targetDistance - b.targetDistance || a.index - b.index
+    ));
+    return available[0].slot;
+  }
+
+  // Capacity is exhausted. Stay deterministic and bounded while maximizing
+  // distance from existing content instead of falling back to randomness.
+  candidates.sort((a, b) => (
+    b.clearance - a.clearance
+      || a.targetDistance - b.targetDistance
+      || a.index - b.index
+  ));
+  logger.warn('Atomic layout capacity exhausted; using best-clearance slot', {
+    existingCount: existingPositions.length,
+    maxMolecules: MOLECULE_LAYOUT_CONFIG.maxMolecules,
+  });
+  return candidates[0].slot;
+}
+
+export function suggestOptimalPosition(
+  newBubble: Bubble,
+  existingBubbles: Bubble[],
+  storedPosition?: Point,
+): Point {
+  if (storedPosition && isWithinCenterBounds(storedPosition)) {
+    logger.debug('Using stored center-relative position', storedPosition);
     return storedPosition;
   }
 
   const domain = classifyDomain(newBubble);
-  const relatedBubbles = existingBubbles.filter(b => classifyDomain(b) === domain);
+  const relatedPositions = finiteBubblePositions(
+    existingBubbles.filter(bubble => classifyDomain(bubble) === domain),
+  );
+  const target = relatedPositions.length === 0
+    ? { x: 0, y: 0 }
+    : {
+        x: relatedPositions.reduce((sum, point) => sum + point.x, 0) / relatedPositions.length,
+        y: relatedPositions.reduce((sum, point) => sum + point.y, 0) / relatedPositions.length,
+      };
+  const position = selectDeterministicSlot(target, finiteBubblePositions(existingBubbles));
 
-  logger.debug(`Positioning bubble in domain: ${domain}`, {
-    relatedBubblesCount: relatedBubbles.length,
-    totalBubbles: existingBubbles.length
+  logger.debug('Selected deterministic center-relative position', {
+    domain,
+    relatedBubblesCount: relatedPositions.length,
+    totalBubbles: existingBubbles.length,
+    position,
   });
 
-  if (relatedBubbles.length === 0) {
-    const angle = existingBubbles.length * 2.8;
-    const radius = Math.sqrt(existingBubbles.length + 1) * 80;
-    const position = {
-      x: 600 + Math.cos(angle) * radius,
-      y: 375 + Math.sin(angle) * radius
-    };
-    
-    logger.debug(`No related bubbles, using spiral positioning`, position);
-    return position;
-  }
-
-  const avgX = relatedBubbles.reduce((sum, b) => sum + b.x, 0) / relatedBubbles.length;
-  const avgY = relatedBubbles.reduce((sum, b) => sum + b.y, 0) / relatedBubbles.length;
-
-  // Find optimal position near related bubbles with increased spacing
-  for (let r = 180; r < 400; r += 30) {
-    for (let a = 0; a < Math.PI * 2; a += 0.4) {
-      const x = avgX + Math.cos(a) * r;
-      const y = avgY + Math.sin(a) * r;
-
-      const hasOverlap = existingBubbles.some(b => {
-        const dist = Math.hypot(x - b.x, y - b.y);
-        return dist < MOLECULE_CONFIG.MIN_DISTANCE;
-      });
-
-      if (!hasOverlap && 
-          x >= MOLECULE_CONFIG.CANVAS_BOUNDS.minX && 
-          x <= MOLECULE_CONFIG.CANVAS_BOUNDS.maxX && 
-          y >= MOLECULE_CONFIG.CANVAS_BOUNDS.minY && 
-          y <= MOLECULE_CONFIG.CANVAS_BOUNDS.maxY) {
-        logger.debug(`Found optimal position near related bubbles`, { x, y, radius: r, angle: a });
-        return { x, y };
-      }
-    }
-  }
-
-  // Fallback to expanded random position
-  const fallbackPosition = {
-    x: Math.random() * 800 + 200,
-    y: Math.random() * 400 + 150
-  };
-  
-  logger.warn(`Could not find optimal position, using fallback`, fallbackPosition);
-  return fallbackPosition;
+  return position;
 }
 
 /**
- * Calculate non-overlapping positions for molecules using force-directed layout
+ * Assign deterministic, non-overlapping, center-relative molecule positions.
+ * The current canonical domain set uses seven slots (center plus the first
+ * ring); the second ring provides bounded headroom for future domains.
  */
 export function calculateMoleculePositions(domains: string[]): MoleculePosition[] {
-  const positions: MoleculePosition[] = [];
-  const moleculeRadius = MOLECULE_CONFIG.MAX_SHELL_RADIUS + MOLECULE_CONFIG.PADDING;
-  
-  domains.forEach((domain, index) => {
-    let attempts = 0;
-    let position: { x: number; y: number } | null = null;
-    
-    while (attempts < MOLECULE_CONFIG.MAX_ITERATIONS && !position) {
-      // Start with spiral positioning as base
-      const angle = (index * 137.5) * (Math.PI / 180); // Golden angle
-      const baseRadius = 150 + (index * 120); // Increased spacing
-      
-      // Add some randomization to avoid perfect spirals
-      const jitter = attempts * 30;
-      const jitterAngle = (Math.random() - 0.5) * Math.PI * 0.5;
-      
-      const candidateX = 600 + Math.cos(angle + jitterAngle) * (baseRadius + jitter); // Center at 600
-      const candidateY = 375 + Math.sin(angle + jitterAngle) * (baseRadius + jitter); // Center at 375
-      
-      // Check bounds
-      if (candidateX < MOLECULE_CONFIG.CANVAS_BOUNDS.minX || 
-          candidateX > MOLECULE_CONFIG.CANVAS_BOUNDS.maxX ||
-          candidateY < MOLECULE_CONFIG.CANVAS_BOUNDS.minY || 
-          candidateY > MOLECULE_CONFIG.CANVAS_BOUNDS.maxY) {
-        attempts++;
-        continue;
-      }
-      
-      // Check collision with existing molecules
-      const hasCollision = positions.some(existing => {
-        const distance = Math.hypot(candidateX - existing.x, candidateY - existing.y);
-        const requiredDistance = existing.radius + moleculeRadius;
-        return distance < requiredDistance;
-      });
-      
-      if (!hasCollision) {
-        position = { x: candidateX, y: candidateY };
-      }
-      
-      attempts++;
-    }
-    
-    // Fallback if no position found
-    if (!position) {
-      position = {
-        x: MOLECULE_CONFIG.CANVAS_BOUNDS.minX + (index * 120) % (MOLECULE_CONFIG.CANVAS_BOUNDS.maxX - MOLECULE_CONFIG.CANVAS_BOUNDS.minX),
-        y: MOLECULE_CONFIG.CANVAS_BOUNDS.minY + Math.floor(index * 120 / (MOLECULE_CONFIG.CANVAS_BOUNDS.maxX - MOLECULE_CONFIG.CANVAS_BOUNDS.minX)) * 120
-      };
-      logger.warn(`Using fallback grid position for domain: ${domain}`, position);
-    }
-    
-    positions.push({
-      x: position.x,
-      y: position.y,
-      radius: moleculeRadius
-    });
-    
-    logger.debug(`Positioned molecule ${domain} at`, { x: position.x, y: position.y, attempts });
+  if (domains.length > MOLECULE_LAYOUT_CONFIG.maxMolecules) {
+    throw new RangeError(
+      `Atomic layout supports at most ${MOLECULE_LAYOUT_CONFIG.maxMolecules} molecules`,
+    );
+  }
+
+  const layoutSlots = createSymmetricLayoutSlots(domains.length);
+
+  return domains.map((domain, index) => {
+    const slot = layoutSlots[index];
+    const position = {
+      ...slot,
+      radius: MOLECULE_LAYOUT_CONFIG.moleculeRadius,
+    };
+
+    logger.debug(`Positioned molecule ${domain}`, position);
+    return position;
   });
-  
-  return positions;
 }

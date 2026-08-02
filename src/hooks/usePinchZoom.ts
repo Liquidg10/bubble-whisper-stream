@@ -13,16 +13,25 @@ interface UsePinchZoomOptions {
 export function usePinchZoom({
   onZoom,
   onPan,
-  minScale = 0.1,
-  maxScale = 3,
   enabled = true
 }: UsePinchZoomOptions) {
   const lastDistanceRef = useRef(0);
   const lastCenterRef = useRef({ x: 0, y: 0 });
-  const lastTouchesRef = useRef<TouchList | null>(null);
+  const lastTouchRef = useRef<{ x: number; y: number } | null>(null);
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    if (!enabled || e.touches.length !== 2) return;
+    if (!enabled) return;
+
+    if (e.touches.length === 1) {
+      lastTouchRef.current = {
+        x: e.touches[0].clientX,
+        y: e.touches[0].clientY,
+      };
+      lastDistanceRef.current = 0;
+      return;
+    }
+
+    if (e.touches.length !== 2) return;
     
     const touch1 = e.touches[0];
     const touch2 = e.touches[1];
@@ -37,13 +46,13 @@ export function usePinchZoom({
     
     lastDistanceRef.current = distance;
     lastCenterRef.current = { x: centerX, y: centerY };
-    lastTouchesRef.current = Array.from(e.touches) as any;
+    lastTouchRef.current = null;
   }, [enabled]);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     if (!enabled) return;
     
-    if (e.touches.length === 2 && lastTouchesRef.current) {
+    if (e.touches.length === 2 && lastDistanceRef.current > 0) {
       // Pinch zoom
       e.preventDefault();
       
@@ -60,36 +69,56 @@ export function usePinchZoom({
       
       if (lastDistanceRef.current > 0) {
         const scaleFactor = distance / lastDistanceRef.current;
+        // Move the old focal point to the new gesture center first, then zoom
+        // around that new center. Reversing these updates makes a translated
+        // pinch drift away from the user's fingers.
+        onPan({
+          x: centerX - lastCenterRef.current.x,
+          y: centerY - lastCenterRef.current.y,
+        });
         onZoom(scaleFactor, { x: centerX, y: centerY });
       }
       
       lastDistanceRef.current = distance;
       lastCenterRef.current = { x: centerX, y: centerY };
-    } else if (e.touches.length === 1 && lastTouchesRef.current && lastTouchesRef.current.length === 1) {
+    } else if (e.touches.length === 1 && lastTouchRef.current) {
       // Single finger pan
       const touch = e.touches[0];
-      const lastTouch = lastTouchesRef.current[0];
-      
-      const deltaX = touch.clientX - lastTouch.clientX;
-      const deltaY = touch.clientY - lastTouch.clientY;
+      const deltaX = touch.clientX - lastTouchRef.current.x;
+      const deltaY = touch.clientY - lastTouchRef.current.y;
       
       onPan({ x: deltaX, y: deltaY });
-      lastTouchesRef.current = Array.from(e.touches) as any;
+      lastTouchRef.current = { x: touch.clientX, y: touch.clientY };
     }
   }, [enabled, onZoom, onPan]);
 
   const handleTouchEnd = useCallback((e: React.TouchEvent) => {
     if (!enabled) return;
     
-    if (e.touches.length < 2) {
+    if (e.touches.length === 1) {
       lastDistanceRef.current = 0;
-      lastTouchesRef.current = null;
+      lastTouchRef.current = {
+        x: e.touches[0].clientX,
+        y: e.touches[0].clientY,
+      };
+      return;
     }
+
+    lastDistanceRef.current = 0;
+    lastTouchRef.current = null;
+  }, [enabled]);
+
+  const handleTouchCancel = useCallback(() => {
+    if (!enabled) return;
+    lastDistanceRef.current = 0;
+    lastCenterRef.current = { x: 0, y: 0 };
+    lastTouchRef.current = null;
   }, [enabled]);
 
   return {
     onTouchStart: handleTouchStart,
     onTouchMove: handleTouchMove,
-    onTouchEnd: handleTouchEnd
+    onTouchEnd: handleTouchEnd,
+    onTouchCancel: handleTouchCancel,
   };
 }
