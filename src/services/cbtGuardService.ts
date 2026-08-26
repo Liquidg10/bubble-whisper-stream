@@ -161,7 +161,16 @@ class CBTGuardService {
     // Create stable but pseudonymous ID for telemetry
     // Never send actual user IDs in telemetry
     const hash = this.simpleHash(userId + 'cbt-salt');
-    return `cbt_${hash.toString(36).substring(0, 8)}`;
+    // FIXED WIDTH, deliberately. `simpleHash` returns a 32-bit value, whose
+    // base-36 form is at most 7 characters -- so the previous
+    // `.substring(0, 8)` could never yield 8 and produced a VARIABLE-width id
+    // (6 chars observed). A telemetry pseudonym with variable width leaks a
+    // coarse signal about the underlying hash and breaks its own documented
+    // `cbt_[a-z0-9]{8}` contract. Pad first, then clamp, so the width holds
+    // even if `simpleHash` is later widened.
+    // NOTE: this changes emitted ids (`cbt_zik0zj` -> `cbt_00zik0zj`). Any
+    // historical telemetry keyed on the old form will not join to the new one.
+    return `cbt_${hash.toString(36).padStart(8, '0').slice(0, 8)}`;
   }
 
   /**

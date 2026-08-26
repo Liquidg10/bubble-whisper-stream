@@ -3,14 +3,30 @@
  * Tests tricky date/time parsing scenarios and conflict detection
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { TemporalReasoningService } from '../temporalReasoningService';
 
 describe('TemporalReasoningService', () => {
   let service: TemporalReasoningService;
 
+  // This suite is entirely wall-clock dependent: 20 assertions resolve
+  // 'tomorrow' / 'tonight' / 'next Friday' against the real system date, with
+  // no pinning. That makes results a function of the day the suite runs.
+  // Concretely, 'should detect business hours violations' asserts severity
+  // 'high' for a 2am meeting, but checkBusinessHours() returns early on its
+  // weekend branch ('medium'), so the test fails whenever 'tomorrow' is a
+  // Saturday or Sunday -- i.e. every Friday and Saturday run, 2 days in 7.
+  // Pinning to a fixed Wednesday makes 'tomorrow' a weekday deterministically.
+  const FIXED_NOW = new Date('2026-06-17T10:00:00'); // Wednesday
+
   beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(FIXED_NOW);
     service = new TemporalReasoningService('America/New_York', 'US');
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   describe('Basic Date/Time Parsing', () => {

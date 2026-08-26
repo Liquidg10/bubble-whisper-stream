@@ -139,7 +139,21 @@ describe('DecisionTraceService', () => {
       ];
 
       const text = decisionTraceService.generateBecauseText(signals, 'suggest');
-      expect(text).toBe('Low confidence - suggest');
+      // `generateBecauseText` gained a `privacyLayer` parameter (default
+      // 'surface') that this assertion predated; it appends " • SURFACE".
+      // Pin both the message and the layer rather than the old exact string.
+      expect(text).toContain('Low confidence - suggest');
+      expect(text).toContain('SURFACE');
+    });
+
+    it('should reflect a non-default privacy layer', () => {
+      const signals: DecisionSignal[] = [
+        { type: 'intent', value: 'maybe', confidence: 0.3, source: 'nlp' }
+      ];
+
+      const text = decisionTraceService.generateBecauseText(signals, 'suggest', 'deep');
+      expect(text).toContain('DEEP');
+      expect(text).not.toContain('SURFACE');
     });
   });
 

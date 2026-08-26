@@ -1,14 +1,26 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.56.0";
+import {
+  createCalendarWatchChannelToken,
+  extractBearerToken,
+  isCalendarWatchAction,
+  isExactServiceRoleBearer,
+  normalizeCalendarAccountId,
+  replaceCalendarWatchChannelSafely,
+  requireCalendarWatchWebhookSecret,
+  verifyCalendarWatchChannelToken,
+} from "../_shared/calendarWatchSecurity.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'X-Calendar-Watch-Contract': 'hmac-v1',
 };
 
 interface WatchChannelRequest {
-  calendarAccountId: string;
-  action: 'setup' | 'renew' | 'stop';
+  calendarAccountId?: string;
+  accountId?: string;
+  action?: unknown;
 }
 
 interface GoogleWatchResponse {
@@ -57,15 +69,20 @@ async function refreshAccessToken(refreshToken: string): Promise<string | null> 
 async function setupWatchChannel(
   accessToken: string,
   calendarId: string,
-  webhookUrl: string
+  webhookUrl: string,
+  webhookSecret: string,
 ): Promise<GoogleWatchResponse> {
   const channelId = `calendar-${calendarId.replace('@', '-')}-${Date.now()}`;
+  const channelToken = await createCalendarWatchChannelToken(
+    channelId,
+    webhookSecret,
+  );
   
   const watchRequest = {
     id: channelId,
     type: 'web_hook',
     address: webhookUrl,
-    token: channelId, // Use channel ID as verification token
+    token: channelToken,
   };
 
   console.log('🔔 Setting up watch channel:', { calendarId, webhookUrl, channelId });
@@ -101,24 +118,30 @@ async function stopWatchChannel(accessToken: string, channelId: string, resource
 
   console.log('🛑 Stopping watch channel:', { channelId, resourceId });
 
-  const response = await fetch(
-    'https://www.googleapis.com/calendar/v3/channels/stop',
-    {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(stopRequest),
-    }
-  );
+  try {
+    const response = await fetch(
+      'https://www.googleapis.com/calendar/v3/channels/stop',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(stopRequest),
+      }
+    );
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.warn('⚠️ Watch channel stop failed (may already be expired):', errorText);
-    // Don't throw error as channel might already be expired
-  } else {
-    console.log('✅ Watch channel stopped successfully');
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.warn('⚠️ Watch channel stop failed (may already be expired):', errorText);
+      // Don't throw: the replacement channel is already persisted and active.
+    } else {
+      console.log('✅ Watch channel stopped successfully');
+    }
+  } catch (error) {
+    // A transient cleanup failure must not turn a successful, persisted
+    // replacement into a reported renewal failure or dead-channel retry loop.
+    console.warn('⚠️ Watch channel stop request failed:', error);
   }
 }
 
@@ -156,6 +179,7 @@ async function handleWebhookNotification(req: Request): Promise<Response> {
   const resourceState = req.headers.get('X-Goog-Resource-State');
   const resourceId = req.headers.get('X-Goog-Resource-Id');
   const channelId = req.headers.get('X-Goog-Channel-Id');
+  const channelToken = req.headers.get('X-Goog-Channel-Token');
   const messageNumber = req.headers.get('X-Goog-Message-Number');
 
   console.log('📨 Webhook notification received:', {
@@ -165,9 +189,19 @@ async function handleWebhookNotification(req: Request): Promise<Response> {
     messageNumber
   });
 
-  if (!resourceState || !resourceId) {
+  if (!resourceState || !resourceId || !channelId) {
     console.log('⚠️ Missing required headers');
     return new Response('Missing required headers', { status: 400 });
+  }
+
+  const validChannelToken = await verifyCalendarWatchChannelToken(
+    channelToken,
+    channelId,
+    Deno.env.get('CALENDAR_WATCH_WEBHOOK_SECRET'),
+  );
+  if (!validChannelToken) {
+    console.warn('⚠️ Rejected calendar webhook with an invalid channel token');
+    return new Response('Unauthorized', { status: 401 });
   }
 
   // Handle different resource states
@@ -182,6 +216,7 @@ async function handleWebhookNotification(req: Request): Promise<Response> {
     .select('id, user_id, calendar_id')
     .eq('watch_channel_id', channelId)
     .eq('watch_resource_id', resourceId)
+    .eq('watch_status', 'active')
     .single();
 
   if (error || !account) {
@@ -232,139 +267,6 @@ async function handleWebhookNotification(req: Request): Promise<Response> {
   return new Response('OK', { status: 200 });
 }
 
-async function renewExpiringChannels(): Promise<void> {
-  console.log('🔄 Checking for expiring watch channels...');
-
-  // Check for channels expiring in the next 24 hours (T-1 day renewal)
-  const { data: expiringChannels, error } = await supabase
-    .rpc('get_expiring_watch_channels', { hours_ahead: 24 });
-
-  if (error) {
-    console.error('❌ Error fetching expiring channels:', error);
-    return;
-  }
-
-  if (!expiringChannels || expiringChannels.length === 0) {
-    console.log('✅ No expiring channels found');
-    return;
-  }
-
-  console.log(`🔄 Found ${expiringChannels.length} expiring channels for proactive renewal`);
-
-  for (const channel of expiringChannels) {
-    try {
-      console.log(`⏰ Renewing channel ${channel.watch_channel_id} for calendar ${channel.calendar_id} (expires: ${channel.watch_expires_at})`);
-      await renewWatchChannel(channel.id);
-    } catch (error) {
-      console.error(`❌ Failed to renew channel ${channel.id}:`, error);
-      
-      // If renewal fails, try to recover by setting up a new channel
-      try {
-        console.log(`🔧 Attempting recovery by setting up new watch channel for account ${channel.id}`);
-        await setupNewWatchChannel(channel.id);
-      } catch (recoveryError) {
-        console.error(`❌ Recovery failed for channel ${channel.id}:`, recoveryError);
-        await updateWatchChannelStatus(channel.id, 'failed');
-      }
-    }
-  }
-}
-
-async function renewWatchChannel(calendarAccountId: string): Promise<void> {
-  // Get account details
-  const { data: account, error: accountError } = await supabase
-    .from('calendar_accounts')
-    .select(`
-      *,
-      oauth_tokens!calendar_accounts_oauth_token_id_fkey (
-        access_token,
-        refresh_token,
-        token_expires_at
-      )
-    `)
-    .eq('id', calendarAccountId)
-    .single();
-
-  if (accountError || !account) {
-    throw new Error(`Failed to get account details: ${accountError?.message}`);
-  }
-
-  let accessToken = account.oauth_tokens.access_token;
-
-  // Refresh token if needed
-  if (new Date(account.oauth_tokens.token_expires_at) <= new Date()) {
-    accessToken = await refreshAccessToken(account.oauth_tokens.refresh_token);
-    if (!accessToken) {
-      throw new Error('Failed to refresh access token');
-    }
-  }
-
-  // Stop old channel if it exists
-  if (account.watch_channel_id && account.watch_resource_id) {
-    await stopWatchChannel(accessToken, account.watch_channel_id, account.watch_resource_id);
-  }
-
-  // Setup new watch channel
-  const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/calendar-watch`;
-  const watchResponse = await setupWatchChannel(accessToken, account.calendar_id || 'primary', webhookUrl);
-  
-  // Update database with new channel info
-  await updateWatchChannelStatus(
-    calendarAccountId,
-    'active',
-    watchResponse.id,
-    watchResponse.resourceId,
-    new Date(parseInt(watchResponse.expiration)).toISOString()
-  );
-
-  console.log(`✅ Successfully renewed watch channel for account ${calendarAccountId}`);
-}
-
-async function setupNewWatchChannel(calendarAccountId: string): Promise<void> {
-  // Get account details
-  const { data: account, error: accountError } = await supabase
-    .from('calendar_accounts')
-    .select(`
-      *,
-      oauth_tokens!calendar_accounts_oauth_token_id_fkey (
-        access_token,
-        refresh_token,
-        token_expires_at
-      )
-    `)
-    .eq('id', calendarAccountId)
-    .single();
-
-  if (accountError || !account) {
-    throw new Error(`Failed to get account details: ${accountError?.message}`);
-  }
-
-  let accessToken = account.oauth_tokens.access_token;
-
-  // Refresh token if needed
-  if (new Date(account.oauth_tokens.token_expires_at) <= new Date()) {
-    accessToken = await refreshAccessToken(account.oauth_tokens.refresh_token);
-    if (!accessToken) {
-      throw new Error('Failed to refresh access token');
-    }
-  }
-
-  // Setup new watch channel
-  const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/calendar-watch`;
-  const watchResponse = await setupWatchChannel(accessToken, account.calendar_id || 'primary', webhookUrl);
-  
-  // Update database with new channel info
-  await updateWatchChannelStatus(
-    calendarAccountId,
-    'active',
-    watchResponse.id,
-    watchResponse.resourceId,
-    new Date(parseInt(watchResponse.expiration)).toISOString()
-  );
-
-  console.log(`✅ Successfully set up new watch channel for account ${calendarAccountId}`);
-}
-
 const handler = async (req: Request): Promise<Response> => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -378,20 +280,62 @@ const handler = async (req: Request): Promise<Response> => {
   // Handle control requests (setup, renew, stop)
   if (req.method === 'POST') {
     try {
-      const { calendarAccountId, action }: WatchChannelRequest = await req.json();
-
-      console.log('🔔 Watch channel request:', { calendarAccountId, action });
-
-      if (action === 'renew') {
-        await renewExpiringChannels();
+      // ---- AUTHZ (added) ------------------------------------------------
+      // The webhook branch above is Google-originated and carries no user JWT.
+      // Everything below is a control request and must be caller-scoped, because
+      // this function uses the SERVICE ROLE key and RLS will not scope rows for us.
+      // watch-renewal-cron invokes this function with the service-role key.
+      const authHeader = req.headers.get('Authorization') ?? req.headers.get('authorization');
+      const bearer = extractBearerToken(authHeader);
+      if (!bearer) {
         return new Response(
-          JSON.stringify({ success: true, message: 'Channel renewal completed' }),
-          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          JSON.stringify({ error: 'Unauthorized' }),
+          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      const isInternalCaller = isExactServiceRoleBearer(
+        authHeader,
+        Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'),
+      );
+
+      let callerUserId: string | null = null;
+      if (!isInternalCaller) {
+        const { data: { user }, error: authError } = await supabase.auth.getUser(bearer);
+        if (authError || !user) {
+          return new Response(
+            JSON.stringify({ error: 'Unauthorized' }),
+            { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+        callerUserId = user.id;
+      }
+      // ---- end AUTHZ ------------------------------------------------------
+
+      const requestBody: WatchChannelRequest = await req.json();
+      if (!isCalendarWatchAction(requestBody.action)) {
+        return new Response(
+          JSON.stringify({ error: 'Invalid action' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
 
+      const accountIdResult = normalizeCalendarAccountId(
+        requestBody.calendarAccountId,
+        requestBody.accountId,
+      );
+      if (!accountIdResult.ok) {
+        return new Response(
+          JSON.stringify({ error: accountIdResult.reason }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
+      const { calendarAccountId } = accountIdResult;
+      const action = requestBody.action;
+      console.log('🔔 Watch channel request:', { calendarAccountId, action });
+
       // Get calendar account
-      const { data: calendarAccount, error: accountError } = await supabase
+      let watchAccountQuery = supabase
         .from('calendar_accounts')
         .select(`
           *,
@@ -401,8 +345,10 @@ const handler = async (req: Request): Promise<Response> => {
             token_expires_at
           )
         `)
-        .eq('id', calendarAccountId)
-        .single();
+        .eq('id', calendarAccountId);
+      // AUTHZ: bind the row to the caller unless this is a trusted internal invoke
+      if (callerUserId) watchAccountQuery = watchAccountQuery.eq('user_id', callerUserId);
+      const { data: calendarAccount, error: accountError } = await watchAccountQuery.single();
 
       if (accountError || !calendarAccount) {
         return new Response(
@@ -426,12 +372,57 @@ const handler = async (req: Request): Promise<Response> => {
         accessToken = newToken;
       }
 
+      if (action === 'renew') {
+        const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/calendar-watch`;
+        const watchResponse = await replaceCalendarWatchChannelSafely(
+          Deno.env.get('CALENDAR_WATCH_WEBHOOK_SECRET'),
+          {
+            setupReplacement: (webhookSecret) => setupWatchChannel(
+              accessToken,
+              calendarAccount.calendar_id || 'primary',
+              webhookUrl,
+              webhookSecret,
+            ),
+            persistReplacement: (replacement) => updateWatchChannelStatus(
+              calendarAccountId,
+              'active',
+              replacement.id,
+              replacement.resourceId,
+              new Date(parseInt(replacement.expiration)).toISOString(),
+            ),
+            stopPrevious: async () => {
+              if (calendarAccount.watch_channel_id && calendarAccount.watch_resource_id) {
+                await stopWatchChannel(
+                  accessToken,
+                  calendarAccount.watch_channel_id,
+                  calendarAccount.watch_resource_id,
+                );
+              }
+            },
+          },
+        );
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            message: 'Watch channel renewed',
+            channelId: watchResponse.id,
+            expiresAt: new Date(parseInt(watchResponse.expiration)),
+          }),
+          { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+
       if (action === 'setup') {
         const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/calendar-watch`;
+        const webhookSecret = requireCalendarWatchWebhookSecret(
+          Deno.env.get('CALENDAR_WATCH_WEBHOOK_SECRET'),
+        );
         const watchResponse = await setupWatchChannel(
           accessToken,
           calendarAccount.calendar_id || 'primary',
-          webhookUrl
+          webhookUrl,
+          webhookSecret,
         );
 
         await updateWatchChannelStatus(

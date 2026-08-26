@@ -10,17 +10,57 @@ import { contextEngineService } from '../contextEngineService';
 import { policyDecisionEngine } from '../policyDecisionEngine';
 import { decisionTraceService } from '../decisionTraceService';
 import { THRESHOLD_LEVELS } from '../thresholdLadderService';
+import { supabase } from '@/integrations/supabase/client';
+import { useBubbleStore } from '@/stores/bubbleStore';
 
 // Mock dependencies
 vi.mock('../contextEngineService');
 vi.mock('../policyDecisionEngine');
 vi.mock('../decisionTraceService');
-vi.mock('@/integrations/supabase/client');
-vi.mock('@/stores/bubbleStore');
+// Explicit factories: CommonJS require of Vite-aliased paths fails under ESM,
+// and automocking a Supabase client instance does not reliably mock nested members.
+vi.mock('@/integrations/supabase/client', () => ({
+  supabase: {
+    auth: { getUser: vi.fn() },
+    from: vi.fn(),
+    functions: { invoke: vi.fn() }
+  }
+}));
+vi.mock('@/stores/bubbleStore', () => ({
+  useBubbleStore: Object.assign(vi.fn(), { getState: vi.fn() })
+}));
 
 const mockContextEngineService = vi.mocked(contextEngineService);
 const mockPolicyDecisionEngine = vi.mocked(policyDecisionEngine);
 const mockDecisionTraceService = vi.mocked(decisionTraceService);
+const mockSupabase = supabase as unknown as {
+  auth: { getUser: ReturnType<typeof vi.fn> };
+  from: ReturnType<typeof vi.fn>;
+  functions: { invoke: ReturnType<typeof vi.fn> };
+};
+const mockGetState = useBubbleStore.getState as unknown as ReturnType<typeof vi.fn>;
+
+/** Query-builder chain used by getActiveCalendarAccount(): select→eq→eq→limit */
+const accountChain = (rows: unknown[]) => ({
+  select: vi.fn().mockReturnValue({
+    eq: vi.fn().mockReturnValue({
+      eq: vi.fn().mockReturnValue({
+        limit: vi.fn().mockResolvedValue({ data: rows })
+      })
+    })
+  })
+});
+
+/** Query-builder chain used by checkForConflicts(): select→gte→lte→eq */
+const conflictChain = (rows: unknown[]) => ({
+  select: vi.fn().mockReturnValue({
+    gte: vi.fn().mockReturnValue({
+      lte: vi.fn().mockReturnValue({
+        eq: vi.fn().mockResolvedValue({ data: rows })
+      })
+    })
+  })
+});
 
 describe('AutoWriteCalendarService', () => {
   const mockIntent: CalendarIntent = {
@@ -37,16 +77,28 @@ describe('AutoWriteCalendarService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    
-    // Mock localStorage
+
+    // Functional localStorage mock: updateAutoWriteSettings() persists via
+    // setItem and getAutoWriteSettings() re-reads via getItem on every call,
+    // so a null-returning stub silently reverts `enabled: true` to defaults.
+    const backing: Record<string, string> = {};
     global.localStorage = {
-      getItem: vi.fn(() => null),
-      setItem: vi.fn(),
-      removeItem: vi.fn(),
-      clear: vi.fn(),
+      getItem: vi.fn((key: string) => (key in backing ? backing[key] : null)),
+      setItem: vi.fn((key: string, value: string) => {
+        backing[key] = String(value);
+      }),
+      removeItem: vi.fn((key: string) => {
+        delete backing[key];
+      }),
+      clear: vi.fn(() => {
+        Object.keys(backing).forEach(key => delete backing[key]);
+      }),
       length: 0,
       key: vi.fn()
-    };
+    } as unknown as Storage;
+
+    // Every supabase path in the service resolves the user id first.
+    mockSupabase.auth.getUser.mockResolvedValue({ data: { user: { id: 'user-123' } } });
   });
 
   describe('processCalendarIntent', () => {
@@ -106,27 +158,22 @@ describe('AutoWriteCalendarService', () => {
       mockPolicyDecisionEngine.makeDecision.mockResolvedValue(mockPolicyDecision);
       mockDecisionTraceService.addTrace.mockReturnValue('trace-123');
 
-      // Mock successful calendar account and API
-      vi.mocked(require('@/integrations/supabase/client').supabase).auth.getUser.mockResolvedValue({
-        data: { user: { id: 'user-123' } }
-      });
-      
-      vi.mocked(require('@/integrations/supabase/client').supabase).from.mockReturnValue({
-        select: vi.fn().mockReturnValue({
-          eq: vi.fn().mockReturnValue({
-            eq: vi.fn().mockReturnValue({
-              limit: vi.fn().mockResolvedValue({
-                data: [{ id: 'account-123', calendar_id: 'primary' }]
-              })
-            })
-          })
-        })
-      });
+      // Mock successful calendar account and API.
+      // executeAutoWrite() touches two tables with different builder shapes:
+      // calendar_events (conflict check, no duplicates) then calendar_accounts.
+      mockSupabase.from.mockImplementation((table: string) =>
+        table === 'calendar_events'
+          ? conflictChain([])
+          : accountChain([{ id: 'account-123', calendar_id: 'primary' }])
+      );
 
-      vi.mocked(require('@/integrations/supabase/client').supabase).functions.invoke.mockResolvedValue({
+      mockSupabase.functions.invoke.mockResolvedValue({
         data: { event: { id: 'event-123', summary: 'Team meeting', htmlLink: 'https://calendar.google.com/event/123' } },
         error: null
       });
+
+      // findLinkedReminders() scans the bubble store for related reminders.
+      mockGetState.mockReturnValue({ bubbles: [] });
 
       // Act
       const result = await service.processCalendarIntent(mockIntent);
@@ -187,6 +234,62 @@ describe('AutoWriteCalendarService', () => {
       expect(result.confidence).toBe(0.7);
     });
 
+    /**
+     * REGRESSION. 'draft-ask' is the ladder's 4th tier -- items that would
+     * have auto-written but were forced down because the recipient is new
+     * (thresholdLadderService.ts:161-181). `processCalendarIntent`'s execute
+     * switch handled auto-write / draft / suggest and let everything else fall
+     * to `default`, which returned decision 'skip' with the reason "Intent did
+     * not meet confidence threshold" -- so the whole safety tier silently
+     * discarded the intent, and blamed a confidence threshold that had in fact
+     * been exceeded. This test fails on that behaviour.
+     */
+    it('should create a draft (not skip) for the draft-ask safety tier', async () => {
+      const service = autoWriteCalendarService;
+      service.updateAutoWriteSettings({ enabled: true });
+
+      const mockContextScore = {
+        score: 0.92,
+        signals: [
+          { type: 'content_certainty' as const, value: 0.95, confidence: 0.9, weight: 0.3, reason: 'Unambiguous time', source: 'context_engine' }
+        ],
+        because: ['High confidence, but first-time recipient'],
+        metadata: { signalCount: 1, totalWeight: 0.3, deterministic: true, timestamp: Date.now() },
+        confidence: 0.92,
+        priority: 80,
+        urgency: 0.8,
+        domain: 'Calendar',
+        reasoning: ['High confidence, but first-time recipient']
+      };
+
+      const mockPolicyDecision = {
+        decision: 'draft-ask' as const,
+        score: 0.92,
+        baseThreshold: 'HIGH',
+        appliedOverrides: ['first_time_recipient'],
+        reason: 'Confidence (92%) requires an explicit ask before proceeding',
+        confidence: 0.92,
+        contextScore: mockContextScore,
+        timestamp: new Date()
+      };
+
+      mockContextEngineService.generateScore.mockResolvedValue(mockContextScore);
+      mockPolicyDecisionEngine.makeDecision.mockResolvedValue(mockPolicyDecision as never);
+      mockDecisionTraceService.addTrace.mockReturnValue('trace-ask');
+
+      const result = await service.processCalendarIntent(mockIntent);
+
+      // The tier must survive to the caller -- a plain 'draft' would hide the
+      // fact that an explicit confirmation is required.
+      expect(result.decision).toBe('draft-ask');
+      expect(result.draftId).toBeDefined();
+      expect(result.becauseText).toContain('Created draft because');
+
+      // The old behaviour, pinned so it cannot silently return:
+      expect(result.decision).not.toBe('skip');
+      expect(result.becauseText).not.toContain('did not meet confidence threshold');
+    });
+
     it('should create suggestion for low confidence scores', async () => {
       // Arrange
       const service = autoWriteCalendarService;
@@ -226,7 +329,7 @@ describe('AutoWriteCalendarService', () => {
       const mockBubbleStore = {
         addBubble: vi.fn()
       };
-      vi.mocked(require('@/stores/bubbleStore').useBubbleStore).getState.mockReturnValue(mockBubbleStore);
+      mockGetState.mockReturnValue(mockBubbleStore);
 
       // Act
       const result = await service.processCalendarIntent(mockIntent);
@@ -253,20 +356,10 @@ describe('AutoWriteCalendarService', () => {
       });
 
       // Mock calendar account
-      vi.mocked(require('@/integrations/supabase/client').supabase).from.mockReturnValue({
-        select: vi.fn().mockReturnValue({
-          eq: vi.fn().mockReturnValue({
-            eq: vi.fn().mockReturnValue({
-              limit: vi.fn().mockResolvedValue({
-                data: [{ id: 'account-123' }]
-              })
-            })
-          })
-        })
-      });
+      mockSupabase.from.mockReturnValue(accountChain([{ id: 'account-123' }]));
 
       // Mock successful delete
-      vi.mocked(require('@/integrations/supabase/client').supabase).functions.invoke.mockResolvedValue({
+      mockSupabase.functions.invoke.mockResolvedValue({
         data: { success: true },
         error: null
       });
@@ -283,7 +376,7 @@ describe('AutoWriteCalendarService', () => {
         updateReminder: vi.fn(),
         updateBubble: vi.fn()
       };
-      vi.mocked(require('@/stores/bubbleStore').useBubbleStore).getState.mockReturnValue(mockBubbleStore);
+      mockGetState.mockReturnValue(mockBubbleStore);
 
       mockDecisionTraceService.markAsUndone.mockReturnValue(true);
 
@@ -320,22 +413,16 @@ describe('AutoWriteCalendarService', () => {
       const service = autoWriteCalendarService;
       service.updateAutoWriteSettings({ enabled: true });
 
-      // Mock existing event
-      vi.mocked(require('@/integrations/supabase/client').supabase).from.mockReturnValue({
-        select: vi.fn().mockReturnValue({
-          gte: vi.fn().mockReturnValue({
-            lte: vi.fn().mockReturnValue({
-              eq: vi.fn().mockResolvedValue({
-                data: [{
-                  id: 'existing-event',
-                  title: 'Team meeting',
-                  start_time: mockIntent.startTime.toISOString()
-                }]
-              })
-            })
-          })
-        })
-      });
+      // Mock existing event at the same time slot (checkForConflicts shape)
+      mockSupabase.from.mockReturnValue(
+        conflictChain([
+          {
+            id: 'existing-event',
+            title: 'Team meeting',
+            start_time: mockIntent.startTime.toISOString()
+          }
+        ])
+      );
 
       const mockContextScore = {
         score: 0.9,

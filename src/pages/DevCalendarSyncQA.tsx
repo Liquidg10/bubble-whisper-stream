@@ -169,12 +169,17 @@ export default function DevCalendarSync() {
   };
 
   const triggerChannelRenewal = async () => {
+    if (!testAccountId.trim()) {
+      toast.error('Please enter a calendar account ID');
+      return;
+    }
+
     setIsRunningTest(true);
     
     try {
       const { data, error } = await supabase.functions.invoke('calendar-watch', {
         body: {
-          calendarAccountId: '', // Not used for renewal
+          calendarAccountId: testAccountId,
           action: 'renew',
         },
       });
@@ -188,7 +193,7 @@ export default function DevCalendarSync() {
         success: true,
         data,
         timestamp: new Date().toISOString(),
-        operation: 'renew_all',
+        operation: 'watch_renew',
       });
     } catch (error: any) {
       toast.error(`Channel renewal failed: ${error.message}`);
@@ -196,7 +201,7 @@ export default function DevCalendarSync() {
         success: false,
         error: error.message,
         timestamp: new Date().toISOString(),
-        operation: 'renew_all',
+        operation: 'watch_renew',
       });
     } finally {
       setIsRunningTest(false);
@@ -404,7 +409,7 @@ export default function DevCalendarSync() {
                   variant="outline"
                 >
                   <Zap className="h-4 w-4" />
-                  Renew All Channels
+                  Renew Selected Channel
                 </Button>
               </div>
 

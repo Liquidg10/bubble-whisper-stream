@@ -66,7 +66,7 @@ const corruptedTask = {
   priority: 'invalid',
   tags: 'not-an-array',
   completed: 'maybe'
-} as any;
+} as unknown as Task;
 
 describe('TaskCard Component', () => {
   const mockProps = {
@@ -124,20 +124,47 @@ describe('TaskCard Component', () => {
       const { isValid, sanitized, issues } = validateTask(corruptedTask);
       
       expect(isValid).toBe(false);
-      expect(issues).toContain('Missing or invalid ID');
-      expect(issues).toContain('Missing or invalid title');
+      expect(issues).toContain('Missing task ID');
+      expect(issues).toContain('Invalid title');
       expect(issues).toContain('Invalid priority value');
       expect(issues).toContain('Invalid tags format');
+      // Completeness without pinning order: this fixture trips exactly these
+      // four checks and no others, so a silently-dropped check can't hide.
+      expect(issues).toHaveLength(4);
       
       expect(sanitized.title).toBe('[Corrupted Title]');
       expect(sanitized.priority).toBe(50);
       expect(Array.isArray(sanitized.tags)).toBe(true);
     });
 
-    it('should render error state for corrupted tasks', () => {
+    it('should surface a destructive toast naming the corruption issues', () => {
       render(<TaskCard {...mockProps} task={corruptedTask} />);
-      
-      expect(screen.getByText(/Corrupted task data detected/)).toBeInTheDocument();
+
+      // TaskCard renders no such copy as 'Corrupted task data detected' --
+      // that string exists nowhere in the component. Its real, user-facing
+      // corruption signal is the destructive toast fired by the validation
+      // effect (TaskCard.tsx L284-295), so assert that contract instead of
+      // text that was never implemented.
+      expect(mockToastFn).toHaveBeenCalledTimes(1);
+      expect(mockToastFn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Task Data Issues',
+          variant: 'destructive',
+          description: expect.stringContaining('Missing task ID'),
+        })
+      );
+    });
+
+    it('should mark corrupted tasks in the DOM', () => {
+      const { container } = render(<TaskCard {...mockProps} task={corruptedTask} />);
+
+      // RESOLVED (was: a purely visual pulsing dot with no text, role or
+      // accessible name). The indicator now carries role="img" plus a name, so
+      // assistive tech announces the same thing sighted users see.
+      const indicator = container.querySelector('.bg-destructive.rounded-full');
+      expect(indicator).not.toBeNull();
+      expect(indicator).toHaveAttribute('role', 'img');
+      expect(indicator).toHaveAttribute('aria-label', 'Task data issues detected');
     });
 
     it('should handle missing optional properties gracefully', () => {
@@ -164,7 +191,7 @@ describe('TaskCard Component', () => {
       const user = userEvent.setup();
       render(<TaskCard {...mockProps} viewConfig={{ view: 'universal', selectable: true }} />);
       
-      await user.click(screen.getByRole('button'));
+      await user.click(screen.getByRole('button', { name: /^Task:/ }));
       
       expect(mockProps.onSelect).toHaveBeenCalledWith('test-task-1');
     });
@@ -183,7 +210,7 @@ describe('TaskCard Component', () => {
       render(<TaskCard {...mockProps} />);
       
       // Press 'e' key to enter edit mode
-      const card = screen.getByRole('button');
+      const card = screen.getByRole('button', { name: /^Task:/ });
       card.focus();
       await user.keyboard('e');
       
@@ -195,7 +222,7 @@ describe('TaskCard Component', () => {
       render(<TaskCard {...mockProps} />);
       
       // Enter edit mode
-      const card = screen.getByRole('button');
+      const card = screen.getByRole('button', { name: /^Task:/ });
       card.focus();
       await user.keyboard('e');
       
@@ -221,7 +248,7 @@ describe('TaskCard Component', () => {
       render(<TaskCard {...mockProps} />);
       
       // Enter edit mode
-      const card = screen.getByRole('button');
+      const card = screen.getByRole('button', { name: /^Task:/ });
       card.focus();
       await user.keyboard('e');
       
@@ -240,7 +267,7 @@ describe('TaskCard Component', () => {
       const user = userEvent.setup();
       render(<TaskCard {...mockProps} />);
       
-      const card = screen.getByRole('button');
+      const card = screen.getByRole('button', { name: /^Task:/ });
       card.focus();
       
       await user.keyboard('{ArrowUp}');
@@ -260,7 +287,7 @@ describe('TaskCard Component', () => {
       const user = userEvent.setup();
       render(<TaskCard {...mockProps} />);
       
-      const card = screen.getByRole('button');
+      const card = screen.getByRole('button', { name: /^Task:/ });
       card.focus();
       
       await user.keyboard('{Enter}');
@@ -274,7 +301,7 @@ describe('TaskCard Component', () => {
       const user = userEvent.setup();
       render(<TaskCard {...mockProps} />);
       
-      const card = screen.getByRole('button');
+      const card = screen.getByRole('button', { name: /^Task:/ });
       card.focus();
       
       await user.keyboard('{Control>}{Delete}{/Control}');
@@ -314,22 +341,42 @@ describe('TaskCard Component', () => {
     it('should have proper ARIA labels', () => {
       render(<TaskCard {...mockProps} />);
       
-      const card = screen.getByRole('button');
+      const card = screen.getByRole('button', { name: /^Task:/ });
       expect(card).toHaveAttribute('aria-label', expect.stringContaining('Task: Test Task'));
     });
 
     it('should have proper tabIndex for keyboard navigation', () => {
       render(<TaskCard {...mockProps} />);
       
-      const card = screen.getByRole('button');
+      const card = screen.getByRole('button', { name: /^Task:/ });
       expect(card).toHaveAttribute('tabIndex', '0');
     });
 
-    it('should provide context for screen readers when selected', () => {
-      render(<TaskCard {...mockProps} isSelected={true} />);
-      
-      const card = screen.getByRole('button');
-      expect(card).toHaveAttribute('aria-label', expect.stringContaining('Selected.'));
+    // KNOWN-FAILING, DELIBERATELY NOT WORKED AROUND (Run 148).
+    // Root cause proven, not inferred: `isSelected` is VISUAL ONLY. It drives
+    // 'ring-2 ring-primary bg-primary/5' (TaskCard.tsx L658, L707) and nothing
+    // else -- the component contains no aria-pressed, no aria-selected, no
+    // aria-current, and its aria-label never varies with selection. A screen
+    // reader user gets no indication at all that a card is selected.
+    // RESOLVED via option (b), `aria-pressed={isSelected}`.
+    // The three options were not equivalent:
+    //   (a) append 'Selected.' to the aria-label -- works, but overloads the
+    //       name with state, so the state is re-read on every re-announcement
+    //       and cannot be queried as state by assistive tech;
+    //   (b) aria-pressed -- the standard toggle semantic, VALID on
+    //       role="button", announced as "pressed"/"not pressed"; chosen;
+    //   (c) listbox/grid semantics with aria-selected -- INVALID on
+    //       role="button" and a much larger restructure.
+    // Both polarities are pinned so this cannot pass vacuously.
+    it('should expose selection state to screen readers', () => {
+      const { rerender } = render(<TaskCard {...mockProps} isSelected={true} />);
+
+      expect(screen.getByRole('button', { name: /^Task:/ }))
+        .toHaveAttribute('aria-pressed', 'true');
+
+      rerender(<TaskCard {...mockProps} isSelected={false} />);
+      expect(screen.getByRole('button', { name: /^Task:/ }))
+        .toHaveAttribute('aria-pressed', 'false');
     });
 
     it('should have proper checkbox accessibility', () => {
@@ -342,9 +389,36 @@ describe('TaskCard Component', () => {
 
   describe('Performance & Edge Cases', () => {
     it('should handle undefined task gracefully', () => {
-      render(<TaskCard {...mockProps} task={undefined as any} />);
+      render(<TaskCard {...mockProps} task={undefined as unknown as Task} />);
       
-      expect(screen.getByText(/Error Loading Task/)).toBeInTheDocument();
+      // validateTask(undefined) doesn't throw (optional chaining), so it
+      // never hits the catch block's '[Error Loading Task]' fallback -- it
+      // sanitizes undefined the same way as any other corrupted, non-throwing
+      // input and renders the sanitized placeholder title instead.
+      expect(screen.getByText('[Corrupted Title]')).toBeInTheDocument();
+    });
+
+    it('should fall back to [Error Loading Task] when validation itself throws', () => {
+      // Positive control for the branch the previous version of the test above
+      // was reaching for. validateTask()'s catch block IS live -- it just needs
+      // an input that throws while being *read*, not merely a missing one.
+      // Verified reachable by 4 of 14 adversarial inputs (throwing id getter,
+      // throwing title getter, Proxy with throwing ownKeys, tags array holding
+      // a throwing element); a throwing getter is the minimal such case.
+      const explosiveTask = {
+        get id(): string { throw new Error('exploding getter'); },
+      } as unknown as Task;
+
+      expect(() =>
+        render(<TaskCard {...mockProps} task={explosiveTask} />)
+      ).not.toThrow();
+
+      expect(screen.getByText('[Error Loading Task]')).toBeInTheDocument();
+      expect(mockToastFn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          description: expect.stringContaining('Critical error'),
+        })
+      );
     });
 
     it('should handle very long titles', () => {

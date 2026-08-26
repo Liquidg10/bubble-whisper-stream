@@ -14,6 +14,7 @@ import { Bubble, CanvasViewport } from '@/types/bubble';
 import { BubbleDetail } from '@/components/BubbleDetail';
 import TemporalNavigation from '@/components/TemporalNavigation';
 import { ConflictResolutionDialog } from '@/components/ConflictResolutionDialog';
+import { SyncConflictNotification } from '@/components/SyncConflictNotification';
 import { CollaborationHub } from '@/components/CollaborationHub';
 import { EnhancedVoiceCapture } from '@/components/EnhancedVoiceCapture';
 import { EnhancedPhotoCapture } from '@/components/EnhancedPhotoCapture';
@@ -29,6 +30,51 @@ import { isFeatureEnabled } from '@/config/flags';
 import { CBTOnboardingBanner } from '@/components/CBTOnboardingBanner';
 
 import { crossDeviceSyncService } from '@/services/crossDeviceSyncService';
+
+/**
+ * One conflict, in the shape <ConflictResolutionDialog/> consumes.
+ *
+ * Four incompatible representations of a sync conflict exist in this codebase:
+ * crossDeviceSyncService's (localVersion/remoteVersion/timestamp),
+ * enhancedSyncService's (local_data/remote_data as JSON strings, snake_case
+ * timestamps), the dialog's own ConflictData, and the E2E fixture's hybrid.
+ * Normalizing here -- at the single consumer -- rather than changing either
+ * service keeps this additive and unable to regress an existing caller.
+ */
+type PendingConflict = {
+  id: string;
+  entityType: string;
+  entityId: string;
+  localData: unknown;
+  remoteData: unknown;
+  localTimestamp: string;
+  remoteTimestamp: string;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function firstString(record: Record<string, unknown>, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string') return value;
+  }
+  return undefined;
+}
+
+function normalizeConflict(raw: unknown): PendingConflict | null {
+  if (!isRecord(raw) || typeof raw.id !== 'string' || raw.id.length === 0) return null;
+  return {
+    id: raw.id,
+    entityType: firstString(raw, 'entityType', 'entity_type') ?? 'unknown',
+    entityId: firstString(raw, 'entityId', 'entity_id') ?? '',
+    localData: raw.localData ?? raw.localVersion ?? raw.local_data,
+    remoteData: raw.remoteData ?? raw.remoteVersion ?? raw.remote_data,
+    localTimestamp: firstString(raw, 'localTimestamp', 'local_timestamp', 'timestamp') ?? '',
+    remoteTimestamp: firstString(raw, 'remoteTimestamp', 'remote_timestamp', 'timestamp') ?? '',
+  };
+}
 
 export default function Index() {
   const { isLoading, bubbles, settings } = useBubbleStore();
@@ -53,6 +99,7 @@ export default function Index() {
     width: window.innerWidth,
     height: window.innerHeight,
   });
+  const [pendingConflicts, setPendingConflicts] = useState<PendingConflict[]>([]);
   const [currentConflict, setCurrentConflict] = useState<
     React.ComponentProps<typeof ConflictResolutionDialog>['conflict']
   >(null);
@@ -69,6 +116,58 @@ export default function Index() {
     focusMode,
     isMobile
   } = useUILayout();
+
+  // Surface cross-device sync conflicts. Two independent paths feed this:
+  //   1. conflicts persisted from a previous session (localStorage), read once
+  //      on mount -- the `sync-conflict` event only announces *new* ones, so
+  //      without this a conflict raised before a reload would stay invisible;
+  //   2. live conflicts announced while the app is open, via the `sync-conflict`
+  //      window event dispatched by crossDeviceSyncService.handleConflict and
+  //      enhancedSyncService.notifyConflict (which disagree on payload shape --
+  //      bare `detail` vs `detail.conflict` -- so both are accepted here).
+  useEffect(() => {
+    try {
+      // The production service returns an array. Keep the nullish fallback for
+      // older/incomplete test doubles and corrupted runtime replacements.
+      const stored = crossDeviceSyncService.getStoredConflicts() ?? [];
+      const hydrated = stored
+        .filter((conflict) => !conflict.resolved)
+        .map(normalizeConflict)
+        .filter((c): c is PendingConflict => c !== null);
+      if (hydrated.length > 0) setPendingConflicts(hydrated);
+    } catch (error) {
+      console.error('Failed to read stored sync conflicts:', error);
+    }
+
+    const handleSyncConflict = (event: Event) => {
+      const detail = (event as CustomEvent<unknown>).detail;
+      const payload = isRecord(detail) && 'conflict' in detail ? detail.conflict : detail;
+      const next = normalizeConflict(payload);
+      if (!next) return;
+      setPendingConflicts((prev) =>
+        prev.some((c) => c.id === next.id) ? prev : [...prev, next]
+      );
+    };
+
+    window.addEventListener('sync-conflict', handleSyncConflict);
+    return () => window.removeEventListener('sync-conflict', handleSyncConflict);
+  }, []);
+
+  // Cross-device sync: resume/refresh sync when connectivity is restored
+  // after being offline. crossDeviceSyncService.initialize() was previously
+  // never called anywhere in production code (only referenced here for
+  // conflict resolution/hydration) -- see REVIVE Run 137/138.
+  useEffect(() => {
+    const handleOnline = () => {
+      crossDeviceSyncService.initialize();
+    };
+
+    window.addEventListener('online', handleOnline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+    };
+  }, []);
 
   // Clean start - no auto-generated welcome bubbles
 
@@ -170,6 +269,15 @@ export default function Index() {
         </div>
       )}
 
+      {/* Sync Conflict Notification - the entry point into resolution */}
+      <SyncConflictNotification
+        count={pendingConflicts.length}
+        onResolve={() => {
+          setCurrentConflict(pendingConflicts[0] ?? null);
+          setShowConflictDialog(true);
+        }}
+      />
+
       {/* Conflict Resolution Dialog */}
       <ConflictResolutionDialog
         conflict={currentConflict}
@@ -179,7 +287,18 @@ export default function Index() {
           setCurrentConflict(null);
         }}
         onResolve={(conflictId, resolution, mergedData) => {
-          crossDeviceSyncService.resolveConflict(conflictId, resolution, mergedData);
+          // Only forward mergedData when there is one: 'keep-local'/'keep-remote'
+          // legitimately have no merged payload, and passing an explicit
+          // `undefined` third argument is a different call than a two-argument one.
+          const pending =
+            mergedData === undefined
+              ? crossDeviceSyncService.resolveConflict(conflictId, resolution)
+              : crossDeviceSyncService.resolveConflict(conflictId, resolution, mergedData);
+          void Promise.resolve(pending).catch((error) =>
+            console.error('Failed to resolve sync conflict:', error)
+          );
+
+          setPendingConflicts((prev) => prev.filter((c) => c.id !== conflictId));
           setShowConflictDialog(false);
           setCurrentConflict(null);
         }}

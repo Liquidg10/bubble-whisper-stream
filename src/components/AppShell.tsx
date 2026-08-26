@@ -122,7 +122,7 @@ export const AppShell: React.FC = () => {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-auto">
+      <main className="flex-1 overflow-auto" aria-label="Main content">
         <div className="h-full flex flex-col">
           <div className="container mx-auto p-4 flex-shrink-0">
             <OfflineStatusBanner />

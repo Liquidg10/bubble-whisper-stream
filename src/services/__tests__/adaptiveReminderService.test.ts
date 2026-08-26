@@ -58,7 +58,11 @@ describe('AdaptiveReminderService', () => {
       };
 
       const explanation = adaptiveReminderService.getExplanation(mockReminder, [], {});
-      expect(explanation).toContain('Because');
+      // The explainability convention is the WORD "because", not a
+      // sentence-initial capital: the service renders a well-formed sentence
+      // ("Adjusting timing because you've felt overwhelmed recently").
+      // Assert the convention, not the capitalisation.
+      expect(explanation).toMatch(/because/i);
       expect(explanation.length).toBeGreaterThan(10);
     });
   });

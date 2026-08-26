@@ -25,6 +25,8 @@ export function PolicyDecisionChip({
         return <Zap className="h-3 w-3" />;
       case 'draft':
         return <Hand className="h-3 w-3" />;
+      case 'draft-ask':
+        return <AlertTriangle className="h-3 w-3" />;
       case 'suggest':
         return <Lightbulb className="h-3 w-3" />;
       default:
@@ -38,6 +40,8 @@ export function PolicyDecisionChip({
         return 'default';
       case 'draft':
         return 'secondary';
+      case 'draft-ask':
+        return 'secondary';
       case 'suggest':
         return 'outline';
       default:
@@ -49,7 +53,14 @@ export function PolicyDecisionChip({
     switch (decision.decision) {
       case 'auto-write':
         return 'Auto-Write';
+      // 'draft' and 'draft-ask' are DISTINCT tiers of the Auto-Write ladder.
+      // Previously 'draft' wore 'draft-ask''s label and 'draft-ask' itself --
+      // the stricter, forced-confirmation tier applied to first-time
+      // recipients -- fell through to 'Unknown'. A safety tier must never
+      // render as the least informative string in the switch.
       case 'draft':
+        return 'Draft';
+      case 'draft-ask':
         return 'Draft + Ask';
       case 'suggest':
         return 'Suggestion';
