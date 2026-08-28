@@ -58,12 +58,99 @@ export interface ScopeRequest {
   currentScopes?: string[]; // For before/after comparison
 }
 
+export interface OAuthStartResult {
+  authUrl: string;
+  state: string;
+}
+
+export interface GoogleCalendarOAuthResult {
+  calendarAccountId: string;
+  account: {
+    id: string;
+    email: string;
+    provider: string;
+    calendarId: string;
+  };
+  scopes: string[];
+}
+
+export interface CanonicalCalendarAccount {
+  id: string;
+  accountEmail: string;
+  accountName: string;
+  provider: string;
+  calendarId: string;
+  calendarName: string;
+  syncStatus: string | null;
+  syncError: string | null;
+  watchStatus: string | null;
+  watchChannelId: string | null;
+  watchResourceId: string | null;
+  watchExpiresAt: string | null;
+  connected: boolean;
+}
+
+export interface CanonicalCalendarEvent {
+  id: string;
+  title: string;
+  start: string;
+  end: string;
+  description?: string;
+  location?: string;
+  attendees: string[];
+}
+
+interface AuthenticatedSession {
+  accessToken: string;
+  userId: string;
+}
+
+interface FunctionResult {
+  success?: boolean;
+  error?: string;
+  details?: string;
+  [key: string]: unknown;
+}
+
+const GOOGLE_AUTH_ORIGIN = 'https://accounts.google.com';
+const GOOGLE_AUTH_PATH = '/o/oauth2/v2/auth';
+
+function functionFailureMessage(
+  data: FunctionResult | null | undefined,
+  fallback: string,
+): string {
+  if (typeof data?.error === 'string' && data.error.trim()) return data.error;
+  if (typeof data?.details === 'string' && data.details.trim()) return data.details;
+  return fallback;
+}
+
+export function validateGoogleOAuthUrl(authUrl: unknown, expectedState: string): string {
+  if (typeof authUrl !== 'string' || !authUrl) {
+    throw new Error('The server did not return a Google authorization URL.');
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(authUrl);
+  } catch {
+    throw new Error('The server returned an invalid Google authorization URL.');
+  }
+
+  if (
+    parsed.origin !== GOOGLE_AUTH_ORIGIN ||
+    parsed.pathname !== GOOGLE_AUTH_PATH ||
+    parsed.username ||
+    parsed.password ||
+    parsed.searchParams.get('state') !== expectedState
+  ) {
+    throw new Error('The Google authorization URL failed the security check.');
+  }
+
+  return parsed.toString();
+}
+
 class OAuthService {
   private encryptionKey: CryptoKey | null = null;
-
-  constructor() {
-    this.initializeEncryption();
-  }
 
   private async initializeEncryption() {
     try {
@@ -138,6 +225,308 @@ class OAuthService {
     return decoder.decode(decrypted);
   }
 
+  private async requireAuthenticatedSession(): Promise<AuthenticatedSession> {
+    const { data, error } = await supabase.auth.getSession();
+    const session = data.session;
+
+    if (error || !session?.user || !session.access_token) {
+      throw new Error('Sign in to Mind Manual before connecting Google Calendar.');
+    }
+
+    return {
+      accessToken: session.access_token,
+      userId: session.user.id,
+    };
+  }
+
+  private async invokeAuthenticated<T extends FunctionResult>(
+    functionName: string,
+    body: Record<string, unknown>,
+    fallbackMessage: string,
+  ): Promise<T> {
+    const session = await this.requireAuthenticatedSession();
+    const { data, error } = await supabase.functions.invoke(functionName, {
+      body,
+      headers: {
+        Authorization: `Bearer ${session.accessToken}`,
+      },
+    });
+
+    if (error) {
+      throw new Error(`${fallbackMessage}: ${error.message}`);
+    }
+
+    const result = data as T | null;
+    if (!result || result.success !== true) {
+      throw new Error(functionFailureMessage(result, fallbackMessage));
+    }
+
+    return result;
+  }
+
+  /**
+   * Begins an OAuth grant without ever loading provider tokens into the browser.
+   * The returned URL is pinned to Google's authorization endpoint and to the
+   * exact state value created by the authenticated edge function.
+   */
+  async beginScopeEscalation(request: ScopeRequest): Promise<OAuthStartResult> {
+    const list = Array.isArray(request.requiredScopes) ? request.requiredScopes : [];
+    const defaultScope = DEFAULT_SCOPES[request.service === 'calendar' ? 'google-calendar' : 'gmail'];
+    const scope = list.length ? list.join(' ') : defaultScope;
+    const existingScopes = Array.isArray(request.currentScopes)
+      ? request.currentScopes.filter(Boolean).join(' ')
+      : '';
+
+    const data = await this.invokeAuthenticated<FunctionResult & {
+      authUrl?: unknown;
+      state?: unknown;
+    }>('calendar-oauth-start', {
+      scope,
+      service: request.service,
+      reason: request.reason,
+      accountId: request.accountId,
+      existingScopes,
+      isEscalation: Boolean(request.accountId),
+    }, 'Unable to start Google authorization');
+
+    if (typeof data.state !== 'string' || !data.state) {
+      throw new Error('The server did not return an OAuth state value.');
+    }
+
+    return {
+      authUrl: validateGoogleOAuthUrl(data.authUrl, data.state),
+      state: data.state,
+    };
+  }
+
+  async completeGoogleCalendarOAuth(
+    code: string,
+    state: string,
+  ): Promise<GoogleCalendarOAuthResult> {
+    if (!code || !state) {
+      throw new Error('Google did not return a complete authorization response.');
+    }
+
+    const data = await this.invokeAuthenticated<FunctionResult & {
+      calendarAccountId?: unknown;
+      account?: unknown;
+      scopes?: unknown;
+      access_token?: unknown;
+      refresh_token?: unknown;
+    }>('calendar-oauth-callback', { code, state }, 'Unable to finish Google authorization');
+
+    // Provider credentials must remain server-side even if a future backend
+    // accidentally regresses and includes them in its JSON response.
+    const accountPayload = data.account && typeof data.account === 'object'
+      ? data.account as Record<string, unknown>
+      : null;
+    if (
+      'access_token' in data ||
+      'refresh_token' in data ||
+      'accessToken' in data ||
+      'refreshToken' in data ||
+      Boolean(accountPayload && (
+        'access_token' in accountPayload ||
+        'refresh_token' in accountPayload ||
+        'accessToken' in accountPayload ||
+        'refreshToken' in accountPayload
+      ))
+    ) {
+      throw new Error('The OAuth response exposed provider credentials and was rejected.');
+    }
+
+    if (typeof data.calendarAccountId !== 'string' || !data.calendarAccountId) {
+      throw new Error('Google authorization completed, but no Calendar account was created.');
+    }
+
+    if (!data.account || typeof data.account !== 'object') {
+      throw new Error('Google authorization completed, but the Calendar account receipt was missing.');
+    }
+
+    const account = data.account as Record<string, unknown>;
+    if (
+      typeof account.id !== 'string' ||
+      typeof account.email !== 'string' ||
+      typeof account.provider !== 'string' ||
+      typeof account.calendarId !== 'string'
+    ) {
+      throw new Error('Google authorization returned an invalid Calendar account receipt.');
+    }
+
+    return {
+      calendarAccountId: data.calendarAccountId,
+      account: {
+        id: account.id,
+        email: account.email,
+        provider: account.provider,
+        calendarId: account.calendarId,
+      },
+      scopes: Array.isArray(data.scopes)
+        ? data.scopes.filter((scope): scope is string => typeof scope === 'string')
+        : typeof data.scopes === 'string'
+          ? data.scopes.split(' ').filter(Boolean)
+          : [],
+    };
+  }
+
+  async syncCalendarAccount(calendarAccountId: string, fullSync = false): Promise<void> {
+    const receipt = await this.invokeAuthenticated<FunctionResult & {
+      boundedWindow?: unknown;
+      eventsProcessed?: unknown;
+      syncToken?: unknown;
+      syncType?: unknown;
+    }>('calendar-sync', {
+      calendarAccountId,
+      fullSync,
+      boundedWindow: fullSync,
+    }, fullSync
+      ? 'Google Calendar connected, but the initial bounded sync failed'
+      : 'Google Calendar refresh failed');
+
+    const expectedSyncType = fullSync ? 'full' : 'incremental';
+    const usedDocumentedFallback = !fullSync &&
+      receipt.syncType === 'full' &&
+      receipt.boundedWindow === true;
+    if (
+      (receipt.syncType !== expectedSyncType && !usedDocumentedFallback) ||
+      typeof receipt.eventsProcessed !== 'number' ||
+      !Number.isInteger(receipt.eventsProcessed) ||
+      receipt.eventsProcessed < 0 ||
+      typeof receipt.syncToken !== 'string' ||
+      !receipt.syncToken
+    ) {
+      throw new Error('Calendar sync completed without a valid durable receipt.');
+    }
+  }
+
+  async setupCalendarWatch(calendarAccountId: string): Promise<void> {
+    const receipt = await this.invokeAuthenticated<FunctionResult & {
+      channelId?: unknown;
+      expiresAt?: unknown;
+    }>('calendar-watch', {
+      action: 'setup',
+      calendarAccountId,
+    }, 'Calendar synced, but live update setup failed');
+
+    const watchExpiry = typeof receipt.expiresAt === 'string'
+      ? Date.parse(receipt.expiresAt)
+      : Number.NaN;
+    if (
+      typeof receipt.channelId !== 'string' ||
+      !receipt.channelId ||
+      !Number.isFinite(watchExpiry) ||
+      watchExpiry <= Date.now()
+    ) {
+      throw new Error('Calendar live updates started without a valid watch receipt.');
+    }
+  }
+
+  async initializeCalendarAccount(calendarAccountId: string): Promise<CanonicalCalendarAccount> {
+    await this.syncCalendarAccount(calendarAccountId, true);
+    await this.setupCalendarWatch(calendarAccountId);
+
+    const account = await this.getCanonicalCalendarAccount(calendarAccountId);
+    if (!account || !account.connected) {
+      throw new Error(
+        account?.syncError ||
+        'Calendar setup finished without an active sync and watch receipt. Try connecting again.',
+      );
+    }
+
+    return account;
+  }
+
+  async getCanonicalCalendarAccounts(): Promise<CanonicalCalendarAccount[]> {
+    const session = await this.requireAuthenticatedSession();
+    const { data, error } = await supabase
+      .from('calendar_accounts')
+      .select(
+        'id, account_email, account_name, provider, calendar_id, calendar_name, sync_status, last_sync_error, watch_status, watch_channel_id, watch_resource_id, watch_expires_at',
+      )
+      .eq('user_id', session.userId)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      throw new Error(`Unable to load connected calendars: ${error.message}`);
+    }
+
+    return (data || []).map((account) => {
+      const watchExpiry = account.watch_expires_at
+        ? Date.parse(account.watch_expires_at)
+        : Number.NaN;
+
+      return {
+        id: account.id,
+        accountEmail: account.account_email,
+        accountName: account.account_name,
+        provider: account.provider,
+        calendarId: account.calendar_id || 'primary',
+        calendarName: account.calendar_name || account.account_name,
+        syncStatus: account.sync_status,
+        syncError: account.last_sync_error,
+        watchStatus: account.watch_status,
+        watchChannelId: account.watch_channel_id,
+        watchResourceId: account.watch_resource_id,
+        watchExpiresAt: account.watch_expires_at,
+        connected: account.sync_status === 'complete' &&
+          account.watch_status === 'active' &&
+          Boolean(account.watch_channel_id) &&
+          Boolean(account.watch_resource_id) &&
+          Number.isFinite(watchExpiry) &&
+          watchExpiry > Date.now(),
+      };
+    });
+  }
+
+  async getCanonicalCalendarAccount(
+    calendarAccountId: string,
+  ): Promise<CanonicalCalendarAccount | null> {
+    const accounts = await this.getCanonicalCalendarAccounts();
+    return accounts.find((account) => account.id === calendarAccountId) || null;
+  }
+
+  async getCanonicalCalendarEvents(
+    calendarAccountId: string,
+  ): Promise<CanonicalCalendarEvent[]> {
+    const session = await this.requireAuthenticatedSession();
+    const timeMin = new Date().toISOString();
+    const timeMax = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await supabase
+      .from('calendar_events')
+      .select('id, title, start_time, end_time, description, location, attendees')
+      .eq('user_id', session.userId)
+      .eq('calendar_account_id', calendarAccountId)
+      .gte('start_time', timeMin)
+      .lte('start_time', timeMax)
+      .order('start_time', { ascending: true })
+      .limit(10);
+
+    if (error) {
+      throw new Error(`Unable to load synced Calendar events: ${error.message}`);
+    }
+
+    return (data || []).map((event) => ({
+      id: event.id,
+      title: event.title,
+      start: event.start_time,
+      end: event.end_time,
+      description: event.description || undefined,
+      location: event.location || undefined,
+      attendees: Array.isArray(event.attendees)
+        ? event.attendees.flatMap((attendee) => {
+            if (typeof attendee === 'string') return [attendee];
+            if (
+              attendee &&
+              typeof attendee === 'object' &&
+              'email' in attendee &&
+              typeof attendee.email === 'string'
+            ) return [attendee.email];
+            return [];
+          })
+        : [],
+    }));
+  }
+
   async getConnectedAccounts(): Promise<OAuthAccount[]> {
     const { data: session } = await supabase.auth.getSession();
     if (!session?.session?.user) return [];
@@ -159,10 +548,10 @@ class OAuthService {
         provider: account.provider as OAuthAccount['provider'],
         access_token: account.access_token ? await this.decryptToken(account.access_token) : '',
         refresh_token: account.refresh_token ? await this.decryptToken(account.refresh_token) : undefined,
-        scopes: (account as any).scopes_string 
-          ? (account as any).scopes_string.split(' ').filter(Boolean)
-          : ((account as any).scopes || []),
-        account_email: (account as any).account_email || ''
+        scopes: account.scopes_string
+          ? account.scopes_string.split(' ').filter(Boolean)
+          : (account.scopes || []),
+        account_email: account.account_email || ''
       }))
     );
 
@@ -185,15 +574,13 @@ class OAuthService {
       expires_at: account.expires_at,
       last_used_at: new Date().toISOString(),
       account_email: account.account_email,
-      token_type: account.token_type || 'Bearer'
+      token_type: account.token_type || 'Bearer',
+      scopes_string: account.scopes
+        ? Array.isArray(account.scopes)
+          ? account.scopes.join(' ')
+          : account.scopes
+        : undefined,
     };
-
-    // Handle scopes - convert array to space-delimited string
-    if (account.scopes) {
-      (updateData as any).scopes_string = Array.isArray(account.scopes) 
-        ? account.scopes.join(' ')
-        : account.scopes;
-    }
 
     const { error } = await supabase
       .from('oauth_accounts')
@@ -316,7 +703,7 @@ class OAuthService {
     const defaultScope = DEFAULT_SCOPES[request.service === 'calendar' ? 'google-calendar' : 'gmail'];
     const scope = list.length ? list.join(' ') : defaultScope;
 
-    // For incremental auth, get current account to include existing scopes
+    // Keep this legacy oauth_accounts path for the existing Gmail integration.
     let existingScopes: string[] = [];
     if (request.accountId) {
       const accounts = await this.getConnectedAccounts();
@@ -326,15 +713,14 @@ class OAuthService {
       }
     }
 
-    // Use our edge function to generate OAuth URLs with proper state/PKCE
     const { data, error } = await supabase.functions.invoke('oauth-google-start', {
       body: {
         scope,
         service: request.service,
         reason: request.reason,
         accountId: request.accountId,
-        existingScopes: existingScopes.join(' '), // Include for incremental auth
-        isEscalation: true // Flag this as scope escalation, not initial auth
+        existingScopes: existingScopes.join(' '),
+        isEscalation: true
       }
     });
 

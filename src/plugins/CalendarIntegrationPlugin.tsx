@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -11,17 +11,12 @@ import {
   Clock, 
   AlertCircle, 
   CheckCircle, 
-  Settings,
   RefreshCw,
-  Plus,
-  Trash2,
-  Shield
+  Plus
 } from 'lucide-react';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { useToast } from '@/hooks/use-toast';
 import { oauthService, SCOPES } from '@/services/oauthService';
-import { ScopeConsentModal } from '@/components/ScopeConsentModal';
-import { supabase } from '@/integrations/supabase/client';
 
 interface CalendarEvent {
   id: string;
@@ -39,6 +34,119 @@ interface CalendarAccount {
   type: 'google' | 'outlook' | 'caldav';
   connected: boolean;
   email?: string;
+  statusMessage?: string;
+}
+
+interface GoogleOAuthSuccessMessage {
+  type: 'GOOGLE_OAUTH_SUCCESS';
+  code: string;
+  state: string;
+}
+
+interface GoogleOAuthErrorMessage {
+  type: 'GOOGLE_OAUTH_ERROR';
+  error: string;
+  state: string;
+}
+
+type GoogleOAuthMessage = GoogleOAuthSuccessMessage | GoogleOAuthErrorMessage;
+
+// The server-side state expires after five minutes. Leave a 30-second margin so
+// a late popup response fails here before the callback reaches expired state.
+const OAUTH_POPUP_TIMEOUT_MS = 4.5 * 60 * 1000;
+
+function isGoogleOAuthMessage(value: unknown): value is GoogleOAuthMessage {
+  if (!value || typeof value !== 'object') return false;
+  const message = value as Record<string, unknown>;
+
+  if (message.type === 'GOOGLE_OAUTH_SUCCESS') {
+    return typeof message.code === 'string' &&
+      Boolean(message.code) &&
+      typeof message.state === 'string' &&
+      Boolean(message.state);
+  }
+
+  if (message.type === 'GOOGLE_OAUTH_ERROR') {
+    return typeof message.error === 'string' &&
+      Boolean(message.error) &&
+      typeof message.state === 'string' &&
+      Boolean(message.state);
+  }
+
+  return false;
+}
+
+// Exported so the origin/source/state boundary can be tested directly.
+// eslint-disable-next-line react-refresh/only-export-components
+export function waitForGoogleOAuthPopup(
+  popup: Window,
+  expectedState: string,
+  expectedOrigin = window.location.origin,
+  timeoutMs = OAUTH_POPUP_TIMEOUT_MS,
+): Promise<GoogleOAuthSuccessMessage> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+
+    const cleanup = () => {
+      window.removeEventListener('message', handleMessage);
+      window.clearInterval(closedPoll);
+      window.clearTimeout(timeout);
+    };
+
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+    };
+
+    const resolveOnce = (value: GoogleOAuthSuccessMessage) => {
+      if (settled) return;
+      settle();
+      resolve(value);
+    };
+
+    const rejectOnce = (error: Error) => {
+      if (settled) return;
+      settle();
+      reject(error);
+    };
+
+    const handleMessage = (event: MessageEvent) => {
+      if (
+        event.origin !== expectedOrigin ||
+        event.source !== popup ||
+        !isGoogleOAuthMessage(event.data) ||
+        event.data.state !== expectedState
+      ) return;
+
+      if (event.data.type === 'GOOGLE_OAUTH_ERROR') {
+        rejectOnce(new Error(`Google authorization failed: ${event.data.error}`));
+        return;
+      }
+
+      resolveOnce(event.data);
+    };
+
+    const closedPoll = window.setInterval(() => {
+      if (popup.closed) {
+        rejectOnce(
+          new Error('Google authorization was canceled before it completed.'),
+        );
+      }
+    }, 500);
+
+    const timeout = window.setTimeout(() => {
+      rejectOnce(
+        new Error('Google authorization timed out. Close the Google window and try again.'),
+      );
+    }, timeoutMs);
+
+    window.addEventListener('message', handleMessage);
+  });
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'Unable to connect to Google Calendar.';
 }
 
 export function CalendarIntegrationPlugin() {
@@ -51,172 +159,145 @@ export function CalendarIntegrationPlugin() {
   const [isLoading, setIsLoading] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [syncFrequency, setSyncFrequency] = useState(15); // minutes
-  const [showScopeModal, setShowScopeModal] = useState(false);
-  const [pendingScopeRequest, setPendingScopeRequest] = useState<any>(null);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadCalendarAccounts();
-    if (isEnabled) {
-      loadUpcomingEvents();
-    }
-  }, [isEnabled]);
-
-  const loadCalendarAccounts = async () => {
+  const loadCalendarAccounts = useCallback(async () => {
     try {
-      const oauthAccounts = await oauthService.getConnectedAccounts();
-      const calendarAccounts = oauthAccounts
-        .filter(account => account.scopes.some(scope => scope.includes('calendar')))
-        .map(account => ({
-          id: account.id,
-          name: account.account_email,
-          type: 'google' as const,
-          connected: true,
-          email: account.account_email
-        }));
+      const canonicalAccounts = await oauthService.getCanonicalCalendarAccounts();
+      const calendarAccounts = canonicalAccounts.map(account => ({
+        id: account.id,
+        name: account.accountName || account.calendarName || account.accountEmail,
+        type: account.provider.includes('google') ? 'google' as const : 'caldav' as const,
+        connected: account.connected,
+        email: account.accountEmail,
+        statusMessage: account.connected
+          ? 'Connected'
+          : account.syncError || 'Setup incomplete',
+      }));
       setAccounts(calendarAccounts);
+      return calendarAccounts;
     } catch (error) {
       console.error('Failed to load calendar accounts:', error);
+      throw error;
     }
-  };
+  }, []);
 
-  const loadUpcomingEvents = async () => {
+  const loadUpcomingEvents = useCallback(async (refreshFromGoogle = false) => {
     setIsLoading(true);
     try {
-      const oauthAccounts = await oauthService.getConnectedAccounts();
-      const calendarAccount = oauthAccounts.find(account => 
-        account.scopes.some(scope => scope.includes('calendar'))
-      );
+      const canonicalAccounts = await oauthService.getCanonicalCalendarAccounts();
+      const calendarAccount = canonicalAccounts.find(account => account.connected);
 
       if (!calendarAccount) {
         setEvents([]);
         return;
       }
 
-      // Check if we have read permission
-      const { hasPermission } = await oauthService.checkScopePermissions(
-        calendarAccount.id, 
-        [SCOPES.GOOGLE_CALENDAR.READ]
-      );
-
-      if (!hasPermission) {
-        setEvents([]);
-        return;
+      if (refreshFromGoogle) {
+        await oauthService.syncCalendarAccount(calendarAccount.id);
       }
 
-      // Fetch real calendar events from Google Calendar API
-      const response = await oauthService.makeAuthenticatedRequest(
-        calendarAccount.id,
-        'https://www.googleapis.com/calendar/v3/calendars/primary/events?' + new URLSearchParams({
-          timeMin: new Date().toISOString(),
-          timeMax: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-          singleEvents: 'true',
-          orderBy: 'startTime',
-          maxResults: '10'
-        })
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        const googleEvents = data.items?.map((item: any) => ({
-          id: item.id,
-          title: item.summary || 'Untitled Event',
-          start: item.start?.dateTime || item.start?.date,
-          end: item.end?.dateTime || item.end?.date,
-          description: item.description,
-          location: item.location,
-          attendees: item.attendees?.map((a: any) => a.email) || []
-        })) || [];
-        
-        setEvents(googleEvents);
-      } else {
-        throw new Error('Failed to fetch calendar events');
-      }
+      setEvents(await oauthService.getCanonicalCalendarEvents(calendarAccount.id));
     } catch (error) {
       console.error('Failed to load calendar events:', error);
       toast({
         title: "Calendar Sync Failed",
-        description: "Unable to sync calendar events. Please check your connection.",
+        description: `${errorMessage(error)} Try Refresh again; reconnect if the error persists.`,
         variant: "destructive"
       });
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [toast]);
+
+  useEffect(() => {
+    void loadCalendarAccounts()
+      .then((loadedAccounts) => {
+        if (isEnabled && loadedAccounts.some(account => account.connected)) {
+          void loadUpcomingEvents();
+        }
+      })
+      .catch(() => {
+        // Settings is intentionally visible while signed out. Treat that
+        // expected state as no accounts; Add Calendar surfaces the sign-in ask.
+        setAccounts([]);
+        setEvents([]);
+      });
+  }, [isEnabled, loadCalendarAccounts, loadUpcomingEvents]);
 
   const connectGoogleCalendar = async () => {
+    // This must be the first side effect in the click handler. Opening after an
+    // awaited network request makes real browsers treat the popup as unsolicited.
+    const popup = window.open(
+      'about:blank',
+      'mind-manual-google-calendar-oauth',
+      'popup=yes,width=500,height=650,resizable=yes,scrollbars=yes',
+    );
+
+    if (!popup) {
+      const description = 'Your browser blocked the Google window. Allow pop-ups for Mind Manual, then choose Add Calendar again.';
+      setConnectionError(description);
+      toast({ title: 'Pop-up Blocked', description, variant: 'destructive' });
+      return;
+    }
+
     setIsConnecting(true);
+    setConnectionError(null);
     try {
-      // Start with read-only scope for incremental consent
-      const authUrl = await oauthService.requestScopeEscalation({
+      const oauthStart = await oauthService.beginScopeEscalation({
         provider: 'google',
         service: 'calendar',
         requiredScopes: [SCOPES.GOOGLE_CALENDAR.READ],
         reason: 'view your calendar events'
       });
 
-      // Open OAuth flow in popup
-      const popup = window.open(authUrl, 'oauth', 'width=500,height=600');
-      
-      // Listen for OAuth completion
-      const handleMessage = async (event: MessageEvent) => {
-        if (event.origin !== window.location.origin) return;
-        
-        if (event.data.type === 'GOOGLE_OAUTH_SUCCESS') {
-          popup?.close();
-          
-          // Use our new OAuth callback edge function
-          const { data, error } = await supabase.functions.invoke('oauth-google-callback', {
-            body: {
-              code: event.data.code,
-              state: event.data.state
-            }
-          });
+      if (popup.closed) {
+        throw new Error('The Google window closed before authorization started.');
+      }
 
-          if (error) throw error;
-          
-          await loadCalendarAccounts();
-          toast({
-            title: "Calendar Connected",
-            description: "Google Calendar has been successfully connected with read access.",
-          });
-        } else if (event.data.type === 'GOOGLE_OAUTH_ERROR') {
-          popup?.close();
-          throw new Error(event.data.error);
-        }
-        
-        window.removeEventListener('message', handleMessage);
-      };
+      const oauthMessage = waitForGoogleOAuthPopup(popup, oauthStart.state);
+      popup.location.replace(oauthStart.authUrl);
+      popup.focus();
 
-      window.addEventListener('message', handleMessage);
-      
+      const { code, state } = await oauthMessage;
+      popup.close();
+
+      const receipt = await oauthService.completeGoogleCalendarOAuth(code, state);
+      await oauthService.initializeCalendarAccount(receipt.calendarAccountId);
+      const canonicalAccounts = await loadCalendarAccounts();
+      const connectedAccount = canonicalAccounts.find(
+        account => account.id === receipt.calendarAccountId && account.connected,
+      );
+
+      if (!connectedAccount) {
+        throw new Error('Calendar setup completed without a connected account receipt. Try connecting again.');
+      }
+
+      await loadUpcomingEvents();
+      toast({
+        title: "Calendar Connected",
+        description: "Google Calendar is synced and live updates are active.",
+      });
     } catch (error) {
       console.error('Failed to connect calendar:', error);
+      if (!popup.closed) popup.close();
+      try {
+        // If the provider callback created a row but sync/watch setup failed,
+        // surface it as incomplete instead of hiding the recoverable record.
+        await loadCalendarAccounts();
+      } catch {
+        // The initiating error remains the actionable one (for example,
+        // signed out or blocked authorization), so do not replace it here.
+      }
+      const description = `${errorMessage(error)} Try Add Calendar again.`;
+      setConnectionError(description);
       toast({
         title: "Connection Failed",
-        description: "Unable to connect to Google Calendar. Please try again.",
+        description,
         variant: "destructive"
       });
     } finally {
       setIsConnecting(false);
-    }
-  };
-
-  const revokeCalendarAccess = async (accountId: string) => {
-    try {
-      await oauthService.revokeAccount(accountId);
-      await loadCalendarAccounts();
-      setEvents([]);
-      toast({
-        title: "Access Revoked",
-        description: "Calendar access has been revoked. Write actions are now disabled.",
-      });
-    } catch (error) {
-      console.error('Failed to revoke access:', error);
-      toast({
-        title: "Revoke Failed",
-        description: "Unable to revoke calendar access. Please try again.",
-        variant: "destructive"
-      });
     }
   };
 
@@ -301,6 +382,13 @@ export function CalendarIntegrationPlugin() {
         
         {isEnabled && (
           <>
+            {connectionError && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{connectionError}</AlertDescription>
+              </Alert>
+            )}
+
             {/* Account Management */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
@@ -332,22 +420,22 @@ export function CalendarIntegrationPlugin() {
                   {accounts.map((account) => (
                     <div key={account.id} className="flex items-center justify-between p-2 border rounded">
                       <div className="flex items-center gap-2">
-                        <CheckCircle className="h-4 w-4 text-green-500" />
+                        {account.connected ? (
+                          <CheckCircle className="h-4 w-4 text-green-500" />
+                        ) : (
+                          <AlertCircle className="h-4 w-4 text-amber-500" />
+                        )}
                         <div>
                           <div className="text-sm font-medium">{account.name}</div>
                           <div className="text-xs text-muted-foreground">{account.email}</div>
+                          {!account.connected && (
+                            <div className="text-xs text-muted-foreground">{account.statusMessage}</div>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
                         <Badge variant="outline">{account.type}</Badge>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={() => revokeCalendarAccess(account.id)}
-                        >
-                          <Trash2 className="h-3 w-3 mr-1" />
-                          Revoke
-                        </Button>
+                        {account.connected && <Badge variant="secondary">Connected</Badge>}
                       </div>
                     </div>
                   ))}
@@ -378,7 +466,7 @@ export function CalendarIntegrationPlugin() {
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={loadUpcomingEvents}
+                  onClick={() => loadUpcomingEvents(true)}
                   disabled={isLoading}
                 >
                   {isLoading ? (

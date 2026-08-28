@@ -20,7 +20,8 @@ export const AuthCallback: React.FC = () => {
           if (window.opener) {
             window.opener.postMessage({
               type: 'GOOGLE_OAUTH_ERROR',
-              error: error
+              error,
+              state: state || ''
             }, window.location.origin);
             window.close();
             return;
