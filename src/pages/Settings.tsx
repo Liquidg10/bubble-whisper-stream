@@ -30,12 +30,39 @@ import { AutoWriteSettings } from '@/components/settings/AutoWriteSettings';
 import { useFeatureFlags } from '@/components/FeatureFlags';
 import { isFeatureEnabled } from '@/config/flags';
 
+const SETTINGS_TABS = new Set([
+  'general',
+  'onboarding',
+  'ai',
+  'thought-support',
+  'intelligence',
+  'autowrite',
+  'integrations',
+  'safety',
+  'audit',
+  'privacy',
+  'accessibility',
+  'advanced',
+]);
+
 export const Settings: React.FC = () => {
   const { isFeatureEnabled: isLegacyFeatureEnabled } = useFeatureFlags();
-  const [activeTab, setActiveTab] = useState('general');
-  
-  // Check if CBT features are available
+  const [searchParams] = useSearchParams();
+  const requestedTab = searchParams.get('tab');
   const showCBTTab = isFeatureEnabled('cbtAssist') || isFeatureEnabled('cbtSilentObserve');
+  const showAdvancedTab = isLegacyFeatureEnabled('debugMode');
+  const requestedTabIsAvailable = Boolean(
+    requestedTab &&
+    SETTINGS_TABS.has(requestedTab) &&
+    (requestedTab !== 'thought-support' || showCBTTab) &&
+    (requestedTab !== 'advanced' || showAdvancedTab),
+  );
+  const resolvedRequestedTab = requestedTabIsAvailable ? requestedTab! : 'general';
+  const [activeTab, setActiveTab] = useState(resolvedRequestedTab);
+
+  useEffect(() => {
+    setActiveTab(resolvedRequestedTab);
+  }, [resolvedRequestedTab]);
 
   return (
     <div className="flex flex-col h-full bg-background">
@@ -96,7 +123,7 @@ export const Settings: React.FC = () => {
                 <Eye className="h-4 w-4" />
                 <span>A11y</span>
               </TabsTrigger>
-              {isLegacyFeatureEnabled('debugMode') && (
+              {showAdvancedTab && (
                 <TabsTrigger value="advanced" className="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm gap-2 min-w-fit">
                   <Code className="h-4 w-4" />
                   <span>Advanced</span>
@@ -153,7 +180,7 @@ export const Settings: React.FC = () => {
               <AccessibilitySettings />
             </TabsContent>
 
-            {isLegacyFeatureEnabled('debugMode') && (
+            {showAdvancedTab && (
               <TabsContent value="advanced" className="space-y-6 mt-0">
                 <AdvancedSettings />
               </TabsContent>

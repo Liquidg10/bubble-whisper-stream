@@ -37,114 +37,6 @@ interface CalendarAccount {
   statusMessage?: string;
 }
 
-interface GoogleOAuthSuccessMessage {
-  type: 'GOOGLE_OAUTH_SUCCESS';
-  code: string;
-  state: string;
-}
-
-interface GoogleOAuthErrorMessage {
-  type: 'GOOGLE_OAUTH_ERROR';
-  error: string;
-  state: string;
-}
-
-type GoogleOAuthMessage = GoogleOAuthSuccessMessage | GoogleOAuthErrorMessage;
-
-// The server-side state expires after five minutes. Leave a 30-second margin so
-// a late popup response fails here before the callback reaches expired state.
-const OAUTH_POPUP_TIMEOUT_MS = 4.5 * 60 * 1000;
-
-function isGoogleOAuthMessage(value: unknown): value is GoogleOAuthMessage {
-  if (!value || typeof value !== 'object') return false;
-  const message = value as Record<string, unknown>;
-
-  if (message.type === 'GOOGLE_OAUTH_SUCCESS') {
-    return typeof message.code === 'string' &&
-      Boolean(message.code) &&
-      typeof message.state === 'string' &&
-      Boolean(message.state);
-  }
-
-  if (message.type === 'GOOGLE_OAUTH_ERROR') {
-    return typeof message.error === 'string' &&
-      Boolean(message.error) &&
-      typeof message.state === 'string' &&
-      Boolean(message.state);
-  }
-
-  return false;
-}
-
-// Exported so the origin/source/state boundary can be tested directly.
-// eslint-disable-next-line react-refresh/only-export-components
-export function waitForGoogleOAuthPopup(
-  popup: Window,
-  expectedState: string,
-  expectedOrigin = window.location.origin,
-  timeoutMs = OAUTH_POPUP_TIMEOUT_MS,
-): Promise<GoogleOAuthSuccessMessage> {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-
-    const cleanup = () => {
-      window.removeEventListener('message', handleMessage);
-      window.clearInterval(closedPoll);
-      window.clearTimeout(timeout);
-    };
-
-    const settle = () => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-    };
-
-    const resolveOnce = (value: GoogleOAuthSuccessMessage) => {
-      if (settled) return;
-      settle();
-      resolve(value);
-    };
-
-    const rejectOnce = (error: Error) => {
-      if (settled) return;
-      settle();
-      reject(error);
-    };
-
-    const handleMessage = (event: MessageEvent) => {
-      if (
-        event.origin !== expectedOrigin ||
-        event.source !== popup ||
-        !isGoogleOAuthMessage(event.data) ||
-        event.data.state !== expectedState
-      ) return;
-
-      if (event.data.type === 'GOOGLE_OAUTH_ERROR') {
-        rejectOnce(new Error(`Google authorization failed: ${event.data.error}`));
-        return;
-      }
-
-      resolveOnce(event.data);
-    };
-
-    const closedPoll = window.setInterval(() => {
-      if (popup.closed) {
-        rejectOnce(
-          new Error('Google authorization was canceled before it completed.'),
-        );
-      }
-    }, 500);
-
-    const timeout = window.setTimeout(() => {
-      rejectOnce(
-        new Error('Google authorization timed out. Close the Google window and try again.'),
-      );
-    }, timeoutMs);
-
-    window.addEventListener('message', handleMessage);
-  });
-}
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unable to connect to Google Calendar.';
 }
@@ -226,69 +118,17 @@ export function CalendarIntegrationPlugin() {
   }, [isEnabled, loadCalendarAccounts, loadUpcomingEvents]);
 
   const connectGoogleCalendar = async () => {
-    // This must be the first side effect in the click handler. Opening after an
-    // awaited network request makes real browsers treat the popup as unsolicited.
-    const popup = window.open(
-      'about:blank',
-      'mind-manual-google-calendar-oauth',
-      'popup=yes,width=500,height=650,resizable=yes,scrollbars=yes',
-    );
-
-    if (!popup) {
-      const description = 'Your browser blocked the Google window. Allow pop-ups for Mind Manual, then choose Add Calendar again.';
-      setConnectionError(description);
-      toast({ title: 'Pop-up Blocked', description, variant: 'destructive' });
-      return;
-    }
-
     setIsConnecting(true);
     setConnectionError(null);
     try {
-      const oauthStart = await oauthService.beginScopeEscalation({
+      await oauthService.redirectToGoogleCalendar({
         provider: 'google',
         service: 'calendar',
         requiredScopes: [SCOPES.GOOGLE_CALENDAR.READ],
         reason: 'view your calendar events'
       });
-
-      if (popup.closed) {
-        throw new Error('The Google window closed before authorization started.');
-      }
-
-      const oauthMessage = waitForGoogleOAuthPopup(popup, oauthStart.state);
-      popup.location.replace(oauthStart.authUrl);
-      popup.focus();
-
-      const { code, state } = await oauthMessage;
-      popup.close();
-
-      const receipt = await oauthService.completeGoogleCalendarOAuth(code, state);
-      await oauthService.initializeCalendarAccount(receipt.calendarAccountId);
-      const canonicalAccounts = await loadCalendarAccounts();
-      const connectedAccount = canonicalAccounts.find(
-        account => account.id === receipt.calendarAccountId && account.connected,
-      );
-
-      if (!connectedAccount) {
-        throw new Error('Calendar setup completed without a connected account receipt. Try connecting again.');
-      }
-
-      await loadUpcomingEvents();
-      toast({
-        title: "Calendar Connected",
-        description: "Google Calendar is synced and live updates are active.",
-      });
     } catch (error) {
       console.error('Failed to connect calendar:', error);
-      if (!popup.closed) popup.close();
-      try {
-        // If the provider callback created a row but sync/watch setup failed,
-        // surface it as incomplete instead of hiding the recoverable record.
-        await loadCalendarAccounts();
-      } catch {
-        // The initiating error remains the actionable one (for example,
-        // signed out or blocked authorization), so do not replace it here.
-      }
       const description = `${errorMessage(error)} Try Add Calendar again.`;
       setConnectionError(description);
       toast({
