@@ -10,6 +10,11 @@ import {
   requireCalendarWatchWebhookSecret,
   verifyCalendarWatchChannelToken,
 } from "../_shared/calendarWatchSecurity.ts";
+import {
+  decryptOAuthToken,
+  encryptOAuthToken,
+  loadOAuthTokenEncryptionKey,
+} from "../_shared/oauthTokenCrypto.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -37,6 +42,27 @@ const supabase = createClient(
   Deno.env.get('SUPABASE_URL') ?? '',
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 );
+
+interface StoredOAuthCredentials {
+  accessToken: string;
+  refreshToken: string | null;
+  encryptionKey: CryptoKey;
+}
+
+async function loadStoredOAuthCredentials(tokens: {
+  access_token: string;
+  refresh_token: string | null;
+}): Promise<StoredOAuthCredentials> {
+  const encryptionKey = await loadOAuthTokenEncryptionKey();
+
+  return {
+    accessToken: await decryptOAuthToken(tokens.access_token, encryptionKey),
+    refreshToken: tokens.refresh_token
+      ? await decryptOAuthToken(tokens.refresh_token, encryptionKey)
+      : null,
+    encryptionKey,
+  };
+}
 
 async function refreshAccessToken(refreshToken: string): Promise<string | null> {
   try {
@@ -358,11 +384,21 @@ const handler = async (req: Request): Promise<Response> => {
       }
 
       // Get fresh access token
-      let accessToken = calendarAccount.oauth_tokens.access_token;
+      const storedCredentials = await loadStoredOAuthCredentials(
+        calendarAccount.oauth_tokens,
+      );
+      let accessToken = storedCredentials.accessToken;
       const tokenExpiry = new Date(calendarAccount.oauth_tokens.token_expires_at);
       
       if (tokenExpiry <= new Date()) {
-        const newToken = await refreshAccessToken(calendarAccount.oauth_tokens.refresh_token);
+        if (!storedCredentials.refreshToken) {
+          return new Response(
+            JSON.stringify({ error: 'Calendar authorization must be renewed' }),
+            { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
+        }
+
+        const newToken = await refreshAccessToken(storedCredentials.refreshToken);
         if (!newToken) {
           return new Response(
             JSON.stringify({ error: 'Token refresh failed' }),
@@ -370,6 +406,21 @@ const handler = async (req: Request): Promise<Response> => {
           );
         }
         accessToken = newToken;
+
+        const { error: tokenUpdateError } = await supabase
+          .from('oauth_tokens')
+          .update({
+            access_token: await encryptOAuthToken(
+              newToken,
+              storedCredentials.encryptionKey,
+            ),
+            token_expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
+          })
+          .eq('id', calendarAccount.oauth_token_id);
+
+        if (tokenUpdateError) {
+          throw new Error('Failed to persist refreshed Calendar token');
+        }
       }
 
       if (action === 'renew') {
@@ -415,6 +466,70 @@ const handler = async (req: Request): Promise<Response> => {
 
       if (action === 'setup') {
         const webhookUrl = `${Deno.env.get('SUPABASE_URL')}/functions/v1/calendar-watch`;
+        const existingExpiry = calendarAccount.watch_expires_at
+          ? Date.parse(calendarAccount.watch_expires_at)
+          : Number.NaN;
+
+        // Setup is deliberately idempotent for an already healthy channel.
+        // The OAuth UI can safely retry a partially completed connection
+        // without creating a second Google channel when persistence succeeded.
+        if (
+          calendarAccount.watch_status === 'active' &&
+          calendarAccount.watch_channel_id &&
+          calendarAccount.watch_resource_id &&
+          Number.isFinite(existingExpiry) &&
+          existingExpiry > Date.now() + 5 * 60 * 1000
+        ) {
+          return new Response(
+            JSON.stringify({
+              success: true,
+              channelId: calendarAccount.watch_channel_id,
+              expiresAt: new Date(existingExpiry).toISOString(),
+              reused: true,
+            }),
+            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+          );
+        }
+
+        if (
+          calendarAccount.watch_channel_id &&
+          calendarAccount.watch_resource_id
+        ) {
+          const watchResponse = await replaceCalendarWatchChannelSafely(
+            Deno.env.get('CALENDAR_WATCH_WEBHOOK_SECRET'),
+            {
+              setupReplacement: (webhookSecret) => setupWatchChannel(
+                accessToken,
+                calendarAccount.calendar_id || 'primary',
+                webhookUrl,
+                webhookSecret,
+              ),
+              persistReplacement: (replacement) => updateWatchChannelStatus(
+                calendarAccountId,
+                'active',
+                replacement.id,
+                replacement.resourceId,
+                new Date(parseInt(replacement.expiration)).toISOString(),
+              ),
+              stopPrevious: () => stopWatchChannel(
+                accessToken,
+                calendarAccount.watch_channel_id,
+                calendarAccount.watch_resource_id,
+              ),
+            },
+          );
+
+          return new Response(
+            JSON.stringify({
+              success: true,
+              channelId: watchResponse.id,
+              expiresAt: new Date(parseInt(watchResponse.expiration)).toISOString(),
+              replaced: true,
+            }),
+            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+          );
+        }
+
         const webhookSecret = requireCalendarWatchWebhookSecret(
           Deno.env.get('CALENDAR_WATCH_WEBHOOK_SECRET'),
         );

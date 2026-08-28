@@ -27,6 +27,15 @@ double_confirm_changes = true
 enable_confirmations = false
 
 # Edge Functions
+[functions.calendar-oauth-start]
+verify_jwt = true
+
+[functions.calendar-oauth-callback]
+verify_jwt = true
+
+[functions.calendar-sync]
+verify_jwt = true
+
 [functions.watch-renewal-cron]
 verify_jwt = true
 

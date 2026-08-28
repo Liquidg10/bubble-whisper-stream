@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "13.0.5"
+    PostgrestVersion: "14.17"
   }
   public: {
     Tables: {
@@ -890,33 +890,50 @@ export type Database = {
       }
       oauth_state: {
         Row: {
+          calendar_account_id: string | null
           code_verifier: string
           created_at: string
           expires_at: string
           id: string
           origin: string
+          redirect_uri: string | null
           service: string | null
           state: string
+          user_id: string | null
         }
         Insert: {
+          calendar_account_id?: string | null
           code_verifier: string
           created_at?: string
           expires_at?: string
           id?: string
           origin: string
+          redirect_uri?: string | null
           service?: string | null
           state: string
+          user_id?: string | null
         }
         Update: {
+          calendar_account_id?: string | null
           code_verifier?: string
           created_at?: string
           expires_at?: string
           id?: string
           origin?: string
+          redirect_uri?: string | null
           service?: string | null
           state?: string
+          user_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "oauth_state_calendar_account_id_fkey"
+            columns: ["calendar_account_id"]
+            isOneToOne: false
+            referencedRelation: "calendar_accounts"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       oauth_tokens: {
         Row: {
@@ -925,6 +942,7 @@ export type Database = {
           created_at: string
           id: string
           provider: string
+          provider_account_id: string | null
           refresh_token: string | null
           scope: string
           service_type: string
@@ -938,6 +956,7 @@ export type Database = {
           created_at?: string
           id?: string
           provider: string
+          provider_account_id?: string | null
           refresh_token?: string | null
           scope: string
           service_type: string
@@ -951,6 +970,7 @@ export type Database = {
           created_at?: string
           id?: string
           provider?: string
+          provider_account_id?: string | null
           refresh_token?: string | null
           scope?: string
           service_type?: string
@@ -1809,10 +1829,24 @@ export type Database = {
       }
     }
     Functions: {
+      cleanup_expired_google_calendar_oauth_state: {
+        Args: never
+        Returns: number
+      }
       cleanup_expired_oauth_state: { Args: never; Returns: undefined }
       cleanup_old_calendar_events: {
         Args: { account_id: string; window_days?: number }
         Returns: number
+      }
+      consume_google_calendar_oauth_state: {
+        Args: { p_state: string; p_user_id: string }
+        Returns: {
+          calendar_account_id: string
+          code_verifier: string
+          origin: string
+          redirect_uri: string
+          service: string
+        }[]
       }
       create_plaid_secret: {
         Args: { p_access_token: string; p_description?: string }
@@ -1833,6 +1867,22 @@ export type Database = {
       get_plaid_access_token: { Args: { p_secret_id: string }; Returns: string }
       get_user_tenant_id: { Args: never; Returns: string }
       is_tenant_admin: { Args: { tenant_uuid: string }; Returns: boolean }
+      upsert_google_calendar_connection: {
+        Args: {
+          p_access_token: string
+          p_account_email: string
+          p_account_name: string
+          p_provider_account_id: string
+          p_refresh_token: string
+          p_scope: string
+          p_token_expires_at: string
+          p_user_id: string
+        }
+        Returns: {
+          calendar_account_id: string
+          oauth_token_id: string
+        }[]
+      }
       user_belongs_to_tenant: {
         Args: { tenant_uuid: string }
         Returns: boolean
