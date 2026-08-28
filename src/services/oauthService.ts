@@ -63,6 +63,11 @@ export interface OAuthStartResult {
   state: string;
 }
 
+export interface PendingCalendarOAuth {
+  state: string;
+  expiresAt: number;
+}
+
 export interface GoogleCalendarOAuthResult {
   calendarAccountId: string;
   account: {
@@ -114,6 +119,9 @@ interface FunctionResult {
 
 const GOOGLE_AUTH_ORIGIN = 'https://accounts.google.com';
 const GOOGLE_AUTH_PATH = '/o/oauth2/v2/auth';
+export const CALENDAR_OAUTH_PENDING_KEY = 'mind-manual:calendar-oauth:pending:v1';
+export const CALENDAR_OAUTH_RETURN_PATH = '/settings?tab=integrations';
+const CALENDAR_OAUTH_MARKER_TTL_MS = 4.5 * 60 * 1000;
 
 function functionFailureMessage(
   data: FunctionResult | null | undefined,
@@ -147,6 +155,74 @@ export function validateGoogleOAuthUrl(authUrl: unknown, expectedState: string):
   }
 
   return parsed.toString();
+}
+
+export function storePendingCalendarOAuth(
+  state: string,
+  storage: Storage = window.sessionStorage,
+  now = Date.now(),
+): PendingCalendarOAuth {
+  if (!state || state.length > 512) {
+    throw new Error('The OAuth state marker is invalid.');
+  }
+
+  const marker: PendingCalendarOAuth = {
+    state,
+    expiresAt: now + CALENDAR_OAUTH_MARKER_TTL_MS,
+  };
+  storage.setItem(CALENDAR_OAUTH_PENDING_KEY, JSON.stringify(marker));
+  return marker;
+}
+
+export function clearPendingCalendarOAuth(
+  storage: Storage = window.sessionStorage,
+): void {
+  try {
+    storage.removeItem(CALENDAR_OAUTH_PENDING_KEY);
+  } catch {
+    // Callback recovery must still be able to scrub the URL and leave safely
+    // when browser storage becomes unavailable between redirects.
+  }
+}
+
+export function readPendingCalendarOAuth(
+  storage: Storage = window.sessionStorage,
+  now = Date.now(),
+): PendingCalendarOAuth | null {
+  let raw: string | null;
+  try {
+    raw = storage.getItem(CALENDAR_OAUTH_PENDING_KEY);
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+
+  try {
+    const marker = JSON.parse(raw) as Record<string, unknown>;
+    const expiresAt = marker.expiresAt;
+    const validExpiry = typeof expiresAt === 'number' &&
+      Number.isFinite(expiresAt) &&
+      expiresAt > now &&
+      expiresAt <= now + CALENDAR_OAUTH_MARKER_TTL_MS;
+
+    if (
+      typeof marker.state !== 'string' ||
+      !marker.state ||
+      marker.state.length > 512 ||
+      !validExpiry
+    ) {
+      clearPendingCalendarOAuth(storage);
+      return null;
+    }
+
+    return {
+      state: marker.state,
+      expiresAt,
+    };
+  } catch {
+    clearPendingCalendarOAuth(storage);
+    return null;
+  }
 }
 
 class OAuthService {
@@ -297,6 +373,32 @@ class OAuthService {
       authUrl: validateGoogleOAuthUrl(data.authUrl, data.state),
       state: data.state,
     };
+  }
+
+  async redirectToGoogleCalendar(
+    request: ScopeRequest,
+    navigation: Pick<Location, 'assign'> = window.location,
+    storage: Storage = window.sessionStorage,
+  ): Promise<void> {
+    const oauthStart = await this.beginScopeEscalation(request);
+
+    try {
+      storePendingCalendarOAuth(
+        oauthStart.state,
+        storage,
+      );
+    } catch {
+      throw new Error(
+        'Unable to save the secure Google Calendar handoff. Enable session storage and try again.',
+      );
+    }
+
+    try {
+      navigation.assign(oauthStart.authUrl);
+    } catch {
+      clearPendingCalendarOAuth(storage);
+      throw new Error('Unable to open Google authorization. Please try again.');
+    }
   }
 
   async completeGoogleCalendarOAuth(

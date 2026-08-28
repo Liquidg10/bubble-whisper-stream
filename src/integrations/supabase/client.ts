@@ -4,6 +4,10 @@ import type { Database } from './types';
 
 const SUPABASE_URL = "https://ekekeywoxvdbfbmqyhjy.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVrZWtleXdveHZkYmZibXF5aGp5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTAzMzAzMjEsImV4cCI6MjA2NTkwNjMyMX0.RWQLDArXOK5eQFw1o5O42rUABYVWlEO2V5huz_i0GN8";
+export const shouldDetectSupabaseSessionInUrl = (pathname: string): boolean =>
+  pathname !== '/oauth-callback';
+const shouldDetectSupabaseSession =
+  typeof window === 'undefined' || shouldDetectSupabaseSessionInUrl(window.location.pathname);
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
@@ -13,5 +17,8 @@ export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABL
     storage: localStorage,
     persistSession: true,
     autoRefreshToken: true,
+    // Calendar has its own PKCE exchange at /oauth-callback. Auth-js must not
+    // consume that code or clear the existing app session first.
+    detectSessionInUrl: shouldDetectSupabaseSession,
   }
 });

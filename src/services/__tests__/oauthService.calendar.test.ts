@@ -15,7 +15,11 @@ vi.mock('@/integrations/supabase/client', () => ({
 }));
 
 import {
+  CALENDAR_OAUTH_PENDING_KEY,
+  clearPendingCalendarOAuth,
   oauthService,
+  readPendingCalendarOAuth,
+  storePendingCalendarOAuth,
   validateGoogleOAuthUrl,
   type CanonicalCalendarAccount,
 } from '@/services/oauthService';
@@ -48,6 +52,7 @@ describe('canonical Calendar OAuth service', () => {
     mocks.invoke.mockReset();
     mocks.from.mockReset();
     mocks.getSession.mockResolvedValue({ data: { session }, error: null });
+    sessionStorage.clear();
   });
 
   it('accepts only the exact Google authorization endpoint with matching state', () => {
@@ -85,6 +90,51 @@ describe('canonical Calendar OAuth service', () => {
       }),
       headers: { Authorization: 'Bearer mind-manual-user-jwt' },
     });
+  });
+
+  it('stores only a short-lived state marker before same-tab navigation', async () => {
+    const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?state=state-1';
+    vi.spyOn(oauthService, 'beginScopeEscalation').mockResolvedValue({
+      authUrl,
+      state: 'state-1',
+    });
+    const navigation = { assign: vi.fn() };
+
+    await oauthService.redirectToGoogleCalendar(
+      {
+        provider: 'google',
+        service: 'calendar',
+        reason: 'view your calendar events',
+      },
+      navigation,
+      sessionStorage,
+    );
+
+    expect(navigation.assign).toHaveBeenCalledWith(authUrl);
+    const rawMarker = sessionStorage.getItem(CALENDAR_OAUTH_PENDING_KEY);
+    expect(rawMarker).not.toBeNull();
+    expect(Object.keys(JSON.parse(rawMarker!)).sort()).toEqual(['expiresAt', 'state']);
+    expect(rawMarker).not.toMatch(/access.?token|refresh.?token|provider/i);
+    expect(readPendingCalendarOAuth()).toEqual(expect.objectContaining({ state: 'state-1' }));
+  });
+
+  it('rejects expired, malformed, or far-future markers and removes them', () => {
+    const now = 1_000_000;
+    storePendingCalendarOAuth('state-1', sessionStorage, now);
+    expect(readPendingCalendarOAuth(sessionStorage, now)).not.toBeNull();
+    expect(readPendingCalendarOAuth(sessionStorage, now + 5 * 60 * 1000)).toBeNull();
+    expect(sessionStorage.getItem(CALENDAR_OAUTH_PENDING_KEY)).toBeNull();
+
+    sessionStorage.setItem(CALENDAR_OAUTH_PENDING_KEY, '{not-json');
+    expect(readPendingCalendarOAuth(sessionStorage, now)).toBeNull();
+    expect(sessionStorage.getItem(CALENDAR_OAUTH_PENDING_KEY)).toBeNull();
+
+    sessionStorage.setItem(CALENDAR_OAUTH_PENDING_KEY, JSON.stringify({
+      state: 'state-1',
+      expiresAt: now + 60 * 60 * 1000,
+    }));
+    expect(readPendingCalendarOAuth(sessionStorage, now)).toBeNull();
+    clearPendingCalendarOAuth();
   });
 
   it('rejects a callback response that exposes provider credentials', async () => {
