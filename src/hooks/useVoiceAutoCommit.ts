@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { voiceRouter, IntentResult } from '@/intent/voiceRouter';
+import { isKillSwitchActive } from '@/config/flags';
 import { toast } from 'sonner';
 
 interface VoiceAutoCommitState {
@@ -35,8 +36,15 @@ export function useVoiceAutoCommit() {
         bubbleCreated: false
       }));
 
+      // Kill-switch gate: this hook is a second, older auto-commit path that does
+      // NOT route through useVoiceEngine, so useVoiceEngine's "single choke point"
+      // never covered it. When the global Auto-Write Kill Switch is active, fall
+      // through to the confirmation branch instead of writing silently.
+      // Same precedent as useVoiceEngine.ts and VoiceIntentCapture.tsx.
+      const killSwitchActive = isKillSwitchActive();
+
       // Check if we should auto-commit
-      if (intent.autoCommitRecommended && intent.confidence >= 0.9) {
+      if (intent.autoCommitRecommended && intent.confidence >= 0.9 && !killSwitchActive) {
         // Create bubble automatically
         const bubble = voiceRouter.createBubbleFromIntent(text, intent);
         await addBubble(bubble);

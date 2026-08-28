@@ -223,16 +223,16 @@ class CalendarHealthService {
   }
 
   async renewAllExpiringChannels(): Promise<void> {
-    const { error } = await supabase.functions.invoke('calendar-watch', {
-      body: {
-        calendarAccountId: '', // Not used for renew action
-        action: 'renew',
-      },
-    });
+    const { data: accounts, error } = await supabase
+      .rpc('get_expiring_watch_channels', { hours_ahead: 24 });
 
     if (error) {
-      console.error('Error renewing expiring channels:', error);
-      throw new Error(`Failed to renew expiring channels: ${error.message}`);
+      console.error('Error finding expiring channels:', error);
+      throw new Error(`Failed to find expiring channels: ${error.message}`);
+    }
+
+    for (const account of accounts || []) {
+      await this.renewWatchChannel(account.id);
     }
   }
 

@@ -403,7 +403,12 @@ class CrossDeviceSyncService {
     return `${Date.now()}-${this.deviceId.slice(-6)}`;
   }
 
-  private getStoredConflicts(): SyncConflict[] {
+  /**
+   * Conflicts persisted from previous sessions, awaiting user resolution.
+   * Public because the UI needs to hydrate pending conflicts on mount --
+   * `sync-conflict` events only announce *new* ones (REVIVE Run 124).
+   */
+  getStoredConflicts(): SyncConflict[] {
     const stored = localStorage.getItem('bubble-sync-conflicts');
     return stored ? JSON.parse(stored) : [];
   }

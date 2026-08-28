@@ -385,21 +385,43 @@ describe('End-to-End User Workflows', () => {
       const settingsLink = screen.getByRole('link', { name: /settings/i });
       await user.click(settingsLink);
 
+      // Settings.tsx opens on the 'general' tab (useState('general'), ~L35) and renders
+      // <PrivacySecuritySettings /> only inside <TabsContent value="privacy"> (~L148-149),
+      // so the Biometric Lock switch is genuinely not mounted until the Privacy tab is
+      // selected. Without this click getByRole('switch', {name: /biometric/i}) throws --
+      // that, not the removed prompt assertions below, was this test's actual first
+      // failure point. Verified with a temporary probe (removed): after clicking the
+      // Settings link the URL is /settings and the tablist is
+      // General/Learning/AI/Thought/Intelligence/Auto-Write/Integrations/Safety/Audit/
+      // Privacy/A11y; the switch resolves only after the Privacy tab is activated.
+      const privacyTab = screen.getByRole('tab', { name: /privacy/i });
+      await user.click(privacyTab);
+
       // Enable biometric lock
-      const biometricToggle = screen.getByRole('switch', { name: /biometric/i });
+      const biometricToggle = await screen.findByRole('switch', { name: /biometric/i });
+      expect(biometricToggle).not.toBeChecked();
       await user.click(biometricToggle);
 
-      // Verify biometric prompt appears
-      expect(screen.getByText(/authenticate/i)).toBeInTheDocument();
-
-      // Simulate successful authentication
-      const authenticateButton = screen.getByRole('button', { name: /authenticate/i });
-      await user.click(authenticateButton);
-
-      // Verify biometric is enabled
+      // This app has no biometric authentication prompt, and never has. The Biometric
+      // Lock switch's entire behaviour is onCheckedChange={(checked) =>
+      // updateSettings({ biometricLock: checked })} (PrivacySecuritySettings.tsx ~L84-88)
+      // -- it persists a boolean preference described in its own helper text as "Require
+      // fingerprint/face unlock to open app", i.e. a setting consumed at app-open time,
+      // not a challenge issued at toggle time. There is no WebAuthn call anywhere in src/
+      // (no navigator.credentials, no publicKey ceremony) and the only mention of a
+      // biometric ceremony in the whole repo is a commented-out Expo LocalAuthentication
+      // snippet in PrivacyZoneToggle.tsx (~L41) -- a react-native API that is not a
+      // dependency of this web app, inside a different component that gates self-model
+      // layers, not this switch. The removed assertions (getByText(/authenticate/i) and a
+      // matching /authenticate/i button) therefore asserted UI that has never existed in
+      // any state of the product. Confirmed empirically as well as by source: the same
+      // temporary probe found no /authenticate/i text after clicking this switch, while
+      // the switch itself flipped to aria-checked="true" and the store's
+      // settings.biometricLock became true. Assert the behaviour the product actually has.
       await waitFor(() => {
         expect(biometricToggle).toBeChecked();
       });
+      expect(useBubbleStore.getState().settings.biometricLock).toBe(true);
     });
   });
 
@@ -432,11 +454,42 @@ describe('End-to-End User Workflows', () => {
       // Should complete in under 5 seconds even with 100 bubbles
       expect(duration).toBeLessThan(5000);
 
-      // Canvas should still be responsive
-      const canvas = screen.getByTestId('bubble-canvas');
+      // Canvas should still be responsive. There is no `data-testid="bubble-canvas"`
+      // anywhere in src/ -- confirmed by a repo-wide search, not assumed. This app's
+      // default theme (iridescent-soap) renders the canvas through
+      // src/experimental/iridescent/BubbleRenderer.tsx, whose root element is exposed to
+      // assistive tech as role="region" with aria-label="Adaptive Bubble view"
+      // (BubbleRenderer.tsx ~L1071-1078) and carries tabIndex={-1}, making it
+      // programmatically focusable. Query the real, already-shipped accessible handle the
+      // app actually renders rather than a test id that has never existed -- same
+      // "match reality, don't invent" standard applied to this suite's other selector
+      // fixes. Deliberately queried by role+name (not by adding a test id to production
+      // code) so the assertion exercises the same handle a screen-reader user would.
+      const canvas = screen.getByRole('region', { name: 'Adaptive Bubble view' });
+      // The click itself is the responsiveness check: it completes without throwing,
+      // which proves the canvas is still mounted and not covered by a blocking overlay
+      // (RTL/user-event throws "unable to perform pointer interaction ... pointer-events:
+      // none" when it is -- the same failure mode this suite hits elsewhere with an open
+      // Radix dialog). Under 100 bubbles it still reaches the canvas.
       await user.click(canvas);
+      expect(canvas).toBeInTheDocument();
 
-      // Click should register within reasonable time
+      // This previously asserted `toHaveFocus()` immediately after the click. That can
+      // never pass, and not because of jsdom: BubbleRenderer's own pointer-down handler
+      // calls `e.preventDefault()` (BubbleRenderer.tsx ~L970, after claiming pointer
+      // capture for the pan gesture), and preventDefault on pointerdown/mousedown
+      // suppresses the browser's default focus-on-click behaviour. A real browser behaves
+      // identically -- this is deliberate product behaviour for a drag/pan surface, not a
+      // bug and not a test-environment artifact. Verified directly with a temporary
+      // diagnostic probe (written, used, removed): after `user.click(canvas)`,
+      // `document.activeElement` is `<body>`, not the canvas.
+      //
+      // What *is* real and worth asserting is that the canvas remains a focusable
+      // accessible handle under load -- it carries tabIndex={-1}, so it can be focused
+      // programmatically (e.g. by a skip-link or a roving-focus manager). The same probe
+      // confirmed `canvas.focus()` does make it document.activeElement. Assert that
+      // instead of a focus-on-click behaviour the app has never had.
+      (canvas as HTMLElement).focus();
       expect(canvas).toHaveFocus();
     });
   });

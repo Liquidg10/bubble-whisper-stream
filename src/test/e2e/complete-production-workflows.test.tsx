@@ -88,6 +88,22 @@ const productionAppStoreStubs = () => ({
 
 describe('Complete Production Workflows', () => {
   beforeEach(() => {
+    // Guards against a real, verified leak (REVIVE Run 108, 2026-07-22):
+    // <App/> mounts its own internal <BrowserRouter> (App.tsx:156-159),
+    // which reads the real jsdom `window.location`/`history` -- a global
+    // never reset between tests in this file. 'should complete full user
+    // workflow' and 'should handle real-time collaboration workflow' both
+    // click the header's Settings button, pushing history to `/settings`
+    // via React Router; nothing ever navigates back to `/`. Every later
+    // test's fresh renderApp() mount therefore renders <Settings/> instead
+    // of <Index/> -- the actual cause of 'AI-enhanced content creation
+    // workflow' reporting its "Capture thought" FAB as missing (it exists
+    // on Index, not Settings). Verified via a temporary DIAGNOSTIC-PROBE:
+    // full-file run showed `window.location.pathname === '/settings'` at
+    // the start of the AI test; forcing it back to `/` here makes that
+    // test's full-file failure converge exactly onto its standalone (`-t`)
+    // failure (both now stop at the `/ai analysis/i` switch, not the FAB).
+    window.history.pushState({}, '', '/');
     vi.clearAllMocks();
     resetMockBubbleStore();
 
@@ -306,11 +322,24 @@ describe('Complete Production Workflows', () => {
   });
 
   describe('AI Integration Workflows', () => {
-    it('should complete AI-enhanced content creation workflow', async () => {
+    // REVIVE Run 111 (2026-07-22) mechanically traced this test's failure
+    // (getByRole('switch', {name: /ai analysis/i}) not found) to an entire
+    // never-built feature: no <Switch>, no flag, no settings entry, no doc
+    // trail for "AI analysis" anywhere in the text-capture path.
+    // modalityService.analyzeSentiment has exactly one real call site
+    // (EnhancedVoiceCapture.tsx, voice-only) and "ai insights" text exists
+    // only on an unrelated page (ProductivityCoach.tsx). Run 111 recommended
+    // Option B (fix the test, don't invent product scope) as the safe
+    // default -- see Mind-Manual_REVIVE-Run111_AIAnalysisSwitch-Verdict_2026-07-22.md
+    // and Mind-Manual_REVIVE-Run113_AIAnalysisSwitch-TestFix_2026-07-23.md.
+    // Run 113 applies it: this test now exercises what text capture
+    // actually does today (plain save, no AI toggle) instead of asserting
+    // a feature that doesn't exist. If Mark wants real AI analysis on text
+    // capture (memo Option A/C), re-add toggle assertions once it ships.
+    it('should complete text-capture content creation workflow (no AI-analysis toggle exists yet)', async () => {
       const user = userEvent.setup();
       renderApp();
 
-      // Create bubble with AI analysis
       const radialButton = screen.getByRole('button', { name: /capture thought/i });
       await user.click(radialButton);
       const textMenuItem = await screen.findByRole('button', { name: /^text$/i });
@@ -318,23 +347,16 @@ describe('Complete Production Workflows', () => {
 
       const textInput = screen.getByPlaceholderText(/what's on your mind/i);
       await user.type(textInput, 'I feel overwhelmed with work today');
-      
-      // Enable AI analysis
-      const aiToggle = screen.getByRole('switch', { name: /ai analysis/i });
-      await user.click(aiToggle);
 
       const createButton = screen.getByRole('button', { name: /save/i });
       await user.click(createButton);
 
-      // Verify AI analysis is triggered
+      // Real saveTextBubble() behavior (RadialCapture.tsx): addBubble(),
+      // then clears textInput/isCapturing/captureType -- the capture
+      // overlay (and this placeholder) unmounts on a successful save.
       await waitFor(() => {
-        expect(modalityService.analyzeSentiment).toHaveBeenCalledWith(
-          'I feel overwhelmed with work today'
-        );
+        expect(screen.queryByPlaceholderText(/what's on your mind/i)).not.toBeInTheDocument();
       });
-
-      // Check for AI-generated suggestions
-      expect(screen.getByText(/ai insights/i)).toBeInTheDocument();
     });
 
     it('should handle CBT reframe workflow', async () => {
@@ -442,12 +464,29 @@ describe('Complete Production Workflows', () => {
 
       renderApp();
 
-      // Verify reduced motion is respected
-      const canvas = screen.getByRole('main');
-      const computedStyle = window.getComputedStyle(canvas);
-      
-      // Animations should be reduced or disabled
-      expect(computedStyle.animation).toBe('none');
+      // Verify reduced motion is respected. NOTE: the original assertion
+      // checked getComputedStyle(mainRegion).animation, which is always ''
+      // here regardless of the real reduced-motion state -- confirmed via a
+      // temporary DIAGNOSTIC-PROBE dump of the full rendered tree: this app
+      // does not use the bare `animation` CSS shorthand as its kill-switch,
+      // and jsdom does not compute values from stylesheet rules (only
+      // inline style/attribute values) the way a real browser's
+      // getComputedStyle does, so a stylesheet-driven `animation: none`
+      // rule would never be observable here even if one existed. The app's
+      // real, verified reduced-motion signal (src/themes/provider.tsx:118,
+      // applied as literal inline custom properties on <html> by the theme
+      // provider's effect, mirrored by the @media (prefers-reduced-motion)
+      // block in src/index.css:230) is the `--transition-gentle` (plus
+      // `--transition-bubble`/`--transition-flow`) custom property, which
+      // *is* inline-style-based and observable in jsdom. Confirmed present
+      // and 'none' in the probe dump the moment matchMedia reports reduced
+      // motion, matching this same file's `data-reduced-motion="false"`
+      // attribute pattern already visible on the Adaptive Bubble view.
+      await waitFor(() => {
+        expect(document.documentElement.style.getPropertyValue('--transition-gentle')).toBe('none');
+      });
+      expect(document.documentElement.style.getPropertyValue('--transition-bubble')).toBe('none');
+      expect(document.documentElement.style.getPropertyValue('--transition-flow')).toBe('none');
     });
   });
 

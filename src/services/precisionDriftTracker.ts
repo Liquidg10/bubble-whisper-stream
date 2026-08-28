@@ -3,8 +3,8 @@
  * Tracks entity fill rates, user trust scores, and decision accuracy over time
  */
 
-import { autoWritePrecisionGate, PrecisionGateInput, PrecisionGateResult } from './autoWritePrecisionGate';
 import { decisionTraceService } from './decisionTraceService';
+import type { DecisionTrace } from './decisionTraceService';
 
 export interface PrecisionSnapshot {
   timestamp: number;
@@ -26,6 +26,22 @@ export interface PrecisionDriftMetrics {
   trustScoreTrend: number;
   featureDriftSeverity: 'stable' | 'minor' | 'moderate' | 'high';
   mostDriftingFeature: string;
+}
+
+/**
+ * autoWritePrecisionGate records its scoring components under `metadata.result`
+ * (see autoWritePrecisionGate.createDecisionTrace). Earlier revisions of this file
+ * read them from the top level of `metadata`, where nothing ever wrote them, so
+ * entityFillRate and userTrustAvg reported 0 on every snapshot regardless of the
+ * real values. Read the nested location first; fall back to the flat key so traces
+ * from any other producer still count.
+ */
+function readMetric(trace: DecisionTrace, key: 'entityFillRate' | 'userTrustScore'): number {
+  const nested = trace?.metadata?.result?.[key];
+  if (typeof nested === 'number' && Number.isFinite(nested)) return nested;
+  const flat = trace?.metadata?.[key];
+  if (typeof flat === 'number' && Number.isFinite(flat)) return flat;
+  return 0;
 }
 
 class PrecisionDriftTrackerService {
@@ -68,20 +84,20 @@ class PrecisionDriftTrackerService {
 
     // Calculate average entity fill rate
     const entityFillRates = recentTraces
-      .map(trace => trace.metadata?.entityFillRate || 0)
+      .map(trace => readMetric(trace, 'entityFillRate'))
       .filter(rate => rate > 0);
     const entityFillRate = entityFillRates.length > 0 ? 
       entityFillRates.reduce((sum, rate) => sum + rate, 0) / entityFillRates.length : 0;
 
     // Calculate average user trust score
     const userTrustScores = recentTraces
-      .map(trace => trace.metadata?.userTrustScore || 0)
+      .map(trace => readMetric(trace, 'userTrustScore'))
       .filter(score => score > 0);
     const userTrustAvg = userTrustScores.length > 0 ?
       userTrustScores.reduce((sum, score) => sum + score, 0) / userTrustScores.length : 0;
 
     // Calculate feature breakdown
-    const featureBreakdown: Record<string, any> = {};
+    const featureBreakdown: PrecisionSnapshot['featureBreakdown'] = {};
     const featureGroups = this.groupTracesByFeature(recentTraces);
     
     for (const [feature, traces] of Object.entries(featureGroups)) {
@@ -91,7 +107,7 @@ class PrecisionDriftTrackerService {
       ).length;
       
       const featureEntityFills = traces
-        .map(trace => trace.metadata?.entityFillRate || 0)
+        .map(trace => readMetric(trace, 'entityFillRate'))
         .filter(rate => rate > 0);
       
       featureBreakdown[feature] = {
@@ -212,8 +228,8 @@ class PrecisionDriftTrackerService {
   /**
    * Group traces by feature type
    */
-  private groupTracesByFeature(traces: any[]): Record<string, any[]> {
-    return traces.reduce((groups, trace) => {
+  private groupTracesByFeature(traces: DecisionTrace[]): Record<string, DecisionTrace[]> {
+    return traces.reduce<Record<string, DecisionTrace[]>>((groups, trace) => {
       const feature = trace.feature || 'unknown';
       if (!groups[feature]) groups[feature] = [];
       groups[feature].push(trace);

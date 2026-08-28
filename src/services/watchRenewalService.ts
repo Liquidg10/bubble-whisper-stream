@@ -168,7 +168,7 @@ class WatchRenewalService {
     const { data, error } = await supabase.functions.invoke('calendar-watch', {
       body: {
         action: 'renew',
-        accountId: watch.account_id,
+        calendarAccountId: watch.account_id,
         calendarId: watch.calendar_id,
         oldChannelId: watch.channel_id,
         oldResourceId: watch.resource_id

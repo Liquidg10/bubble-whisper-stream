@@ -3,8 +3,10 @@
 The blocking pull-request gates are intentionally bounded to claims the current
 application can prove locally:
 
-- TypeScript compilation and production build.
+- TypeScript compilation of the application project and production build.
 - No increase in inherited ESLint or assistant-cohesion findings.
+- A bounded Vitest unit/integration surface covering services, task and voice
+  controls, sync-conflict UI, and calendar-watch authorization helpers.
 - Automated WCAG checks for onboarding plus the current Canvas, List, Kanban,
   and Matrix surfaces in light and dark modes.
 - Current-route rendering, keyboard-help operation, reduced-motion operation,
@@ -19,6 +21,11 @@ The broader files under `tests/a11y/` and `tests/e2e/gates/` remain diagnostic
 inventory. Many encode historical routes, selectors, or unimplemented product
 claims and are not release evidence until individually reconciled with the
 current product.
+
+The broader Vitest inventory is also diagnostic. It still includes historical
+product expectations and assertion failures; its load-testing file also
+exhausts the current sandbox worker before reporting a test outcome. CI does
+not imply that the full legacy suite is green.
 
 These gates do not authorize deployment, provider changes, feature-flag
 changes, or user-data mutation.

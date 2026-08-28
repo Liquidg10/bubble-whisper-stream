@@ -28,4 +28,10 @@ enable_confirmations = false
 
 # Edge Functions
 [functions.watch-renewal-cron]
+verify_jwt = true
+
+# Google cannot attach a Supabase JWT to Calendar push notifications. The
+# handler verifies Google channel callbacks with a dedicated HMAC token and
+# separately authenticates every control request.
+[functions.calendar-watch]
 verify_jwt = false

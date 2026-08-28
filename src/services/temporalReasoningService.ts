@@ -622,38 +622,59 @@ export class TemporalReasoningService {
   private checkBusinessHours(startTime: Date): TemporalConflict | null {
     const hour = startTime.getHours();
     const dayOfWeek = startTime.getDay();
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
-    // Weekend check
-    if (dayOfWeek === 0 || dayOfWeek === 6) {
-      return {
-        type: 'business_hours',
-        severity: 'medium',
-        description: 'Scheduled for weekend',
-        suggestion: 'Consider scheduling during business hours'
-      };
+    // Day-of-week and hour-of-day are INDEPENDENT conflicts; evaluate both and
+    // combine highest-severity-wins.
+    //
+    // Previously the weekend branch returned early, so a 2am Sunday meeting
+    // reported 'medium' ("Scheduled for weekend") and the 'high'
+    // unreasonable-hours finding was never reached -- the less serious
+    // condition masked the more serious one on 2 days in 7.
+    let hourSeverity: 'high' | 'low' | null = null;
+    if (hour < 6 || hour > 22) {
+      hourSeverity = 'high';        // Very early or late hours
+    } else if (hour < 9 || hour > 18) {
+      hourSeverity = 'low';         // Outside typical business hours
     }
 
-    // Very early or late hours
-    if (hour < 6 || hour > 22) {
+    if (!isWeekend) {
+      if (hourSeverity === 'high') {
+        return {
+          type: 'business_hours',
+          severity: 'high',
+          description: 'Scheduled outside reasonable hours',
+          suggestion: 'Consider scheduling during business hours (9 AM - 6 PM)'
+        };
+      }
+      if (hourSeverity === 'low') {
+        return {
+          type: 'business_hours',
+          severity: 'low',
+          description: 'Scheduled outside typical business hours',
+          suggestion: 'Verify timing is intentional'
+        };
+      }
+      return null;
+    }
+
+    // Weekend. On its own that is 'medium' -- which outranks a 'low' hour, but
+    // must never suppress a 'high' one.
+    if (hourSeverity === 'high') {
       return {
         type: 'business_hours',
         severity: 'high',
-        description: 'Scheduled outside reasonable hours',
-        suggestion: 'Consider scheduling during business hours (9 AM - 6 PM)'
+        description: 'Scheduled outside reasonable hours, on a weekend',
+        suggestion: 'Consider scheduling during business hours (9 AM - 6 PM) on a weekday'
       };
     }
 
-    // Outside typical business hours
-    if (hour < 9 || hour > 18) {
-      return {
-        type: 'business_hours',
-        severity: 'low',
-        description: 'Scheduled outside typical business hours',
-        suggestion: 'Verify timing is intentional'
-      };
-    }
-
-    return null;
+    return {
+      type: 'business_hours',
+      severity: 'medium',
+      description: 'Scheduled for weekend',
+      suggestion: 'Consider scheduling during business hours'
+    };
   }
 
   private checkDurationAnomaly(startTime: Date, endTime: Date): TemporalConflict | null {

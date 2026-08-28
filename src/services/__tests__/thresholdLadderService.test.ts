@@ -99,7 +99,11 @@ describe('ThresholdLadderService', () => {
         { isInMeeting: true, userAutoWriteEnabled: true }
       );
 
-      expect(result.score).toBe(0.65); // 0.8 - 0.15
+      // toBeCloseTo, not toBe: adjustedScore is IEEE-754 subtraction. 0.8-0.15
+      // happens to be exact, but ~1/3 of two-decimal bases are not (see
+      // 0.8-0.1 below). Precision 10 tolerates ~1e-16 float noise while still
+      // rejecting any real change (smallest override delta is 0.05).
+      expect(result.score).toBeCloseTo(0.65, 10); // 0.8 - 0.15
       expect(result.appliedOverrides).toContain('meeting-context');
       expect(result.decision).toBe('draft'); // Degraded from auto-write
     });
@@ -110,7 +114,7 @@ describe('ThresholdLadderService', () => {
         { meetingDensity: 0.8, userAutoWriteEnabled: true }
       );
 
-      expect(result.score).toBe(0.65);
+      expect(result.score).toBeCloseTo(0.65, 10);
       expect(result.appliedOverrides).toContain('meeting-context');
     });
   });
@@ -122,7 +126,7 @@ describe('ThresholdLadderService', () => {
         { isQuietHours: true }
       );
 
-      expect(result.score).toBe(0.55); // 0.8 - 0.25
+      expect(result.score).toBeCloseTo(0.55, 10); // 0.8 - 0.25
       expect(result.appliedOverrides).toContain('quiet-hours');
       expect(result.decision).toBe('suggest'); // Degraded significantly
     });
@@ -133,6 +137,8 @@ describe('ThresholdLadderService', () => {
         { isQuietHours: true }
       );
 
+      // Deliberately toBe, not toBeCloseTo: the property under test is the
+      // Math.max(0, ...) clamp producing exactly 0, not an arithmetic result.
       expect(result.score).toBe(0); // Math.max(0, 0.2 - 0.25)
     });
   });
@@ -144,7 +150,11 @@ describe('ThresholdLadderService', () => {
         { locationProductivity: 0.2 }
       );
 
-      expect(result.score).toBe(0.7); // 0.8 - 0.1
+      // 0.8 - 0.1 === 0.7000000000000001 in IEEE-754; this is the one case in
+      // this file where the noise is visible. The product is unaffected: the
+      // 0.85/0.60 tier boundaries were probed across all 101 two-decimal bases
+      // x 8 override combinations with zero tier mismatches vs exact decimal.
+      expect(result.score).toBeCloseTo(0.7, 10); // 0.8 - 0.1
       expect(result.appliedOverrides).toContain('low-productivity-location');
     });
 
@@ -154,6 +164,8 @@ describe('ThresholdLadderService', () => {
         { locationProductivity: 0.5 }
       );
 
+      // Deliberately toBe: this asserts the score is passed through untouched,
+      // so exact identity is the property, not numeric proximity.
       expect(result.score).toBe(0.8); // No change
       expect(result.appliedOverrides).not.toContain('low-productivity-location');
     });
@@ -193,7 +205,7 @@ describe('ThresholdLadderService', () => {
         }
       );
 
-      expect(result.score).toBe(0.5); // 0.9 - 0.15 - 0.25
+      expect(result.score).toBeCloseTo(0.5, 10); // 0.9 - 0.15 - 0.25
       expect(result.appliedOverrides).toContain('meeting-context');
       expect(result.appliedOverrides).toContain('quiet-hours');
       expect(result.appliedOverrides).toContain('first-time-recipient');

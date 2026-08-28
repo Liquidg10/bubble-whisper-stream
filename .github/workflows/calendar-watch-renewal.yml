@@ -1,0 +1,59 @@
+name: Calendar watch renewal
+
+on:
+  schedule:
+    # Google Calendar channels expire after a bounded lifetime. Run twice daily
+    # so an offline client cannot miss the 24-hour renewal window.
+    - cron: '17 */12 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: calendar-watch-renewal
+  cancel-in-progress: false
+
+jobs:
+  renew:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CALENDAR_WATCH_ENDPOINT: https://ekekeywoxvdbfbmqyhjy.supabase.co/functions/v1/watch-renewal-cron
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+    steps:
+      - name: Require the production scheduler credential
+        shell: bash
+        run: |
+          if [[ -z "$SUPABASE_SERVICE_ROLE_KEY" ]]; then
+            echo "::error::SUPABASE_SERVICE_ROLE_KEY is not configured"
+            exit 1
+          fi
+
+      - name: Renew watches inside the bounded server-side window
+        shell: bash
+        run: |
+          response_file="$(mktemp)"
+          trap 'rm -f "$response_file"' EXIT
+
+          status="$(curl --silent --show-error \
+            --output "$response_file" \
+            --write-out '%{http_code}' \
+            --request POST \
+            --header "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            --header "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            --header 'Content-Type: application/json' \
+            --data '{}' \
+            "$CALENDAR_WATCH_ENDPOINT")"
+
+          if [[ "$status" -lt 200 || "$status" -ge 300 ]]; then
+            jq -c '{error: (.error // "renewal request failed"), timestamp: (.timestamp // null)}' \
+              "$response_file" 2>/dev/null || true
+            echo "::error::Renewal endpoint returned HTTP $status"
+            exit 1
+          fi
+
+          jq -e '.renewalErrors == 0' "$response_file" >/dev/null
+          jq -c '{renewalsScheduled, renewalErrors, calendarWatches, gmailWatches, timestamp}' \
+            "$response_file"

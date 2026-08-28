@@ -669,6 +669,11 @@ export function TaskCard({
         tabIndex={0}
         role="button"
         aria-label={`Task: ${task.title}`}
+        // Selection was previously conveyed by ring/background styling ONLY,
+        // so screen-reader users got no indication a card was selected.
+        // `aria-pressed` is the correct toggle semantic for role="button";
+        // `aria-selected` would be invalid here (it needs listbox/grid/option).
+        aria-pressed={isSelected}
         aria-busy={isCompletionSaving}
       >
         <div className="flex items-center gap-1 p-2">
@@ -691,7 +696,11 @@ export function TaskCard({
         
         {/* Corruption indicator */}
         {errorState.corrupted && (
-          <div className="absolute -top-1 -right-1 w-3 h-3 bg-destructive rounded-full animate-pulse" />
+          <div
+            className="absolute -top-1 -right-1 w-3 h-3 bg-destructive rounded-full animate-pulse"
+            role="img"
+            aria-label="Task data issues detected"
+          />
         )}
       </div>
     );
@@ -718,6 +727,7 @@ export function TaskCard({
       tabIndex={0}
       role="button"
       aria-label={`Task: ${task.title}. Press Enter to select, E to edit.`}
+      aria-pressed={isSelected}
       aria-busy={isCompletionSaving}
       onKeyDown={handleKeyDown}
       onClick={handleClick}
@@ -885,7 +895,11 @@ export function TaskCard({
 
         {/* Corruption indicator */}
         {errorState.corrupted && (
-          <div className="absolute -top-1 -left-1 w-3 h-3 bg-destructive rounded-full animate-pulse" />
+          <div
+            className="absolute -top-1 -left-1 w-3 h-3 bg-destructive rounded-full animate-pulse"
+            role="img"
+            aria-label="Task data issues detected"
+          />
         )}
 
         {/* Intelligent Task Integration */}

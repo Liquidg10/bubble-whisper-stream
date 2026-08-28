@@ -25,7 +25,7 @@ export interface CalendarIntent {
 }
 
 export interface CalendarWriteResult {
-  decision: 'auto-write' | 'draft' | 'suggest' | 'skip';
+  decision: 'auto-write' | 'draft' | 'draft-ask' | 'suggest' | 'skip';
   eventId?: string;
   draftId?: string;
   traceId: string;
@@ -119,7 +119,17 @@ class AutoWriteCalendarService {
       
       case 'draft':
         return await this.createDraft(intent, traceId, policyDecision);
-      
+
+      // 'draft-ask' is the ladder's 4th tier: items that WOULD have
+      // auto-written but were forced down because the recipient is new
+      // (thresholdLadderService.ts:161-181). It previously fell through to
+      // `default` and returned 'skip' -- so the entire safety tier silently
+      // discarded the user's intent and reported "did not meet confidence
+      // threshold", which was not why. It produces the same artifact as
+      // 'draft'; the extra "ask" is the confirmation step the UI renders.
+      case 'draft-ask':
+        return await this.createDraft(intent, traceId, policyDecision, 'draft-ask');
+
       case 'suggest':
         return await this.createSuggestion(intent, traceId, policyDecision);
       
@@ -244,7 +254,8 @@ class AutoWriteCalendarService {
   private async createDraft(
     intent: CalendarIntent, 
     traceId: string, 
-    policyDecision: any
+    policyDecision: any,
+    decision: 'draft' | 'draft-ask' = 'draft'
   ): Promise<CalendarWriteResult> {
     const draftId = crypto.randomUUID();
     const eventDraft = {
@@ -261,7 +272,10 @@ class AutoWriteCalendarService {
     localStorage.setItem('mm-calendar-drafts', JSON.stringify(existingDrafts));
 
     return {
-      decision: 'draft',
+      // Carry the originating tier through: a caller (and the decision trace)
+      // must be able to tell a plain draft from one that requires an explicit
+      // ask, otherwise the 4th tier is invisible downstream.
+      decision,
       draftId,
       traceId,
       becauseText: `Created draft because ${policyDecision.contextScore.because.join('; ')}`,
@@ -363,6 +377,8 @@ class AutoWriteCalendarService {
         return `Auto-create calendar event: ${intent.title}`;
       case 'draft':
         return `Create draft calendar event: ${intent.title}`;
+      case 'draft-ask':
+        return `Create draft calendar event (explicit confirmation required): ${intent.title}`;
       case 'suggest':
         return `Suggest calendar event: ${intent.title}`;
       default:

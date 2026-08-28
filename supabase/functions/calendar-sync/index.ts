@@ -172,7 +172,7 @@ async function syncCalendarEvents(
   calendarId: string,
   calendarAccountId: string,
   userId: string,
-  syncToken?: string,
+  syncToken?: string | null,
   simulate410 = false,
   timeWindow?: { startDays?: number; endDays?: number },
   boundedWindow = false
@@ -301,7 +301,7 @@ async function persistEvents(calendarAccountId: string, userId: string, events: 
 async function updateSyncStatus(
   calendarAccountId: string,
   status: 'idle' | 'syncing' | 'complete' | 'error',
-  syncToken?: string,
+  syncToken?: string | null,
   error?: string
 ) {
   const updates: any = { sync_status: status };
@@ -390,6 +390,40 @@ const handler = async (req: Request): Promise<Response> => {
   }
 
   try {
+    // ---- AUTHZ (added) --------------------------------------------------
+    // This function runs with the SERVICE ROLE key, which bypasses RLS, so the
+    // database will NOT scope rows for us. Every user-scoped lookup below must
+    // therefore be explicitly bound to the caller. Mirrors the pattern already
+    // used by gmail-sync / gmail-compose / plaid-get-accounts / plaid-get-transactions.
+    //
+    // Two legitimate caller classes:
+    //   1. an end user  -> bearer is a user JWT; scope every row to that user
+    //   2. an internal  -> bearer is the service-role key (calendar-watch's
+    //      webhook path and watch-renewal-cron invoke this function directly);
+    //      already trusted, so no user scoping is possible or required.
+    const authHeader = req.headers.get('Authorization') ?? req.headers.get('authorization');
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ error: 'Missing authorization header' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    const bearer = authHeader.replace('Bearer ', '').trim();
+    const isInternalCaller = bearer === (Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '\u0000');
+
+    let callerUserId: string | null = null;
+    if (!isInternalCaller) {
+      const { data: { user }, error: authError } = await supabase.auth.getUser(bearer);
+      if (authError || !user) {
+        return new Response(
+          JSON.stringify({ error: 'Unauthorized' }),
+          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      callerUserId = user.id;
+    }
+    // ---- end AUTHZ ------------------------------------------------------
+
     const requestBody = await req.json();
     
     // Handle write operations (create, update, delete events)
@@ -397,7 +431,7 @@ const handler = async (req: Request): Promise<Response> => {
       const { action, calendarAccountId, eventData, eventId, sendUpdates = 'none', draft = false }: CalendarWriteRequest = requestBody;
       
       // Get calendar account details
-      const { data: calendarAccount, error: accountError } = await supabase
+      let writeAccountQuery = supabase
         .from('calendar_accounts')
         .select(`
           *,
@@ -407,8 +441,10 @@ const handler = async (req: Request): Promise<Response> => {
             token_expires_at
           )
         `)
-        .eq('id', calendarAccountId)
-        .single();
+        .eq('id', calendarAccountId);
+      // AUTHZ: bind the row to the caller unless this is a trusted internal invoke
+      if (callerUserId) writeAccountQuery = writeAccountQuery.eq('user_id', callerUserId);
+      const { data: calendarAccount, error: accountError } = await writeAccountQuery.single();
 
       if (accountError || !calendarAccount) {
         console.error('Calendar account not found:', accountError);
@@ -540,7 +576,7 @@ const handler = async (req: Request): Promise<Response> => {
     console.log('📅 Calendar sync request:', { calendarAccountId, fullSync, simulate410, boundedWindow });
 
     // Get calendar account details
-    const { data: calendarAccount, error: accountError } = await supabase
+    let syncAccountQuery = supabase
       .from('calendar_accounts')
       .select(`
         *,
@@ -550,8 +586,10 @@ const handler = async (req: Request): Promise<Response> => {
           token_expires_at
         )
       `)
-      .eq('id', calendarAccountId)
-      .single();
+      .eq('id', calendarAccountId);
+    // AUTHZ: bind the row to the caller unless this is a trusted internal invoke
+    if (callerUserId) syncAccountQuery = syncAccountQuery.eq('user_id', callerUserId);
+    const { data: calendarAccount, error: accountError } = await syncAccountQuery.single();
 
     if (accountError || !calendarAccount) {
       console.error('Calendar account not found:', accountError);

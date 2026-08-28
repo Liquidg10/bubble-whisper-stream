@@ -225,7 +225,7 @@ describe('VoiceIntentCapture recording ownership', () => {
     const button = screen.getByRole('button', { name: 'Hold to record' });
     const pointer = {
       pointerId: 13,
-      pointerType: 'mouse',
+      pointerType: 'mouse' as const,
       button: 0,
       isPrimary: true,
     };

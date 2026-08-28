@@ -190,6 +190,7 @@ class PolicyDecisionEngine {
       case 'auto-write':
         return 'default';
       case 'draft':
+      case 'draft-ask':
         return 'secondary';
       case 'suggest':
         return 'outline';
@@ -207,6 +208,8 @@ class PolicyDecisionEngine {
         return '⚡';
       case 'draft':
         return '✋';
+      case 'draft-ask':
+        return '⚠️';
       case 'suggest':
         return '💡';
       default:

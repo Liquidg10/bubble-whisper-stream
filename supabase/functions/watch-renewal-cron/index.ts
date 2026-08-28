@@ -1,6 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
+import { isExactServiceRoleBearer } from '../_shared/calendarWatchSecurity.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -18,6 +19,10 @@ interface WatchChannel {
   calendar_id?: string;
 }
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -25,23 +30,43 @@ serve(async (req) => {
 
   try {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    if (!supabaseServiceKey) {
+      return new Response(JSON.stringify({ error: 'Server configuration error' }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const authHeader = req.headers.get('Authorization') ?? req.headers.get('authorization');
+    if (!isExactServiceRoleBearer(authHeader, supabaseServiceKey)) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
     console.log('🔄 Starting watch renewal cron job...');
 
     // Get calendar watches expiring in the next 24 hours
-    const { data: calendarWatches } = await supabase
+    const { data: calendarWatches, error: calendarWatchError } = await supabase
       .rpc('get_expiring_watch_channels', { hours_ahead: 24 });
+    if (calendarWatchError) {
+      throw new Error(`Calendar watch discovery failed: ${calendarWatchError.message}`);
+    }
 
     // Get Gmail accounts with expiring watches (7 days ahead)
     const expiryDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-    const { data: gmailAccounts } = await supabase
+    const { data: gmailAccounts, error: gmailWatchError } = await supabase
       .from('email_accounts')
       .select('*')
       .not('watch_expiration', 'is', null)
       .lt('watch_expiration', expiryDate);
+    if (gmailWatchError) {
+      throw new Error(`Gmail watch discovery failed: ${gmailWatchError.message}`);
+    }
 
     let renewalsScheduled = 0;
     let renewalErrors = 0;
@@ -78,7 +103,7 @@ serve(async (req) => {
               service_type: 'calendar',
               operation: 'watch_renewal',
               status: 'error',
-              error_message: error.message,
+              error_message: getErrorMessage(error),
               account_id: watch.id,
               started_at: new Date().toISOString(),
               completed_at: new Date().toISOString()
@@ -118,7 +143,7 @@ serve(async (req) => {
               service_type: 'gmail',
               operation: 'watch_renewal',
               status: 'error',
-              error_message: error.message,
+              error_message: getErrorMessage(error),
               account_id: account.id,
               started_at: new Date().toISOString(),
               completed_at: new Date().toISOString()
@@ -145,7 +170,7 @@ serve(async (req) => {
   } catch (error) {
     console.error('💥 Watch renewal cron failed:', error);
     return new Response(JSON.stringify({ 
-      error: error.message,
+      error: getErrorMessage(error),
       timestamp: new Date().toISOString()
     }), {
       status: 500,
@@ -165,7 +190,7 @@ async function renewWatch(supabase: any, watch: WatchChannel): Promise<void> {
       const { data, error } = await supabase.functions.invoke('calendar-watch', {
         body: {
           action: 'renew',
-          accountId: watch.account_id,
+          calendarAccountId: watch.account_id,
           calendarId: watch.calendar_id,
           oldChannelId: watch.channel_id,
           oldResourceId: watch.resource_id

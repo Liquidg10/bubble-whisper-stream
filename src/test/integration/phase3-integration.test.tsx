@@ -1,22 +1,40 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { screen } from '@testing-library/react';
+import { renderWithProviders } from '@/test/helpers/renderWithProviders';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { BubbleCanvas } from '@/components/BubbleCanvas';
 import NarrativeSearch from '@/components/NarrativeSearch';
 import { crossDeviceSyncService } from '@/services/crossDeviceSyncService';
-import { advancedAIService } from '@/services/advancedAIService';
+import { cbtGuardService } from '@/services/cbtGuardService';
+import {
+  resetMockBubbleStore,
+  setMockBubbleState,
+} from '@/test/helpers/mockBubbleStore';
 
 // Mock services
 vi.mock('@/services/crossDeviceSyncService');
 vi.mock('@/services/advancedAIService');
-vi.mock('@/stores/bubbleStore');
+vi.mock('@/stores/bubbleStore', async () => {
+  const { makeBubbleStoreMockModule: makeMockModule } = await import(
+    '@/test/helpers/mockBubbleStore'
+  );
+  return makeMockModule();
+});
+// NOTE: cbtGuardService is deliberately NOT mocked -- the privacy tests below
+// exercise the real redaction implementation (see "Privacy & Security Tests").
 
 describe('Bubble Universe Integration Tests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    
-    // Mock store
-    (useBubbleStore as any).mockReturnValue({
+    resetMockBubbleStore();
+
+    // Mock store.
+    // `settings` must carry the accessibility keys and `updateSettings` must be
+    // callable: `renderWithProviders` mounts `AccessibilityProvider`, which
+    // destructures `{ settings, updateSettings }` from this store and calls
+    // `updateSettings` from an effect. Without them the provider throws before
+    // the component under test ever renders.
+    setMockBubbleState({
       bubbles: [
         {
           id: 'test-1',
@@ -34,18 +52,39 @@ describe('Bubble Universe Integration Tests', () => {
       addBubble: vi.fn(),
       updateBubble: vi.fn(),
       deleteBubble: vi.fn(),
-      settings: { intelligenceEnabled: true }
+      updateSettings: vi.fn(),
+      settings: {
+        intelligenceEnabled: true,
+        highContrast: false,
+        reducedMotion: false
+      }
     });
   });
 
   describe('Cross-Device Sync Integration', () => {
+    /**
+     * HONEST FAILURE -- do not "fix" by asserting on the mock.
+     *
+     * This test asserts that adding a bubble triggers `syncEntity`. It cannot
+     * pass, and not because of the harness: `crossDeviceSyncService.syncEntity`
+     * has ZERO call sites in `src/` outside its own definition
+     * (`crossDeviceSyncService.ts:164`), and `bubbleStore.addBubble`
+     * (`bubbleStore.ts:321`) never reaches it. The cross-device sync this suite
+     * is named for is not wired to bubble creation.
+     *
+     * Previously this failed earlier and for an unrelated reason -- a bare
+     * `render(<BubbleCanvas />)` threw "useTheme must be used within a
+     * ThemeProvider" -- which masked the real gap. The provider is now supplied
+     * so the failure points at the actual missing wiring.
+     *
+     * Mark's call: wire `addBubble` -> `syncEntity`, or retire this assertion.
+     */
     it('should sync bubbles across devices', async () => {
-      const mockSyncService = crossDeviceSyncService as any;
-      mockSyncService.syncEntity.mockResolvedValue(true);
-      
-      const { container } = render(<BubbleCanvas />);
-      
-      // Add a bubble
+      const mockSyncEntity = vi.mocked(crossDeviceSyncService.syncEntity);
+      mockSyncEntity.mockResolvedValue();
+
+      renderWithProviders(<BubbleCanvas />);
+
       const store = useBubbleStore();
       await store.addBubble({
         id: 'sync-test',
@@ -59,93 +98,120 @@ describe('Bubble Universe Integration Tests', () => {
         updatedAt: Date.now()
       });
 
-      await waitFor(() => {
-        expect(mockSyncService.syncEntity).toHaveBeenCalledWith(
-          'bubble',
-          'sync-test',
-          expect.any(Object),
-          'create'
-        );
-      });
+      expect(mockSyncEntity).toHaveBeenCalledWith(
+        'bubble',
+        'sync-test',
+        expect.any(Object),
+        'create'
+      );
     });
 
+    /**
+     * TAUTOLOGY (documented, deliberately left as-is).
+     * This configures a mock and then asserts the mock returned what it was
+     * told to return. It passes with the entire product deleted -- proven by
+     * probe. Kept because deleting coverage is Mark's call, not a cleanup.
+     */
     it('should handle sync conflicts properly', async () => {
-      const mockSyncService = crossDeviceSyncService as any;
-      mockSyncService.getSyncStatus.mockResolvedValue({
-        hasConflicts: true,
+      const mockGetSyncStatus = vi.mocked(crossDeviceSyncService.getSyncStatus);
+      mockGetSyncStatus.mockReturnValue({
+        isOnline: true,
+        lastSync: null,
+        pendingUploads: 0,
+        pendingDownloads: 0,
+        syncMode: 'full',
         conflicts: [
           {
             id: 'conflict-1',
             entityType: 'bubble',
             entityId: 'test-1',
-            localData: { content: 'Local version' },
-            remoteData: { content: 'Remote version' }
+            localVersion: { content: 'Local version' },
+            remoteVersion: { content: 'Remote version' },
+            timestamp: new Date().toISOString(),
           }
         ]
       });
 
-      // Test conflict resolution would be triggered
-      const status = await mockSyncService.getSyncStatus();
-      expect(status.hasConflicts).toBe(true);
+      const status = mockGetSyncStatus();
       expect(status.conflicts).toHaveLength(1);
     });
   });
 
   describe('AI Integration Tests', () => {
-    it('should generate AI-powered glimmers', async () => {
-      const mockAIService = advancedAIService as any;
-      mockAIService.generateGlimmer.mockResolvedValue({
-        message: 'You\'re doing great today!',
-        tone: 'friend',
-        because: 'Based on your positive mood bubble from earlier'
-      });
+    /**
+     * REWRITTEN. These two tests previously called
+     * `advancedAIService.generateGlimmer` / `.generateCBTReframe` and asserted
+     * on the values they had just handed the mock. Both threw
+     * "Cannot read properties of undefined" because NEITHER METHOD EXISTS on
+     * `AdvancedAIService` -- its real surface is transcribeVoice,
+     * analyzePatterns, analyzeSentiment, categorizeContent, findSimilarThemes,
+     * startVoiceRecording, stopVoiceRecording, isAIAvailable, clearCache.
+     *
+     * `generateGlimmer` lives on `glimmerService` (and `aiService`);
+     * `generateCBTReframe` exists nowhere in the codebase -- the real reframe
+     * entry points are `aiService.getCBTReframe` and
+     * `cbtService.generateReframeSuggestions`.
+     *
+     * Restoring the old shape would only have asserted that a `vi.fn()`
+     * returns its own configured value. These are now module-surface contract
+     * tests against the REAL (unmocked) modules, so they fail if the API is
+     * renamed or moved -- which is the bug the originals were pointed at.
+     */
+    it('exposes glimmer generation on glimmerService, not advancedAIService', async () => {
+      const { glimmerService } = await vi.importActual<
+        typeof import('@/services/glimmerService')
+      >('@/services/glimmerService');
+      const { advancedAIService: realAdvancedAI } = await vi.importActual<
+        typeof import('@/services/advancedAIService')
+      >('@/services/advancedAIService');
 
-      const result = await mockAIService.generateGlimmer({
-        trigger: 'mood_check',
-        context: { mood: 'positive' }
-      });
-
-      expect(result.message).toBe('You\'re doing great today!');
-      expect(result.because).toContain('positive mood');
+      expect(typeof glimmerService.generateGlimmer).toBe('function');
+      expect((realAdvancedAI as unknown as Record<string, unknown>).generateGlimmer).toBeUndefined();
+      // Guard the surface the app actually consumes.
+      expect(typeof realAdvancedAI.analyzePatterns).toBe('function');
+      expect(typeof realAdvancedAI.isAIAvailable).toBe('function');
     });
 
-    it('should provide CBT reframes', async () => {
-      const mockAIService = advancedAIService as any;
-      mockAIService.generateCBTReframe.mockResolvedValue({
-        reframe: 'A more balanced perspective might be...',
-        distortions: ['AllOrNothing'],
-        because: 'Detected all-or-nothing thinking pattern'
-      });
+    it('exposes CBT reframing on aiService/cbtService, not advancedAIService', async () => {
+      const { aiService } = await vi.importActual<
+        typeof import('@/services/aiService')
+      >('@/services/aiService');
+      const { cbtService } = await vi.importActual<
+        typeof import('@/services/cbtService')
+      >('@/services/cbtService');
+      const { advancedAIService: realAdvancedAI } = await vi.importActual<
+        typeof import('@/services/advancedAIService')
+      >('@/services/advancedAIService');
 
-      const result = await mockAIService.generateCBTReframe({
-        thought: 'I always mess everything up',
-        context: {}
-      });
-
-      expect(result.reframe).toContain('balanced perspective');
-      expect(result.distortions).toContain('AllOrNothing');
+      expect(typeof aiService.getCBTReframe).toBe('function');
+      expect(typeof cbtService.generateReframeSuggestions).toBe('function');
+      expect((realAdvancedAI as unknown as Record<string, unknown>).generateCBTReframe)
+        .toBeUndefined();
     });
   });
 
   describe('Vector Search Integration', () => {
     it('should perform semantic search with explanations', async () => {
-      // This would test the actual search implementation
-      // For now, verify the component renders correctly
-      const { container } = render(<NarrativeSearch />);
-      
+      renderWithProviders(<NarrativeSearch />);
+
       const searchInput = screen.getByPlaceholderText(/search your thoughts/i);
       expect(searchInput).toBeInTheDocument();
     });
   });
 
   describe('Performance Tests', () => {
+    /**
+     * TAUTOLOGY (documented). The 50-iteration loop calls a `vi.fn()`, so the
+     * measured duration reflects the mock, not the product. Proven by probe:
+     * this test passes with `BubbleCanvas` replaced by `() => null`. Its only
+     * real content is now that `<BubbleCanvas />` mounts without throwing.
+     */
     it('should maintain target FPS during bubble interactions', async () => {
-      const { container } = render(<BubbleCanvas />);
-      
-      // Simulate rapid bubble creation
+      renderWithProviders(<BubbleCanvas />);
+
       const store = useBubbleStore();
       const startTime = performance.now();
-      
+
       for (let i = 0; i < 50; i++) {
         await store.addBubble({
           id: `perf-test-${i}`,
@@ -159,28 +225,27 @@ describe('Bubble Universe Integration Tests', () => {
           updatedAt: Date.now()
         });
       }
-      
+
       const endTime = performance.now();
       const duration = endTime - startTime;
-      
-      // Should complete in under 1 second for good performance
+
       expect(duration).toBeLessThan(1000);
     });
 
     it('should limit memory usage', () => {
-      // This would require actual memory monitoring
-      // For now, verify basic component rendering doesn't leak
-      const { unmount } = render(<BubbleCanvas />);
+      const { unmount } = renderWithProviders(<BubbleCanvas />);
       unmount();
-      
-      // Component should unmount cleanly
+
       expect(screen.queryByTestId('bubble-canvas')).not.toBeInTheDocument();
     });
   });
 
   describe('Plugin System Integration', () => {
+    /**
+     * TAUTOLOGY (documented). Builds an object literal and asserts the literal
+     * contains what was just put in it; passes with the product deleted.
+     */
     it('should load and execute plugins safely', async () => {
-      // Mock plugin loading
       const mockPlugin = {
         id: 'test-plugin',
         name: 'Test Plugin',
@@ -188,30 +253,83 @@ describe('Bubble Universe Integration Tests', () => {
         execute: vi.fn()
       };
 
-      // Would test actual plugin execution in isolation
       expect(mockPlugin.capabilities).toContain('read:bubbles');
     });
   });
 
   describe('Privacy & Security Tests', () => {
+    /**
+     * TAUTOLOGY (documented). `btoa(JSON.stringify(x))` never contains the
+     * plaintext, so this asserts a property of base64, not of any encryption
+     * the product performs. Passes with the product deleted.
+     */
     it('should encrypt sensitive data before storage', () => {
-      // Test would verify encryption is applied
       const sensitiveData = { content: 'Private thought' };
-      
-      // Mock encryption
+
       const encrypted = btoa(JSON.stringify(sensitiveData));
       expect(encrypted).not.toContain('Private thought');
     });
 
-    it('should strip PII from AI requests', () => {
-      const input = 'My email is john@example.com and phone is 555-1234';
-      
-      // This would test the actual PII stripping function
-      const stripped = input
-        .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g, '[EMAIL]')
-        .replace(/\b\d{3}-?\d{3}-?\d{4}\b/g, '[PHONE]');
-      
-      expect(stripped).toBe('My email is [EMAIL] and phone is [PHONE]');
+    /**
+     * REWRITTEN to call the REAL implementation.
+     *
+     * The original inlined a copy of two of the four regexes from
+     * `cbtGuardService.sanitizeMessage` (`cbtGuardService.ts:243-247`) and
+     * asserted against its own copy -- so it consulted no product code at all
+     * and could never have caught a redaction bug. It now goes through the
+     * public entry point, `filterForNetworkTransmission`, which is live
+     * (`cbtGuardService.ts:182`).
+     */
+    it('strips PII from data bound for the network', () => {
+      const filtered = cbtGuardService.filterForNetworkTransmission({
+        userId: 'user-123',
+        email: 'direct@example.com',
+        phone: '555-555-5555',
+        location: 'Honolulu',
+        messageContent:
+          'Reach me at john@example.com or 555-867-5309, card 4111 1111 1111 1111, SSN 123-45-6789'
+      });
+
+      // Direct identifier fields are dropped outright.
+      expect(filtered.userId).toBeUndefined();
+      expect(filtered.email).toBeUndefined();
+      expect(filtered.phone).toBeUndefined();
+      expect(filtered.location).toBeUndefined();
+
+      // Inline patterns are redacted by sanitizeMessage's four rules.
+      expect(filtered.messageContent).toContain('[EMAIL]');
+      expect(filtered.messageContent).toContain('[PHONE]');
+      expect(filtered.messageContent).toContain('[CARD]');
+      expect(filtered.messageContent).toContain('[SSN]');
+      expect(filtered.messageContent).not.toContain('john@example.com');
+      expect(filtered.messageContent).not.toContain('555-867-5309');
+      expect(filtered.messageContent).not.toContain('4111 1111 1111 1111');
+      expect(filtered.messageContent).not.toContain('123-45-6789');
+    });
+
+    /**
+     * HONEST FAILURE -- a real redaction gap, not a harness problem.
+     *
+     * `sanitizeMessage`'s phone rule is `/\b\d{3}-?\d{3}-?\d{4}\b/g`, which
+     * requires TEN digits. Seven-digit local numbers ("555-1234") are passed
+     * through to the network untouched. The original version of this test
+     * asserted exactly this behaviour and was recorded as a broken test --
+     * it was right about the requirement and wrong only about which code to
+     * ask. Kept failing rather than relaxed, per the standing rule that a
+     * genuine product gap is Mark's decision.
+     *
+     * Mark's call: widen the phone rule to cover 7-digit local formats
+     * (mind the interaction with the 9-digit SSN rule, which runs after it),
+     * or accept 7-digit numbers as out of scope and delete this test.
+     */
+    it('strips seven-digit local phone numbers too', () => {
+      const filtered = cbtGuardService.filterForNetworkTransmission({
+        messageContent: 'My email is john@example.com and phone is 555-1234'
+      });
+
+      expect(filtered.messageContent).toBe(
+        'My email is [EMAIL] and phone is [PHONE]'
+      );
     });
   });
 });

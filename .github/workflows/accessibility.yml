@@ -34,7 +34,10 @@ jobs:
         run: npm run lint:ratchet
 
       - name: TypeScript
-        run: npx tsc --noEmit
+        run: npm run typecheck
+
+      - name: Run bounded unit and integration gate
+        run: npm run test:unit:ci
 
       - name: Build
         run: npm run build
