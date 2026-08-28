@@ -10,8 +10,9 @@ the new HMAC verifier until every active channel is replaced.
 - CI is green on the exact merge SHA.
 - A strong `CALENDAR_WATCH_WEBHOOK_SECRET` is provisioned in Supabase Edge
   Function secrets. Do not store its value in this repository or command logs.
-- The external scheduler can send the exact configured service-role bearer to
-  `watch-renewal-cron` after JWT verification is enabled.
+- The repository secret `SUPABASE_SERVICE_ROLE_KEY` is configured for GitHub
+  Actions. `.github/workflows/calendar-watch-renewal.yml` sends that exact
+  bearer to `watch-renewal-cron` after JWT verification is enabled.
 - A rollback owner and a bounded maintenance window are named.
 
 ## Staged activation
@@ -64,8 +65,10 @@ the new HMAC verifier until every active channel is replaced.
    path to the browser or cron.
 8. Send a real Google change through a rotated channel and verify callback HMAC,
    account lookup, incremental sync, and bounded-sync fallback telemetry.
-9. Verify the ordinary expiring-only scheduler path, then deploy the client
-   caller changes. Keep rollback available through the observation window.
+9. Dispatch `Calendar watch renewal` once, require a green receipt with zero
+   renewal errors, and leave its twice-daily schedule enabled. Then deploy the
+   client caller changes. Keep rollback available through the observation
+   window.
 
 Do not describe the exposure as closed until the migration, deployed function
 versions, scheduler bearer, full channel rotation, and live callback path all

@@ -183,6 +183,19 @@ describe('calendar watch authorization wiring', () => {
     expect(config).toMatch(/\[functions\.calendar-watch\]\s*verify_jwt = false/);
   });
 
+  it('schedules renewal with the exact protected server credential and fails on renewal errors', () => {
+    const workflow = readRepoFile('.github/workflows/calendar-watch-renewal.yml');
+
+    expect(workflow).toContain("cron: '17 */12 * * *'");
+    expect(workflow).toContain(
+      'SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}',
+    );
+    expect(workflow).toContain('Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY');
+    expect(workflow).toContain('apikey: $SUPABASE_SERVICE_ROLE_KEY');
+    expect(workflow).toContain("jq -e '.renewalErrors == 0'");
+    expect(workflow).not.toContain('SUPABASE_ANON_KEY');
+  });
+
   it('exposes the HMAC contract marker used by the gated rotation tool', () => {
     const handler = readRepoFile('supabase/functions/calendar-watch/index.ts');
     const rotationTool = readRepoFile('scripts/rotate-calendar-watch-channels.mjs');
