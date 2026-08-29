@@ -358,24 +358,50 @@ class GmailTriageService {
   async getThreads(userId: string, options: { limit?: number; labelIds?: string[] } = {}): Promise<any[]> {
     let query = supabase
       .from('gmail_threads')
-      .select(`
-        *,
-        gmail_messages(*)
-      `)
+      .select('*')
       .eq('user_id', userId)
-      .order('last_message_date', { ascending: false });
+      .order('last_message_date', { ascending: false })
+      .limit(options.limit ?? 100);
 
-    if (options.limit) {
-      query = query.limit(options.limit);
+    if (options.labelIds?.length) {
+      query = query.overlaps('label_ids', options.labelIds);
     }
 
-    const { data, error } = await query;
+    const { data: threads, error } = await query;
 
     if (error) {
       throw error;
     }
 
-    return data || [];
+    if (!threads?.length) return [];
+
+    // Production has one canonical message table: email_messages. Avoid the
+    // stale implicit alternate relation, which is absent from the live schema,
+    // and bind the hydration query to the same owner explicitly.
+    const threadIds = [...new Set(threads.map(thread => thread.thread_id))];
+    const { data: messages, error: messageError } = await supabase
+      .from('email_messages')
+      .select('*')
+      .eq('user_id', userId)
+      .in('gmail_thread_id', threadIds)
+      .order('received_at', { ascending: false });
+
+    if (messageError) {
+      throw messageError;
+    }
+
+    const messagesByThread = new Map<string, NonNullable<typeof messages>>();
+    for (const message of messages ?? []) {
+      if (!message.gmail_thread_id) continue;
+      const existing = messagesByThread.get(message.gmail_thread_id) ?? [];
+      existing.push(message);
+      messagesByThread.set(message.gmail_thread_id, existing);
+    }
+
+    return threads.map(thread => ({
+      ...thread,
+      email_messages: messagesByThread.get(thread.thread_id) ?? []
+    }));
   }
 
   private buildQueryParams(options: TriageOptions) {

@@ -1,7 +1,11 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
+import {
+  createClient,
+  type SupabaseClient,
+} from 'https://esm.sh/@supabase/supabase-js@2.57.4';
 import { isExactServiceRoleBearer } from '../_shared/calendarWatchSecurity.ts';
+import type { Database } from '../../../src/integrations/supabase/types.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -12,9 +16,9 @@ interface WatchChannel {
   id: string;
   user_id: string;
   provider: 'google-calendar' | 'gmail';
-  resource_id: string;
-  channel_id: string;
-  expires_at: string;
+  resource_id?: string;
+  channel_id?: string;
+  expires_at: string | null;
   account_id: string;
   calendar_id?: string;
 }
@@ -46,7 +50,7 @@ serve(async (req) => {
       });
     }
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const supabase = createClient<Database>(supabaseUrl, supabaseServiceKey);
 
     console.log('🔄 Starting watch renewal cron job...');
 
@@ -57,13 +61,16 @@ serve(async (req) => {
       throw new Error(`Calendar watch discovery failed: ${calendarWatchError.message}`);
     }
 
-    // Get Gmail accounts with expiring watches (7 days ahead)
-    const expiryDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    // Gmail watches expire within seven days and Google recommends renewing
+    // daily. Entering the six-day window renews each mailbox roughly one day
+    // after its previous registration while retaining the existing cursor.
+    const expiryDate = new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString();
     const { data: gmailAccounts, error: gmailWatchError } = await supabase
-      .from('email_accounts')
-      .select('*')
-      .not('watch_expiration', 'is', null)
-      .lt('watch_expiration', expiryDate);
+      .from('gmail_watch_subscriptions')
+      .select('id,user_id,oauth_account_id,watch_expires_at,account_email')
+      .eq('status', 'active')
+      .not('watch_expires_at', 'is', null)
+      .lt('watch_expires_at', expiryDate);
     if (gmailWatchError) {
       throw new Error(`Gmail watch discovery failed: ${gmailWatchError.message}`);
     }
@@ -120,16 +127,14 @@ serve(async (req) => {
             id: account.id,
             user_id: account.user_id,
             provider: 'gmail',
-            resource_id: account.watch_resource_id,
-            channel_id: account.watch_channel_id,
-            expires_at: account.watch_expiration,
-            account_id: account.id
+            expires_at: account.watch_expires_at,
+            account_id: account.oauth_account_id
           };
 
           await renewWatch(supabase, watchData);
           renewalsScheduled++;
           
-          console.log(`✅ Renewed Gmail watch for account ${account.id}`);
+          console.log(`✅ Renewed Gmail watch ${account.id}`);
         } catch (error) {
           console.error(`❌ Failed to renew Gmail watch ${account.id}:`, error);
           renewalErrors++;
@@ -144,7 +149,7 @@ serve(async (req) => {
               operation: 'watch_renewal',
               status: 'error',
               error_message: getErrorMessage(error),
-              account_id: account.id,
+              account_id: account.oauth_account_id,
               started_at: new Date().toISOString(),
               completed_at: new Date().toISOString()
             });
@@ -182,7 +187,10 @@ serve(async (req) => {
 /**
  * Renew a specific watch channel
  */
-async function renewWatch(supabase: any, watch: WatchChannel): Promise<void> {
+async function renewWatch(
+  supabase: SupabaseClient<Database>,
+  watch: WatchChannel,
+): Promise<void> {
   console.log(`🔄 Renewing ${watch.provider} watch for account ${watch.account_id}`);
 
   try {
@@ -204,9 +212,7 @@ async function renewWatch(supabase: any, watch: WatchChannel): Promise<void> {
       const { data, error } = await supabase.functions.invoke('gmail-watch', {
         body: {
           action: 'renew',
-          accountId: watch.account_id,
-          oldChannelId: watch.channel_id,
-          oldResourceId: watch.resource_id
+          accountId: watch.account_id
         }
       });
 
