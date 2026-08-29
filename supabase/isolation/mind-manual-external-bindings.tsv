@@ -1,7 +1,7 @@
 # binding	owner	target_template	required_action
-calendar_oauth_redirect	Google Cloud	https://{PROJECT_REF}.supabase.co/functions/v1/calendar-oauth-callback	add before target Calendar OAuth canary; retain source through rollback window
-supabase_google_auth_redirect	Google Cloud	https://{PROJECT_REF}.supabase.co/auth/v1/callback	add before target Google sign-in canary; retain source through rollback window
-gmail_oauth_app_redirect	Google Cloud	https://bubble-whisper-stream.lovable.app/oauth-callback	retain unchanged for the app-hosted Gmail OAuth handoff
+google_oauth_canary_redirect	Google Cloud	http://localhost:8080/oauth-callback	add only for the unpublished target canary under exact credential-update authorization
+google_oauth_production_redirect	Google Cloud	https://bubble-whisper-stream.lovable.app/oauth-callback	retain unchanged
+google_oauth_legacy_production_redirect	Google Cloud	https://bubbleuniverse.app/oauth-callback	retain unchanged until owner-approved retirement
 calendar_push_endpoint	Google Calendar	https://{PROJECT_REF}.supabase.co/functions/v1/calendar-watch	recreate watch channels after target deploy; never copy source channel rows as active
 gmail_pubsub_push_endpoint	Google Cloud Pub/Sub	https://{PROJECT_REF}.supabase.co/functions/v1/gmail-watch	update push subscription endpoint after target OIDC audience is configured
 gmail_pubsub_oidc_audience	Google Cloud Pub/Sub	https://{PROJECT_REF}.supabase.co/functions/v1/gmail-watch	set exact audience in subscription and GMAIL_PUBSUB_PUSH_AUDIENCE

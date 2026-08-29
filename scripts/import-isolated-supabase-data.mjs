@@ -14,7 +14,9 @@ import {
   assertPrivateFile,
   assertProjectRef,
   canonicalJson,
+  consumeTargetDatabasePassword,
   getLinkedDatabaseConfig,
+  getTargetAdminDatabaseConfig,
   parseArgs,
   readTsvManifest,
   repoRoot,
@@ -223,6 +225,7 @@ async function main() {
     "package directory",
   );
   const targetRef = assertProjectRef(args["target-ref"], "target project ref");
+  const targetDatabasePassword = consumeTargetDatabasePassword();
   if (targetRef === SOURCE_PROJECT_REF) {
     throw new Error("refusing to import into the source project");
   }
@@ -326,7 +329,11 @@ async function main() {
     "COMMIT;",
     "",
   ].join("\n");
-  const database = getLinkedDatabaseConfig(targetRef);
+  const database = getTargetAdminDatabaseConfig(
+    targetRef,
+    SOURCE_PROJECT_REF,
+    targetDatabasePassword,
+  );
   const copyOutput = String(runPsql(database, commands));
   const copiedCounts = [...copyOutput.matchAll(/^COPY\s+(\d+)$/gmu)].map((
     match,

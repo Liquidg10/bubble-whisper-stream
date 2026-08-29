@@ -6,45 +6,155 @@ import {
   assertAbsolutePath,
   assertPrivateFile,
   assertProjectRef,
+  canonicalJson,
   parseArgs,
   repoRoot,
+  sha256,
   sha256File,
   writePrivateJson,
 } from "./lib/supabase-isolation.mjs";
 
 const SOURCE_PROJECT_REF = "ekekeywoxvdbfbmqyhjy";
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
+const ACTION_TIME_MAX_AGE_MS = 10 * 60 * 1000;
+const CANARY_MAX_AGE_MS = 2 * 60 * 60 * 1000;
+const SYNC_DEFERRAL_MIGRATION_PATH = resolve(
+  repoRoot,
+  "supabase/migrations/20260829050000_defer_cross_device_sync.sql",
+);
+const SYNC_SERVICE_PATH = resolve(
+  repoRoot,
+  "src/services/crossDeviceSyncService.ts",
+);
+const DATA_SCOPES_PATH = resolve(
+  repoRoot,
+  "supabase/isolation/mind-manual-data-scopes.tsv",
+);
+const RESET_RECEIPT_RELATIONS = Object.freeze([
+  "calendar_accounts",
+  "calendar_events",
+  "email_accounts",
+  "email_messages",
+  "email_recipients",
+  "gmail_actionables",
+  "gmail_compose_receipts",
+  "gmail_history_events",
+  "gmail_pubsub_receipts",
+  "gmail_threads",
+  "gmail_watch_subscriptions",
+  "oauth_accounts",
+  "oauth_state",
+  "oauth_tokens",
+  "plaid_accounts",
+  "plaid_items",
+  "plaid_sync_status",
+  "plaid_transactions",
+  "plaid_webhooks",
+]);
+const RESET_ZERO_STATE_RELATIONS = new Set(
+  RESET_RECEIPT_RELATIONS.filter((relation) =>
+    !new Set([
+      "calendar_accounts",
+      "calendar_events",
+      "oauth_tokens",
+    ]).has(relation)
+  ),
+);
 const REQUIRED_BOOLEAN_CANARIES = [
   "freshPasswordSignIn",
   "profileRead",
   "privatePhotoRead",
+  "calendarOAuthReauthorization",
   "calendarReadAndBoundedSync",
   "calendarWatchAuthenticatedDelivery",
   "gmailOAuthAndScope",
   "gmailWatchSignedPubsubDelivery",
   "gmailHistoryAdvanceAndReplayIdempotency",
   "gmailComposeAcceptance",
-  "syncReadWrite",
+  "syncDeferredBoundary",
   "appBuildAndTestGates",
 ];
 const REQUIRED_EVIDENCE_RECEIPTS = [
   "authAndProfile",
   "privateStorage",
+  "calendarOAuthReauthorization",
   "calendarSync",
   "calendarWatch",
   "gmailOAuthSync",
   "gmailPubsub",
   "gmailCompose",
-  "syncReadWrite",
+  "syncDeferredBoundary",
   "securityAndBuild",
 ];
+const QUARANTINE_INVENTORY_FIELDS = Object.freeze([
+  "calendarAccountsWithProviderState",
+  "emailAccountsWithProviderState",
+  "gmailWatchesWithProviderState",
+  "activeGenericWebhooks",
+  "plaidWebhookUrls",
+  "transientOauthStates",
+]);
+const CALENDAR_REAUTHORIZATION_EVIDENCE_FIELDS = Object.freeze([
+  "version",
+  "status",
+  "evidenceType",
+  "capturedAt",
+  "targetProjectRef",
+  "sourceReceiptSha256",
+  "importReceiptSha256",
+  "storageReceiptSha256",
+  "oauthResetReceiptSha256",
+  "quarantineReceiptSha256",
+  "oauthTokenCount",
+  "calendarAccountCount",
+  "primaryCalendarAccountCount",
+  "calendarEventCountBeforeSync",
+  "oauthIdentityLinkageSha256",
+  "calendarIdentityLinkageSha256",
+  "calendarEventsSha256BeforeSync",
+  "strictAccessEnvelopeCount",
+  "strictRefreshEnvelopeCount",
+  "nonNullRefreshTokenCount",
+  "futureExpiryCount",
+  "tombstoneMatchCount",
+  "secretValuesIncluded",
+  "rowIdsIncluded",
+]);
+const SYNC_DEFERRED_EVIDENCE_FIELDS = Object.freeze([
+  "version",
+  "status",
+  "evidenceType",
+  "capturedAt",
+  "targetProjectRef",
+  "sourceReceiptSha256",
+  "importReceiptSha256",
+  "storageReceiptSha256",
+  "oauthResetReceiptSha256",
+  "quarantineReceiptSha256",
+  "deferredRelations",
+  "anonPrivilegesDenied",
+  "authenticatedPrivilegesDenied",
+  "realtimePublicationAbsent",
+  "syncServiceFailClosed",
+  "syncDeferralMigrationSha256",
+  "syncServiceSha256",
+  "dataScopesManifestSha256",
+  "secretValuesIncluded",
+  "rowIdsIncluded",
+]);
 
 function usage() {
   console.log(
     "usage: node scripts/prepare-isolated-supabase-rollback-receipt.mjs " +
       "--source-receipt /absolute/source.json " +
+      "--source-revalidation-receipt /absolute/fresh-source.json " +
+      "--source-freeze-receipt /absolute/source-freeze.json " +
+      "--package-manifest /absolute/package-manifest.json " +
+      "--auth-decision /absolute/auth-decision.json " +
       "--import-receipt /absolute/import.json " +
       "--storage-receipt /absolute/storage.json " +
+      "--storage-revalidation-receipt /absolute/storage-revalidation.json " +
+      "--oauth-reset-receipt /absolute/oauth-reset.json " +
       "--quarantine-receipt /absolute/quarantine.json " +
       "--target-canary-receipt /absolute/canary.json " +
       "--target-ref <ref> --window-ends <ISO timestamp> " +
@@ -58,12 +168,334 @@ function readReceipt(path, label) {
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
+function resetExpectedRelations(source, imported) {
+  const sourceRows = new Map();
+  for (const row of source.publicData ?? []) {
+    if (typeof row?.relation !== "string" || sourceRows.has(row.relation)) {
+      throw new Error("source receipt has invalid or duplicate public data");
+    }
+    sourceRows.set(row.relation, row);
+  }
+  const importedRows = new Map();
+  for (const row of imported.copiedRelations ?? []) {
+    if (
+      typeof row?.logicalName !== "string" ||
+      importedRows.has(row.logicalName) ||
+      !Number.isSafeInteger(row.rowCount) ||
+      row.rowCount < 0 ||
+      !SHA256_PATTERN.test(row.fileSha256 ?? "")
+    ) {
+      throw new Error("import receipt has invalid copied relation metadata");
+    }
+    importedRows.set(row.logicalName, row);
+  }
+
+  const expected = {};
+  for (const relation of RESET_RECEIPT_RELATIONS) {
+    const sourceRow = sourceRows.get(relation);
+    const importedRow = importedRows.get(`public.${relation}`);
+    const expectedCopyMode = relation === "oauth_state"
+      ? "skip_transient"
+      : "copy";
+    if (
+      !sourceRow ||
+      sourceRow.copyMode !== expectedCopyMode ||
+      !Number.isSafeInteger(sourceRow.copyRowCount) ||
+      sourceRow.copyRowCount < 0 ||
+      (expectedCopyMode === "copy" &&
+        sourceRow.totalRowCount !== sourceRow.copyRowCount) ||
+      (expectedCopyMode === "skip_transient" &&
+        sourceRow.copyRowCount !== 0) ||
+      !SHA256_PATTERN.test(sourceRow.copyRowsSha256 ?? "") ||
+      !importedRow ||
+      importedRow.rowCount !== sourceRow.copyRowCount
+    ) {
+      throw new Error(`reset receipt relation mismatch: ${relation}`);
+    }
+    if (
+      RESET_ZERO_STATE_RELATIONS.has(relation) &&
+      sourceRow.copyRowCount !== 0
+    ) {
+      throw new Error(`reset receipt requires empty ${relation}`);
+    }
+    expected[relation] = {
+      rowCount: sourceRow.copyRowCount,
+      rowsSha256: sourceRow.copyRowsSha256,
+    };
+  }
+  if (
+    expected.oauth_tokens.rowCount < 1 ||
+    expected.calendar_accounts.rowCount !== expected.oauth_tokens.rowCount
+  ) {
+    throw new Error("reset receipt Calendar/OAuth counts are inconsistent");
+  }
+  return expected;
+}
+
+function preservationReceiptIsValid(value) {
+  const expectedFields = [
+    "oauthTokenMetadataSha256",
+    "oauthIdentityLinkageSha256",
+    "calendarAccountMetadataSha256",
+    "calendarIdentityLinkageSha256",
+    "calendarEventsSha256",
+  ];
+  return Boolean(value) &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === expectedFields.length &&
+    expectedFields.every((field) =>
+      SHA256_PATTERN.test(value[field] ?? "")
+    );
+}
+
+function hasExactKeys(value, keys) {
+  return Boolean(value) &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    canonicalJson(Object.keys(value).sort()) === canonicalJson([...keys].sort());
+}
+
+function isFreshTimestamp(value, maxAgeMs) {
+  const timestamp = Date.parse(value);
+  const ageMs = Date.now() - timestamp;
+  return Number.isFinite(timestamp) && ageMs >= -5 * 60 * 1000 &&
+    ageMs <= maxAgeMs;
+}
+
+function preservedAuthInventory(auth) {
+  return Object.fromEntries([
+    "userCount",
+    "identityCount",
+    "subjectIdsSha256",
+    "usersSha256",
+    "identitiesSha256",
+    "providerCounts",
+    "mfaFactorCount",
+    "ssoProviderCount",
+    "nonDefaultInstanceCount",
+    "userColumnNames",
+    "identityColumnNames",
+    "usersColumnFingerprintSha256",
+    "identitiesColumnFingerprintSha256",
+  ].map((field) => [field, auth?.[field]]));
+}
+
+function validateFreshSourceReceipt(source, fresh) {
+  if (
+    fresh.version !== 1 ||
+    fresh.kind !== "source" ||
+    fresh.projectRef !== SOURCE_PROJECT_REF ||
+    fresh.status !== "ready" ||
+    !Array.isArray(fresh.blockers) ||
+    fresh.blockers.length !== 0 ||
+    !isFreshTimestamp(fresh.capturedAt, ACTION_TIME_MAX_AGE_MS) ||
+    canonicalJson(fresh.manifests) !== canonicalJson(source.manifests) ||
+    canonicalJson(fresh.catalog) !== canonicalJson(source.catalog) ||
+    canonicalJson(fresh.publicData) !== canonicalJson(source.publicData) ||
+    canonicalJson(preservedAuthInventory(fresh.auth)) !==
+      canonicalJson(preservedAuthInventory(source.auth)) ||
+    !Number.isSafeInteger(fresh.auth?.sessionCountExcluded) ||
+    fresh.auth.sessionCountExcluded < 0 ||
+    !Number.isSafeInteger(fresh.auth?.refreshTokenCountExcluded) ||
+    fresh.auth.refreshTokenCountExcluded < 0 ||
+    canonicalJson(fresh.storage) !== canonicalJson(source.storage)
+  ) {
+    throw new Error(
+      "action-time source revalidation is stale or drifted from the packaged source",
+    );
+  }
+}
+
+function validateSourceFreezeReceipt(
+  freeze,
+  targetRef,
+  sourceReceiptSha256,
+  freshSourceReceiptSha256,
+  importReceiptSha256,
+  sourceRevalidationCapturedAt,
+  storageRevalidationCapturedAt,
+) {
+  const confirmedAt = Date.parse(freeze.confirmedAt);
+  if (
+    freeze.version !== 1 ||
+    freeze.status !== "source_write_freeze_confirmed_for_cutover" ||
+    freeze.sourceProjectRef !== SOURCE_PROJECT_REF ||
+    freeze.targetProjectRef !== targetRef ||
+    freeze.confirmedBy !== "owner" ||
+    freeze.sourceWriteFreezeStillActive !== true ||
+    !isFreshTimestamp(freeze.confirmedAt, ACTION_TIME_MAX_AGE_MS) ||
+    confirmedAt > Date.parse(sourceRevalidationCapturedAt) ||
+    confirmedAt > Date.parse(storageRevalidationCapturedAt) ||
+    freeze.sourceReceiptSha256 !== sourceReceiptSha256 ||
+    freeze.sourceRevalidationReceiptSha256 !==
+      freshSourceReceiptSha256 ||
+    freeze.importReceiptSha256 !== importReceiptSha256 ||
+    freeze.sourceMutated !== false
+  ) {
+    throw new Error(
+      "action-time source write-freeze receipt is stale or bound to different source evidence",
+    );
+  }
+}
+
+function validateStorageRevalidation(
+  revalidation,
+  storage,
+  storageReceiptSha256,
+  sourceReceiptSha256,
+  targetRef,
+) {
+  if (
+    revalidation.version !== 1 ||
+    revalidation.status !== "verified_revalidation" ||
+    !isFreshTimestamp(revalidation.capturedAt, ACTION_TIME_MAX_AGE_MS) ||
+    revalidation.sourceProjectRef !== SOURCE_PROJECT_REF ||
+    revalidation.targetProjectRef !== targetRef ||
+    revalidation.sourceReceiptSha256 !== sourceReceiptSha256 ||
+    revalidation.storageReceiptSha256 !== storageReceiptSha256 ||
+    revalidation.objectCount !== storage.objectCount ||
+    revalidation.totalBytes !== storage.totalBytes ||
+    revalidation.contentManifestSha256 !== storage.contentManifestSha256 ||
+    revalidation.signedUrlVerifiedCount !== storage.objectCount ||
+    revalidation.allObjectsMatch !== true ||
+    revalidation.sourceSecretValueIncluded !== false ||
+    revalidation.targetSecretValueIncluded !== false ||
+    revalidation.rawObjectPathsIncluded !== false
+  ) {
+    throw new Error(
+      "fresh storage revalidation is missing, stale, or content-drifted",
+    );
+  }
+}
+
+function validateCalendarReauthorizationEvidence(
+  receipt,
+  oauthReset,
+  oauthResetReceiptSha256,
+  targetRef,
+) {
+  const tokenCount = oauthReset.expectedGoogleReconnectCount;
+  const eventCount = oauthReset.after.preservedCalendarEventCount;
+  if (
+    !hasExactKeys(receipt, CALENDAR_REAUTHORIZATION_EVIDENCE_FIELDS) ||
+    receipt.version !== 1 ||
+    receipt.status !== "verified" ||
+    !isFreshTimestamp(receipt.capturedAt, CANARY_MAX_AGE_MS) ||
+    receipt.targetProjectRef !== targetRef ||
+    receipt.oauthResetReceiptSha256 !== oauthResetReceiptSha256 ||
+    receipt.oauthTokenCount !== tokenCount ||
+    receipt.calendarAccountCount !== tokenCount ||
+    receipt.primaryCalendarAccountCount !== tokenCount ||
+    receipt.calendarEventCountBeforeSync !== eventCount ||
+    receipt.oauthIdentityLinkageSha256 !==
+      oauthReset.before.preservation.oauthIdentityLinkageSha256 ||
+    receipt.calendarIdentityLinkageSha256 !==
+      oauthReset.before.preservation.calendarIdentityLinkageSha256 ||
+    receipt.calendarEventsSha256BeforeSync !==
+      oauthReset.before.preservation.calendarEventsSha256 ||
+    receipt.strictAccessEnvelopeCount !== tokenCount ||
+    receipt.strictRefreshEnvelopeCount !== tokenCount ||
+    receipt.nonNullRefreshTokenCount !== tokenCount ||
+    receipt.futureExpiryCount !== tokenCount ||
+    receipt.tombstoneMatchCount !== 0 ||
+    receipt.secretValuesIncluded !== false ||
+    receipt.rowIdsIncluded !== false
+  ) {
+    throw new Error(
+      "Calendar OAuth reauthorization evidence does not prove preserved identity and fresh credentials",
+    );
+  }
+}
+
+function validateSyncDeferredEvidence(receipt, targetRef) {
+  if (
+    !hasExactKeys(receipt, SYNC_DEFERRED_EVIDENCE_FIELDS) ||
+    receipt.version !== 1 ||
+    receipt.status !== "verified" ||
+    receipt.evidenceType !== "syncDeferredBoundary" ||
+    receipt.targetProjectRef !== targetRef ||
+    canonicalJson(receipt.deferredRelations) !== canonicalJson([
+      "sync_conflicts",
+      "sync_data",
+      "sync_devices",
+    ]) ||
+    receipt.anonPrivilegesDenied !== true ||
+    receipt.authenticatedPrivilegesDenied !== true ||
+    receipt.realtimePublicationAbsent !== true ||
+    receipt.syncServiceFailClosed !== true ||
+    receipt.syncDeferralMigrationSha256 !==
+      sha256File(SYNC_DEFERRAL_MIGRATION_PATH) ||
+    receipt.syncServiceSha256 !== sha256File(SYNC_SERVICE_PATH) ||
+    receipt.dataScopesManifestSha256 !== sha256File(DATA_SCOPES_PATH) ||
+    receipt.secretValuesIncluded !== false ||
+    receipt.rowIdsIncluded !== false
+  ) {
+    throw new Error(
+      "sync deferred-boundary evidence does not prove denied browser access, absent realtime, and fail-closed service behavior",
+    );
+  }
+}
+
+function validateQuarantineReceipt(
+  quarantine,
+  targetRef,
+  importReceiptSha256,
+  oauthResetReceiptSha256,
+  quarantineSqlSha256,
+) {
+  const receiptFields = [
+    "version",
+    "status",
+    "quarantinedAt",
+    "sourceProjectRef",
+    "targetProjectRef",
+    "importReceiptSha256",
+    "oauthResetReceiptSha256",
+    "quarantineSqlSha256",
+    "before",
+    "after",
+    "secretValuesIncluded",
+    "rowIdsIncluded",
+    "sourceMutated",
+  ];
+  const quarantinedAt = Date.parse(quarantine.quarantinedAt);
+  if (
+    !hasExactKeys(quarantine, receiptFields) ||
+    quarantine.version !== 1 ||
+    quarantine.status !== "provider_state_quarantined_pending_rebind" ||
+    quarantine.sourceProjectRef !== SOURCE_PROJECT_REF ||
+    quarantine.targetProjectRef !== targetRef ||
+    quarantine.importReceiptSha256 !== importReceiptSha256 ||
+    quarantine.oauthResetReceiptSha256 !== oauthResetReceiptSha256 ||
+    quarantine.quarantineSqlSha256 !== quarantineSqlSha256 ||
+    !Number.isFinite(quarantinedAt) ||
+    quarantinedAt > Date.now() + 5 * 60 * 1000 ||
+    !hasExactKeys(quarantine.before, QUARANTINE_INVENTORY_FIELDS) ||
+    !hasExactKeys(quarantine.after, QUARANTINE_INVENTORY_FIELDS) ||
+    QUARANTINE_INVENTORY_FIELDS.some((field) =>
+      !Number.isSafeInteger(quarantine.before[field]) ||
+      quarantine.before[field] < 0 ||
+      quarantine.after[field] !== 0
+    ) ||
+    quarantine.secretValuesIncluded !== false ||
+    quarantine.rowIdsIncluded !== false ||
+    quarantine.sourceMutated !== false
+  ) {
+    throw new Error(
+      "provider-quarantine receipt does not prove the exact zero-state contract",
+    );
+  }
+}
+
 function validateCanaryReceipt(
   canary,
+  oauthReset,
   targetRef,
   sourceReceiptSha256,
   importReceiptSha256,
   storageReceiptSha256,
+  oauthResetReceiptSha256,
   quarantineReceiptSha256,
 ) {
   const verifiedAt = Date.parse(canary.verifiedAt);
@@ -74,10 +506,11 @@ function validateCanaryReceipt(
     canary.targetProjectRef !== targetRef ||
     !Number.isFinite(verifiedAt) ||
     ageMs < -5 * 60 * 1000 ||
-    ageMs > 2 * 60 * 60 * 1000 ||
+    ageMs > CANARY_MAX_AGE_MS ||
     canary.sourceReceiptSha256 !== sourceReceiptSha256 ||
     canary.importReceiptSha256 !== importReceiptSha256 ||
     canary.storageReceiptSha256 !== storageReceiptSha256 ||
+    canary.oauthResetReceiptSha256 !== oauthResetReceiptSha256 ||
     canary.quarantineReceiptSha256 !== quarantineReceiptSha256 ||
     canary.browserConsoleErrors !== 0 ||
     canary.securityAdvisorErrors !== 0 ||
@@ -97,6 +530,57 @@ function validateCanaryReceipt(
       throw new Error(`target canary evidence hash is missing: ${name}`);
     }
   }
+  if (
+    !hasExactKeys(canary.evidenceReceiptSha256, REQUIRED_EVIDENCE_RECEIPTS) ||
+    !hasExactKeys(canary.evidenceReceiptPaths, REQUIRED_EVIDENCE_RECEIPTS)
+  ) {
+    throw new Error("target canary evidence key set is not exact");
+  }
+  const evidenceReceipts = new Map();
+  for (const name of REQUIRED_EVIDENCE_RECEIPTS) {
+    const evidencePath = assertAbsolutePath(
+      canary.evidenceReceiptPaths[name],
+      `target canary evidence path ${name}`,
+    );
+    assertPrivateFile(evidencePath, `target canary evidence ${name}`);
+    const evidenceBytes = readFileSync(evidencePath);
+    if (sha256(evidenceBytes) !== canary.evidenceReceiptSha256[name]) {
+      throw new Error(`target canary evidence content drifted: ${name}`);
+    }
+    let evidence;
+    try {
+      evidence = JSON.parse(evidenceBytes.toString("utf8"));
+    } catch {
+      throw new Error(`target canary evidence is not JSON: ${name}`);
+    }
+    if (
+      evidence.version !== 1 ||
+      evidence.status !== "verified" ||
+      evidence.evidenceType !== name ||
+      evidence.targetProjectRef !== targetRef ||
+      !isFreshTimestamp(evidence.capturedAt, CANARY_MAX_AGE_MS) ||
+      evidence.sourceReceiptSha256 !== sourceReceiptSha256 ||
+      evidence.importReceiptSha256 !== importReceiptSha256 ||
+      evidence.storageReceiptSha256 !== storageReceiptSha256 ||
+      evidence.oauthResetReceiptSha256 !== oauthResetReceiptSha256 ||
+      evidence.quarantineReceiptSha256 !== quarantineReceiptSha256 ||
+      evidence.secretValuesIncluded !== false ||
+      evidence.rowIdsIncluded !== false
+    ) {
+      throw new Error(`target canary evidence envelope is invalid: ${name}`);
+    }
+    evidenceReceipts.set(name, evidence);
+  }
+  validateCalendarReauthorizationEvidence(
+    evidenceReceipts.get("calendarOAuthReauthorization"),
+    oauthReset,
+    oauthResetReceiptSha256,
+    targetRef,
+  );
+  validateSyncDeferredEvidence(
+    evidenceReceipts.get("syncDeferredBoundary"),
+    targetRef,
+  );
 }
 
 async function main() {
@@ -106,8 +590,14 @@ async function main() {
   }
   const args = parseArgs(process.argv.slice(2), {
     "source-receipt": { required: true },
+    "source-revalidation-receipt": { required: true },
+    "source-freeze-receipt": { required: true },
+    "package-manifest": { required: true },
+    "auth-decision": { required: true },
     "import-receipt": { required: true },
     "storage-receipt": { required: true },
+    "storage-revalidation-receipt": { required: true },
+    "oauth-reset-receipt": { required: true },
     "quarantine-receipt": { required: true },
     "target-canary-receipt": { required: true },
     "target-ref": { required: true },
@@ -133,8 +623,29 @@ async function main() {
   }
 
   const source = readReceipt(args["source-receipt"], "source receipt");
+  const sourceRevalidation = readReceipt(
+    args["source-revalidation-receipt"],
+    "source revalidation receipt",
+  );
+  const sourceFreeze = readReceipt(
+    args["source-freeze-receipt"],
+    "source write-freeze receipt",
+  );
+  const packageManifest = readReceipt(
+    args["package-manifest"],
+    "package manifest",
+  );
+  const authDecision = readReceipt(args["auth-decision"], "Auth decision");
   const imported = readReceipt(args["import-receipt"], "import receipt");
   const storage = readReceipt(args["storage-receipt"], "storage receipt");
+  const storageRevalidation = readReceipt(
+    args["storage-revalidation-receipt"],
+    "storage revalidation receipt",
+  );
+  const oauthReset = readReceipt(
+    args["oauth-reset-receipt"],
+    "OAuth-reset receipt",
+  );
   const quarantine = readReceipt(
     args["quarantine-receipt"],
     "provider-quarantine receipt",
@@ -144,9 +655,41 @@ async function main() {
     "target canary receipt",
   );
   const sourceReceiptSha256 = sha256File(args["source-receipt"]);
+  const sourceRevalidationReceiptSha256 = sha256File(
+    args["source-revalidation-receipt"],
+  );
+  const sourceFreezeReceiptSha256 = sha256File(
+    args["source-freeze-receipt"],
+  );
+  const packageManifestSha256 = sha256File(args["package-manifest"]);
+  const authDecisionSha256 = sha256File(args["auth-decision"]);
   const importReceiptSha256 = sha256File(args["import-receipt"]);
   const storageReceiptSha256 = sha256File(args["storage-receipt"]);
+  const storageRevalidationReceiptSha256 = sha256File(
+    args["storage-revalidation-receipt"],
+  );
+  const oauthResetReceiptSha256 = sha256File(args["oauth-reset-receipt"]);
   const quarantineReceiptSha256 = sha256File(args["quarantine-receipt"]);
+  const expectedResetRelations = resetExpectedRelations(source, imported);
+  const expectedResetRelationCounts = Object.fromEntries(
+    Object.entries(expectedResetRelations).map(([relation, row]) => [
+      relation,
+      row.rowCount,
+    ]),
+  );
+  const sourceOauthTokenCount = expectedResetRelations.oauth_tokens.rowCount;
+  const sourceCalendarAccountCount =
+    expectedResetRelations.calendar_accounts.rowCount;
+  const sourceCalendarEventCount =
+    expectedResetRelations.calendar_events.rowCount;
+  const oauthResetSqlPath = resolve(
+    repoRoot,
+    "supabase/isolation/post-import-oauth-credential-reset.sql",
+  );
+  const oauthCryptoPath = resolve(
+    repoRoot,
+    "supabase/functions/_shared/oauthTokenCrypto.ts",
+  );
   const quarantineSqlPath = resolve(
     repoRoot,
     "supabase/isolation/post-import-provider-quarantine.sql",
@@ -155,26 +698,183 @@ async function main() {
     repoRoot,
     "supabase/isolation/mind-manual-external-bindings.tsv",
   );
+  const dataScopesPath = resolve(
+    repoRoot,
+    "supabase/isolation/mind-manual-data-scopes.tsv",
+  );
+  if (!SHA256_PATTERN.test(oauthReset.targetOauthKeyFingerprintSha256 ?? "")) {
+    throw new Error("OAuth-reset receipt has no valid target key fingerprint");
+  }
+  const expectedResetConfirmationSha256 = sha256(canonicalJson({
+    version: 1,
+    action: "reset-isolated-supabase-oauth-credentials",
+    sourceProjectRef: SOURCE_PROJECT_REF,
+    targetProjectRef: targetRef,
+    sourceReceiptSha256,
+    importReceiptSha256,
+    resetSqlSha256: sha256File(oauthResetSqlPath),
+    oauthCryptoContractSha256: sha256File(oauthCryptoPath),
+    targetOauthKeyFingerprintSha256:
+      oauthReset.targetOauthKeyFingerprintSha256,
+    expectedRelations: expectedResetRelations,
+  }));
+  validateFreshSourceReceipt(source, sourceRevalidation);
+  validateSourceFreezeReceipt(
+    sourceFreeze,
+    targetRef,
+    sourceReceiptSha256,
+    sourceRevalidationReceiptSha256,
+    importReceiptSha256,
+    sourceRevalidation.capturedAt,
+    storageRevalidation.capturedAt,
+  );
+  validateStorageRevalidation(
+    storageRevalidation,
+    storage,
+    storageReceiptSha256,
+    sourceReceiptSha256,
+    targetRef,
+  );
+  validateQuarantineReceipt(
+    quarantine,
+    targetRef,
+    importReceiptSha256,
+    oauthResetReceiptSha256,
+    sha256File(quarantineSqlPath),
+  );
+  const oauthResetReceiptFields = [
+    "version",
+    "status",
+    "verifiedAt",
+    "recoveredFromPreparedIntent",
+    "preparedIntentSha256",
+    "sourceProjectRef",
+    "targetProjectRef",
+    "sourceReceiptSha256",
+    "importReceiptSha256",
+    "confirmationContractSha256",
+    "resetSqlSha256",
+    "oauthCryptoContractSha256",
+    "targetOauthKeyFingerprintSha256",
+    "before",
+    "after",
+    "expectedGoogleReconnectCount",
+    "expectedPrimaryCalendarAccountCount",
+    "requiresGoogleReauthorization",
+    "secretValuesIncluded",
+    "rowIdsIncluded",
+    "sourceMutated",
+  ];
+  const oauthResetBeforeFields = ["relationCounts", "preservation"];
+  const oauthResetAfterFields = [
+    "oauthTokenCount",
+    "expiredTokenCount",
+    "nulledRefreshTokenCount",
+    "disabledCalendarAccountCount",
+    "primaryCalendarAccountCount",
+    "preservedCalendarEventCount",
+    "preservation",
+    "tombstoneEnvelopeSha256",
+  ];
   if (
     source.version !== 1 ||
     source.kind !== "source" ||
     source.projectRef !== SOURCE_PROJECT_REF ||
     source.status !== "ready" ||
+    !Array.isArray(source.blockers) ||
+    source.blockers.length !== 0 ||
+    packageManifest.version !== 1 ||
+    packageManifest.status !== "exported_not_imported" ||
+    packageManifest.sourceProjectRef !== SOURCE_PROJECT_REF ||
+    packageManifest.targetProjectRef !== targetRef ||
+    packageManifest.authMode !==
+      "preserve_users_and_identities_force_reauthentication" ||
+    packageManifest.forceReauthentication !== true ||
+    packageManifest.freshSourceReceiptSha256 !== sourceReceiptSha256 ||
+    packageManifest.authDecisionSha256 !== authDecisionSha256 ||
+    canonicalJson(packageManifest.excludedAuthState) !==
+      canonicalJson(["auth.sessions", "auth.refresh_tokens"]) ||
+    authDecision.version !== 1 ||
+    authDecision.sourceProjectRef !== SOURCE_PROJECT_REF ||
+    authDecision.targetProjectRef !== targetRef ||
+    authDecision.mode !==
+      "preserve_users_and_identities_force_reauthentication" ||
+    authDecision.approvedBy !== "owner" ||
+    authDecision.sourceWriteFreezeConfirmed !== true ||
+    authDecision.expectedUserCount !== source.auth.userCount ||
+    authDecision.sourceAuthSubjectsSha256 !== source.auth.subjectIdsSha256 ||
+    authDecision.sourceReceiptSha256 !== packageManifest.sourceReceiptSha256 ||
+    imported.version !== 1 ||
     imported.sourceProjectRef !== SOURCE_PROJECT_REF ||
     imported.targetProjectRef !== targetRef ||
     imported.status !== "verified_pending_storage_and_provider_rebind" ||
     imported.sourceReceiptSha256 !== sourceReceiptSha256 ||
+    imported.packageManifestSha256 !== packageManifestSha256 ||
+    imported.authDecisionSha256 !== authDecisionSha256 ||
+    !SHA256_PATTERN.test(imported.packageManifestSha256 ?? "") ||
+    !SHA256_PATTERN.test(imported.targetPostImportReceiptSha256 ?? "") ||
+    !SHA256_PATTERN.test(imported.authDecisionSha256 ?? "") ||
+    imported.authSessionsCopied !== false ||
+    imported.refreshTokensCopied !== false ||
+    imported.sourceMutated !== false ||
+    storage.version !== 1 ||
     storage.sourceProjectRef !== SOURCE_PROJECT_REF ||
     storage.targetProjectRef !== targetRef ||
     storage.status !== "verified" ||
     storage.sourceReceiptSha256 !== sourceReceiptSha256 ||
-    quarantine.sourceProjectRef !== SOURCE_PROJECT_REF ||
-    quarantine.targetProjectRef !== targetRef ||
-    quarantine.status !== "provider_state_quarantined_pending_rebind" ||
-    quarantine.importReceiptSha256 !== importReceiptSha256 ||
-    quarantine.quarantineSqlSha256 !== sha256File(quarantineSqlPath) ||
+    !Number.isSafeInteger(storage.objectCount) ||
+    storage.objectCount < 0 ||
+    !Number.isSafeInteger(storage.totalBytes) ||
+    storage.totalBytes < 0 ||
+    !SHA256_PATTERN.test(storage.contentManifestSha256 ?? "") ||
+    storage.sourceSecretValueIncluded !== false ||
+    storage.targetSecretValueIncluded !== false ||
+    storage.rawObjectPathsIncluded !== false ||
+    !hasExactKeys(oauthReset, oauthResetReceiptFields) ||
+    !hasExactKeys(oauthReset.before, oauthResetBeforeFields) ||
+    !hasExactKeys(oauthReset.after, oauthResetAfterFields) ||
+    oauthReset.version !== 1 ||
+    oauthReset.sourceProjectRef !== SOURCE_PROJECT_REF ||
+    oauthReset.targetProjectRef !== targetRef ||
+    oauthReset.status !==
+      "oauth_credentials_reset_pending_google_reauthorization" ||
+    oauthReset.sourceReceiptSha256 !== sourceReceiptSha256 ||
+    oauthReset.importReceiptSha256 !== importReceiptSha256 ||
+    oauthReset.resetSqlSha256 !== sha256File(oauthResetSqlPath) ||
+    oauthReset.oauthCryptoContractSha256 !== sha256File(oauthCryptoPath) ||
+    !SHA256_PATTERN.test(oauthReset.targetOauthKeyFingerprintSha256 ?? "") ||
+    oauthReset.confirmationContractSha256 !==
+      expectedResetConfirmationSha256 ||
+    !SHA256_PATTERN.test(oauthReset.preparedIntentSha256 ?? "") ||
+    typeof oauthReset.recoveredFromPreparedIntent !== "boolean" ||
+    oauthReset.requiresGoogleReauthorization !== true ||
+    oauthReset.expectedGoogleReconnectCount !== sourceOauthTokenCount ||
+    oauthReset.expectedPrimaryCalendarAccountCount !==
+      sourceCalendarAccountCount ||
+    sourceOauthTokenCount < 1 ||
+    sourceCalendarAccountCount !== sourceOauthTokenCount ||
+    canonicalJson(oauthReset.before?.relationCounts) !==
+      canonicalJson(expectedResetRelationCounts) ||
+    oauthReset.after?.oauthTokenCount !== sourceOauthTokenCount ||
+    oauthReset.after?.expiredTokenCount !== sourceOauthTokenCount ||
+    oauthReset.after?.nulledRefreshTokenCount !== sourceOauthTokenCount ||
+    oauthReset.after?.disabledCalendarAccountCount !==
+      sourceCalendarAccountCount ||
+    oauthReset.after?.primaryCalendarAccountCount !==
+      sourceCalendarAccountCount ||
+    oauthReset.after?.preservedCalendarEventCount !==
+      sourceCalendarEventCount ||
+    !SHA256_PATTERN.test(oauthReset.after?.tombstoneEnvelopeSha256 ?? "") ||
+    oauthReset.secretValuesIncluded !== false ||
+    oauthReset.rowIdsIncluded !== false ||
+    oauthReset.sourceMutated !== false ||
+    !preservationReceiptIsValid(oauthReset.before?.preservation) ||
+    !preservationReceiptIsValid(oauthReset.after?.preservation) ||
+    canonicalJson(oauthReset.before?.preservation) !==
+      canonicalJson(oauthReset.after?.preservation) ||
     source.manifests?.externalBindingsSha256 !==
-      sha256File(externalBindingsPath)
+      sha256File(externalBindingsPath) ||
+    source.manifests?.dataScopesSha256 !== sha256File(dataScopesPath)
   ) {
     throw new Error(
       "input receipts do not describe one ready source and target",
@@ -182,10 +882,12 @@ async function main() {
   }
   validateCanaryReceipt(
     canary,
+    oauthReset,
     targetRef,
     sourceReceiptSha256,
     importReceiptSha256,
     storageReceiptSha256,
+    oauthResetReceiptSha256,
     quarantineReceiptSha256,
   );
 
@@ -198,8 +900,14 @@ async function main() {
     sourcePublicConfigStored: true,
     sourceSecretValuesRecorded: false,
     sourceReceiptSha256,
+    sourceRevalidationReceiptSha256,
+    sourceFreezeReceiptSha256,
+    packageManifestSha256,
+    authDecisionSha256,
     importReceiptSha256,
     storageReceiptSha256,
+    storageRevalidationReceiptSha256,
+    oauthResetReceiptSha256,
     quarantineReceiptSha256,
     targetCanaryReceiptSha256: sha256File(args["target-canary-receipt"]),
     externalBindingsManifestSha256: sha256File(externalBindingsPath),
@@ -209,7 +917,7 @@ async function main() {
       "Restore the source Supabase URL and publishable key from the operator secret store.",
       "Publish the prior application configuration.",
       "Disable target callbacks and restore source callbacks that were moved.",
-      "Verify signed-in read-only Calendar, Gmail, profile, storage, and sync surfaces on the source.",
+      "Verify signed-in read-only Calendar, Gmail, profile, and storage surfaces plus the fail-closed sync boundary on the source.",
       "Leave both projects intact and preserve all receipts until the incident is reconciled.",
     ],
   };

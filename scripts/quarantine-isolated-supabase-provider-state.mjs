@@ -6,7 +6,9 @@ import {
   assertAbsolutePath,
   assertPrivateFile,
   assertProjectRef,
+  consumeTargetDatabasePassword,
   getLinkedDatabaseConfig,
+  getTargetAdminDatabaseConfig,
   parseArgs,
   repoRoot,
   runPsql,
@@ -52,12 +54,14 @@ async function main() {
   const args = parseArgs(process.argv.slice(2), {
     "target-ref": { required: true },
     "import-receipt": { required: true },
+    "oauth-reset-receipt": { required: true },
     receipt: { required: true },
     execute: { type: "boolean" },
     confirmation: {},
     overwrite: { type: "boolean" },
   });
   const targetRef = assertProjectRef(args["target-ref"], "target project ref");
+  const targetDatabasePassword = consumeTargetDatabasePassword();
   if (targetRef === SOURCE_PROJECT_REF) {
     throw new Error(
       "refusing to quarantine provider state on the source project",
@@ -69,20 +73,38 @@ async function main() {
   );
   assertPrivateFile(importReceiptPath, "import receipt");
   const importReceipt = JSON.parse(readFileSync(importReceiptPath, "utf8"));
+  const oauthResetReceiptPath = assertAbsolutePath(
+    args["oauth-reset-receipt"],
+    "OAuth-reset receipt",
+  );
+  assertPrivateFile(oauthResetReceiptPath, "OAuth-reset receipt");
+  const oauthResetReceipt = JSON.parse(
+    readFileSync(oauthResetReceiptPath, "utf8"),
+  );
+  const importReceiptSha256 = sha256File(importReceiptPath);
+  const oauthResetReceiptSha256 = sha256File(oauthResetReceiptPath);
   if (
     importReceipt.version !== 1 ||
     importReceipt.status !== "verified_pending_storage_and_provider_rebind" ||
-    importReceipt.targetProjectRef !== targetRef
+    importReceipt.sourceProjectRef !== SOURCE_PROJECT_REF ||
+    importReceipt.targetProjectRef !== targetRef ||
+    oauthResetReceipt.version !== 1 ||
+    oauthResetReceipt.status !==
+      "oauth_credentials_reset_pending_google_reauthorization" ||
+    oauthResetReceipt.sourceProjectRef !== SOURCE_PROJECT_REF ||
+    oauthResetReceipt.targetProjectRef !== targetRef ||
+    oauthResetReceipt.importReceiptSha256 !== importReceiptSha256 ||
+    oauthResetReceipt.sourceMutated !== false
   ) {
     throw new Error(
-      "provider quarantine requires the verified target import receipt",
+      "provider quarantine requires the verified target import and OAuth-reset receipts",
     );
   }
 
-  const database = getLinkedDatabaseConfig(targetRef);
-  const before = runPsqlJson(database, inventorySql());
+  const readOnlyDatabase = getLinkedDatabaseConfig(targetRef);
+  const before = runPsqlJson(readOnlyDatabase, inventorySql());
   const confirmation = `QUARANTINE:${targetRef}:${
-    sha256File(importReceiptPath).slice(0, 12)
+    oauthResetReceiptSha256.slice(0, 12)
   }`;
   if (!args.execute) {
     console.log("provider quarantine dry-run ready");
@@ -93,6 +115,11 @@ async function main() {
     throw new Error(`--execute requires exact --confirmation ${confirmation}`);
   }
 
+  const database = getTargetAdminDatabaseConfig(
+    targetRef,
+    SOURCE_PROJECT_REF,
+    targetDatabasePassword,
+  );
   const sqlPath = resolve(
     repoRoot,
     "supabase/isolation/post-import-provider-quarantine.sql",
@@ -112,10 +139,13 @@ async function main() {
       quarantinedAt: new Date().toISOString(),
       sourceProjectRef: SOURCE_PROJECT_REF,
       targetProjectRef: targetRef,
-      importReceiptSha256: sha256File(importReceiptPath),
+      importReceiptSha256,
+      oauthResetReceiptSha256,
       quarantineSqlSha256: sha256File(sqlPath),
       before,
       after,
+      secretValuesIncluded: false,
+      rowIdsIncluded: false,
       sourceMutated: false,
     },
     { overwrite: args.overwrite },

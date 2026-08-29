@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   assertAbsolutePath,
@@ -22,7 +22,9 @@ function usage() {
     "usage: node scripts/copy-isolated-supabase-storage.mjs " +
       "--source-receipt /absolute/source.json --target-ref <ref> " +
       "--receipt /absolute/storage-receipt.json " +
-      "[--execute --confirmation COPY_STORAGE:<target-ref>:<receipt-sha-prefix>]",
+      "[--plan-receipt /absolute/storage-plan.json --execute " +
+      "--confirmation COPY_STORAGE:<target-ref>:<plan-sha-prefix>] " +
+      "[--verify-only --compare-receipt /absolute/verified-storage.json]",
   );
 }
 
@@ -214,16 +216,43 @@ function contentManifestDigest(objects) {
   return sha256(
     canonicalJson(
       objects
-        .map(({ targetPathSha256, bytes, contentSha256 }) => ({
+        .map(({ bucket, targetPathSha256, bytes, contentSha256 }) => ({
+          bucket,
           targetPathSha256,
           bytes,
           contentSha256,
         }))
         .sort((left, right) =>
-          left.targetPathSha256.localeCompare(right.targetPathSha256)
+          `${left.bucket}\0${left.targetPathSha256}`.localeCompare(
+            `${right.bucket}\0${right.targetPathSha256}`,
+          )
         ),
     ),
   );
+}
+
+function sourcePlanProjection(objects) {
+  return objects
+    .map(({
+      bucket,
+      sourcePathSha256,
+      targetPathSha256,
+      pathRemapped,
+      bytes,
+      contentSha256,
+    }) => ({
+      bucket,
+      sourcePathSha256,
+      targetPathSha256,
+      pathRemapped,
+      bytes,
+      contentSha256,
+    }))
+    .sort((left, right) =>
+      `${left.bucket}\0${left.targetPathSha256}`.localeCompare(
+        `${right.bucket}\0${right.targetPathSha256}`,
+      )
+    );
 }
 
 function selfTest() {
@@ -238,6 +267,33 @@ function selfTest() {
   const encoded = encodedObjectPath("photos", "owner/a b.png");
   if (encoded !== "photos/owner/a%20b.png") {
     throw new Error("path encoding self-test failed");
+  }
+  const manifestRow = {
+    targetPathSha256: "a".repeat(64),
+    bytes: 1,
+    contentSha256: "b".repeat(64),
+  };
+  if (
+    contentManifestDigest([{ bucket: "photos", ...manifestRow }]) ===
+      contentManifestDigest([{ bucket: "voice-samples", ...manifestRow }])
+  ) {
+    throw new Error("content manifest must bind the storage bucket");
+  }
+  const collisionRows = [
+    { bucket: "photos", ...manifestRow },
+    {
+      bucket: "voice-samples",
+      ...manifestRow,
+      contentSha256: "c".repeat(64),
+    },
+  ];
+  if (
+    contentManifestDigest(collisionRows) !==
+      contentManifestDigest([...collisionRows].reverse())
+  ) {
+    throw new Error(
+      "content manifest order must be canonical across bucket/path collisions",
+    );
   }
   console.log("storage migration self-test passed");
 }
@@ -255,10 +311,15 @@ async function main() {
     "source-receipt": { required: true },
     "target-ref": { required: true },
     receipt: { required: true },
+    "plan-receipt": {},
+    "compare-receipt": {},
     execute: { type: "boolean" },
+    "verify-only": { type: "boolean" },
     confirmation: {},
-    overwrite: { type: "boolean" },
   });
+  if (args.execute && args["verify-only"]) {
+    throw new Error("--execute and --verify-only are mutually exclusive");
+  }
   const sourceReceiptPath = assertAbsolutePath(
     args["source-receipt"],
     "source receipt",
@@ -277,9 +338,81 @@ async function main() {
   if (targetRef === SOURCE_PROJECT_REF) {
     throw new Error("target must differ from source");
   }
+  const outputReceiptPath = assertAbsolutePath(args.receipt, "output receipt");
+  if (existsSync(outputReceiptPath)) {
+    throw new Error(`refusing to overwrite existing output: ${outputReceiptPath}`);
+  }
 
-  const sourceKey = process.env.MIND_MANUAL_SOURCE_SERVICE_ROLE_KEY;
-  const targetKey = process.env.MIND_MANUAL_TARGET_SERVICE_ROLE_KEY;
+  const sourceReceiptSha256 = sha256File(sourceReceiptPath);
+  let planReceipt = null;
+  let planReceiptSha256 = null;
+  let comparedStorageReceipt = null;
+  let comparedStorageReceiptSha256 = null;
+  if (args.execute) {
+    if (!args["plan-receipt"]) {
+      throw new Error("--execute requires --plan-receipt");
+    }
+    const planPath = assertAbsolutePath(args["plan-receipt"], "plan receipt");
+    if (planPath === outputReceiptPath) {
+      throw new Error("execution output must differ from the plan receipt");
+    }
+    assertPrivateFile(planPath, "storage plan receipt");
+    planReceipt = JSON.parse(readFileSync(planPath, "utf8"));
+    planReceiptSha256 = sha256File(planPath);
+    const confirmation = `COPY_STORAGE:${targetRef}:${
+      planReceiptSha256.slice(0, 12)
+    }`;
+    if (args.confirmation !== confirmation) {
+      throw new Error(`--execute requires exact --confirmation ${confirmation}`);
+    }
+    if (
+      planReceipt.version !== 1 ||
+      planReceipt.status !== "planned_not_copied" ||
+      planReceipt.sourceProjectRef !== SOURCE_PROJECT_REF ||
+      planReceipt.targetProjectRef !== targetRef ||
+      planReceipt.sourceReceiptSha256 !== sourceReceiptSha256 ||
+      !Array.isArray(planReceipt.objects) ||
+      planReceipt.sourceSecretValueIncluded !== false ||
+      planReceipt.targetSecretValueIncluded !== false ||
+      planReceipt.rawObjectPathsIncluded !== false
+    ) {
+      throw new Error("storage plan receipt does not match this migration");
+    }
+  } else if (args["verify-only"]) {
+    if (!args["compare-receipt"]) {
+      throw new Error("--verify-only requires --compare-receipt");
+    }
+    const comparePath = assertAbsolutePath(
+      args["compare-receipt"],
+      "verified storage receipt",
+    );
+    if (comparePath === outputReceiptPath) {
+      throw new Error("revalidation output must differ from the verified receipt");
+    }
+    assertPrivateFile(comparePath, "verified storage receipt");
+    comparedStorageReceipt = JSON.parse(readFileSync(comparePath, "utf8"));
+    comparedStorageReceiptSha256 = sha256File(comparePath);
+    if (
+      comparedStorageReceipt.version !== 1 ||
+      comparedStorageReceipt.status !== "verified" ||
+      comparedStorageReceipt.sourceProjectRef !== SOURCE_PROJECT_REF ||
+      comparedStorageReceipt.targetProjectRef !== targetRef ||
+      comparedStorageReceipt.sourceReceiptSha256 !== sourceReceiptSha256 ||
+      !Array.isArray(comparedStorageReceipt.objects) ||
+      comparedStorageReceipt.sourceSecretValueIncluded !== false ||
+      comparedStorageReceipt.targetSecretValueIncluded !== false ||
+      comparedStorageReceipt.rawObjectPathsIncluded !== false
+    ) {
+      throw new Error("storage revalidation input is not a verified receipt");
+    }
+  } else if (args["plan-receipt"] || args["compare-receipt"]) {
+    throw new Error("plan/compare receipts are valid only in execute/verify modes");
+  }
+
+  let sourceKey = process.env.MIND_MANUAL_SOURCE_SERVICE_ROLE_KEY;
+  let targetKey = process.env.MIND_MANUAL_TARGET_SERVICE_ROLE_KEY;
+  delete process.env.MIND_MANUAL_SOURCE_SERVICE_ROLE_KEY;
+  delete process.env.MIND_MANUAL_TARGET_SERVICE_ROLE_KEY;
   if (!sourceKey || !targetKey) {
     throw new Error(
       "MIND_MANUAL_SOURCE_SERVICE_ROLE_KEY and MIND_MANUAL_TARGET_SERVICE_ROLE_KEY must be injected without echoing",
@@ -366,14 +499,8 @@ async function main() {
     throw new Error("target storage contains paths absent from source");
   }
 
-  const confirmation = `COPY_STORAGE:${targetRef}:${
-    sha256File(sourceReceiptPath).slice(0, 12)
-  }`;
-  if (args.execute && args.confirmation !== confirmation) {
-    throw new Error(`--execute requires exact --confirmation ${confirmation}`);
-  }
-
   const objectReceipts = [];
+  const pendingCopies = [];
   for (const sourceObject of mappedSourceObjects) {
     const targetObject = { ...sourceObject, path: sourceObject.targetPath };
     const identity = `${sourceObject.bucket}\0${sourceObject.targetPath}`;
@@ -385,7 +512,6 @@ async function main() {
     const sourceContentSha256 = sha256(sourceContents);
     const existingTarget = targetByIdentity.get(identity);
     let targetContents = null;
-    let copied = false;
     if (existingTarget) {
       targetContents = await downloadObject(
         targetUrl,
@@ -399,25 +525,12 @@ async function main() {
           }`,
         );
       }
-    } else if (args.execute) {
-      await uploadObject(targetUrl, targetKey, targetObject, sourceContents);
-      targetContents = await downloadObject(targetUrl, targetKey, targetObject);
-      copied = true;
     }
     const targetContentSha256 = targetContents ? sha256(targetContents) : null;
     const signedUrlVerified = targetContents
       ? await verifySignedUrl(targetUrl, targetKey, targetObject)
       : false;
-    if (
-      args.execute &&
-      (targetContentSha256 !== sourceContentSha256 || !signedUrlVerified)
-    ) {
-      throw new Error(
-        `target object verification failed at path ${
-          sha256(sourceObject.path).slice(0, 12)
-        }`,
-      );
-    }
+    const receiptIndex = objectReceipts.length;
     objectReceipts.push({
       bucket: sourceObject.bucket,
       sourcePathSha256: sha256(sourceObject.path),
@@ -426,9 +539,18 @@ async function main() {
       bytes: sourceContents.length,
       contentSha256: sourceContentSha256,
       targetContentSha256,
-      copied,
+      copied: false,
       signedUrlVerified,
     });
+    if (!existingTarget) {
+      pendingCopies.push({
+        receiptIndex,
+        targetObject,
+        sourceContents,
+        sourceContentSha256,
+        sourcePathSha256: sha256(sourceObject.path),
+      });
+    }
   }
 
   const expectedTotalBytes = sourceReceipt.storage.objects.reduce(
@@ -444,33 +566,124 @@ async function main() {
       "downloaded source bytes differ from the database inventory",
     );
   }
-  const targetComplete = objectReceipts.every(
-    (row) =>
-      row.targetContentSha256 === row.contentSha256 && row.signedUrlVerified,
-  );
-  const receipt = {
+  const contentManifestSha256 = contentManifestDigest(objectReceipts);
+  const sourceProjection = sourcePlanProjection(objectReceipts);
+  const commonReceipt = {
     version: 1,
-    status: targetComplete ? "verified" : "planned_not_copied",
     capturedAt: new Date().toISOString(),
     sourceProjectRef: SOURCE_PROJECT_REF,
     targetProjectRef: targetRef,
-    sourceReceiptSha256: sha256File(sourceReceiptPath),
+    sourceReceiptSha256,
     objectCount: objectReceipts.length,
     totalBytes: actualTotalBytes,
     remappedPathCount:
       objectReceipts.filter(({ pathRemapped }) => pathRemapped).length,
-    contentManifestSha256: contentManifestDigest(objectReceipts),
-    objects: objectReceipts,
+    contentManifestSha256,
     sourceSecretValueIncluded: false,
     targetSecretValueIncluded: false,
     rawObjectPathsIncluded: false,
   };
-  writePrivateJson(args.receipt, receipt, { overwrite: args.overwrite });
+
+  if (!args.execute && !args["verify-only"]) {
+    const receipt = {
+      ...commonReceipt,
+      status: "planned_not_copied",
+      objects: objectReceipts,
+    };
+    writePrivateJson(outputReceiptPath, receipt);
+    const receiptSha256 = sha256File(outputReceiptPath);
+    console.log(
+      `storage ${receipt.status}: ${receipt.objectCount} object(s), ${receipt.totalBytes} bytes`,
+    );
+    console.log(`receipt sha256: ${receiptSha256}`);
+    console.log(
+      `execute confirmation: COPY_STORAGE:${targetRef}:${receiptSha256.slice(0, 12)}`,
+    );
+    return;
+  }
+
+  const comparisonReceipt = args.execute
+    ? planReceipt
+    : comparedStorageReceipt;
+  if (
+    comparisonReceipt.objectCount !== objectReceipts.length ||
+    comparisonReceipt.totalBytes !== actualTotalBytes ||
+    comparisonReceipt.contentManifestSha256 !== contentManifestSha256 ||
+    canonicalJson(sourcePlanProjection(comparisonReceipt.objects)) !==
+      canonicalJson(sourceProjection)
+  ) {
+    throw new Error(
+      "source storage content drifted from the reviewed storage receipt",
+    );
+  }
+
+  if (args.execute) {
+    for (const pending of pendingCopies) {
+      await uploadObject(
+        targetUrl,
+        targetKey,
+        pending.targetObject,
+        pending.sourceContents,
+      );
+      const targetContents = await downloadObject(
+        targetUrl,
+        targetKey,
+        pending.targetObject,
+      );
+      const targetContentSha256 = sha256(targetContents);
+      const signedUrlVerified = await verifySignedUrl(
+        targetUrl,
+        targetKey,
+        pending.targetObject,
+      );
+      if (
+        targetContentSha256 !== pending.sourceContentSha256 ||
+        !signedUrlVerified
+      ) {
+        throw new Error(
+          `target object verification failed at path ${
+            pending.sourcePathSha256.slice(0, 12)
+          }`,
+        );
+      }
+      objectReceipts[pending.receiptIndex] = {
+        ...objectReceipts[pending.receiptIndex],
+        targetContentSha256,
+        copied: true,
+        signedUrlVerified,
+      };
+    }
+  }
+
+  const targetComplete = objectReceipts.every(
+    (row) =>
+      row.targetContentSha256 === row.contentSha256 && row.signedUrlVerified,
+  );
+  if (!targetComplete) {
+    throw new Error("target storage is not an exact signed-URL-verified copy");
+  }
+
+  const receipt = args["verify-only"]
+    ? {
+      ...commonReceipt,
+      status: "verified_revalidation",
+      storageReceiptSha256: comparedStorageReceiptSha256,
+      signedUrlVerifiedCount: objectReceipts.length,
+      allObjectsMatch: true,
+    }
+    : {
+      ...commonReceipt,
+      status: "verified",
+      planReceiptSha256,
+      objects: objectReceipts,
+    };
+  writePrivateJson(outputReceiptPath, receipt);
   console.log(
     `storage ${receipt.status}: ${receipt.objectCount} object(s), ${receipt.totalBytes} bytes`,
   );
-  console.log(`receipt sha256: ${sha256File(args.receipt)}`);
-  if (!args.execute) console.log(`execute confirmation: ${confirmation}`);
+  console.log(`receipt sha256: ${sha256File(outputReceiptPath)}`);
+  sourceKey = undefined;
+  targetKey = undefined;
 }
 
 main().catch((error) => {

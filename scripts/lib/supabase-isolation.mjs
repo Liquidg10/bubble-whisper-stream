@@ -2,12 +2,14 @@ import {
   chmodSync,
   closeSync,
   existsSync,
+  fsyncSync,
   lstatSync,
+  linkSync,
   mkdirSync,
   openSync,
   readFileSync,
   renameSync,
-  rmSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
@@ -22,6 +24,7 @@ export const repoRoot = resolve(
 
 const IDENTIFIER_PATTERN = /^[a-z][a-z0-9_]*$/;
 const PROJECT_REF_PATTERN = /^[a-z]{20}$/;
+const TARGET_DB_PASSWORD_ENV = "MIND_MANUAL_TARGET_DB_PASSWORD";
 
 export function assertIdentifier(value, label = "identifier") {
   if (!IDENTIFIER_PATTERN.test(value)) {
@@ -148,13 +151,27 @@ export function writePrivateFile(path, contents, { overwrite = false } = {}) {
   const descriptor = openSync(temporaryPath, "wx", 0o600);
   try {
     writeFileSync(descriptor, contents);
+    fsyncSync(descriptor);
   } finally {
     closeSync(descriptor);
   }
   chmodSync(temporaryPath, 0o600);
-  if (overwrite && existsSync(path)) rmSync(path);
-  renameSync(temporaryPath, path);
+  if (overwrite) {
+    renameSync(temporaryPath, path);
+  } else {
+    try {
+      linkSync(temporaryPath, path);
+    } finally {
+      unlinkSync(temporaryPath);
+    }
+  }
   chmodSync(path, 0o600);
+  const parentDescriptor = openSync(dirname(path), "r");
+  try {
+    fsyncSync(parentDescriptor);
+  } finally {
+    closeSync(parentDescriptor);
+  }
 }
 
 export function writePrivateJson(path, value, options) {
@@ -242,6 +259,43 @@ export function getLinkedDatabaseConfig(expectedRef) {
   return parsed;
 }
 
+export function consumeTargetDatabasePassword() {
+  const password = process.env[TARGET_DB_PASSWORD_ENV];
+  delete process.env[TARGET_DB_PASSWORD_ENV];
+  return password;
+}
+
+export function getTargetAdminDatabaseConfig(
+  expectedRef,
+  sourceRef,
+  password,
+) {
+  const targetRef = assertProjectRef(expectedRef, "target project ref");
+  const protectedSourceRef = assertProjectRef(sourceRef, "source project ref");
+  if (targetRef === protectedSourceRef) {
+    throw new Error("refusing to create a direct-admin connection to the source project");
+  }
+  const linkedRef = readLinkedProjectRef();
+  if (linkedRef !== targetRef) {
+    throw new Error(
+      `linked project ${linkedRef} does not match expected ${targetRef}`,
+    );
+  }
+  if (!password) {
+    throw new Error(
+      `${TARGET_DB_PASSWORD_ENV} is required for target database writes`,
+    );
+  }
+  return {
+    PGHOST: `db.${targetRef}.supabase.co`,
+    PGPORT: "5432",
+    PGUSER: "postgres",
+    PGPASSWORD: password,
+    PGDATABASE: "postgres",
+    PGSSLMODE: "require",
+  };
+}
+
 function psqlArgs(database, extras = []) {
   return [
     "--host",
@@ -264,10 +318,14 @@ function psqlArgs(database, extras = []) {
 
 export function runPsql(database, sql, { binary = false } = {}) {
   return runCommand("psql", psqlArgs(database), {
-    env: { ...process.env, PGPASSWORD: database.PGPASSWORD },
+    env: {
+      ...process.env,
+      PGPASSWORD: database.PGPASSWORD,
+      ...(database.PGSSLMODE ? { PGSSLMODE: database.PGSSLMODE } : {}),
+    },
     input: sql,
     binary,
-    label: "read-only PostgreSQL query",
+    label: "PostgreSQL command",
     secretValues: [database.PGPASSWORD],
   });
 }
