@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cbtGuardService } from '../cbtGuardService';
 import * as flagsModule from '@/config/flags';
 import * as bubbleStore from '@/stores/bubbleStore';
@@ -13,6 +13,10 @@ const mockUseBubbleStore = vi.mocked(bubbleStore.useBubbleStore);
 describe('CBTGuardService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   describe('isFeatureAllowed', () => {
@@ -87,7 +91,8 @@ describe('CBTGuardService', () => {
       // Mock current time to be 23:00 (11 PM)
       const mockDate = new Date();
       mockDate.setHours(23, 0, 0, 0);
-      vi.spyOn(global, 'Date').mockImplementation(() => mockDate);
+      vi.useFakeTimers();
+      vi.setSystemTime(mockDate);
 
       mockUseBubbleStore.getState = vi.fn().mockReturnValue({
         settings: { 

@@ -2,6 +2,7 @@ import React from 'react';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Mock } from 'vitest';
 import { taskToBubble } from '@/adapters/taskAdapter';
 import { BubbleDetail } from '@/components/BubbleDetail';
 import { useBubbleStore } from '@/stores/bubbleStore';
@@ -104,7 +105,7 @@ const task: Task = {
 
 describe('BubbleDetail canonical completion', () => {
   let bubble: Bubble;
-  let updateBubble: ReturnType<typeof vi.fn>;
+  let updateBubble: Mock<(bubble: Bubble) => Promise<void>>;
 
   beforeEach(() => {
     vi.clearAllMocks();

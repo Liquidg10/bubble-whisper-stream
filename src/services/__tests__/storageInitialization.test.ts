@@ -11,6 +11,7 @@ interface ControllableOpenRequest extends Partial<IDBOpenDBRequest> {
 describe('storageService initialization', () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.clearAllMocks();
   });
 
   afterEach(() => {

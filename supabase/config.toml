@@ -25,6 +25,7 @@ jwt_expiry = 3600
 enable_signup = true
 double_confirm_changes = true
 enable_confirmations = false
+otp_expiry = 3600
 
 # Edge Functions
 [functions.calendar-oauth-start]
