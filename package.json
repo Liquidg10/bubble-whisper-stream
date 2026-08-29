@@ -17,7 +17,8 @@
     "preview": "vite preview",
     "test:a11y": "playwright test tests/a11y/",
     "test:a11y:ci": "playwright test tests/a11y/ci-release.spec.ts tests/a11y/target-size.spec.ts tests/a11y/keyboard-access.spec.ts tests/a11y/reduced-motion.spec.ts --project=chromium-a11y",
-    "test:e2e:ci": "playwright test tests/e2e/current-ui-smoke.spec.ts --project=chromium-e2e"
+    "test:e2e:ci": "playwright test tests/e2e/current-ui-smoke.spec.ts --project=chromium-e2e",
+    "test:e2e:legacy": "playwright test --project=chromium-e2e-legacy"
   },
   "dependencies": {
     "@automerge/automerge": "^3.1.2",

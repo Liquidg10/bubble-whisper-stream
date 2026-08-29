@@ -34,10 +34,21 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome']
       },
+      // Release evidence: selectors and routes reconciled with the current UI.
+      testMatch: '**/e2e/current-ui-smoke.spec.ts'
+    },
+    {
+      name: 'chromium-e2e-legacy',
+      use: {
+        ...devices['Desktop Chrome']
+      },
+      // Historical diagnostic inventory. Run explicitly; these specs include
+      // removed routes/selectors and are not current release gates.
       testMatch: [
         '**/e2e/**/*.spec.ts',
         '**/oauth/**/*.spec.ts'
-      ]
+      ],
+      testIgnore: '**/e2e/current-ui-smoke.spec.ts'
     },
     {
       name: 'chromium-a11y',

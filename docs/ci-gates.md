@@ -20,12 +20,17 @@ scoped changes.
 The broader files under `tests/a11y/` and `tests/e2e/gates/` remain diagnostic
 inventory. Many encode historical routes, selectors, or unimplemented product
 claims and are not release evidence until individually reconciled with the
-current product.
+current product. The `chromium-e2e` Playwright project intentionally selects
+only `current-ui-smoke.spec.ts`; historical browser inventory is isolated under
+the explicitly named `chromium-e2e-legacy` project and
+`npm run test:e2e:legacy`.
 
-The broader Vitest inventory is also diagnostic. It still includes historical
-product expectations and assertion failures; its load-testing file also
-exhausts the current sandbox worker before reporting a test outcome. CI does
-not imply that the full legacy suite is green.
+Vitest collects only `src/**/*.test.{ts,tsx}`. Browser specs under
+`tests/**/*.spec.ts` are Playwright-owned and must not be counted as jsdom unit
+or integration results. The legacy no-op intelligence "E2E" harness was
+retired; the coverage and explicit browser gaps it represented are recorded in
+`docs/testing/intelligence-integration-coverage.md`. Large collection checks
+assert structural render bounds instead of host-dependent stopwatch budgets.
 
 These gates do not authorize deployment, provider changes, feature-flag
 changes, or user-data mutation.

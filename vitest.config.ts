@@ -8,6 +8,10 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     css: true,
+    // Browser specs under tests/**/*.spec.ts belong to Playwright. Without an
+    // explicit boundary Vitest also collected them, producing duplicate and
+    // misleading "full suite" results under the wrong runtime.
+    include: ['src/**/*.test.{ts,tsx}'],
   },
   resolve: {
     alias: {

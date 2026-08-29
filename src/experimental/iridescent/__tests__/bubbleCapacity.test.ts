@@ -29,7 +29,7 @@ describe('Adaptive Bubble viewport capacity', () => {
     });
   });
 
-  it('retains the historical readiness-ordered percentage before measurement', () => {
+  it('retains the readiness-ordered percentage for a bounded pre-measurement set', () => {
     expect(planBubbleVisibility(40, 'medium', {
       width: 0,
       height: 0,
@@ -38,6 +38,18 @@ describe('Adaptive Bubble viewport capacity', () => {
       viewportCapacity: 40,
       visibleCount: 28,
       capacityLimited: false,
+    });
+  });
+
+  it('bounds the first unmeasured frame for very large task collections', () => {
+    expect(planBubbleVisibility(5_000, 'medium', {
+      width: 0,
+      height: 0,
+    })).toEqual({
+      densityTarget: 3_500,
+      viewportCapacity: 100,
+      visibleCount: 70,
+      capacityLimited: true,
     });
   });
 
