@@ -4,7 +4,6 @@ import { renderWithProviders } from '@/test/helpers/renderWithProviders';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { BubbleCanvas } from '@/components/BubbleCanvas';
 import NarrativeSearch from '@/components/NarrativeSearch';
-import { crossDeviceSyncService } from '@/services/crossDeviceSyncService';
 import { cbtGuardService } from '@/services/cbtGuardService';
 import {
   resetMockBubbleStore,
@@ -12,7 +11,6 @@ import {
 } from '@/test/helpers/mockBubbleStore';
 
 // Mock services
-vi.mock('@/services/crossDeviceSyncService');
 vi.mock('@/services/advancedAIService');
 vi.mock('@/stores/bubbleStore', async () => {
   const { makeBubbleStoreMockModule: makeMockModule } = await import(
@@ -62,47 +60,22 @@ describe('Bubble Universe Integration Tests', () => {
   });
 
   describe('Cross-Device Sync Integration', () => {
-    it('does not advertise the prototype local outbox as bubble replication', async () => {
+    it('exposes a fail-closed deferred boundary for bubble replication', async () => {
       const { CROSS_DEVICE_SYNC_CAPABILITIES } = await vi.importActual<
         typeof import('@/services/crossDeviceSyncService')
       >('@/services/crossDeviceSyncService');
 
       expect(CROSS_DEVICE_SYNC_CAPABILITIES).toMatchObject({
-        status: 'prototype',
+        status: 'deferred',
+        reasonCode: 'owner_key_ceremony_required',
         bubbleReplication: false,
+        remoteOutbox: false,
+        remoteApply: false,
         durableRemoteReceipts: false,
-        sharedKeyExchange: false
+        sharedKeyExchange: false,
+        userFacingPairing: false,
+        keyRecoveryPolicy: false,
       });
-    });
-
-    /**
-     * TAUTOLOGY (documented, deliberately left as-is).
-     * This configures a mock and then asserts the mock returned what it was
-     * told to return. It passes with the entire product deleted -- proven by
-     * probe. Kept because deleting coverage is Mark's call, not a cleanup.
-     */
-    it('should handle sync conflicts properly', async () => {
-      const mockGetSyncStatus = vi.mocked(crossDeviceSyncService.getSyncStatus);
-      mockGetSyncStatus.mockReturnValue({
-        isOnline: true,
-        lastSync: null,
-        pendingUploads: 0,
-        pendingDownloads: 0,
-        syncMode: 'full',
-        conflicts: [
-          {
-            id: 'conflict-1',
-            entityType: 'bubble',
-            entityId: 'test-1',
-            localVersion: { content: 'Local version' },
-            remoteVersion: { content: 'Remote version' },
-            timestamp: new Date().toISOString(),
-          }
-        ]
-      });
-
-      const status = mockGetSyncStatus();
-      expect(status.conflicts).toHaveLength(1);
     });
   });
 

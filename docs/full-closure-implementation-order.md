@@ -15,9 +15,11 @@ must sit behind the safety contracts and a green build.
 2. **Close safety contracts.** Land Unit 2 local-phone redaction, Unit 4
    tighten-only first-recipient behavior, the Plaid browser privilege boundary,
    and the two Supabase Auth warnings.
-3. **Finish Calendar trust.** Correct the gate entity contract, replace
-   hard-coded trust inputs, require explicit intent, fail closed, wire real
-   cross-device sync, and add the bounded calibration path.
+3. **Finish Calendar trust and close the sync boundary.** Correct the gate
+   entity contract, replace hard-coded trust inputs, require explicit intent,
+   fail closed, and add the bounded calibration path. Keep cross-device
+   replication disabled until the owner chooses the pairing/recovery ceremony;
+   remove simulated success paths and lock the dormant browser tables meanwhile.
 4. **Replace Gmail watch.** Use Google Pub/Sub push envelopes with verified
    ownership, durable history cursors, replay/idempotency protection, renew, and
    stop behavior. Preserve compose idempotency receipts.

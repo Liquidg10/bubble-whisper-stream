@@ -14,7 +14,7 @@ Mind Manual is a **neurodivergent-first productivity companion** that provides "
 - **Privacy-layered**: Surface/Context/Deep data with user controls
 - **Explainable AI**: Every action has "Because..." explanations
 - **Reversible actions**: All changes can be undone
-- **Multi-device CRDT sync (planned)**: Prototype conflict/outbox code exists, but remote replication is disabled until shared-key exchange, remote apply, and durable receipts are implemented
+- **Multi-device replication (deferred)**: No prototype path is enabled. Reopening requires an owner-approved pairing/recovery ceremony, shared-key envelopes, real remote apply, deterministic conflicts, revocation, and durable per-device receipts
 
 ## Unified Architecture
 
@@ -81,7 +81,7 @@ export const flags = {
   outliner: true,
   focusMode: true,
   prioritizer: true,
-  sync: true,
+  sync: false, // Deferred pending the owner-approved key ceremony
   searchV2: true,
   ambientModes: true,
   budget: true,
@@ -91,6 +91,7 @@ export const flags = {
   cbtSilentObserve: true,
   cbtCrisisEnabled: true,
   cbtDevRoutes: process.env.NODE_ENV === 'development', // Environment-dependent
+  crdtPilot: false, // Development transport is not a production capability
 
   // Auto-write / context
   autoWriteCalendar: false,
@@ -274,8 +275,6 @@ const devRoutes = [
   { path: '/dev/realtime-voice', name: 'Realtime Voice', description: 'Real-time voice processing testing' },
   { path: '/dev/receipts', name: 'Receipts', description: 'Receipt OCR and processing testing' },
   { path: '/dev/recurring-finance', name: 'Recurring Finance', description: 'Recurring financial transaction testing' },
-  { path: '/dev/sync-basic', name: 'Sync Basic', description: 'Basic synchronization testing' },
-  { path: '/dev/sync-diff', name: 'Sync Diff', description: 'Synchronization diff and conflict resolution' },
   { path: '/dev/temporal-reasoning', name: 'Temporal Reasoning', description: 'Time-based reasoning and scheduling' },
   { path: '/dev/vision', name: 'Vision', description: 'Computer vision and image analysis' },
   { path: '/dev/voice-first', name: 'Voice First', description: 'Voice-first interface testing' },

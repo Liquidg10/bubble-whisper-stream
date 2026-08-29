@@ -339,7 +339,7 @@ class ProductionPipelineService {
           viewSdk: true,
           listView: true
         },
-        gates: ['task-roundtrip', 'watch-health', 'crdt-conflicts'],
+        gates: ['task-roundtrip', 'watch-health', 'cross-device-deferred'],
         rollbackThreshold: 0.8
       },
       {

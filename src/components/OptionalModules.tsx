@@ -20,7 +20,6 @@ import { useBubbleStore } from '@/stores/bubbleStore';
 import { DocumentScanner } from './DocumentScanner';
 import { PersonalVoiceTrainer } from './PersonalVoiceTrainer';
 import { EnhancedGroceryHelper } from './EnhancedGroceryHelper';
-import { RealTimeCollaboration } from './RealTimeCollaboration';
 import { CalendarIntegrationPlugin } from '@/plugins/CalendarIntegrationPlugin';
 import { EmailIntegrationPlugin } from '@/plugins/EmailIntegrationPlugin';
 import { BankingIntegrationPlugin } from '@/plugins/BankingIntegrationPlugin';
@@ -68,9 +67,6 @@ export function OptionalModules() {
       
       {/* Document Scanner */}
       <DocumentScanner />
-      
-      {/* Real-time Collaboration */}
-      <RealTimeCollaboration />
       
       {/* Personal Voice Trainer */}
       <PersonalVoiceTrainer />

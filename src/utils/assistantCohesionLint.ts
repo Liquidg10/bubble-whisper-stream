@@ -28,7 +28,6 @@ const ALLOWED_FILES = [
   'src/components/dev/', // dev tools
   'src/components/settings/', // settings panels
   'src/components/PersonaSettingsPanel.tsx',
-  'src/components/CRDTDevelopmentPanel.tsx',
   'scripts/lint-assistant-cohesion.js'
 ];
 

@@ -12,7 +12,7 @@
     "lint:cohesion": "node scripts/lint-assistant-cohesion.cjs",
     "lint:cohesion:ratchet": "node scripts/check-assistant-cohesion-ratchet.cjs",
     "typecheck": "tsc -p tsconfig.app.json --noEmit --pretty false",
-    "test:unit:ci": "vitest run src/services src/security/__tests__ src/components/__tests__/TaskCard.test.tsx src/components/__tests__/VoiceIntentCapture.accessibility.test.tsx src/integrations/supabase/__tests__/client.routeDetection.test.ts src/plugins/__tests__/CalendarIntegrationPlugin.oauth.test.tsx src/pages/__tests__/AuthCallback.calendarOAuth.test.tsx src/pages/__tests__/Settings.integrationsRoute.test.tsx src/test/integration/syncConflictSurface.test.tsx --pool=forks --maxWorkers=1 --no-file-parallelism --silent=passed-only",
+    "test:unit:ci": "vitest run src/services src/security/__tests__ src/components/__tests__/TaskCard.test.tsx src/components/__tests__/VoiceIntentCapture.accessibility.test.tsx src/integrations/supabase/__tests__/client.routeDetection.test.ts src/plugins/__tests__/CalendarIntegrationPlugin.oauth.test.tsx src/pages/__tests__/AuthCallback.calendarOAuth.test.tsx src/pages/__tests__/Settings.integrationsRoute.test.tsx --pool=forks --maxWorkers=1 --no-file-parallelism --silent=passed-only",
     "calendar-watch:rotate": "node scripts/rotate-calendar-watch-channels.mjs",
     "preview": "vite preview",
     "test:a11y": "playwright test tests/a11y/",

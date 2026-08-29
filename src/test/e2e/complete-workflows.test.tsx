@@ -7,7 +7,6 @@ import { userContextService } from '@/services/userContextService';
 import { storageService } from '@/services/storage';
 
 // Mock all external services
-vi.mock('@/services/crossDeviceSyncService');
 vi.mock('@/services/advancedAIService');
 vi.mock('@/services/vectorSearchService');
 
@@ -321,27 +320,6 @@ describe('End-to-End User Workflows', () => {
 
       // Verify month view is active
       expect(screen.getByText(/month view/i)).toBeInTheDocument();
-    });
-  });
-
-  describe('Cross-Device Sync Workflow', () => {
-    it('should handle sync conflict resolution', async () => {
-      const user = userEvent.setup();
-      renderApp();
-
-      // Simulate sync conflict appearing
-      // This would typically be triggered by actual sync service
-      const conflictNotification = screen.getByText(/sync conflict detected/i);
-      await user.click(conflictNotification);
-
-      // Choose resolution option
-      const keepLocalButton = screen.getByRole('button', { name: /keep local/i });
-      await user.click(keepLocalButton);
-
-      // Verify conflict is resolved
-      await waitFor(() => {
-        expect(screen.queryByText(/sync conflict/i)).not.toBeInTheDocument();
-      });
     });
   });
 

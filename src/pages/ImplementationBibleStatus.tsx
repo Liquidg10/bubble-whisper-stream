@@ -135,10 +135,11 @@ const IMPLEMENTATION_STATUS: FeatureStatus[] = [
   },
   {
     id: 'crdt-pilot',
-    name: 'CRDT Pilot (P17)',
+    name: 'Cross-device replication (P17)',
     priority: 'P16-P20',
-    status: 'complete',
-    description: 'Automerge offline sync behind feature flag'
+    status: 'pending',
+    description: 'Deferred pending an owner-approved pairing and recovery ceremony',
+    issues: ['No remote apply, shared-key bootstrap, or durable per-device receipt contract']
   },
   {
     id: 'telemetry-metrics',

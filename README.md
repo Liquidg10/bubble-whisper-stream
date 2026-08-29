@@ -8,7 +8,7 @@
 
 **Voice**: Calm, compassionate, non-judgmental. Short paths, progressive disclosure, always undoable, always explainable ("Because..."). Never moralize or create shame.
 
-**Technical philosophy**: Local-first, privacy-layered, explainable AI, and reversible actions. Multi-device CRDT replication is planned, not enabled in the current build; prototype conflict/outbox code is not production sync proof.
+**Technical philosophy**: Local-first, privacy-layered, explainable AI, and reversible actions. Multi-device replication is explicitly deferred pending an owner-approved pairing/recovery ceremony, real remote apply, and durable per-device receipts; no prototype or simulated path is enabled.
 
 ## 1) Product Architecture (Unified Task + Multiple Views)
 
@@ -174,7 +174,7 @@ interface Task {
 **Performance**:
 - Target ≥60 FPS single drag, ≥55 FPS multi-select
 - LOD (Level of Detail): Drop filters/effects during interaction, restore on idle
-- Local persistence is production-backed; remote CRDT replication remains disabled until key exchange, remote apply, and durable receipts are complete
+- Local persistence is production-backed; remote replication remains disabled until the owner chooses a pairing/recovery ceremony and key exchange, remote apply, deterministic conflicts, revocation, and durable receipts are proven across two devices
 - Virtualization for large task lists
 
 **Themes**:

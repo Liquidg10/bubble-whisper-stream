@@ -41,8 +41,6 @@ import { DevFocus } from "./pages/DevFocus";
 import { DevPrioritizer } from "./pages/DevPrioritizer";
 import DevModes from "./pages/DevModes";
 import { DevBudget } from "./pages/DevBudget";
-import { DevSyncBasic } from "./pages/DevSyncBasic";
-import { DevSyncDiff } from "./pages/DevSyncDiff";
 import { DevContextEngine } from "./pages/DevContextEngineQA";
 import Inbox from "./pages/Inbox";
 import Search from "./pages/Search";
@@ -77,9 +75,7 @@ import DevE2EGate from "@/pages/DevE2EGate";
 import DevAutoWrite from "@/pages/DevAutoWrite";
 import DevPlanningStats from "@/pages/DevPlanningStats";
 import { DevPhase3Polish } from "./pages/DevPhase3Polish";
-import { DevOfflineLabPage } from "./pages/DevOfflineLabPage";
 import DevProductionComplete from "./pages/DevProductionComplete";
-import DevCRDTConflicts from "./pages/DevCRDTConflicts";
 import DevTaskRoundtrip from "./pages/DevTaskRoundtrip";
 import { ListView } from "./pages/ListView";
 import KanbanView from "./pages/KanbanView";
@@ -192,8 +188,6 @@ const App = () => {
                       <Route path="dev/prioritizer" element={<DevPrioritizer />} />
                       <Route path="dev/modes" element={<DevModes />} />
                       <Route path="dev/budget" element={<DevBudget />} />
-                      <Route path="dev/sync-basic" element={<DevSyncBasic />} />
-                      <Route path="dev/sync-diff" element={<DevSyncDiff />} />
                       <Route path="dev/settings" element={<DevSettings />} />
                       <Route path="dev/flags" element={<DevFlags />} />
                       <Route path="dev/cbt-observer" element={<DevCBTObserver />} />
@@ -227,9 +221,7 @@ const App = () => {
                          <Route path="dev/production" element={<DevProductionDashboard />} />
                          <Route path="dev/behavioral-science" element={<div>Behavioral Science Dev (Coming Soon)</div>} />
                          <Route path="dev/phase3-polish" element={<DevPhase3Polish />} />
-                         <Route path="dev/offline-lab" element={<DevOfflineLabPage />} />
                           <Route path="dev/production-complete" element={<DevProductionComplete />} />
-                          <Route path="dev/crdt-conflicts" element={<DevCRDTConflicts />} />
                        <Route path="dev/task-roundtrip" element={<DevTaskRoundtrip />} />
                        <Route path="dev/a11y-gate" element={<DevA11yGate />} />
                         <Route path="dev/foundation-audit" element={<DevFoundationAudit />} />

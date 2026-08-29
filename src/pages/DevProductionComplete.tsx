@@ -13,7 +13,6 @@ import {
   CheckCircle2, 
   Calendar, 
   Mail, 
-  GitMerge, 
   Sparkles, 
   Brain,
   Clock,
@@ -23,19 +22,16 @@ import {
 import { Timeline2 } from '@/components/Timeline2';
 import { AutoWriteProductionIntegration } from '@/components/AutoWriteProductionIntegration';
 import { UniversalTaskEditor } from '@/components/UniversalTaskEditor';
-import { ConflictResolutionUI } from '@/components/ConflictResolutionUI';
 import { ActivationRitualIntegration } from '@/components/ActivationRitualIntegration';
 import { UnifiedDraftsFeed } from '@/components/UnifiedDraftsFeed';
 import { PersonalEisenhower } from '@/components/PersonalEisenhower';
 import { SplitViewComposer } from '@/components/SplitViewComposer';
 import { PerfOverlay } from '@/components/dev/PerfOverlay';
-import { OfflineLab } from '@/components/dev/OfflineLab';
 import type { Task } from '@/types/task';
 
 export default function DevProductionComplete() {
   const [activeTab, setActiveTab] = useState('overview');
   const [showRitual, setShowRitual] = useState(false);
-  const [showConflicts, setShowConflicts] = useState(false);
   const [showTaskEditor, setShowTaskEditor] = useState(false);
 
   // Mock data for testing
@@ -58,29 +54,12 @@ export default function DevProductionComplete() {
     }
   };
 
-  const mockConflicts = [
-    {
-      id: 'conflict-1',
-      entityType: 'task' as const,
-      entityId: 'task-123',
-      conflictType: 'concurrent_edit' as const,
-      localVersion: { title: 'Local Task Title', priority: 80 },
-      remoteVersion: { title: 'Remote Task Title', priority: 60 },
-      commonAncestor: { title: 'Original Title', priority: 50 },
-      localDevice: 'MacBook Pro',
-      remoteDevice: 'iPhone 14',
-      timestamp: Date.now() - 3600000,
-      autoMergeAttempted: true,
-      autoMergeSuccess: false
-    }
-  ];
-
   const implementationStatus = [
     { name: 'Critical Routing', status: 'complete', description: 'All /dev/* routes working' },
     { name: 'Timeline 2.0', status: 'complete', description: 'Mood ribbons, explanations, celebrations' },
     { name: 'Auto-Write Integration', status: 'complete', description: 'Production ladder integration' },
     { name: 'Universal Task Editor', status: 'complete', description: 'Single unified task component' },
-    { name: 'Conflict Resolution', status: 'complete', description: 'CRDT conflict UI' },
+    { name: 'Cross-device Replication', status: 'deferred', description: 'Pairing/recovery decision required' },
     { name: 'Activation Rituals', status: 'complete', description: 'Integrated breathing system' },
     { name: 'Unified Drafts', status: 'complete', description: 'Calendar/email draft management' },
     { name: 'Personal Eisenhower', status: 'complete', description: 'Persistent urgency/importance' },
@@ -90,14 +69,6 @@ export default function DevProductionComplete() {
   const handleSaveTask = async (task: Task | Omit<Task, 'id'>) => {
     console.log('Saving task:', task);
     // Mock save implementation
-  };
-
-  const handleResolveConflict = (conflictId: string, resolution: string, mergedData?: any) => {
-    console.log('Resolving conflict:', conflictId, resolution, mergedData);
-  };
-
-  const handleResolveAllConflicts = (resolution: string) => {
-    console.log('Resolving all conflicts:', resolution);
   };
 
   return (
@@ -167,11 +138,6 @@ export default function DevProductionComplete() {
                     Test Activation Ritual
                   </Button>
                   
-                  <Button onClick={() => setShowConflicts(true)} variant="outline" className="gap-2">
-                    <GitMerge className="h-4 w-4" />
-                    Test Conflict Resolution
-                  </Button>
-                  
                   <Button onClick={() => setShowTaskEditor(true)} variant="outline" className="gap-2">
                     <Settings className="h-4 w-4" />
                     Test Task Editor
@@ -180,15 +146,6 @@ export default function DevProductionComplete() {
               </CardContent>
             </Card>
 
-            {/* Dev Tools */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Development Tools</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <OfflineLab />
-              </CardContent>
-            </Card>
           </TabsContent>
 
           <TabsContent value="timeline">
@@ -291,24 +248,6 @@ export default function DevProductionComplete() {
               </CardContent>
             </Card>
 
-            {/* Conflict Resolution */}
-            {showConflicts && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <GitMerge className="h-5 w-5" />
-                    Conflict Resolution UI
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <ConflictResolutionUI
-                    conflicts={mockConflicts}
-                    onResolve={handleResolveConflict}
-                    onResolveAll={handleResolveAllConflicts}
-                  />
-                </CardContent>
-              </Card>
-            )}
           </TabsContent>
         </Tabs>
 

@@ -1,8 +1,7 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from '@/App';
-import { crossDeviceSyncService } from '@/services/crossDeviceSyncService';
 import { modalityService } from '@/services/modalityService';
 import { resetMockBubbleStore, setMockBubbleState } from '@/test/helpers/mockBubbleStore';
 
@@ -23,7 +22,6 @@ vi.mock('@/stores/bubbleStore', async () => {
   const { makeBubbleStoreMockModule } = await import('@/test/helpers/mockBubbleStore');
   return makeBubbleStoreMockModule();
 });
-vi.mock('@/services/crossDeviceSyncService');
 vi.mock('@/services/modalityService');
 // bubbleStore + Router are the only class-B/mount bugs `mockBubbleStore.ts`
 // and `renderApp()` fix; a THIRD, independent one lives here. A bare
@@ -92,17 +90,8 @@ describe('Complete Production Workflows', () => {
     // <App/> mounts its own internal <BrowserRouter> (App.tsx:156-159),
     // which reads the real jsdom `window.location`/`history` -- a global
     // never reset between tests in this file. 'should complete full user
-    // workflow' and 'should handle real-time collaboration workflow' both
-    // click the header's Settings button, pushing history to `/settings`
-    // via React Router; nothing ever navigates back to `/`. Every later
-    // test's fresh renderApp() mount therefore renders <Settings/> instead
-    // of <Index/> -- the actual cause of 'AI-enhanced content creation
-    // workflow' reporting its "Capture thought" FAB as missing (it exists
-    // on Index, not Settings). Verified via a temporary DIAGNOSTIC-PROBE:
-    // full-file run showed `window.location.pathname === '/settings'` at
-    // the start of the AI test; forcing it back to `/` here makes that
-    // test's full-file failure converge exactly onto its standalone (`-t`)
-    // failure (both now stop at the `/ai analysis/i` switch, not the FAB).
+    // workflow used to navigate away and leak Router state between tests.
+    // Resetting the path remains a cheap guard for this full-App suite.
     window.history.pushState({}, '', '/');
     vi.clearAllMocks();
     resetMockBubbleStore();
@@ -111,14 +100,6 @@ describe('Complete Production Workflows', () => {
     // above). bubbles: [] and settings come from the shared helper's
     // defaults; this layers in the actions/flags this suite needs.
     setMockBubbleState(productionAppStoreStubs());
-
-    // Mock sync service
-    (crossDeviceSyncService as any).initialize = vi.fn();
-    (crossDeviceSyncService as any).getSyncStatus = vi.fn().mockReturnValue({
-      isConnected: true,
-      lastSync: new Date(),
-      pendingChanges: 0
-    });
 
     // Mock modality service
     (modalityService as any).transcribeVoice = vi.fn().mockResolvedValue({
@@ -133,26 +114,8 @@ describe('Complete Production Workflows', () => {
     });
   });
 
-  // Guards against a real, verified leak: this file has no afterEach, and
-  // 'should handle offline-to-online sync workflow' below sets
-  // navigator.onLine=false then throws (getByRole('add bubble') not found,
-  // see REVIVE Run 78) BEFORE its own value:true restore line runs -- so
-  // onLine stays stuck false for every later test in this file. Currently
-  // masked because those later tests already fail for their own unrelated,
-  // pre-diagnosed reasons (Run 78) -- but it's live latent pollution that
-  // would surface as a confusing regression the moment those are fixed.
-  // Verified via a temporary DIAGNOSTIC-PROBE test: failed
-  // ('expected false to be true') before this afterEach, passes after.
-  afterEach(() => {
-    Object.defineProperty(navigator, 'onLine', {
-      writable: true,
-      configurable: true,
-      value: true,
-    });
-  });
-
   describe('End-to-End User Journey', () => {
-    it('should complete full user workflow from onboarding to collaboration', async () => {
+    it('should complete the core user workflow from onboarding through navigation', async () => {
       const user = userEvent.setup();
       renderApp();
 
@@ -203,121 +166,6 @@ describe('Complete Production Workflows', () => {
       const timelineButton = screen.getByRole('button', { name: /timeline/i });
       await user.click(timelineButton);
 
-      // 7. Test collaboration features
-      const settingsButton = screen.getByRole('button', { name: /settings/i });
-      await user.click(settingsButton);
-
-      const collaborationTab = screen.getByRole('tab', { name: /collaboration/i });
-      await user.click(collaborationTab);
-
-      // Verify all major features are accessible
-      expect(screen.getByText(/cross.device sync/i)).toBeInTheDocument();
-    });
-
-    it('should handle offline-to-online sync workflow', async () => {
-      const user = userEvent.setup();
-      
-      // Mock offline state
-      Object.defineProperty(navigator, 'onLine', {
-        writable: true,
-        value: false
-      });
-
-      renderApp();
-
-      // Create bubbles while offline
-      const radialButton = screen.getByRole('button', { name: /capture thought/i });
-      await user.click(radialButton);
-      const textMenuItem = await screen.findByRole('button', { name: /^text$/i });
-      await user.click(textMenuItem);
-
-      const textInput = screen.getByPlaceholderText(/what's on your mind/i);
-      await user.type(textInput, 'Offline bubble');
-      
-      const createButton = screen.getByRole('button', { name: /save/i });
-      await user.click(createButton);
-
-      // Simulate going online
-      Object.defineProperty(navigator, 'onLine', {
-        value: true
-      });
-
-      // Trigger online event
-      fireEvent(window, new Event('online'));
-
-      // Verify sync service is called
-      await waitFor(() => {
-        expect(crossDeviceSyncService.initialize).toHaveBeenCalled();
-      });
-    });
-  });
-
-  describe('Multi-Device Collaboration', () => {
-    it('should handle real-time collaboration workflow', async () => {
-      const user = userEvent.setup();
-      renderApp();
-
-      // Navigate to collaboration settings
-      const settingsButton = screen.getByRole('button', { name: /settings/i });
-      await user.click(settingsButton);
-
-      const collaborationTab = screen.getByRole('tab', { name: /collaboration/i });
-      await user.click(collaborationTab);
-
-      // Enable collaboration
-      const enableButton = screen.getByRole('button', { name: /enable collaboration/i });
-      await user.click(enableButton);
-
-      // Share a bubble
-      const shareButton = screen.getByRole('button', { name: /share/i });
-      await user.click(shareButton);
-
-      // Set sharing permissions
-      const viewOnlyRadio = screen.getByRole('radio', { name: /view only/i });
-      await user.click(viewOnlyRadio);
-
-      const confirmShare = screen.getByRole('button', { name: /confirm share/i });
-      await user.click(confirmShare);
-
-      // Verify sharing workflow
-      expect(screen.getByText(/sharing enabled/i)).toBeInTheDocument();
-    });
-
-    it('should handle conflict resolution workflow', async () => {
-      const user = userEvent.setup();
-      
-      // Mock conflict scenario
-      (crossDeviceSyncService as any).getStoredConflicts = vi.fn().mockReturnValue([
-        {
-          id: 'conflict-1',
-          entityType: 'bubble',
-          entityId: 'bubble-1',
-          localData: { content: 'Local version' },
-          remoteData: { content: 'Remote version' },
-          timestamp: new Date()
-        }
-      ]);
-
-      renderApp();
-
-      // Conflict notification should appear
-      await waitFor(() => {
-        expect(screen.getByText(/sync conflict detected/i)).toBeInTheDocument();
-      });
-
-      // Open conflict resolution
-      const resolveButton = screen.getByRole('button', { name: /resolve conflict/i });
-      await user.click(resolveButton);
-
-      // Choose resolution
-      const keepLocalButton = screen.getByRole('button', { name: /keep local/i });
-      await user.click(keepLocalButton);
-
-      // Verify conflict resolution
-      expect(crossDeviceSyncService.resolveConflict).toHaveBeenCalledWith(
-        'conflict-1',
-        'keep-local'
-      );
     });
   });
 

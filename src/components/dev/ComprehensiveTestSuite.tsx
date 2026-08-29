@@ -109,12 +109,6 @@ export function ComprehensiveTestSuite() {
           name: 'Offline Recovery Flow',
           description: 'Full offline operation and recovery workflow',
           status: 'pending'
-        },
-        {
-          id: 'e2e-cross-device-sync',
-          name: 'Cross-Device Sync',
-          description: 'Changes sync correctly across devices',
-          status: 'pending'
         }
       ]
     },

@@ -70,16 +70,6 @@ const devRoutes: DevRoute[] = [
     description: 'Intelligent priority scoring and suggestions'
   },
   {
-    path: '/dev/sync-basic',
-    name: 'Sync Basic',
-    description: 'Cross-device sync testing with 2-tab simulation'
-  },
-  {
-    path: '/dev/sync-diff',
-    name: 'Sync Diff',
-    description: 'Safe-Mode conflict resolution flows'
-  },
-  {
     path: '/dev/cbt-observer',
     name: 'CBT Observer',
     description: 'Test CBT annotation detection with golden samples'
