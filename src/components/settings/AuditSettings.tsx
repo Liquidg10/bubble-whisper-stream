@@ -5,7 +5,6 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { 
   History, 
-  Undo2, 
   Download, 
   Trash2, 
   Calendar, 
@@ -15,27 +14,27 @@ import {
   Eye,
   AlertCircle
 } from 'lucide-react';
-import { decisionTraceService, type DecisionTrace } from '@/services/decisionTraceService';
-import { crossViewUndoService } from '@/services/crossViewUndoService';
+import {
+  decisionTraceService,
+  getDecisionUserAction,
+  type DecisionTrace
+} from '@/services/decisionTraceService';
 import { useToast } from '@/hooks/use-toast';
 import { formatDistanceToNow } from 'date-fns';
 
 export function AuditSettings() {
   const { toast } = useToast();
   const [traces, setTraces] = useState<DecisionTrace[]>([]);
-  const [undoableTraces, setUndoableTraces] = useState<DecisionTrace[]>([]);
   const [selectedTrace, setSelectedTrace] = useState<DecisionTrace | null>(null);
 
   useEffect(() => {
     // Subscribe to trace updates
     const unsubscribe = decisionTraceService.subscribe((newTraces) => {
       setTraces(newTraces.slice(0, 50)); // Show last 50 traces
-      setUndoableTraces(decisionTraceService.getRecentUndoable(10));
     });
 
     // Load initial data
     setTraces(decisionTraceService.getTraces({ limit: 50 }));
-    setUndoableTraces(decisionTraceService.getRecentUndoable(10));
 
     return unsubscribe;
   }, []);
@@ -58,25 +57,6 @@ export function AuditSettings() {
       case 'suggest': return 'bg-blue-100 text-blue-800 border-blue-200';
       case 'skip': return 'bg-gray-100 text-gray-800 border-gray-200';
       default: return 'bg-gray-100 text-gray-800 border-gray-200';
-    }
-  };
-
-  const handleUndo = async (trace: DecisionTrace) => {
-    try {
-      // This would need to be connected to actual undo implementations
-      // For now, we'll just mark it as undone in the trace
-      decisionTraceService.markAsUndone(trace.id, crypto.randomUUID());
-      
-      toast({
-        title: "Action Undone",
-        description: `Reverted: ${trace.action}`,
-      });
-    } catch (error) {
-      toast({
-        title: "Undo Failed",
-        description: "Could not undo this action. Please try manually.",
-        variant: "destructive"
-      });
     }
   };
 
@@ -155,51 +135,13 @@ export function AuditSettings() {
             </div>
             <div className="text-center">
               <div className="text-2xl font-bold text-blue-600">
-                {undoableTraces.length}
+                {traces.filter(trace => getDecisionUserAction(trace) === 'undo').length}
               </div>
-              <div className="text-sm text-muted-foreground">Undoable</div>
+              <div className="text-sm text-muted-foreground">Reverted</div>
             </div>
           </div>
         </CardContent>
       </Card>
-
-      {/* Recent Undoable Actions */}
-      {undoableTraces.length > 0 && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Undo2 className="h-5 w-5" />
-              <CardTitle>Quick Undo</CardTitle>
-            </div>
-            <CardDescription>
-              Recent actions that can be undone with one click
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {undoableTraces.map((trace) => (
-              <div key={trace.id} className="flex items-center justify-between p-3 border rounded-lg">
-                <div className="flex items-center gap-3">
-                  {getFeatureIcon(trace.feature)}
-                  <div>
-                    <div className="font-medium text-sm">{trace.action}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {formatDistanceToNow(trace.timestamp)} ago • {trace.becauseText}
-                    </div>
-                  </div>
-                </div>
-                <Button 
-                  onClick={() => handleUndo(trace)} 
-                  variant="outline" 
-                  size="sm"
-                >
-                  <Undo2 className="h-4 w-4 mr-2" />
-                  Undo
-                </Button>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
 
       {/* Complete Audit Trail */}
       <Card>
@@ -230,7 +172,7 @@ export function AuditSettings() {
                       <Badge className={`text-xs ${getDecisionColor(trace.decision)}`}>
                         {trace.decision}
                       </Badge>
-                      {trace.undoId && (
+                      {getDecisionUserAction(trace) === 'undo' && (
                         <Badge variant="outline" className="text-xs">
                           Undone
                         </Badge>

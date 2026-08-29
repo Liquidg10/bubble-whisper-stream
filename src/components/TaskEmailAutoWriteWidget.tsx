@@ -10,15 +10,12 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { 
   Mail, 
-  Undo2, 
   ExternalLink,
   Eye,
   ArrowRight,
   Clock
 } from 'lucide-react';
 import { taskAwareAutoWriteService, type TaskEmailMapping } from '@/services/taskAwareAutoWriteService';
-import { usePrecisionGateUndo } from '@/hooks/usePrecisionGateUndo';
-import { toast } from '@/hooks/use-toast';
 
 interface TaskEmailAutoWriteWidgetProps {
   className?: string;
@@ -26,8 +23,6 @@ interface TaskEmailAutoWriteWidgetProps {
 
 export function TaskEmailAutoWriteWidget({ className }: TaskEmailAutoWriteWidgetProps) {
   const [mappings, setMappings] = useState<TaskEmailMapping[]>([]);
-  const [loading, setLoading] = useState(false);
-  const { createTaskEmailUndo, showUndoToast } = usePrecisionGateUndo();
 
   useEffect(() => {
     loadRecentMappings();
@@ -40,37 +35,6 @@ export function TaskEmailAutoWriteWidget({ className }: TaskEmailAutoWriteWidget
       .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, 5);
     setMappings(recentMappings);
-  };
-
-  const handleUndoTaskEmail = async (mapping: TaskEmailMapping) => {
-    setLoading(true);
-    try {
-      const undoAction = createTaskEmailUndo({
-        traceId: mapping.traceId,
-        taskId: mapping.taskId,
-        draftId: mapping.draftId,
-        subject: mapping.subject
-      });
-
-      await undoAction.undoHandler();
-      // Assume success if no error thrown
-        showUndoToast(undoAction);
-      // Remove from local display
-      setMappings(prev => prev.filter(m => m.taskId !== mapping.taskId));
-      
-      toast({
-        title: "Email Draft Removed",
-        description: `Undid auto-write for "${mapping.subject}"`,
-      });
-    } catch (error) {
-      toast({
-        title: "Undo Failed",
-        description: "Could not undo the email auto-write. Please try again.",
-        variant: "destructive"
-      });
-    } finally {
-      setLoading(false);
-    }
   };
 
   const handleViewInGmail = (mapping: TaskEmailMapping) => {
@@ -142,16 +106,6 @@ export function TaskEmailAutoWriteWidget({ className }: TaskEmailAutoWriteWidget
               
               <div className="flex items-center gap-2 ml-3">
                 <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleUndoTaskEmail(mapping)}
-                  disabled={loading}
-                  className="flex items-center gap-1"
-                >
-                  <Undo2 className="h-3 w-3" />
-                  Undo
-                </Button>
-                <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => handleViewInGmail(mapping)}
@@ -169,7 +123,7 @@ export function TaskEmailAutoWriteWidget({ className }: TaskEmailAutoWriteWidget
           <Eye className="h-4 w-4" />
           <AlertDescription>
             Email drafts are automatically created when tasks contain email metadata 
-            with high confidence scores. All auto-writes can be undone.
+            with high confidence scores. Remove a provider draft in Gmail; reversal is not available here yet.
           </AlertDescription>
         </Alert>
       </CardContent>

@@ -5,9 +5,9 @@
  * for all auto-write decisions across features.
  */
 
-import { useState, useCallback } from 'react';
+import { createElement, useCallback, useRef, useState } from 'react';
 import { toast } from '@/hooks/use-toast';
-import { Button } from '@/components/ui/button';
+import { ToastAction, type ToastActionElement } from '@/components/ui/toast';
 import { decisionTraceService } from '@/services/decisionTraceService';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -20,12 +20,14 @@ export interface UndoAction {
 
 export function usePrecisionGateUndo() {
   const [pendingUndos, setPendingUndos] = useState<Map<string, UndoAction>>(new Map());
+  const pendingUndosRef = useRef<Map<string, UndoAction>>(new Map());
+  const undoInFlightRef = useRef<Set<string>>(new Set());
   
   /**
    * Handle undo action
    */
   const handleUndo = useCallback(async (traceId: string) => {
-    const action = pendingUndos.get(traceId);
+    const action = pendingUndosRef.current.get(traceId);
     if (!action) {
       toast({
         title: "Undo failed",
@@ -34,6 +36,8 @@ export function usePrecisionGateUndo() {
       });
       return;
     }
+    if (undoInFlightRef.current.has(traceId)) return;
+    undoInFlightRef.current.add(traceId);
     
     try {
       // Execute the undo handler
@@ -41,9 +45,10 @@ export function usePrecisionGateUndo() {
       
       // Mark trace as undone
       const undoId = crypto.randomUUID();
-      decisionTraceService.markAsUndone(traceId, undoId);
+      decisionTraceService.recordUndoCompleted(traceId, undoId, 'precision-gate-undo');
       
       // Remove from pending
+      pendingUndosRef.current.delete(traceId);
       setPendingUndos(prev => {
         const newMap = new Map(prev);
         newMap.delete(traceId);
@@ -82,32 +87,39 @@ export function usePrecisionGateUndo() {
         description: error instanceof Error ? error.message : "An unexpected error occurred",
         variant: "destructive"
       });
+    } finally {
+      undoInFlightRef.current.delete(traceId);
     }
-  }, [pendingUndos]);
+  }, []);
   
   /**
    * Show undo toast for a decision
    */
   const showUndoToast = useCallback((action: UndoAction) => {
-    setPendingUndos(prev => new Map(prev.set(action.traceId, action)));
-    
-    const featureLabels = {
-      calendar: 'Calendar event',
-      email: 'Email',
-      finance: 'Transaction',
-      reminder: 'Reminder'
-    };
-    
-    const featureLabel = featureLabels[action.feature as keyof typeof featureLabels] || 'Action';
+    pendingUndosRef.current.set(action.traceId, action);
+    setPendingUndos(prev => {
+      const next = new Map(prev);
+      next.set(action.traceId, action);
+      return next;
+    });
     
     toast({
       title: `${action.action} • Undo`,
-      description: "Click to reverse this action",
+      description: "Undo is available for 8 seconds",
       duration: 8000, // 8 seconds to undo
+      action: createElement(
+        ToastAction,
+        {
+          altText: `Undo ${action.action}`,
+          onClick: () => void handleUndo(action.traceId)
+        },
+        'Undo'
+      ) as unknown as ToastActionElement
     });
     
     // Auto-remove from pending after toast duration
     setTimeout(() => {
+      pendingUndosRef.current.delete(action.traceId);
       setPendingUndos(prev => {
         const newMap = new Map(prev);
         newMap.delete(action.traceId);
@@ -138,8 +150,8 @@ export function usePrecisionGateUndo() {
         const { error } = await supabase.functions.invoke('calendar-sync', {
           body: {
             action: 'delete_event',
-            calendar_account_id: eventData.calendarAccountId,
-            event_id: eventData.eventId
+            calendarAccountId: eventData.calendarAccountId,
+            eventId: eventData.eventId
           }
         });
         
@@ -278,7 +290,13 @@ export function usePrecisionGateUndo() {
     action: `Auto-created email draft from task: ${emailData.subject}`,
     undoHandler: async () => {
       const { taskAwareAutoWriteService } = await import('@/services/taskAwareAutoWriteService');
-      await taskAwareAutoWriteService.undoTaskEmailWrite(emailData.taskId, emailData.traceId);
+      const success = await taskAwareAutoWriteService.undoTaskEmailWrite(
+        emailData.taskId,
+        emailData.traceId
+      );
+      if (!success) {
+        throw new Error('Provider-backed email draft undo is unavailable');
+      }
     }
   }), []);
   

@@ -62,7 +62,7 @@ export function MasonryViewAdapter({
             action: 'create_pinboard_task',
             becauseText: `Added "${task.title}" to pinboard for organization`,
             metadata: { taskId: task.id, position: task.view?.pinboard },
-            undoable: true
+            undoable: false
           });
         } else {
           await updateTask(task.id, task);
@@ -77,7 +77,7 @@ export function MasonryViewAdapter({
             action: 'update_pinboard_position',
             becauseText: `Updated "${task.title}" position on pinboard`,
             metadata: { taskId: task.id, newPosition: task.view?.pinboard },
-            undoable: true
+            undoable: false
           });
         }
 
@@ -118,7 +118,7 @@ export function MasonryViewAdapter({
           action: 'remove_pinboard_task',
           becauseText: `Removed "${task.title}" from pinboard`,
           metadata: { taskId: id },
-          undoable: true
+          undoable: false
         });
 
         toast({
@@ -135,26 +135,12 @@ export function MasonryViewAdapter({
       },
 
       undo: async (undoId: string) => {
-        try {
-          const traces = decisionTraceService.getTraces();
-          const trace = traces.find(t => t.id === undoId);
-          
-          if (trace) {
-            decisionTraceService.markAsUndone(undoId, crypto.randomUUID());
-            
-            toast({
-              title: "Action undone",
-              description: "Reverted pinboard change",
-            });
-          }
-        } catch (error) {
-          console.error('Failed to undo pinboard action:', error);
-          toast({
-            title: "Undo failed",
-            description: "Could not revert the action",
-            variant: "destructive"
-          });
-        }
+        console.warn(`Pinboard undo is unavailable for trace ${undoId}`);
+        toast({
+          title: "Undo unavailable",
+          description: "This pinboard change does not have a saved reversal yet.",
+          variant: "destructive"
+        });
       }
     };
 

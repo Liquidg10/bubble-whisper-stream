@@ -96,6 +96,7 @@ Best regards,
     } = {}
   ): Promise<EnhancedEmailSendResult> {
     console.log('Enhanced Gmail compose starting for account:', accountId);
+    let traceId: string | undefined;
 
     try {
       let processedDraft = { ...draft };
@@ -147,6 +148,7 @@ Best regards,
           featureEnabled: true
         }
       });
+      traceId = decision.traceId;
 
       // Enhanced guardrails check with template analysis
       if (!options.bypassGuardrails) {
@@ -162,6 +164,10 @@ Best regards,
         });
 
         if (guardrailResult.decision === 'blocked') {
+          decisionTraceService.recordExecution(traceId, 'failed', {
+            source: 'email-guardrails',
+            reference: guardrailResult.warnings.join(', ')
+          });
           return {
             success: false,
             decision: 'blocked',
@@ -169,32 +175,20 @@ Best regards,
             draftId: '',
             error: `Email blocked: ${guardrailResult.warnings.join(', ')}`,
             templateUsed: draft.templateId,
-            guardrailCheck: guardrailResult
+            guardrailCheck: guardrailResult,
+            traceId
           };
         }
       }
 
-      // Record decision trace
-      const traceId = await decisionTraceService.addTrace({
-        feature: 'email',
-        decision: decision.decision,
-        finalConfidence: decision.score,
-        confidenceThreshold: 0.85,
-        signals: decision.reasons.map(r => ({ 
-          type: 'system', 
-          value: r, 
-          confidence: 1.0, 
-          source: 'precision-gate' 
-        })),
-        action: `compose_email_${decision.decision}`,
-        becauseText: decision.reasons.join(', '),
-        metadata: { draft: processedDraft, accountId },
-        undoable: true
-      });
-
       // Handle scheduling if requested
       if (draft.scheduling) {
-        return await this.scheduleEmail(accountId, processedDraft);
+        const scheduled = await this.scheduleEmail(accountId, processedDraft);
+        decisionTraceService.recordExecution(traceId, scheduled.success ? 'succeeded' : 'failed', {
+          source: 'gmail-scheduler',
+          reference: scheduled.messageId || scheduled.draftId
+        });
+        return { ...scheduled, traceId };
       }
 
       // Enforce draft-first behavior: override auto-send if recipients not allowlisted
@@ -202,37 +196,41 @@ Best regards,
       
       // Use the base Gmail service for actual sending
       const result = await gmailDraftSendService.composeEmail(accountId, processedDraft, {
+        requestedOperation: shouldAutoSend ? 'send' : 'draft',
         autoSendEnabled: shouldAutoSend,
         requireConfirmation: options.requireConfirmation || !allRecipientsAllowlisted,
-        bypassGuardrails: true // We already checked above
+        bypassGuardrails: true, // We already checked above
+        traceId,
+        surface: 'enhanced-gmail-compose'
       });
 
-      // Record interactions for allowlisted recipients
-      if (result.success && result.decision === 'sent') {
-        await Promise.all(recipientEmails.map(email => 
-          import('./recipientAllowlistService').then(m => 
-            m.recipientAllowlistService.recordInteraction(email)
-          )
-        ));
-      }
-
-      // Store compose activity for learning
+      // The base Gmail service owns post-send interaction learning and treats
+      // it as non-critical. Never repeat it here: a rejected learning write
+      // must not downgrade a provider-confirmed send into a retryable failure.
       await this.recordComposeActivity(accountId, processedDraft, result);
 
       return {
         ...result,
+        traceId,
         templateUsed: draft.templateId,
         mimeGenerated: draft.mimeFormatted || !!draft.attachments
       };
 
     } catch (error) {
       console.error('Error in enhanced Gmail compose:', error);
+      if (traceId) {
+        decisionTraceService.recordExecution(traceId, 'failed', {
+          source: 'enhanced-gmail-compose',
+          reference: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
       return {
         success: false,
         decision: 'blocked',
         messageId: '',
         draftId: '',
         error: error.message,
+        traceId,
         templateUsed: draft.templateId,
         guardrailCheck: {
           canAutoSend: false,

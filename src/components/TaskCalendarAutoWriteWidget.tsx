@@ -5,14 +5,13 @@
  * auto-writes with undo capability and task context.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Calendar, Undo2, ExternalLink, Clock, CheckCircle } from 'lucide-react';
 import { taskAwareAutoWriteService, type TaskCalendarMapping } from '@/services/taskAwareAutoWriteService';
-import { decisionTraceService } from '@/services/decisionTraceService';
 import { usePrecisionGateUndo } from '@/hooks/usePrecisionGateUndo';
 import { useTaskStore } from '@/stores/taskStore';
 import { toast } from '@/hooks/use-toast';
@@ -24,8 +23,9 @@ interface TaskCalendarAutoWriteWidgetProps {
 
 export function TaskCalendarAutoWriteWidget({ className }: TaskCalendarAutoWriteWidgetProps) {
   const [mappings, setMappings] = useState<TaskCalendarMapping[]>([]);
-  const [loading, setLoading] = useState(false);
-  const { createTaskCalendarUndo, showUndoToast } = usePrecisionGateUndo();
+  const [undoingTaskIds, setUndoingTaskIds] = useState<Set<string>>(() => new Set());
+  const undoInFlightTaskIds = useRef<Set<string>>(new Set());
+  const { createTaskCalendarUndo } = usePrecisionGateUndo();
   const taskStore = useTaskStore();
 
   // Load recent task-calendar mappings
@@ -43,27 +43,47 @@ export function TaskCalendarAutoWriteWidget({ className }: TaskCalendarAutoWrite
   };
 
   const handleUndoTaskCalendar = async (mapping: TaskCalendarMapping) => {
-    const task = taskStore.getTask(mapping.taskId);
-    if (!task) {
-      toast({
-        title: "Undo failed",
-        description: "Task not found",
-        variant: "destructive"
-      });
-      return;
-    }
+    if (undoInFlightTaskIds.current.has(mapping.taskId)) return;
 
+    const task = taskStore.getTask(mapping.taskId);
     const undoAction = createTaskCalendarUndo({
       traceId: mapping.traceId,
       taskId: mapping.taskId,
       eventId: mapping.eventId,
-      title: task.title
+      title: task?.title || 'task'
     });
 
-    showUndoToast(undoAction);
-    
-    // Remove from local display immediately
-    setMappings(prev => prev.filter(m => m.taskId !== mapping.taskId));
+    undoInFlightTaskIds.current.add(mapping.taskId);
+    setUndoingTaskIds(previous => {
+      const next = new Set(previous);
+      next.add(mapping.taskId);
+      return next;
+    });
+
+    try {
+      // The underlying task-aware service performs the calendar compensation
+      // and records the completed undo on the canonical DecisionTrace.
+      await undoAction.undoHandler();
+      setMappings(previous => previous.filter(candidate => candidate.taskId !== mapping.taskId));
+      toast({
+        title: "Action undone",
+        description: `Removed the calendar event for ${task?.title || 'this task'}`
+      });
+    } catch (error) {
+      console.error('Failed to undo task calendar auto-write:', error);
+      toast({
+        title: "Undo failed",
+        description: error instanceof Error ? error.message : "Could not remove the calendar event",
+        variant: "destructive"
+      });
+    } finally {
+      undoInFlightTaskIds.current.delete(mapping.taskId);
+      setUndoingTaskIds(previous => {
+        const next = new Set(previous);
+        next.delete(mapping.taskId);
+        return next;
+      });
+    }
   };
 
   const handleViewInCalendar = (mapping: TaskCalendarMapping) => {
@@ -130,10 +150,12 @@ export function TaskCalendarAutoWriteWidget({ className }: TaskCalendarAutoWrite
                       variant="outline"
                       size="sm"
                       onClick={() => handleUndoTaskCalendar(mapping)}
+                      disabled={undoingTaskIds.has(mapping.taskId)}
+                      aria-busy={undoingTaskIds.has(mapping.taskId)}
                       className="h-7 text-xs"
                     >
                       <Undo2 className="h-3 w-3 mr-1" />
-                      Undo
+                      {undoingTaskIds.has(mapping.taskId) ? 'Undoing…' : 'Undo'}
                     </Button>
                     
                     <Button

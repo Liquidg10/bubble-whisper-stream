@@ -23,7 +23,7 @@ interface TaskStoreState {
   // Actions
   getTasks: () => Task[];
   getTask: (id: TaskId) => Task | undefined;
-  addTask: (task: Omit<Task, 'id'>) => Promise<void>;
+  addTask: (task: Omit<Task, 'id'>) => Promise<Task>;
   updateTask: (id: TaskId, updates: Partial<Task>) => Promise<void>;
   deleteTask: (id: TaskId) => Promise<void>;
   toggleTaskCompletion: (id: TaskId) => Promise<void>;
@@ -94,6 +94,7 @@ export const useTaskStore = create<TaskStoreState>()(
         get().refreshFromBubbleStore();
         
         logger.debug('Added task via BubbleStore', { taskId: tempTask.id });
+        return tempTask;
       } catch (error) {
         logger.error('Failed to add task', error);
         throw error;

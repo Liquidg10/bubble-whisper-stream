@@ -146,12 +146,7 @@ class UnifiedDraftsService {
         return true;
       }
 
-      // Remove from ladder service
-      const drafts = autoWriteLadderService.getDrafts();
-      const filtered = drafts.filter(d => d.id !== draftId);
-      localStorage.setItem('mm-drafts', JSON.stringify(filtered));
-      
-      return true;
+      return autoWriteLadderService.deleteDraft(draftId);
     } catch (error) {
       logger.error('Failed to delete draft', error);
       return false;

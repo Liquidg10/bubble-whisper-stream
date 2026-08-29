@@ -40,7 +40,9 @@ export function CalendarAutoWriteWidget({ className }: CalendarAutoWriteWidgetPr
   const handleConfirmDraft = async (draftId: string) => {
     setLoading(true);
     try {
-      const result = await calendarWriteService.confirmDraft(draftId);
+      const result = await calendarWriteService.confirmDraft(draftId, {
+        recordUserAcceptance: true
+      });
       
       // Show undo toast for confirmed events
       const undoAction = createCalendarUndo(result);
@@ -65,14 +67,23 @@ export function CalendarAutoWriteWidget({ className }: CalendarAutoWriteWidgetPr
   };
 
   const handleDeleteDraft = (draftId: string) => {
-    const updatedDrafts = drafts.filter(d => d.id !== draftId);
-    localStorage.setItem('calendar_drafts', JSON.stringify(updatedDrafts));
-    setDrafts(updatedDrafts);
-    
-    toast({
-      title: "Draft Deleted",
-      description: "Calendar draft has been removed.",
-    });
+    try {
+      if (!calendarWriteService.rejectDraft(draftId)) {
+        throw new Error('Draft not found');
+      }
+      loadDrafts();
+
+      toast({
+        title: "Draft Deleted",
+        description: "Calendar draft has been removed.",
+      });
+    } catch (error) {
+      toast({
+        title: "Deletion Failed",
+        description: "Calendar draft could not be removed.",
+        variant: "destructive"
+      });
+    }
   };
 
   if (drafts.length === 0) {

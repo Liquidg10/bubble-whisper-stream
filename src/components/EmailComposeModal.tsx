@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,7 +10,12 @@ import { Switch } from '@/components/ui/switch';
 import { Loader2, Send, FileText, AlertTriangle, CheckCircle, Shield } from 'lucide-react';
 import { ContactDisambiguationModal } from './ContactDisambiguationModal';
 import { contactDisambiguationService, ContactOption } from '@/services/contactDisambiguationService';
-import { gmailDraftSendService, EmailDraft, EmailSendResult } from '@/services/gmailDraftSendService';
+import {
+  gmailDraftSendService,
+  EmailDraft,
+  EmailSendResult,
+  type EmailComposeOperation
+} from '@/services/gmailDraftSendService';
 import { toast } from 'sonner';
 
 interface EmailComposeModalProps {
@@ -36,6 +41,8 @@ export function EmailComposeModal({
   const [autoSendEnabled, setAutoSendEnabled] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [lastResult, setLastResult] = useState<EmailSendResult | null>(null);
+  const actionInFlightRef = useRef(false);
+  const pendingOperationRef = useRef<EmailComposeOperation | null>(null);
   
   // Disambiguation state
   const [showDisambiguation, setShowDisambiguation] = useState(false);
@@ -49,6 +56,10 @@ export function EmailComposeModal({
       setSubject(initialSubject);
       setBody(initialBody);
       setLastResult(null);
+      setIsLoading(false);
+      setShowDisambiguation(false);
+      actionInFlightRef.current = false;
+      pendingOperationRef.current = null;
     }
   }, [isOpen, initialRecipients, initialSubject, initialBody]);
 
@@ -57,29 +68,37 @@ export function EmailComposeModal({
     setRecipients(emails);
   };
 
-  const resolveRecipientsAndCompose = async () => {
-    if (!accountId || recipients.length === 0) {
+  const resolveRecipientsAndCompose = async (
+    requestedOperation: EmailComposeOperation,
+    recipientsToResolve = recipients
+  ) => {
+    if (actionInFlightRef.current) return;
+
+    if (!accountId || recipientsToResolve.length === 0) {
       toast.error('Please provide account and recipients');
       return;
     }
 
+    actionInFlightRef.current = true;
+    pendingOperationRef.current = requestedOperation;
     setIsLoading(true);
-    
+    let waitingForDisambiguation = false;
+
     try {
       // Resolve each recipient
       const resolvedRecipients: string[] = [];
-      
-      for (let i = 0; i < recipients.length; i++) {
-        const recipient = recipients[i];
+
+      for (let i = 0; i < recipientsToResolve.length; i++) {
+        const recipient = recipientsToResolve[i];
         const result = await contactDisambiguationService.resolveContact(recipient);
-        
+
         if (result.needsDisambiguation) {
           // Show disambiguation modal
           setDisambiguationContacts(result.contacts);
           setCurrentDisambiguationQuery(recipient);
           setCurrentRecipientIndex(i);
           setShowDisambiguation(true);
-          setIsLoading(false);
+          waitingForDisambiguation = true;
           return;
         } else if (result.exactMatch) {
           resolvedRecipients.push(result.exactMatch.email);
@@ -89,23 +108,30 @@ export function EmailComposeModal({
             resolvedRecipients.push(recipient);
           } else {
             toast.error(`Could not resolve contact: ${recipient}`);
-            setIsLoading(false);
             return;
           }
         }
       }
 
       // All recipients resolved, proceed with composition
-      await composeWithResolvedRecipients(resolvedRecipients);
-      
+      await composeWithResolvedRecipients(resolvedRecipients, requestedOperation);
+
     } catch (error: any) {
       console.error('Recipient resolution error:', error);
       toast.error('Failed to resolve recipients');
+    } finally {
+      actionInFlightRef.current = false;
       setIsLoading(false);
+      if (!waitingForDisambiguation) {
+        pendingOperationRef.current = null;
+      }
     }
   };
 
-  const composeWithResolvedRecipients = async (resolvedRecipients: string[]) => {
+  const composeWithResolvedRecipients = async (
+    resolvedRecipients: string[],
+    requestedOperation: EmailComposeOperation
+  ) => {
     if (!accountId) return;
 
     const draft: EmailDraft = {
@@ -116,9 +142,13 @@ export function EmailComposeModal({
 
     try {
       const result = await gmailDraftSendService.composeEmail(accountId, draft, {
-        autoSendEnabled,
+        requestedOperation,
+        autoSendEnabled: requestedOperation === 'send',
         requireConfirmation: false,
-        bypassGuardrails: false
+        bypassGuardrails: false,
+        surface: 'email-compose-modal',
+        presentedAt: Date.now(),
+        recordUserAcceptance: true
       });
 
       setLastResult(result);
@@ -137,21 +167,25 @@ export function EmailComposeModal({
     } catch (error: any) {
       console.error('Email composition error:', error);
       toast.error(error.message || 'Failed to compose email');
-    } finally {
-      setIsLoading(false);
     }
   };
 
   const handleDisambiguationSelect = (contact: ContactOption) => {
+    const requestedOperation = pendingOperationRef.current;
     const newRecipients = [...recipients];
     newRecipients[currentRecipientIndex] = contact.email;
     setRecipients(newRecipients);
     setShowDisambiguation(false);
-    
-    // Continue with composition
-    setTimeout(() => {
-      resolveRecipientsAndCompose();
-    }, 100);
+    pendingOperationRef.current = null;
+
+    if (requestedOperation) {
+      void resolveRecipientsAndCompose(requestedOperation, newRecipients);
+    }
+  };
+
+  const handleClose = () => {
+    if (actionInFlightRef.current) return;
+    onClose();
   };
 
   const getDecisionIcon = (decision: string) => {
@@ -174,7 +208,9 @@ export function EmailComposeModal({
 
   return (
     <>
-      <Dialog open={isOpen} onOpenChange={onClose}>
+      <Dialog open={isOpen} onOpenChange={(open) => {
+        if (!open) handleClose();
+      }}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -277,16 +313,12 @@ export function EmailComposeModal({
             )}
 
             <div className="flex justify-end gap-2 pt-4 border-t">
-              <Button variant="outline" onClick={onClose} disabled={isLoading}>
+              <Button variant="outline" onClick={handleClose} disabled={isLoading}>
                 Cancel
               </Button>
               <Button 
                 variant="outline"
-                onClick={() => {
-                  // Create draft only
-                  setAutoSendEnabled(false);
-                  resolveRecipientsAndCompose();
-                }}
+                onClick={() => void resolveRecipientsAndCompose('draft')}
                 disabled={isLoading || !recipients.length || !subject || !body}
               >
                 {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
@@ -294,10 +326,7 @@ export function EmailComposeModal({
                 Save Draft
               </Button>
               <Button 
-                onClick={() => {
-                  // Allow send if enabled
-                  resolveRecipientsAndCompose();
-                }}
+                onClick={() => void resolveRecipientsAndCompose(autoSendEnabled ? 'send' : 'draft')}
                 disabled={isLoading || !recipients.length || !subject || !body}
               >
                 {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
@@ -314,6 +343,8 @@ export function EmailComposeModal({
         onClose={() => {
           setShowDisambiguation(false);
           setIsLoading(false);
+          actionInFlightRef.current = false;
+          pendingOperationRef.current = null;
         }}
         contacts={disambiguationContacts}
         onSelectContact={handleDisambiguationSelect}

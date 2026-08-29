@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { Label } from '@/components/ui/label';
@@ -13,15 +12,19 @@ import {
   Mail, 
   Settings2, 
   Shield, 
-  Undo2,
   TrendingUp,
   Clock,
   Users,
   AlertTriangle
 } from 'lucide-react';
 import { userTrustService } from '@/services/userTrustService';
-import { decisionTraceService } from '@/services/decisionTraceService';
-import { usePrecisionGateUndo } from '@/hooks/usePrecisionGateUndo';
+import {
+  decisionTraceService,
+  getDecisionUserAction,
+  isAcceptanceTelemetryTrace,
+  summarizeDecisionOutcomes,
+  type DecisionTrace
+} from '@/services/decisionTraceService';
 import { toast } from '@/hooks/use-toast';
 
 interface AutoWritePreferences {
@@ -50,17 +53,15 @@ export function AutoWriteSettings() {
   const [stats, setStats] = useState({
     todayCount: 0,
     weeklyCount: 0,
-    successRate: 0,
+    successRate: null as number | null,
     avgConfidence: 0
   });
 
   const [trustData, setTrustData] = useState({
     allowlistedContacts: 0,
     whitelistedCalendars: 0,
-    recentDecisions: [] as any[]
+    recentDecisions: [] as DecisionTrace[]
   });
-
-  const { showUndoToast, handleUndo, getRecentUndoableActions, pendingUndos } = usePrecisionGateUndo();
 
   useEffect(() => {
     loadPreferences();
@@ -79,10 +80,10 @@ export function AutoWriteSettings() {
 
   const loadStats = async () => {
     try {
-      const traces = await decisionTraceService.getTraces({
+      const traces = decisionTraceService.getTraces({
         feature: undefined,
         limit: 100
-      });
+      }).filter(isAcceptanceTelemetryTrace);
 
       const today = new Date().toDateString();
       const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -95,10 +96,10 @@ export function AutoWriteSettings() {
         new Date(t.timestamp) >= weekAgo
       );
 
-      const autoWriteTraces = traces.filter(t => t.decision === 'auto-write');
-      const successRate = autoWriteTraces.length > 0 
-        ? (autoWriteTraces.filter(t => !t.undoId).length / autoWriteTraces.length) * 100 
-        : 0;
+      const outcomeSummary = summarizeDecisionOutcomes(traces);
+      const successRate = outcomeSummary.acceptanceRate === null
+        ? null
+        : outcomeSummary.acceptanceRate * 100;
 
       const avgConfidence = traces.length > 0 
         ? traces.reduce((sum, t) => sum + (t.finalConfidence || 0), 0) / traces.length * 100
@@ -118,7 +119,10 @@ export function AutoWriteSettings() {
   const loadTrustData = async () => {
     try {
       const contacts = await userTrustService.getAllowlistedContacts();
-      const recentActions = await getRecentUndoableActions();
+      const recentActions = decisionTraceService
+        .getTraces({ limit: 100 })
+        .filter(isAcceptanceTelemetryTrace)
+        .slice(0, 5);
       
       setTrustData({
         allowlistedContacts: contacts.length,
@@ -159,16 +163,6 @@ export function AutoWriteSettings() {
     }
   };
 
-  const handleUndoAction = async (traceId: string) => {
-    try {
-      await handleUndo(traceId);
-      await loadStats();
-      await loadTrustData();
-    } catch (error) {
-      console.error('Failed to undo action:', error);
-    }
-  };
-
   return (
     <div className="space-y-6">
       {/* Overview Stats */}
@@ -193,8 +187,10 @@ export function AutoWriteSettings() {
               <div className="text-sm text-muted-foreground">This Week</div>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-bold text-green-600">{stats.successRate.toFixed(1)}%</div>
-              <div className="text-sm text-muted-foreground">Success Rate</div>
+              <div className="text-2xl font-bold text-green-600">
+                {stats.successRate === null ? 'No outcomes' : `${stats.successRate.toFixed(1)}%`}
+              </div>
+              <div className="text-sm text-muted-foreground">Acceptance Rate</div>
             </div>
             <div className="text-center">
               <div className="text-2xl font-bold text-blue-600">{stats.avgConfidence.toFixed(0)}%</div>
@@ -360,15 +356,15 @@ export function AutoWriteSettings() {
         </CardContent>
       </Card>
 
-      {/* Recent Activity & Undo */}
+      {/* Recent decision telemetry */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Undo2 className="h-5 w-5" />
-            Recent Auto-Write Actions
+            <Clock className="h-5 w-5" />
+            Recent Auto-Write Decisions
           </CardTitle>
           <CardDescription>
-            Review and undo recent automated actions
+            Review observed outcomes. Undo is available only from the action surface that owns the real reversal.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -378,31 +374,25 @@ export function AutoWriteSettings() {
             </div>
           ) : (
             <div className="space-y-3">
-              {trustData.recentDecisions.map((decision, index) => (
-                <div key={index} className="flex items-center justify-between p-3 border border-border rounded-lg">
-                  <div className="space-y-1">
-                    <div className="font-medium">{decision.feature} - {decision.decision}</div>
-                    <div className="text-sm text-muted-foreground">
-                      {new Date(decision.timestamp).toLocaleString()}
-                    </div>
-                    <div className="flex gap-1">
-                      <Badge variant="secondary">{Math.round(decision.confidence * 100)}% confidence</Badge>
-                      {decision.undone && <Badge variant="destructive">Undone</Badge>}
+              {trustData.recentDecisions.map((decision) => {
+                const outcome = getDecisionUserAction(decision);
+                return (
+                  <div key={decision.id} className="flex items-center justify-between p-3 border border-border rounded-lg">
+                    <div className="space-y-1">
+                      <div className="font-medium">{decision.feature} - {decision.decision}</div>
+                      <div className="text-sm text-muted-foreground">
+                        {new Date(decision.timestamp).toLocaleString()}
+                      </div>
+                      <div className="flex gap-1">
+                        <Badge variant="secondary">{Math.round(decision.finalConfidence * 100)}% confidence</Badge>
+                        <Badge variant={outcome ? 'outline' : 'secondary'}>
+                          {outcome || 'Awaiting outcome'}
+                        </Badge>
+                      </div>
                     </div>
                   </div>
-                  {!decision.undone && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleUndoAction(decision.id)}
-                      disabled={Array.from(pendingUndos).some(undo => undo.traceId === decision.id)}
-                    >
-                      <Undo2 className="h-4 w-4 mr-1" />
-                      Undo
-                    </Button>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </CardContent>
