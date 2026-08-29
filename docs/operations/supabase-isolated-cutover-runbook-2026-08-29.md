@@ -29,8 +29,9 @@ source release and immediately before the write freeze.
 
 The current source intentionally fails the new preflight until the Gmail
 Pub/Sub source release is deployed. The expected blockers are the three Gmail
-relations, two Gmail RPCs, four Pub/Sub configuration names, and the live
-`gmail-watch` `verify_jwt` value. Any different blocker needs investigation.
+relations, two Gmail RPCs, five Pub/Sub configuration names, the undeployed
+`oauth-google-revoke` function, and the live `gmail-watch` `verify_jwt` value.
+Any different blocker needs investigation.
 
 ## Canonical allowlists
 
@@ -173,7 +174,7 @@ user, or second user stops the run for a new decision.
 Merge and deploy the combined Mind Manual candidate to the existing project.
 Apply only reviewed append-only SQL because the source migration ledger is
 divergent; do not run a blanket `supabase db push` or mass repair. Deploy the
-new Gmail watch with `verify_jwt=false`, configure the four Pub/Sub settings,
+new Gmail watch with `verify_jwt=false`, configure the five Pub/Sub settings,
 and verify the Google OIDC push boundary before proceeding.
 
 ### 2. Produce the ready source receipt
@@ -238,11 +239,12 @@ decryptable only if the exact existing value reaches the target. If that value
 cannot be recovered safely, omit/expire those credentials and require Google
 reauthorization; never substitute a fallback key.
 
-Configure the four Gmail values introduced by the Pub/Sub implementation:
+Configure the five Gmail values introduced by the Pub/Sub implementation:
 
 - `GMAIL_PUBSUB_TOPIC`;
 - `GMAIL_PUBSUB_SUBSCRIPTION`;
 - `GMAIL_PUBSUB_PUSH_AUDIENCE`;
+- `GMAIL_PUBSUB_PUSH_SERVICE_ACCOUNT`;
 - `GOOGLE_CLOUD_PROJECT_ID`.
 
 Deploy all functions with the JWT modes in the manifest. Do not start schedulers

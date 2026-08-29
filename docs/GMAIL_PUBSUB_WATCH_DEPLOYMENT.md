@@ -82,9 +82,12 @@ gcloud pubsub subscriptions create "$SUBSCRIPTION_ID" \
 
 ## Release order and receipts
 
-1. Apply the OAuth token hardening migration, then
-   `20260829000002_gmail_pubsub_watch.sql`; verify the three tables, two
-   service-role-only RPCs, RLS, grants, and constraints.
+1. Apply `20260829000002_gmail_pubsub_watch.sql`, verify its three tables and
+   two service-role-only RPCs, then apply
+   `20260829000003_harden_generic_oauth_credentials.sql`. Use that ascending,
+   exact-file order so the divergent remote migration ledger stays coherent;
+   do not deploy `gmail-watch` until both migrations, their RLS, grants, and
+   constraints are verified.
 2. Set the five new Edge secrets and verify the existing OAuth secrets.
 3. Deploy `gmail-watch` with the checked-in `verify_jwt = false` configuration.
 4. Create/verify the Google topic IAM and authenticated push subscription.
