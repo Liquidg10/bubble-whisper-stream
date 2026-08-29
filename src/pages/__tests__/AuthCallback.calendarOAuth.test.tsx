@@ -31,8 +31,11 @@ import { AuthCallback } from '@/pages/AuthCallback';
 import {
   CALENDAR_OAUTH_PENDING_KEY,
   CALENDAR_OAUTH_RETURN_PATH,
+  GOOGLE_OAUTH_PENDING_KEY,
+  GOOGLE_OAUTH_RETURN_PATH,
   oauthService,
   storePendingCalendarOAuth,
+  storePendingGoogleOAuth,
 } from '@/services/oauthService';
 
 const state = 'calendar-oauth-state-12345678901234567890';
@@ -171,27 +174,25 @@ describe('AuthCallback same-tab Calendar OAuth', () => {
     expect(JSON.stringify(errorCall)).not.toContain('provider token secret');
   });
 
-  it('keeps an opener callback on the legacy popup path even with a copied marker', async () => {
+  it('never relays an OAuth code through an opener when a secure marker is present', async () => {
     const opener = { postMessage: vi.fn() };
     setOpener(opener);
-    setRoute(`/oauth-callback?code=gmail-code&state=${state}`);
+    setRoute(`/oauth-callback?code=calendar-code&state=${state}`);
     storePendingCalendarOAuth(state);
     const replaceState = vi.spyOn(window.history, 'replaceState');
-    const complete = vi.spyOn(oauthService, 'completeGoogleCalendarOAuth');
-    vi.spyOn(window, 'close').mockImplementation(() => undefined);
+    const complete = vi.spyOn(oauthService, 'completeGoogleCalendarOAuth')
+      .mockResolvedValue(completion);
+    const initialize = vi.spyOn(oauthService, 'initializeCalendarAccount')
+      .mockResolvedValue({} as never);
 
     render(<AuthCallback />);
 
-    await waitFor(() => expect(opener.postMessage).toHaveBeenCalled());
-    expect(complete).not.toHaveBeenCalled();
-    expect(opener.postMessage).toHaveBeenCalledWith({
-      type: 'GOOGLE_OAUTH_SUCCESS',
-      code: 'gmail-code',
-      state,
-    }, window.location.origin);
+    await waitFor(() => expect(complete).toHaveBeenCalledTimes(1));
+    expect(initialize).toHaveBeenCalledTimes(1);
+    expect(opener.postMessage).not.toHaveBeenCalled();
     expect(replaceState).toHaveBeenCalledWith(expect.anything(), expect.any(String), '/oauth-callback');
     expect(replaceState.mock.invocationCallOrder[0]).toBeLessThan(
-      opener.postMessage.mock.invocationCallOrder[0],
+      complete.mock.invocationCallOrder[0],
     );
     expect(window.location.search).toBe('');
     expect(window.location.hash).toBe('');
@@ -207,5 +208,65 @@ describe('AuthCallback same-tab Calendar OAuth', () => {
     await waitFor(() => expect(mocks.navigate).toHaveBeenCalledWith('/'));
     expect(complete).not.toHaveBeenCalled();
     expect(mocks.toastSuccess).toHaveBeenCalledWith('OAuth completed successfully');
+  });
+
+  it('completes Gmail in the same tab without invoking Calendar setup', async () => {
+    setRoute(`/oauth-callback?code=gmail-code&state=${state}#provider-fragment`);
+    storePendingGoogleOAuth(state);
+    const replaceState = vi.spyOn(window.history, 'replaceState');
+    const completeGmail = vi.spyOn(oauthService, 'completeGoogleOAuth')
+      .mockResolvedValue({
+        oauthAccountId: '22222222-2222-4222-8222-222222222222',
+        account: {
+          id: '22222222-2222-4222-8222-222222222222',
+          email: 'mark@example.com',
+          provider: 'google',
+          expiresAt: '2099-01-01T00:00:00.000Z',
+          lastUsedAt: '2026-08-29T00:00:00.000Z',
+        },
+        scopes: ['https://www.googleapis.com/auth/gmail.metadata'],
+      });
+    const completeCalendar = vi.spyOn(oauthService, 'completeGoogleCalendarOAuth');
+    const initializeCalendar = vi.spyOn(oauthService, 'initializeCalendarAccount');
+
+    render(<StrictMode><AuthCallback /></StrictMode>);
+
+    await waitFor(() => expect(completeGmail).toHaveBeenCalledTimes(1));
+    expect(completeGmail).toHaveBeenCalledWith('gmail-code', state);
+    expect(completeCalendar).not.toHaveBeenCalled();
+    expect(initializeCalendar).not.toHaveBeenCalled();
+    expect(replaceState).toHaveBeenCalledWith(expect.anything(), expect.any(String), '/oauth-callback');
+    expect(replaceState.mock.invocationCallOrder[0]).toBeLessThan(
+      completeGmail.mock.invocationCallOrder[0],
+    );
+    expect(sessionStorage.getItem(GOOGLE_OAUTH_PENDING_KEY)).toBeNull();
+    expect(mocks.toastSuccess).toHaveBeenCalledWith(
+      'Gmail connected',
+      expect.objectContaining({ description: expect.stringContaining('stored securely') }),
+    );
+    expect(mocks.navigate).toHaveBeenCalledWith(
+      GOOGLE_OAUTH_RETURN_PATH,
+      { replace: true },
+    );
+  });
+
+  it('fails closed when Calendar and Gmail handoffs are both present', async () => {
+    setRoute(`/oauth-callback?code=code-1&state=${state}`);
+    storePendingCalendarOAuth(state);
+    storePendingGoogleOAuth(state);
+    const completeGmail = vi.spyOn(oauthService, 'completeGoogleOAuth');
+    const completeCalendar = vi.spyOn(oauthService, 'completeGoogleCalendarOAuth');
+
+    render(<AuthCallback />);
+
+    await waitFor(() => expect(mocks.navigate).toHaveBeenCalled());
+    expect(completeGmail).not.toHaveBeenCalled();
+    expect(completeCalendar).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(CALENDAR_OAUTH_PENDING_KEY)).toBeNull();
+    expect(sessionStorage.getItem(GOOGLE_OAUTH_PENDING_KEY)).toBeNull();
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      'Google connection failed',
+      expect.objectContaining({ description: expect.stringContaining('ambiguous') }),
+    );
   });
 });

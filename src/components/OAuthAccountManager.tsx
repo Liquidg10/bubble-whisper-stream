@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -23,11 +23,12 @@ import { ScopeConsentModal } from './ScopeConsentModal';
 import { ScopeDowngradeModal } from './ScopeDowngradeModal';
 import { ScopeStatusIndicator } from './ScopeStatusIndicator';
 import { isFeatureEnabled } from '@/config/flags';
+import type { PlaidAccount } from '@/services/plaidService';
 
 interface ConnectedService {
   type: 'oauth' | 'plaid';
   account?: OAuthAccount;
-  plaidData?: any;
+  plaidData?: PlaidAccount;
 }
 
 export function OAuthAccountManager() {
@@ -35,16 +36,12 @@ export function OAuthAccountManager() {
   const [isLoading, setIsLoading] = useState(true);
   const [showScopeModal, setShowScopeModal] = useState(false);
   const [showDowngradeModal, setShowDowngradeModal] = useState(false);
-  const [pendingScopeRequest, setPendingScopeRequest] = useState<any>(null);
+  const [pendingScopeRequest, setPendingScopeRequest] = useState<ScopeRequest | null>(null);
   const [isUpdatingScopes, setIsUpdatingScopes] = useState(false);
   const [scopeUpdateStatus, setScopeUpdateStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const { toast } = useToast();
 
-  useEffect(() => {
-    loadConnectedServices();
-  }, []);
-
-  const loadConnectedServices = async () => {
+  const loadConnectedServices = useCallback(async () => {
     setIsLoading(true);
     try {
       const [oauthAccounts, plaidAccounts] = await Promise.all([
@@ -68,7 +65,11 @@ export function OAuthAccountManager() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [toast]);
+
+  useEffect(() => {
+    void loadConnectedServices();
+  }, [loadConnectedServices]);
 
   const handleRevokeAccess = async (service: ConnectedService) => {
     try {
@@ -275,20 +276,17 @@ export function OAuthAccountManager() {
     setIsUpdatingScopes(true);
     setScopeUpdateStatus('loading');
     try {
-      // For downgrades, we update the scopes directly in the database
-      // Since we're reducing permissions, no OAuth flow is needed
       const account = services.find(s => s.account?.id === pendingScopeRequest.accountId)?.account;
       if (account) {
-        // Update the account with reduced scopes
-        await oauthService.storeTokens({
-          ...account,
-          scopes: pendingScopeRequest.requiredScopes
-        });
+        // Google grants cannot be honestly narrowed by editing local metadata.
+        // Revoke the provider credential; the user can reconnect with the
+        // minimal scope set shown in the consent flow.
+        await oauthService.revokeAccess(account.id);
         
         setScopeUpdateStatus('success');
         toast({
-          title: "Permissions Reduced",
-          description: `${pendingScopeRequest.service} permissions successfully reduced`,
+          title: "Permissions Removed",
+          description: `Reconnect ${pendingScopeRequest.service} to grant only the minimal permissions`,
         });
         
         await loadConnectedServices();
@@ -495,10 +493,10 @@ export function OAuthAccountManager() {
           onOpenChange={setShowScopeModal}
           request={pendingScopeRequest}
           currentScopes={pendingScopeRequest.currentScopes || []}
-          onApprove={(authUrl) => {
-            window.open(authUrl, '_blank');
+          onApprove={(oauthStart) => {
             setShowScopeModal(false);
             setPendingScopeRequest(null);
+            oauthService.redirectToGoogleOAuth(oauthStart);
           }}
           onDeny={() => {
             setShowScopeModal(false);

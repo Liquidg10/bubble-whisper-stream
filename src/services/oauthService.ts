@@ -37,16 +37,17 @@ export const DEFAULT_SCOPES = {
 
 export interface OAuthAccount {
   id: string;
+  user_id: string;
   provider: 'google-calendar' | 'gmail' | 'google' | 'microsoft' | 'apple' | 'github';
   provider_user_id: string;
-  access_token: string;
-  refresh_token?: string;
   expires_at?: string;
   last_used_at?: string;
   scopes: string[];
   scopes_string?: string;
   account_email: string;
   token_type?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface ScopeRequest {
@@ -75,6 +76,18 @@ export interface GoogleCalendarOAuthResult {
     email: string;
     provider: string;
     calendarId: string;
+  };
+  scopes: string[];
+}
+
+export interface GoogleOAuthResult {
+  oauthAccountId: string;
+  account: {
+    id: string;
+    email: string;
+    provider: string;
+    expiresAt: string | null;
+    lastUsedAt: string | null;
   };
   scopes: string[];
 }
@@ -121,6 +134,8 @@ const GOOGLE_AUTH_ORIGIN = 'https://accounts.google.com';
 const GOOGLE_AUTH_PATH = '/o/oauth2/v2/auth';
 export const CALENDAR_OAUTH_PENDING_KEY = 'mind-manual:calendar-oauth:pending:v1';
 export const CALENDAR_OAUTH_RETURN_PATH = '/settings?tab=integrations';
+export const GOOGLE_OAUTH_PENDING_KEY = 'mind-manual:google-oauth:pending:v1';
+export const GOOGLE_OAUTH_RETURN_PATH = '/settings?tab=integrations';
 const CALENDAR_OAUTH_MARKER_TTL_MS = 4.5 * 60 * 1000;
 
 function functionFailureMessage(
@@ -225,88 +240,69 @@ export function readPendingCalendarOAuth(
   }
 }
 
+export function storePendingGoogleOAuth(
+  state: string,
+  storage: Storage = window.sessionStorage,
+  now = Date.now(),
+): PendingCalendarOAuth {
+  if (!state || state.length > 512) {
+    throw new Error('The OAuth state marker is invalid.');
+  }
+  const marker = { state, expiresAt: now + CALENDAR_OAUTH_MARKER_TTL_MS };
+  storage.setItem(GOOGLE_OAUTH_PENDING_KEY, JSON.stringify(marker));
+  return marker;
+}
+
+export function clearPendingGoogleOAuth(
+  storage: Storage = window.sessionStorage,
+): void {
+  try {
+    storage.removeItem(GOOGLE_OAUTH_PENDING_KEY);
+  } catch {
+    // URL scrubbing and safe callback exit must still work without storage.
+  }
+}
+
+export function readPendingGoogleOAuth(
+  storage: Storage = window.sessionStorage,
+  now = Date.now(),
+): PendingCalendarOAuth | null {
+  let raw: string | null;
+  try {
+    raw = storage.getItem(GOOGLE_OAUTH_PENDING_KEY);
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+
+  try {
+    const marker = JSON.parse(raw) as Record<string, unknown>;
+    const expiresAt = marker.expiresAt;
+    const validExpiry = typeof expiresAt === 'number' &&
+      Number.isFinite(expiresAt) &&
+      expiresAt > now &&
+      expiresAt <= now + CALENDAR_OAUTH_MARKER_TTL_MS;
+    if (
+      typeof marker.state !== 'string' || !marker.state ||
+      marker.state.length > 512 || !validExpiry
+    ) {
+      clearPendingGoogleOAuth(storage);
+      return null;
+    }
+    return { state: marker.state, expiresAt };
+  } catch {
+    clearPendingGoogleOAuth(storage);
+    return null;
+  }
+}
+
 class OAuthService {
-  private encryptionKey: CryptoKey | null = null;
-
-  private async initializeEncryption() {
-    try {
-      // Generate or retrieve encryption key for token storage
-      const keyData = localStorage.getItem('oauth-encryption-key');
-      if (keyData) {
-        const importedKey = await window.crypto.subtle.importKey(
-          'raw',
-          new Uint8Array(JSON.parse(keyData)),
-          { name: 'AES-GCM' },
-          false,
-          ['encrypt', 'decrypt']
-        );
-        this.encryptionKey = importedKey;
-      } else {
-        this.encryptionKey = await window.crypto.subtle.generateKey(
-          { name: 'AES-GCM', length: 256 },
-          true,
-          ['encrypt', 'decrypt']
-        );
-        const exportedKey = await window.crypto.subtle.exportKey('raw', this.encryptionKey);
-        localStorage.setItem('oauth-encryption-key', JSON.stringify(Array.from(new Uint8Array(exportedKey))));
-      }
-    } catch (error) {
-      console.error('Failed to initialize encryption:', error);
-    }
-  }
-
-  private async encryptToken(token: string): Promise<string> {
-    if (!this.encryptionKey) {
-      await this.initializeEncryption();
-    }
-    
-    if (!this.encryptionKey) {
-      throw new Error('Encryption not available');
-    }
-
-    const encoder = new TextEncoder();
-    const data = encoder.encode(token);
-    const iv = window.crypto.getRandomValues(new Uint8Array(12));
-    
-    const encrypted = await window.crypto.subtle.encrypt(
-      { name: 'AES-GCM', iv },
-      this.encryptionKey,
-      data
-    );
-
-    return JSON.stringify({
-      encrypted: Array.from(new Uint8Array(encrypted)),
-      iv: Array.from(iv)
-    });
-  }
-
-  private async decryptToken(encryptedData: string): Promise<string> {
-    if (!this.encryptionKey) {
-      await this.initializeEncryption();
-    }
-    
-    if (!this.encryptionKey) {
-      throw new Error('Encryption not available');
-    }
-
-    const { encrypted, iv } = JSON.parse(encryptedData);
-    
-    const decrypted = await window.crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: new Uint8Array(iv) },
-      this.encryptionKey,
-      new Uint8Array(encrypted)
-    );
-
-    const decoder = new TextDecoder();
-    return decoder.decode(decrypted);
-  }
-
   private async requireAuthenticatedSession(): Promise<AuthenticatedSession> {
     const { data, error } = await supabase.auth.getSession();
     const session = data.session;
 
     if (error || !session?.user || !session.access_token) {
-      throw new Error('Sign in to Mind Manual before connecting Google Calendar.');
+      throw new Error('Sign in to Mind Manual before managing a Google connection.');
     }
 
     return {
@@ -630,97 +626,58 @@ class OAuthService {
   }
 
   async getConnectedAccounts(): Promise<OAuthAccount[]> {
-    const { data: session } = await supabase.auth.getSession();
-    if (!session?.session?.user) return [];
+    const session = await this.requireAuthenticatedSession();
 
     const { data, error } = await supabase
-      .from('oauth_accounts')
-      .select('*')
-      .eq('user_id', session.session.user.id);
+      .from('oauth_accounts_metadata')
+      .select(
+        'id,user_id,provider,provider_user_id,expires_at,last_used_at,scopes,scopes_string,account_email,token_type,created_at,updated_at',
+      )
+      .eq('user_id', session.userId)
+      .order('created_at', { ascending: true });
 
     if (error) {
-      console.error('Failed to fetch OAuth accounts:', error);
-      return [];
+      throw new Error(`Unable to load connected accounts: ${error.message}`);
     }
 
-    // Decrypt tokens and handle both old array and new string scopes
-    const accounts = await Promise.all(
-      (data || []).map(async (account) => ({
-        ...account,
+    return (data || []).map((account) => ({
+        id: account.id,
+        user_id: account.user_id,
         provider: account.provider as OAuthAccount['provider'],
-        access_token: account.access_token ? await this.decryptToken(account.access_token) : '',
-        refresh_token: account.refresh_token ? await this.decryptToken(account.refresh_token) : undefined,
+        provider_user_id: account.provider_user_id,
+        expires_at: account.expires_at || undefined,
+        last_used_at: account.last_used_at || undefined,
         scopes: account.scopes_string
           ? account.scopes_string.split(' ').filter(Boolean)
           : (account.scopes || []),
-        account_email: account.account_email || ''
-      }))
-    );
-
-    return accounts as OAuthAccount[];
+        scopes_string: account.scopes_string || undefined,
+        account_email: account.account_email || '',
+        token_type: account.token_type || undefined,
+        created_at: account.created_at || undefined,
+        updated_at: account.updated_at || undefined,
+      }));
   }
 
-  async storeTokens(account: Partial<OAuthAccount>): Promise<void> {
-    const { data: session } = await supabase.auth.getSession();
-    if (!session?.session?.user) {
-      throw new Error('User not authenticated');
+  async refreshAccessToken(accountId: string): Promise<{ expiresAt: string }> {
+    const receipt = await this.invokeAuthenticated<FunctionResult & {
+      accountId?: unknown;
+      expiresAt?: unknown;
+      access_token?: unknown;
+      refresh_token?: unknown;
+      accessToken?: unknown;
+      refreshToken?: unknown;
+    }>('oauth-google-refresh', { account_id: accountId }, 'Unable to refresh Google access');
+
+    if (
+      'access_token' in receipt || 'refresh_token' in receipt ||
+      'accessToken' in receipt || 'refreshToken' in receipt
+    ) {
+      throw new Error('The OAuth refresh response exposed provider credentials and was rejected.');
     }
-
-    // Use the new scopes_string format and let the server handle encryption
-    const updateData = {
-      user_id: session.session.user.id,
-      provider: account.provider,
-      provider_user_id: account.provider_user_id,
-      access_token: account.access_token,
-      refresh_token: account.refresh_token,
-      expires_at: account.expires_at,
-      last_used_at: new Date().toISOString(),
-      account_email: account.account_email,
-      token_type: account.token_type || 'Bearer',
-      scopes_string: account.scopes
-        ? Array.isArray(account.scopes)
-          ? account.scopes.join(' ')
-          : account.scopes
-        : undefined,
-    };
-
-    const { error } = await supabase
-      .from('oauth_accounts')
-      .upsert(updateData, {
-        onConflict: 'provider,provider_user_id'
-      });
-
-    if (error) {
-      throw new Error(`Failed to store OAuth tokens: ${error.message}`);
+    if (receipt.accountId !== accountId || typeof receipt.expiresAt !== 'string') {
+      throw new Error('Google access refreshed without a valid server receipt.');
     }
-  }
-
-  async refreshAccessToken(account: OAuthAccount): Promise<string> {
-    if (!account.refresh_token || !account.provider.includes('google')) {
-      throw new Error('Cannot refresh token: no refresh token available');
-    }
-
-    // Use our edge function for secure token refresh (no client secret exposure)
-    const { data, error } = await supabase.functions.invoke('oauth-google-refresh', {
-      body: {
-        refresh_token: account.refresh_token,
-        account_id: account.id
-      }
-    });
-
-    if (error) {
-      throw new Error(`Failed to refresh access token: ${error.message}`);
-    }
-
-    // Update stored token via server-side encryption
-    await this.storeTokens({
-      ...account,
-      access_token: data.access_token,
-      expires_at: new Date(Date.now() + data.expires_in * 1000).toISOString(),
-      last_used_at: new Date().toISOString()
-    });
-
-    return data.access_token;
+    return { expiresAt: receipt.expiresAt };
   }
 
   async checkScopePermissions(accountId: string, requiredScopes: string[]): Promise<{
@@ -799,134 +756,136 @@ class OAuthService {
     return { needed: false };
   }
 
-  async requestScopeEscalation(request: ScopeRequest): Promise<string> {
-    // Validate and provide default scopes if requiredScopes is undefined
+  async requestScopeEscalation(request: ScopeRequest): Promise<OAuthStartResult> {
+    if (request.service !== 'email') {
+      throw new Error('Google Calendar uses its dedicated read-only authorization flow.');
+    }
+
     const list = Array.isArray(request.requiredScopes) ? request.requiredScopes : [];
-    const defaultScope = DEFAULT_SCOPES[request.service === 'calendar' ? 'google-calendar' : 'gmail'];
+    const defaultScope = DEFAULT_SCOPES.gmail;
     const scope = list.length ? list.join(' ') : defaultScope;
 
-    // Keep this legacy oauth_accounts path for the existing Gmail integration.
-    let existingScopes: string[] = [];
-    if (request.accountId) {
-      const accounts = await this.getConnectedAccounts();
-      const account = accounts.find(a => a.id === request.accountId);
-      if (account) {
-        existingScopes = account.scopes;
-      }
+    const data = await this.invokeAuthenticated<FunctionResult & {
+      authUrl?: unknown;
+      state?: unknown;
+    }>('oauth-google-start', {
+      scope,
+      service: 'email',
+      reason: request.reason,
+      accountId: request.accountId,
+    }, 'Unable to start Gmail authorization');
+
+    if (typeof data.state !== 'string' || !data.state) {
+      throw new Error('The server did not return an OAuth state value.');
+    }
+    return {
+      authUrl: validateGoogleOAuthUrl(data.authUrl, data.state),
+      state: data.state,
+    };
+  }
+
+  redirectToGoogleOAuth(
+    oauthStart: OAuthStartResult,
+    navigation: Pick<Location, 'assign'> = window.location,
+    storage: Storage = window.sessionStorage,
+  ): void {
+    try {
+      storePendingGoogleOAuth(oauthStart.state, storage);
+    } catch {
+      throw new Error(
+        'Unable to save the secure Google handoff. Enable session storage and try again.',
+      );
     }
 
-    const { data, error } = await supabase.functions.invoke('oauth-google-start', {
-      body: {
-        scope,
-        service: request.service,
-        reason: request.reason,
-        accountId: request.accountId,
-        existingScopes: existingScopes.join(' '),
-        isEscalation: true
-      }
-    });
+    try {
+      navigation.assign(oauthStart.authUrl);
+    } catch {
+      clearPendingGoogleOAuth(storage);
+      throw new Error('Unable to open Google authorization. Please try again.');
+    }
+  }
 
-    if (error) {
-      throw new Error(`Failed to generate OAuth URL: ${error.message}`);
+  async completeGoogleOAuth(code: string, state: string): Promise<GoogleOAuthResult> {
+    if (!code || !state) {
+      throw new Error('Google did not return a complete authorization response.');
     }
 
-    return data.authUrl;
+    const data = await this.invokeAuthenticated<FunctionResult & {
+      oauthAccountId?: unknown;
+      account?: unknown;
+      scopes?: unknown;
+      access_token?: unknown;
+      refresh_token?: unknown;
+    }>('oauth-google-callback', { code, state }, 'Unable to finish Gmail authorization');
+    const accountPayload = data.account && typeof data.account === 'object'
+      ? data.account as Record<string, unknown>
+      : null;
+    if (
+      'access_token' in data || 'refresh_token' in data ||
+      'accessToken' in data || 'refreshToken' in data ||
+      Boolean(accountPayload && (
+        'access_token' in accountPayload || 'refresh_token' in accountPayload ||
+        'accessToken' in accountPayload || 'refreshToken' in accountPayload
+      ))
+    ) {
+      throw new Error('The OAuth response exposed provider credentials and was rejected.');
+    }
+    if (typeof data.oauthAccountId !== 'string' || !data.oauthAccountId) {
+      throw new Error('Google authorization completed without an account receipt.');
+    }
+    if (
+      !accountPayload || typeof accountPayload.id !== 'string' ||
+      typeof accountPayload.email !== 'string' ||
+      typeof accountPayload.provider !== 'string'
+    ) {
+      throw new Error('Google authorization returned an invalid account receipt.');
+    }
+
+    return {
+      oauthAccountId: data.oauthAccountId,
+      account: {
+        id: accountPayload.id,
+        email: accountPayload.email,
+        provider: accountPayload.provider,
+        expiresAt: typeof accountPayload.expiresAt === 'string'
+          ? accountPayload.expiresAt
+          : null,
+        lastUsedAt: typeof accountPayload.lastUsedAt === 'string'
+          ? accountPayload.lastUsedAt
+          : null,
+      },
+      scopes: Array.isArray(data.scopes)
+        ? data.scopes.filter((scope): scope is string => typeof scope === 'string')
+        : [],
+    };
   }
 
   async revokeAccess(accountId: string): Promise<void> {
-    const accounts = await this.getConnectedAccounts();
-    const account = accounts.find(a => a.id === accountId);
-    
-    if (!account) {
-      throw new Error('Account not found');
+    const receipt = await this.invokeAuthenticated<FunctionResult & {
+      accountId?: unknown;
+      providerStatus?: unknown;
+      access_token?: unknown;
+      refresh_token?: unknown;
+      accessToken?: unknown;
+      refreshToken?: unknown;
+    }>('oauth-google-revoke', { account_id: accountId }, 'Unable to revoke Google access');
+    if (
+      'access_token' in receipt || 'refresh_token' in receipt ||
+      'accessToken' in receipt || 'refreshToken' in receipt
+    ) {
+      throw new Error('The OAuth revoke response exposed provider credentials and was rejected.');
     }
-
-    // Revoke with Google
-    if (account.provider === 'google' && account.access_token) {
-      try {
-        await fetch(`https://oauth2.googleapis.com/revoke?token=${account.access_token}`, {
-          method: 'POST'
-        });
-      } catch (error) {
-        console.warn('Failed to revoke token with provider:', error);
-      }
-    }
-
-    // Remove from database
-    const { error } = await supabase
-      .from('oauth_accounts')
-      .delete()
-      .eq('id', accountId);
-
-    if (error) {
-      throw new Error(`Failed to revoke access: ${error.message}`);
+    if (
+      receipt.accountId !== accountId ||
+      !['revoked', 'already-revoked'].includes(String(receipt.providerStatus))
+    ) {
+      throw new Error('Google access was revoked without a valid server receipt.');
     }
   }
 
   // Alias for consistency with plugin naming
   async revokeAccount(accountId: string): Promise<void> {
     return this.revokeAccess(accountId);
-  }
-
-  async handleScopeDecay(): Promise<void> {
-    const accounts = await this.getConnectedAccounts();
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-
-    for (const account of accounts) {
-      const lastUsed = new Date(account.last_used_at || 0);
-      
-      if (lastUsed < thirtyDaysAgo) {
-        // Reduce to minimal scopes
-        const minimalScopes = account.provider === 'google' 
-          ? [SCOPES.GOOGLE_CALENDAR.READ, SCOPES.GMAIL.METADATA]
-          : [];
-
-        await this.storeTokens({
-          ...account,
-          scopes: minimalScopes,
-          last_used_at: new Date().toISOString()
-        });
-      }
-    }
-  }
-
-  async makeAuthenticatedRequest(accountId: string, url: string, options: RequestInit = {}): Promise<Response> {
-    const accounts = await this.getConnectedAccounts();
-    const account = accounts.find(a => a.id === accountId);
-    
-    if (!account) {
-      throw new Error('Account not found');
-    }
-
-    // Check if token is expired or will expire soon (within 5 minutes)
-    const expiresAt = account.expires_at ? new Date(account.expires_at) : null;
-    const isExpired = expiresAt && expiresAt <= new Date();
-    const willExpireSoon = expiresAt && expiresAt <= new Date(Date.now() + 5 * 60 * 1000);
-
-    let accessToken = account.access_token;
-    
-    // Proactively refresh if expired or expiring soon
-    if ((isExpired || willExpireSoon) && account.refresh_token) {
-      console.log('Proactively refreshing token before request');
-      accessToken = await this.refreshAccessToken(account);
-    }
-
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        ...options.headers,
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      }
-    });
-
-    // Update last used timestamp
-    await this.storeTokens({
-      ...account,
-      last_used_at: new Date().toISOString()
-    });
-
-    return response;
   }
 
   /**

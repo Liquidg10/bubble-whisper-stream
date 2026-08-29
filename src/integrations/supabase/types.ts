@@ -1072,8 +1072,10 @@ export type Database = {
           created_at: string
           expires_at: string
           id: string
+          oauth_account_id: string | null
           origin: string
           redirect_uri: string | null
+          requested_scope: string | null
           service: string | null
           state: string
           user_id: string | null
@@ -1084,8 +1086,10 @@ export type Database = {
           created_at?: string
           expires_at?: string
           id?: string
+          oauth_account_id?: string | null
           origin: string
           redirect_uri?: string | null
+          requested_scope?: string | null
           service?: string | null
           state: string
           user_id?: string | null
@@ -1096,8 +1100,10 @@ export type Database = {
           created_at?: string
           expires_at?: string
           id?: string
+          oauth_account_id?: string | null
           origin?: string
           redirect_uri?: string | null
+          requested_scope?: string | null
           service?: string | null
           state?: string
           user_id?: string | null
@@ -1974,6 +1980,90 @@ export type Database = {
       }
     }
     Views: {
+      oauth_accounts_metadata: {
+        Row: {
+          account_email: string | null
+          created_at: string
+          expires_at: string | null
+          id: string
+          last_used_at: string | null
+          provider: string
+          provider_user_id: string
+          scopes: string[] | null
+          scopes_string: string | null
+          token_type: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_email?: string | null
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          last_used_at?: string | null
+          provider?: string
+          provider_user_id?: string
+          scopes?: string[] | null
+          scopes_string?: string | null
+          token_type?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Update: {
+          account_email?: string | null
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          last_used_at?: string | null
+          provider?: string
+          provider_user_id?: string
+          scopes?: string[] | null
+          scopes_string?: string | null
+          token_type?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      oauth_tokens_metadata: {
+        Row: {
+          account_email: string
+          created_at: string
+          id: string
+          provider: string
+          provider_account_id: string | null
+          scope: string
+          service_type: string
+          token_expires_at: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_email?: string
+          created_at?: string
+          id?: string
+          provider?: string
+          provider_account_id?: string | null
+          scope?: string
+          service_type?: string
+          token_expires_at?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Update: {
+          account_email?: string
+          created_at?: string
+          id?: string
+          provider?: string
+          provider_account_id?: string | null
+          scope?: string
+          service_type?: string
+          token_expires_at?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       plaid_items_safe: {
         Row: {
           created_at: string | null
@@ -2053,6 +2143,17 @@ export type Database = {
           code_verifier: string
           origin: string
           redirect_uri: string
+          service: string
+        }[]
+      }
+      consume_google_oauth_state: {
+        Args: { p_state: string; p_user_id: string }
+        Returns: {
+          code_verifier: string
+          oauth_account_id: string | null
+          origin: string
+          redirect_uri: string
+          requested_scope: string
           service: string
         }[]
       }

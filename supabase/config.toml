@@ -37,6 +37,27 @@ verify_jwt = true
 [functions.calendar-sync]
 verify_jwt = true
 
+[functions.oauth-google]
+verify_jwt = true
+
+[functions.oauth-google-start]
+verify_jwt = true
+
+[functions.oauth-google-callback]
+verify_jwt = true
+
+[functions.oauth-google-refresh]
+verify_jwt = true
+
+[functions.oauth-google-revoke]
+verify_jwt = true
+
+[functions.oauth-scope-decay]
+verify_jwt = true
+
+[functions.gmail-sync]
+verify_jwt = true
+
 [functions.gmail-compose]
 verify_jwt = true
 
