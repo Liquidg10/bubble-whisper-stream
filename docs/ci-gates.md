@@ -28,10 +28,15 @@ the explicitly named `chromium-e2e-legacy` project and
 
 Vitest collects only `src/**/*.test.{ts,tsx}`. Browser specs under
 `tests/**/*.spec.ts` are Playwright-owned and must not be counted as jsdom unit
-or integration results. The legacy no-op intelligence "E2E" harness was
-retired; the coverage and explicit browser gaps it represented are recorded in
-`docs/testing/intelligence-integration-coverage.md`. Large collection checks
-assert structural render bounds instead of host-dependent stopwatch budgets.
+or integration results. `npm run test:vitest:ci` runs that complete collection
+with one fork worker and file parallelism disabled, which bounds peak memory;
+`npm run test:unit:ci` remains the smaller blocking pull-request gate. The
+legacy no-op intelligence "E2E" harness was retired; the coverage and explicit
+browser gaps it represented are recorded in
+`docs/testing/intelligence-integration-coverage.md`. The two stale full-App
+workflow scripts and their replacement/gap inventory are recorded in
+`docs/testing/legacy-workflow-retirement.md`. Large collection checks assert
+structural render bounds instead of host-dependent stopwatch budgets.
 
 These gates do not authorize deployment, provider changes, feature-flag
 changes, or user-data mutation.
