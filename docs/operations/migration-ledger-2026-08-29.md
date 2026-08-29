@@ -3,9 +3,10 @@
 Source project: `ekekeywoxvdbfbmqyhjy`  
 Captured: 2026-08-29 via the Supabase Management API and repository filenames.
 
-The ledger is historically divergent: 39 local files, 48 remote ledger rows,
-and only four exact version matches. One local-only entry below is the new,
-not-yet-applied Plaid hardening migration. The one-second timestamp shifts and
+The ledger is historically divergent: 42 local files, 48 remote ledger rows,
+and only four exact version matches. Four local-only entries below are the
+reviewed, not-yet-applied closure migrations for Gmail Pub/Sub, generic OAuth,
+Plaid, and deferred cross-device sync. The one-second timestamp shifts and
 dashboard-era migrations make blanket `migration repair` unsafe. The closure
 path is a live-schema snapshot for the isolated project, followed by a new,
 clean ledger.
@@ -66,7 +67,7 @@ clean ledger.
 20260710033853
 ```
 
-## Local-only versions (35)
+## Local-only versions (38)
 
 ```text
 20250824103151
@@ -103,7 +104,10 @@ clean ledger.
 20260630000005
 20260630000006
 20260630000007
+20260829000002
+20260829000003
 20260829030000
+20260829050000
 ```
 
 ## Reconciliation rule
