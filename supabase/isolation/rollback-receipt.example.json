@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "status": "prepared_not_executed",
+  "sourceProjectRef": "ekekeywoxvdbfbmqyhjy",
+  "targetProjectRef": "replace-with-created-target-ref",
+  "sourcePublicConfigStored": true,
+  "sourceSecretValuesRecorded": false,
+  "sourceReceiptSha256": "replace-before-cutover",
+  "importReceiptSha256": "replace-before-cutover",
+  "storageReceiptSha256": "replace-before-cutover",
+  "quarantineReceiptSha256": "replace-before-cutover",
+  "targetCanaryReceiptSha256": "replace-before-cutover",
+  "externalBindingsManifestSha256": "replace-before-cutover",
+  "rollbackOwner": "owner",
+  "rollbackWindowEndsAt": "YYYY-MM-DDTHH:MM:SSZ",
+  "rollbackSteps": [
+    "Restore the prior Supabase URL and publishable key from the operator secret store.",
+    "Publish the prior application configuration.",
+    "Disable target provider callbacks and restore source callbacks if they were moved.",
+    "Verify signed-in read-only Calendar, Gmail, profile, and sync surfaces on the source."
+  ]
+}

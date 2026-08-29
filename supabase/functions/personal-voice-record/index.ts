@@ -1,6 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { buildVoiceSamplePath } from "./storagePath.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -29,7 +30,9 @@ serve(async (req) => {
     }
 
     // Store voice sample in encrypted storage
-    const fileName = `voice-samples/${user.id}/sample-${sampleIndex}.webm`;
+    // The bucket name is not part of the object path. Keeping the Auth subject
+    // as the first segment is required by the private voice-samples policies.
+    const fileName = buildVoiceSamplePath(user.id, sampleIndex);
     
     // Convert base64 to binary
     const binaryAudio = Uint8Array.from(atob(audioData), c => c.charCodeAt(0));
@@ -83,9 +86,10 @@ serve(async (req) => {
     });
   } catch (error) {
     console.error('Error in personal-voice-record function:', error);
+    const message = error instanceof Error ? error.message : 'Unexpected error';
     return new Response(JSON.stringify({
       success: false,
-      error: error.message
+      error: message
     }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

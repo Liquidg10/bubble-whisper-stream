@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "status": "verified",
+  "targetProjectRef": "replace-with-created-target-ref",
+  "verifiedAt": "YYYY-MM-DDTHH:MM:SSZ",
+  "sourceReceiptSha256": "replace-with-source-receipt-sha256",
+  "importReceiptSha256": "replace-with-import-receipt-sha256",
+  "storageReceiptSha256": "replace-with-storage-receipt-sha256",
+  "quarantineReceiptSha256": "replace-with-quarantine-receipt-sha256",
+  "checks": {
+    "freshPasswordSignIn": true,
+    "profileRead": true,
+    "privatePhotoRead": true,
+    "calendarReadAndBoundedSync": true,
+    "calendarWatchAuthenticatedDelivery": true,
+    "gmailOAuthAndScope": true,
+    "gmailWatchSignedPubsubDelivery": true,
+    "gmailHistoryAdvanceAndReplayIdempotency": true,
+    "gmailComposeAcceptance": true,
+    "syncReadWrite": true,
+    "appBuildAndTestGates": true
+  },
+  "plaidDisposition": "empty",
+  "browserConsoleErrors": 0,
+  "securityAdvisorErrors": 0,
+  "evidenceReceiptSha256": {
+    "authAndProfile": "replace-with-sha256",
+    "privateStorage": "replace-with-sha256",
+    "calendarSync": "replace-with-sha256",
+    "calendarWatch": "replace-with-sha256",
+    "gmailOAuthSync": "replace-with-sha256",
+    "gmailPubsub": "replace-with-sha256",
+    "gmailCompose": "replace-with-sha256",
+    "syncReadWrite": "replace-with-sha256",
+    "securityAndBuild": "replace-with-sha256"
+  }
+}
