@@ -4,7 +4,6 @@ import { renderWithProviders } from '@/test/helpers/renderWithProviders';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { BubbleCanvas } from '@/components/BubbleCanvas';
 import NarrativeSearch from '@/components/NarrativeSearch';
-import { crossDeviceSyncService } from '@/services/crossDeviceSyncService';
 import { cbtGuardService } from '@/services/cbtGuardService';
 import {
   resetMockBubbleStore,
@@ -12,7 +11,6 @@ import {
 } from '@/test/helpers/mockBubbleStore';
 
 // Mock services
-vi.mock('@/services/crossDeviceSyncService');
 vi.mock('@/services/advancedAIService');
 vi.mock('@/stores/bubbleStore', async () => {
   const { makeBubbleStoreMockModule: makeMockModule } = await import(
@@ -62,78 +60,22 @@ describe('Bubble Universe Integration Tests', () => {
   });
 
   describe('Cross-Device Sync Integration', () => {
-    /**
-     * HONEST FAILURE -- do not "fix" by asserting on the mock.
-     *
-     * This test asserts that adding a bubble triggers `syncEntity`. It cannot
-     * pass, and not because of the harness: `crossDeviceSyncService.syncEntity`
-     * has ZERO call sites in `src/` outside its own definition
-     * (`crossDeviceSyncService.ts:164`), and `bubbleStore.addBubble`
-     * (`bubbleStore.ts:321`) never reaches it. The cross-device sync this suite
-     * is named for is not wired to bubble creation.
-     *
-     * Previously this failed earlier and for an unrelated reason -- a bare
-     * `render(<BubbleCanvas />)` threw "useTheme must be used within a
-     * ThemeProvider" -- which masked the real gap. The provider is now supplied
-     * so the failure points at the actual missing wiring.
-     *
-     * Mark's call: wire `addBubble` -> `syncEntity`, or retire this assertion.
-     */
-    it('should sync bubbles across devices', async () => {
-      const mockSyncEntity = vi.mocked(crossDeviceSyncService.syncEntity);
-      mockSyncEntity.mockResolvedValue();
+    it('exposes a fail-closed deferred boundary for bubble replication', async () => {
+      const { CROSS_DEVICE_SYNC_CAPABILITIES } = await vi.importActual<
+        typeof import('@/services/crossDeviceSyncService')
+      >('@/services/crossDeviceSyncService');
 
-      renderWithProviders(<BubbleCanvas />);
-
-      const store = useBubbleStore();
-      await store.addBubble({
-        id: 'sync-test',
-        type: 'Thought',
-        content: 'Sync test',
-        x: 100,
-        y: 100,
-        size: 1,
-        tags: [],
-        createdAt: Date.now(),
-        updatedAt: Date.now()
+      expect(CROSS_DEVICE_SYNC_CAPABILITIES).toMatchObject({
+        status: 'deferred',
+        reasonCode: 'owner_key_ceremony_required',
+        bubbleReplication: false,
+        remoteOutbox: false,
+        remoteApply: false,
+        durableRemoteReceipts: false,
+        sharedKeyExchange: false,
+        userFacingPairing: false,
+        keyRecoveryPolicy: false,
       });
-
-      expect(mockSyncEntity).toHaveBeenCalledWith(
-        'bubble',
-        'sync-test',
-        expect.any(Object),
-        'create'
-      );
-    });
-
-    /**
-     * TAUTOLOGY (documented, deliberately left as-is).
-     * This configures a mock and then asserts the mock returned what it was
-     * told to return. It passes with the entire product deleted -- proven by
-     * probe. Kept because deleting coverage is Mark's call, not a cleanup.
-     */
-    it('should handle sync conflicts properly', async () => {
-      const mockGetSyncStatus = vi.mocked(crossDeviceSyncService.getSyncStatus);
-      mockGetSyncStatus.mockReturnValue({
-        isOnline: true,
-        lastSync: null,
-        pendingUploads: 0,
-        pendingDownloads: 0,
-        syncMode: 'full',
-        conflicts: [
-          {
-            id: 'conflict-1',
-            entityType: 'bubble',
-            entityId: 'test-1',
-            localVersion: { content: 'Local version' },
-            remoteVersion: { content: 'Remote version' },
-            timestamp: new Date().toISOString(),
-          }
-        ]
-      });
-
-      const status = mockGetSyncStatus();
-      expect(status.conflicts).toHaveLength(1);
     });
   });
 

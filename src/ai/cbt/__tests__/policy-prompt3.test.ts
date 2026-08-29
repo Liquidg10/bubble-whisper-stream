@@ -274,11 +274,27 @@ describe('PROMPT 3 Policy Engine', () => {
         end: '08:00'
       };
 
-      // During normal hours, should allow intervention
-      const decision = decide([annotation], userSettings, fatigueState);
+      const originalDate = global.Date;
+      const normalHours = new originalDate();
+      normalHours.setHours(12, 0, 0, 0);
 
-      expect(decision.interventionType).toBe('chip');
-      expect(decision.shouldIntervene).toBe(true);
+      global.Date = class extends originalDate {
+        constructor() {
+          super();
+          return normalHours;
+        }
+        static now() {
+          return normalHours.getTime();
+        }
+      } as typeof Date;
+
+      try {
+        const decision = decide([annotation], userSettings, fatigueState);
+        expect(decision.interventionType).toBe('chip');
+        expect(decision.shouldIntervene).toBe(true);
+      } finally {
+        global.Date = originalDate;
+      }
     });
   });
 

@@ -6,7 +6,8 @@ application can prove locally:
 - TypeScript compilation of the application project and production build.
 - No increase in inherited ESLint or assistant-cohesion findings.
 - A bounded Vitest unit/integration surface covering services, task and voice
-  controls, sync-conflict UI, and calendar-watch authorization helpers.
+  controls, the fail-closed cross-device boundary, and provider authorization
+  helpers.
 - Automated WCAG checks for onboarding plus the current Canvas, List, Kanban,
   and Matrix surfaces in light and dark modes.
 - Current-route rendering, keyboard-help operation, reduced-motion operation,
@@ -20,12 +21,22 @@ scoped changes.
 The broader files under `tests/a11y/` and `tests/e2e/gates/` remain diagnostic
 inventory. Many encode historical routes, selectors, or unimplemented product
 claims and are not release evidence until individually reconciled with the
-current product.
+current product. The `chromium-e2e` Playwright project intentionally selects
+only `current-ui-smoke.spec.ts`; historical browser inventory is isolated under
+the explicitly named `chromium-e2e-legacy` project and
+`npm run test:e2e:legacy`.
 
-The broader Vitest inventory is also diagnostic. It still includes historical
-product expectations and assertion failures; its load-testing file also
-exhausts the current sandbox worker before reporting a test outcome. CI does
-not imply that the full legacy suite is green.
+Vitest collects only `src/**/*.test.{ts,tsx}`. Browser specs under
+`tests/**/*.spec.ts` are Playwright-owned and must not be counted as jsdom unit
+or integration results. `npm run test:vitest:ci` runs that complete collection
+with one fork worker and file parallelism disabled, which bounds peak memory;
+`npm run test:unit:ci` remains the smaller blocking pull-request gate. The
+legacy no-op intelligence "E2E" harness was retired; the coverage and explicit
+browser gaps it represented are recorded in
+`docs/testing/intelligence-integration-coverage.md`. The two stale full-App
+workflow scripts and their replacement/gap inventory are recorded in
+`docs/testing/legacy-workflow-retirement.md`. Large collection checks assert
+structural render bounds instead of host-dependent stopwatch budgets.
 
 These gates do not authorize deployment, provider changes, feature-flag
 changes, or user-data mutation.

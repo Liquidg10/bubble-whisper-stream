@@ -1,9 +1,8 @@
 /**
  * Calendar Offline Extensions
- * Extends OfflineTaskQueue to handle calendar-specific operations
+ * Holds calendar-specific local action prototypes.
  */
 
-import { offlineTaskQueue, type OfflineTask } from './offlineTaskQueue';
 import { Task, TaskId } from '@/types/task';
 import { decisionTraceService } from './decisionTraceService';
 

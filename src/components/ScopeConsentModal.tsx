@@ -21,7 +21,7 @@ import {
   CheckCircle,
   ArrowRight
 } from 'lucide-react';
-import { oauthService, ScopeRequest } from '@/services/oauthService';
+import { oauthService, OAuthStartResult, ScopeRequest } from '@/services/oauthService';
 import { ScopeComparisonView } from './ScopeComparisonView';
 import { ScopeProgressionIndicator } from './ScopeProgressionIndicator';
 import { isFeatureEnabled } from '@/config/flags';
@@ -31,7 +31,7 @@ interface ScopeConsentModalProps {
   onOpenChange: (open: boolean) => void;
   request: ScopeRequest;
   currentScopes?: string[];
-  onApprove: (authUrl: string) => void;
+  onApprove: (oauthStart: OAuthStartResult) => void;
   onDeny: () => void;
 }
 
@@ -97,8 +97,8 @@ export function ScopeConsentModal({
     setIsLoading(true);
     setError(null);
     try {
-      const authUrl = await oauthService.requestScopeEscalation(request);
-      onApprove(authUrl);
+      const oauthStart = await oauthService.requestScopeEscalation(request);
+      onApprove(oauthStart);
     } catch (error) {
       console.error('Failed to generate auth URL:', error);
       setError('Failed to generate authorization URL. Please try again.');

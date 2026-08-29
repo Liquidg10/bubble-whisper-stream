@@ -9,8 +9,8 @@ interface WatchChannel {
   id: string;
   user_id: string;
   provider: 'google-calendar' | 'gmail';
-  resource_id: string;
-  channel_id: string;
+  resource_id?: string;
+  channel_id?: string;
   expires_at: string;
   account_id: string;
   calendar_id?: string; // For calendar watches
@@ -43,12 +43,14 @@ class WatchRenewalService {
       const { data: calendarWatches } = await supabase
         .rpc('get_expiring_watch_channels', { hours_ahead: 24 });
 
-      // Get Gmail watches expiring in the next 7 days
+      // Gmail's canonical Pub/Sub watch state is separate from the legacy
+      // email_accounts/Calendar-channel shape.
       const { data: gmailAccounts } = await supabase
-        .from('email_accounts')
-        .select('*')
-        .not('watch_expiration', 'is', null)
-        .lt('watch_expiration', new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString());
+        .from('gmail_watch_subscriptions')
+        .select('id,user_id,oauth_account_id,watch_expires_at')
+        .eq('status', 'active')
+        .not('watch_expires_at', 'is', null)
+        .lt('watch_expires_at', new Date(Date.now() + 6 * 24 * 60 * 60 * 1000).toISOString());
 
       // Schedule calendar watch renewals
       if (calendarWatches) {
@@ -73,10 +75,8 @@ class WatchRenewalService {
             id: account.id,
             user_id: account.user_id,
             provider: 'gmail',
-            resource_id: account.watch_resource_id,
-            channel_id: account.watch_channel_id,
-            expires_at: account.watch_expiration,
-            account_id: account.id
+            expires_at: account.watch_expires_at!,
+            account_id: account.oauth_account_id
           });
         }
       }
@@ -187,9 +187,7 @@ class WatchRenewalService {
     const { data, error } = await supabase.functions.invoke('gmail-watch', {
       body: {
         action: 'renew',
-        accountId: watch.account_id,
-        oldChannelId: watch.channel_id,
-        oldResourceId: watch.resource_id
+        accountId: watch.account_id
       }
     });
 
@@ -227,9 +225,10 @@ class WatchRenewalService {
       .not('watch_expires_at', 'is', null);
 
     const { data: gmailWatches } = await supabase
-      .from('email_accounts')
+      .from('gmail_watch_subscriptions')
       .select('id')
-      .not('watch_expiration', 'is', null);
+      .eq('status', 'active')
+      .not('watch_expires_at', 'is', null);
 
     // Find the next scheduled renewal
     let nextRenewal: Date | undefined;

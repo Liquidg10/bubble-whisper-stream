@@ -234,16 +234,16 @@ class WatchHealthProductionService {
 
       // Similar process for Gmail watches
       const { data: expiringGmail } = await supabase
-        .from('email_accounts')
-        .select('id, watch_expiration, account_email')
-        .eq('provider', 'gmail')
-        .not('watch_expiration', 'is', null)
-        .lte('watch_expiration', new Date(renewalWindow).toISOString());
+        .from('gmail_watch_subscriptions')
+        .select('oauth_account_id, watch_expires_at, account_email')
+        .eq('status', 'active')
+        .not('watch_expires_at', 'is', null)
+        .lte('watch_expires_at', new Date(renewalWindow).toISOString());
 
       if (expiringGmail) {
         for (const account of expiringGmail) {
           try {
-            await gmailHealthService.renewWatchChannel(account.id);
+            await gmailHealthService.renewWatchChannel(account.oauth_account_id);
             logger.info(`Proactively renewed Gmail watch for ${account.account_email}`);
           } catch (error) {
             logger.error(`Failed to renew Gmail watch for ${account.account_email}`, error);

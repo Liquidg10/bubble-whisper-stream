@@ -154,23 +154,31 @@ describe('CBT Actions', () => {
       expect(result!.text).toMatch(/overwhelming|scary|worst-case/i);
     });
 
-    it('should provide appropriate responses for overgeneralization', () => {
-      const decision: CBTDecision = {
-        shouldIntervene: true,
-        interventionType: 'chip',
-        reason: 'Overgeneralization detected',
-        targetDistortions: ['overgeneralization'],
-        priority: 'medium',
-        cooldownMinutes: 60,
-        metadata: { fatigueScore: 0, policyMatch: 'test', confidence: 0.8 }
-      };
-      
-      const result = render(decision);
-      
-      expect(result!.data?.distortionType).toBe('overgeneralization');
-      // Should ask about exceptions or specific situations
-      expect(result!.text).toMatch(/exception|time when|specific|pattern/i);
-    });
+    it.each([0, 1])(
+      'should keep overgeneralization acknowledgment variant %i distortion-specific',
+      (responseIndex) => {
+        const decision: CBTDecision = {
+          shouldIntervene: true,
+          interventionType: 'chip',
+          reason: 'Overgeneralization detected',
+          targetDistortions: ['overgeneralization'],
+          priority: 'medium',
+          cooldownMinutes: 60,
+          metadata: { fatigueScore: 0, policyMatch: 'test', confidence: 0.8 }
+        };
+
+        const result = render(decision, () => responseIndex);
+
+        expect(result!.type).toBe('ack');
+        expect(result!.data?.distortionType).toBe('overgeneralization');
+        expect(result!.text).not.toHaveLength(0);
+        expect(result!.data?.explainability).toMatch(/generalizing|always happens/i);
+        expect(result!.data?.reframes).toEqual(expect.arrayContaining([
+          expect.stringMatching(/universal rule/i),
+          expect.stringMatching(/sample size/i),
+        ]));
+      },
+    );
   });
 
   describe('Action Display Formatting', () => {

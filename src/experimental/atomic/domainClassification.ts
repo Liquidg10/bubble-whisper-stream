@@ -10,7 +10,7 @@ export function classifyBubbleDomain(bubble: Bubble): string {
 
   if (allText.match(/money|budget|finance|pay|cost|expense|income|invest/)) domain = 'Financial';
   else if (allText.match(/child|parent|family|kid|school|homework|bedtime/)) domain = 'Parenting';
-  else if (allText.match(/anxiety|mood|mental|therapy|stress|depression|wellness/)) domain = 'Mental';
+  else if (allText.match(/anxiety|anxious|mood|mental|therapy|stress|depression|wellness/)) domain = 'Mental';
   else if (allText.match(/work|job|career|meeting|deadline|project|colleague/)) domain = 'Work';
   else if (allText.match(/home|house|clean|chore|repair|garden|cook|laundry/)) domain = 'Home';
   else if (allText.match(/friend|relationship|social|date|partner|marriage/)) domain = 'Relationships';

@@ -3,6 +3,12 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { CBTChip } from '../CBTChip';
 import type { CBTAction } from '@/ai/cbt/types';
 
+const { mockUseAccessibility } = vi.hoisted(() => ({
+  mockUseAccessibility: vi.fn(() => ({
+    settings: { reducedMotion: false }
+  }))
+}));
+
 // Mock services
 vi.mock('@/services/cbtCopyService', () => ({
   getChipCopy: vi.fn(() => ({
@@ -26,9 +32,7 @@ vi.mock('@/utils/copyPolish', () => ({
 }));
 
 vi.mock('@/components/AccessibilityProvider', () => ({
-  useAccessibility: () => ({
-    settings: { reducedMotion: false }
-  })
+  useAccessibility: mockUseAccessibility
 }));
 
 vi.mock('@/hooks/use-toast', () => ({
@@ -53,6 +57,9 @@ describe('CBTChip', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockUseAccessibility.mockReturnValue({
+      settings: { reducedMotion: false }
+    });
   });
 
   it('renders chip with enhanced copy', () => {
@@ -175,11 +182,9 @@ describe('CBTChip', () => {
   });
 
   it('applies reduced motion when preferred', () => {
-    const mockAccessibility = vi.fn(() => ({
+    mockUseAccessibility.mockReturnValue({
       settings: { reducedMotion: true }
-    }));
-    
-    vi.mocked(require('@/components/AccessibilityProvider').useAccessibility).mockImplementation(mockAccessibility);
+    });
 
     render(
       <CBTChip

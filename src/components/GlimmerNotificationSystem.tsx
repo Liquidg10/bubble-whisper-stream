@@ -8,6 +8,7 @@ import { glimmerService } from '@/services/glimmerService';
 import { ttsService } from '@/services/tts';
 import { Glimmer, GlimmerTone } from '@/types/bubble';
 import { useAccessibility } from './AccessibilityProvider';
+import { useBubbleStore } from '@/stores/bubbleStore';
 
 const TONE_ICONS = {
   supportive: Heart,
@@ -27,8 +28,16 @@ export function GlimmerNotificationSystem() {
   const [activeGlimmer, setActiveGlimmer] = useState<Glimmer | null>(null);
   const [isVisible, setIsVisible] = useState(false);
   const { announceText, settings } = useAccessibility();
+  const { settings: bubbleSettings } = useBubbleStore();
+  const glimmersEnabled = bubbleSettings.intelligenceEnabled !== false && bubbleSettings.glimmersEnabled !== false;
 
   useEffect(() => {
+    if (!glimmersEnabled) {
+      setActiveGlimmer(null);
+      setIsVisible(false);
+      return;
+    }
+
     const checkForGlimmers = async () => {
       try {
         const glimmer = await glimmerService.generateGlimmer();
@@ -57,7 +66,7 @@ export function GlimmerNotificationSystem() {
     checkForGlimmers();
 
     return () => clearInterval(interval);
-  }, [announceText]);
+  }, [announceText, glimmersEnabled]);
 
   const handleDismiss = async () => {
     if (activeGlimmer) {

@@ -17,7 +17,9 @@ export const flags = {
   outliner: true,
   focusMode: true,
   prioritizer: true,
-  sync: true,
+  // Remote replication is intentionally unavailable pending an owner-approved
+  // device-pairing and lost-key recovery ceremony.
+  sync: false,
   searchV2: true,
   ambientModes: true,
   budget: true,
@@ -68,8 +70,9 @@ export const flags = {
   // Micro-Prompt Policy Engine
   adaptiveRemindersEnabled: true, // Micro-prompt policy and throttling
   
-  // CRDT Pilot (P17 - Local-first multi-device) - PRODUCTION PILOT
-  crdtPilot: true, // ENABLED - P17 production pilot for internal testing cohort
+  // CRDT transport remains an isolated development prototype. It must not be
+  // enabled as a production pilot without real transport/apply receipts.
+  crdtPilot: false,
   
   // Persona Cast System (P18 - Evidence-based guidance)
   personaOrchestration: false, // OFF by default - development/testing only
@@ -163,11 +166,18 @@ export const flags = {
 
 export type FeatureFlag = keyof typeof flags;
 
+/** Capabilities that cannot be revived through a stale localStorage override. */
+export const RELEASE_LOCKED_FLAGS: readonly FeatureFlag[] = ['sync', 'crdtPilot'] as const;
+
 /**
  * Check if a feature flag is enabled
  * Supports localStorage overrides for development
  */
 export function isFeatureEnabled(flag: FeatureFlag): boolean {
+  if (RELEASE_LOCKED_FLAGS.includes(flag)) {
+    return false;
+  }
+
   // Check kill switch for auto-write features
   if (isAutoWriteFeature(flag) && isKillSwitchActive()) {
     return false;

@@ -222,15 +222,14 @@ describe('CBTTraceService', () => {
 
   describe('Privacy and Retention', () => {
     it('should preserve archived traces during retention cleanup', async () => {
-      // Create an old trace and archive it
-      const oldTrace = {
-        ...mockTrace,
-        createdAt: Date.now() - (40 * 24 * 60 * 60 * 1000), // 40 days old
-        timestamp: Date.now() - (40 * 24 * 60 * 60 * 1000)
-      };
-      
-      const traceId = await traceService.persist(oldTrace, true);
+      // Persist first because persist() enforces retention immediately. Then
+      // archive and age the stored trace to verify the exemption itself.
+      const traceId = await traceService.persist(mockTrace, true);
       traceService.archiveTrace(traceId!);
+      const archived = traceService.getById(traceId!);
+      const oldTimestamp = Date.now() - (40 * 24 * 60 * 60 * 1000);
+      archived!.createdAt = oldTimestamp;
+      archived!.timestamp = oldTimestamp;
 
       // Simulate retention policy enforcement
       await (traceService as any).enforceRetentionPolicy();

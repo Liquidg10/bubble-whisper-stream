@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -10,7 +10,7 @@ import { Separator } from '@/components/ui/separator';
 import { Loader2, Mail, Plus, X, AlertCircle, CheckCircle2, ExternalLink } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useBubbleStore } from '@/stores/bubbleStore';
-import { oauthService } from '@/services/oauthService';
+import { oauthService, type ScopeRequest } from '@/services/oauthService';
 import { ScopeConsentModal } from '@/components/ScopeConsentModal';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -44,45 +44,53 @@ interface EmailFilters {
   unreadOnly: boolean;
 }
 
+const DEFAULT_EMAIL_FILTERS: EmailFilters = {
+  keywords: [],
+  senders: [],
+  importantOnly: true,
+  unreadOnly: false,
+};
+
+interface GmailMessageReference {
+  id: string;
+}
+
+interface GmailHeader {
+  name: string;
+  value: string;
+}
+
+interface GmailMessageDetails {
+  id: string;
+  payload?: { headers?: GmailHeader[] };
+  snippet?: string;
+  labelIds?: string[];
+  threadId?: string;
+}
+
+function isGmailMessageReference(value: unknown): value is GmailMessageReference {
+  return Boolean(
+    value && typeof value === 'object' &&
+    'id' in value && typeof value.id === 'string' && value.id,
+  );
+}
+
 export const EmailIntegrationPlugin: React.FC = () => {
   const [isEnabled, setIsEnabled] = useState(false);
   const [connectedAccounts, setConnectedAccounts] = useState<EmailAccount[]>([]);
   const [emails, setEmails] = useState<EmailMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingEmails, setIsLoadingEmails] = useState(false);
-  const [scopeRequest, setScopeRequest] = useState<any>(null);
-  const [filters, setFilters] = useState<EmailFilters>({
-    keywords: [],
-    senders: [],
-    importantOnly: true,
-    unreadOnly: false,
-  });
+  const [scopeRequest, setScopeRequest] = useState<ScopeRequest | null>(null);
+  const [filters, setFilters] = useState<EmailFilters>(DEFAULT_EMAIL_FILTERS);
   const [keywordInput, setKeywordInput] = useState('');
   const [senderInput, setSenderInput] = useState('');
 
   const { toast } = useToast();
   const { addBubble } = useBubbleStore();
 
-  // Load settings and accounts on mount
-  useEffect(() => {
-    const savedSettings = localStorage.getItem('emailIntegrationSettings');
-    if (savedSettings) {
-      const settings = JSON.parse(savedSettings);
-      setIsEnabled(settings.enabled || false);
-      setFilters(settings.filters || filters);
-    }
-    loadEmailAccounts();
-  }, []);
-
-  // Load emails when enabled or filters change
-  useEffect(() => {
-    if (isEnabled && connectedAccounts.length > 0) {
-      loadImportantEmails();
-    }
-  }, [isEnabled, filters, connectedAccounts]);
-
   // Load email accounts from OAuth service
-  const loadEmailAccounts = async () => {
+  const loadEmailAccounts = useCallback(async () => {
     try {
       const accounts = await oauthService.getConnectedAccounts();
       const gmailAccounts = accounts
@@ -101,10 +109,10 @@ export const EmailIntegrationPlugin: React.FC = () => {
     } catch (error) {
       console.error('Failed to load email accounts:', error);
     }
-  };
+  }, []);
 
   // Load emails using real Gmail API
-  const loadImportantEmails = async () => {
+  const loadImportantEmails = useCallback(async () => {
     if (connectedAccounts.length === 0) return;
     
     setIsLoadingEmails(true);
@@ -152,21 +160,25 @@ export const EmailIntegrationPlugin: React.FC = () => {
       if (error) throw error;
 
       // Get message details for each message
+      const listedMessages = data && Array.isArray(data.messages)
+        ? data.messages.filter(isGmailMessageReference)
+        : [];
       const messageDetails = await Promise.all(
-        (data.messages || []).slice(0, 10).map(async (msg: any) => {
-          const { data: details } = await supabase.functions.invoke('gmail-sync', {
+        listedMessages.slice(0, 10).map(async (msg) => {
+          const { data: rawDetails } = await supabase.functions.invoke('gmail-sync', {
             body: {
               accountId: account.id,
               operation: 'get',
               messageId: msg.id
             }
           });
+          const details = rawDetails as GmailMessageDetails | null;
           
           if (details) {
             const headers = details.payload?.headers || [];
-            const subject = headers.find((h: any) => h.name === 'Subject')?.value || 'No Subject';
-            const from = headers.find((h: any) => h.name === 'From')?.value || 'Unknown Sender';
-            const date = headers.find((h: any) => h.name === 'Date')?.value;
+            const subject = headers.find((header) => header.name === 'Subject')?.value || 'No Subject';
+            const from = headers.find((header) => header.name === 'From')?.value || 'Unknown Sender';
+            const date = headers.find((header) => header.name === 'Date')?.value;
             
             return {
               id: details.id,
@@ -195,7 +207,28 @@ export const EmailIntegrationPlugin: React.FC = () => {
     } finally {
       setIsLoadingEmails(false);
     }
-  };
+  }, [connectedAccounts, filters, toast]);
+
+  // Load settings and accounts on mount.
+  useEffect(() => {
+    const savedSettings = localStorage.getItem('emailIntegrationSettings');
+    if (savedSettings) {
+      const settings = JSON.parse(savedSettings) as Partial<{
+        enabled: boolean;
+        filters: EmailFilters;
+      }>;
+      setIsEnabled(settings.enabled ?? false);
+      setFilters(settings.filters || DEFAULT_EMAIL_FILTERS);
+    }
+    void loadEmailAccounts();
+  }, [loadEmailAccounts]);
+
+  // Load emails when enabled or the memoized account/filter input changes.
+  useEffect(() => {
+    if (isEnabled && connectedAccounts.length > 0) {
+      void loadImportantEmails();
+    }
+  }, [connectedAccounts.length, isEnabled, loadImportantEmails]);
 
   // Real Gmail OAuth connection
   const connectGmailAccount = async () => {
@@ -203,37 +236,13 @@ export const EmailIntegrationPlugin: React.FC = () => {
     
     try {
       // Request minimal Gmail metadata scope initially
-      const authUrl = await oauthService.requestScopeEscalation({
+      const oauthStart = await oauthService.requestScopeEscalation({
         provider: 'google',
         service: 'email',
         requiredScopes: ['https://www.googleapis.com/auth/gmail.metadata'],
         reason: 'Access email headers and basic information'
       });
-      
-      // Open OAuth flow in popup
-      const popup = window.open(authUrl, 'oauth', 'width=500,height=600');
-      
-      // Handle OAuth callback
-      const handleMessage = async (event: MessageEvent) => {
-        if (event.origin !== window.location.origin) return;
-        
-        if (event.data.type === 'GOOGLE_OAUTH_SUCCESS') {
-          popup?.close();
-          await loadEmailAccounts();
-          toast({
-            title: "Gmail Connected",
-            description: "Gmail has been successfully connected.",
-          });
-        } else if (event.data.type === 'GOOGLE_OAUTH_ERROR') {
-          popup?.close();
-          throw new Error(event.data.error);
-        }
-        
-        window.removeEventListener('message', handleMessage);
-      };
-
-      window.addEventListener('message', handleMessage);
-      
+      oauthService.redirectToGoogleOAuth(oauthStart);
     } catch (error) {
       console.error('Failed to initiate Gmail connection:', error);
       toast({
@@ -645,13 +654,9 @@ export const EmailIntegrationPlugin: React.FC = () => {
           open={!!scopeRequest}
           onOpenChange={(open) => !open && setScopeRequest(null)}
           request={scopeRequest}
-          onApprove={(authUrl) => {
-            window.open(authUrl, '_blank', 'width=500,height=600');
+          onApprove={(oauthStart) => {
             setScopeRequest(null);
-            toast({
-              title: "Gmail Connection",
-              description: "Complete the authorization in the popup window",
-            });
+            oauthService.redirectToGoogleOAuth(oauthStart);
           }}
           onDeny={() => {
             setScopeRequest(null);

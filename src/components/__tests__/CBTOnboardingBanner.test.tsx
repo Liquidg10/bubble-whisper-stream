@@ -161,21 +161,12 @@ describe('CBTOnboardingBanner', () => {
   });
 
   it('applies accessibility attributes', () => {
-    // NOT FIXED -- left failing on purpose. Source-verified real gap, not a
-    // stale query: the component has no `role="banner"`, no `aria-label`
-    // containing "CBT" anywhere, and none of its buttons set
-    // `aria-describedby` (src/components/CBTOnboardingBanner.tsx, full read,
-    // REVIVE Run 83). Fixing this means adding real accessibility attributes
-    // to product code, outside REVIVE's test-harness-only bar (same call as
-    // Run 78's Bucket B). Flagged for Mark, not silently weakened or removed.
     renderWithProviders(<CBTOnboardingBanner />);
 
-    const banner = screen.getByRole('banner');
-    expect(banner).toHaveAttribute('aria-label', expect.stringContaining('CBT'));
-
-    const buttons = screen.getAllByRole('button');
-    buttons.forEach(button => {
-      expect(button).toHaveAttribute('aria-describedby');
-    });
+    const dialog = screen.getByRole('dialog', { name: 'Would you like gentle check-ins?' });
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(dialog).toHaveAccessibleDescription(
+      "I've noticed some patterns and would love to offer optional support"
+    );
   });
 });

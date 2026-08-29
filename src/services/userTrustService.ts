@@ -17,11 +17,23 @@ export interface ContactTrustData {
 }
 
 export interface CalendarTrustData {
+  calendarAccountId: string;
   calendarId: string;
   calendarName: string;
+  accountEmail: string;
   isWhitelisted: boolean;
   autoWriteEnabled: boolean;
   trustLevel: 'high' | 'medium' | 'low';
+}
+
+interface CalendarAccountTrustRow {
+  id: string;
+  account_email: string;
+  account_name: string;
+  calendar_id: string | null;
+  calendar_name: string | null;
+  is_primary: boolean | null;
+  sync_enabled: boolean | null;
 }
 
 export interface TrustPreferences {
@@ -137,29 +149,40 @@ class UserTrustService {
     try {
       const { data, error } = await supabase
         .from('calendar_accounts')
-        .select('*')
+        .select('id, account_email, account_name, calendar_id, calendar_name, is_primary, sync_enabled')
         .eq('calendar_id', calendarId)
         .maybeSingle();
       
       if (error || !data) {
         return null;
       }
-      
-      // Check if calendar is in whitelist (stored in local storage for now)
-      const preferences = this.getTrustPreferences();
-      const isWhitelisted = preferences.whitelistedDomains.some(domain => 
-        data.account_email.endsWith(domain)
-      );
-      
-      return {
-        calendarId: data.calendar_id,
-        calendarName: data.calendar_name || data.account_name,
-        isWhitelisted,
-        autoWriteEnabled: data.sync_enabled && isWhitelisted,
-        trustLevel: data.is_primary ? 'high' : isWhitelisted ? 'medium' : 'low'
-      };
+
+      return this.toCalendarTrustData(data);
     } catch (error) {
       console.warn('Error getting calendar trust:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Resolve trust from the canonical account id used by calendar-write calls.
+   * The previous calendar-id-only API could not truthfully replace the
+   * hardcoded trust literals because callers hold `calendar_accounts.id`.
+   */
+  async getCalendarTrustByAccountId(
+    calendarAccountId: string
+  ): Promise<CalendarTrustData | null> {
+    try {
+      const { data, error } = await supabase
+        .from('calendar_accounts')
+        .select('id, account_email, account_name, calendar_id, calendar_name, is_primary, sync_enabled')
+        .eq('id', calendarAccountId)
+        .maybeSingle();
+
+      if (error || !data) return null;
+      return this.toCalendarTrustData(data);
+    } catch (error) {
+      console.warn('Error getting calendar account trust:', error);
       return null;
     }
   }
@@ -173,9 +196,11 @@ class UserTrustService {
       if (!calendarData) return;
       
       const preferences = this.getTrustPreferences();
-      const domain = calendarData.calendarName.split('@')[1];
+      const domain = this.getEmailDomain(calendarData.accountEmail);
       
-      if (domain && !preferences.whitelistedDomains.includes(domain)) {
+      if (domain && !preferences.whitelistedDomains.some(
+        candidate => this.normalizeDomain(candidate) === domain
+      )) {
         preferences.whitelistedDomains.push(domain);
         this.saveTrustPreferences(preferences);
       }
@@ -320,6 +345,37 @@ class UserTrustService {
       whitelistedDomains: [],
       blockedDomains: ['spam.com', 'noreply.com']
     };
+  }
+
+  private toCalendarTrustData(row: CalendarAccountTrustRow): CalendarTrustData {
+    const accountDomain = this.getEmailDomain(row.account_email);
+    const preferences = this.getTrustPreferences();
+    const whitelistedDomains = new Set(
+      preferences.whitelistedDomains
+        .map(domain => this.normalizeDomain(domain))
+        .filter(Boolean)
+    );
+    const isWhitelisted = accountDomain !== null && whitelistedDomains.has(accountDomain);
+
+    return {
+      calendarAccountId: row.id,
+      calendarId: row.calendar_id || row.id,
+      calendarName: row.calendar_name || row.account_name,
+      accountEmail: row.account_email,
+      isWhitelisted,
+      autoWriteEnabled: row.sync_enabled === true && isWhitelisted,
+      trustLevel: row.is_primary ? 'high' : isWhitelisted ? 'medium' : 'low'
+    };
+  }
+
+  private getEmailDomain(email: string): string | null {
+    const atIndex = email.lastIndexOf('@');
+    if (atIndex <= 0 || atIndex === email.length - 1) return null;
+    return this.normalizeDomain(email.slice(atIndex + 1)) || null;
+  }
+
+  private normalizeDomain(domain: string): string {
+    return domain.trim().toLowerCase().replace(/^@/, '');
   }
   
   /**

@@ -1,0 +1,13 @@
+# binding	owner	target_template	required_action
+calendar_oauth_redirect	Google Cloud	https://{PROJECT_REF}.supabase.co/functions/v1/calendar-oauth-callback	add before target Calendar OAuth canary; retain source through rollback window
+supabase_google_auth_redirect	Google Cloud	https://{PROJECT_REF}.supabase.co/auth/v1/callback	add before target Google sign-in canary; retain source through rollback window
+gmail_oauth_app_redirect	Google Cloud	https://bubble-whisper-stream.lovable.app/oauth-callback	retain unchanged for the app-hosted Gmail OAuth handoff
+calendar_push_endpoint	Google Calendar	https://{PROJECT_REF}.supabase.co/functions/v1/calendar-watch	recreate watch channels after target deploy; never copy source channel rows as active
+gmail_pubsub_push_endpoint	Google Cloud Pub/Sub	https://{PROJECT_REF}.supabase.co/functions/v1/gmail-watch	update push subscription endpoint after target OIDC audience is configured
+gmail_pubsub_oidc_audience	Google Cloud Pub/Sub	https://{PROJECT_REF}.supabase.co/functions/v1/gmail-watch	set exact audience in subscription and GMAIL_PUBSUB_PUSH_AUDIENCE
+plaid_webhook_endpoint	Plaid	https://{PROJECT_REF}.supabase.co/functions/v1/plaid-webhook-handler	update only after target handler/authentication canary; retain source for rollback
+supabase_auth_site_url	Supabase Auth	https://bubble-whisper-stream.lovable.app	set exact production origin
+supabase_auth_callback	Supabase Auth	https://bubble-whisper-stream.lovable.app/auth/callback	add exact redirect allowlist entry
+supabase_oauth_callback	Supabase Auth	https://bubble-whisper-stream.lovable.app/oauth-callback	add exact redirect allowlist entry
+lovable_supabase_url	Lovable	https://{PROJECT_REF}.supabase.co	change only at the cutover confirmation gate
+lovable_publishable_key	Lovable	TARGET_PROJECT_PUBLISHABLE_KEY	change only at the cutover confirmation gate; never store in receipt

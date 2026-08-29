@@ -7,7 +7,7 @@ import { assistantCohesionService } from '@/services/assistantCohesionService';
 import { becauseExplanationService } from '@/services/becauseExplanationService';
 import { oauthIncrementalService } from '@/services/oauthIncrementalService';
 import { taskAwareAutoWriteService } from '@/services/taskAwareAutoWriteService';
-import { crdtService } from '@/services/crdtService';
+import { CROSS_DEVICE_SYNC_CAPABILITIES } from '@/services/crossDeviceSyncService';
 
 interface E2EGateResult {
   passed: boolean;
@@ -263,23 +263,27 @@ export class E2EImplementationGate {
   
   private async checkCRDTPilot(): Promise<E2EGateResult> {
     try {
-      // CRDT should be available but disabled by default
-      const isEnabled = crdtService.isEnabled();
-      const canEnable = typeof crdtService.enable === 'function';
-      
-      const passed = !isEnabled && canEnable;
+      const passed =
+        CROSS_DEVICE_SYNC_CAPABILITIES.status === 'deferred' &&
+        !CROSS_DEVICE_SYNC_CAPABILITIES.bubbleReplication &&
+        !CROSS_DEVICE_SYNC_CAPABILITIES.remoteOutbox &&
+        !CROSS_DEVICE_SYNC_CAPABILITIES.remoteApply &&
+        !CROSS_DEVICE_SYNC_CAPABILITIES.durableRemoteReceipts &&
+        !CROSS_DEVICE_SYNC_CAPABILITIES.sharedKeyExchange;
       
       return {
         passed,
-        component: 'CRDT Pilot (P17)',
-        description: 'Automerge offline sync ready',
-        details: passed ? 'CRDT available behind feature flag' : 'CRDT not properly configured'
+        component: 'Cross-device release boundary (P17)',
+        description: 'Remote replication remains fail-closed',
+        details: passed
+          ? CROSS_DEVICE_SYNC_CAPABILITIES.reason
+          : 'Cross-device replication was exposed without its required proof contract'
       };
     } catch (error) {
       return {
         passed: false,
-        component: 'CRDT Pilot (P17)',
-        description: 'Automerge offline sync ready',
+        component: 'Cross-device release boundary (P17)',
+        description: 'Remote replication remains fail-closed',
         details: `Error: ${error}`
       };
     }

@@ -530,12 +530,15 @@ export function TelemetryDashboard() {
                 </div>
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-sm font-medium">Cloud Sync</div>
-                    <div className="text-xs text-muted-foreground">Sync data across devices</div>
+                    <div className="text-sm font-medium">Cloud Sync (not available)</div>
+                    <div className="text-xs text-muted-foreground">
+                      Remote replication and durable sync receipts are not enabled in this build
+                    </div>
                   </div>
                   <Switch
-                    checked={consentSettings.cloudSyncEnabled}
-                    onCheckedChange={(checked) => handleConsentToggle('cloudSyncEnabled', checked)}
+                    checked={false}
+                    disabled
+                    aria-label="Cloud sync is not available"
                   />
                 </div>
                 <div className="flex items-center justify-between">

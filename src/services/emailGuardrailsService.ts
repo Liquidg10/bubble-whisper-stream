@@ -124,12 +124,16 @@ class EmailGuardrailsService {
     };
 
     // Record decision trace
-    const traceId = decisionTraceService.addTrace({
+    decisionTraceService.addTrace({
       feature: 'email',
       signals,
       confidenceThreshold: this.HIGH_CONFIDENCE_THRESHOLD,
       finalConfidence: confidence,
-      decision: decision === 'auto-send' ? 'auto-write' : decision === 'draft-only' ? 'draft' : 'skip',
+      decision:
+        decision === 'auto-send' ? 'auto-write'
+        : decision === 'draft-only' ? 'draft'
+        : decision === 'confirmation-required' ? 'draft-ask'
+        : 'skip',
       action: result.canAutoSend ? 'auto_send' : result.canDraft ? 'create_draft' : 'block',
       becauseText: `Email composition decision: ${decision} (${Math.round(confidence * 100)}% confidence)`,
       undoable: true,

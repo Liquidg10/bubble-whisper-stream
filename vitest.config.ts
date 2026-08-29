@@ -1,6 +1,5 @@
 import { defineConfig } from 'vitest/config';
-import react from '@vitejs/plugin-react-swc';
-import path from 'path';
+import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
@@ -9,10 +8,14 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     css: true,
+    // Browser specs under tests/**/*.spec.ts belong to Playwright. Without an
+    // explicit boundary Vitest also collected them, producing duplicate and
+    // misleading "full suite" results under the wrong runtime.
+    include: ['src/**/*.test.{ts,tsx}'],
   },
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
+      '@': new URL('./src', import.meta.url).pathname,
     },
   },
 });

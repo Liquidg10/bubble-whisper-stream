@@ -8,7 +8,7 @@
 
 **Voice**: Calm, compassionate, non-judgmental. Short paths, progressive disclosure, always undoable, always explainable ("Because..."). Never moralize or create shame.
 
-**Technical philosophy**: Local-first, privacy-layered, explainable AI, reversible actions, multi-device CRDT sync.
+**Technical philosophy**: Local-first, privacy-layered, explainable AI, and reversible actions. Multi-device replication is explicitly deferred pending an owner-approved pairing/recovery ceremony, real remote apply, and durable per-device receipts; no prototype or simulated path is enabled.
 
 ## 1) Product Architecture (Unified Task + Multiple Views)
 
@@ -92,16 +92,17 @@ interface Task {
 
 ## 3) Auto-Write Ladder (Confidence + Consent Gates)
 
-**Three-tier system**:
+**Three confidence bands plus a tighten-only safety tier**:
 1. **Suggest** (<60% confidence): Show inline chip with one-tap apply
 2. **Draft** (60-85% confidence): Create pending object, never auto-commit
-3. **Auto-write** (>85% + green conditions): Only for trivially reversible, low-risk actions
+3. **Draft + Ask**: Require explicit confirmation when a recipient is known to be new or not allowlisted; this can only tighten a stronger decision
+4. **Auto-write** (>85% + green conditions): Only for trivially reversible, low-risk actions
 
 **Domain-specific rules**:
 
 **Calendar**:
-- Auto-write: Self-owned calendars, <14 days, clear datetime/location, no invitees
-- Draft: External attendees, ambiguous timing, work calendar (unless whitelisted)
+- Auto-write: Explicitly allowlisted calendar, <14 days, clear datetime/location, and every attendee allowlisted
+- Draft or Draft + Ask: Unknown calendar trust, new attendees, ambiguous timing, or a failed policy gate
 - Always: Idempotent event IDs, "Added to Calendar • Undo" toast
 
 **Email**:
@@ -173,7 +174,7 @@ interface Task {
 **Performance**:
 - Target ≥60 FPS single drag, ≥55 FPS multi-select
 - LOD (Level of Detail): Drop filters/effects during interaction, restore on idle
-- CRDT sync for conflict-free multi-device usage
+- Local persistence is production-backed; remote replication remains disabled until the owner chooses a pairing/recovery ceremony and key exchange, remote apply, deterministic conflicts, revocation, and durable receipts are proven across two devices
 - Virtualization for large task lists
 
 **Themes**:

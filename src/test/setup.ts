@@ -92,6 +92,15 @@ Object.defineProperty(window, 'indexedDB', {
   },
 });
 
+// jsdom intentionally does not implement Canvas contexts. Returning null
+// matches browsers where WebGL is unavailable and keeps capability-detection
+// hooks on their documented low-performance fallback without noisy stderr.
+Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+  configurable: true,
+  writable: true,
+  value: vi.fn(() => null),
+});
+
 // jsdom has never implemented ResizeObserver (confirmed live in this suite's own stderr:
 // `ReferenceError: ResizeObserver is not defined`, thrown when @radix-ui/react-use-size's
 // real hook runs inside any Radix Dialog/Popover/etc. primitive). No file in src/

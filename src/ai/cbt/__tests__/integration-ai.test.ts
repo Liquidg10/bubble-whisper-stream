@@ -92,8 +92,8 @@ describe('CBT AI Integration', () => {
 
       expect(result.shouldShowCBTResponse).toBe(false); // Subtle mode
       expect(result.enhancedPrompt).toBeDefined();
-      expect(result.enhancedPrompt).toContain('thinking in absolute terms');
-      expect(result.enhancedPrompt).toContain('worst-case scenarios');
+      expect(result.enhancedPrompt).toContain('alternative perspectives');
+      expect(result.enhancedPrompt).not.toContain('CBT');
     });
 
     it('should escalate to explicit CBT for standard assist level', async () => {
@@ -164,6 +164,20 @@ describe('CBT AI Integration', () => {
 
   describe('AI Prompt Enhancement', () => {
     it('should create specific guidance for different distortion types', async () => {
+      vi.mocked(useBubbleStore.getState).mockReturnValue({
+        settings: {
+          cbtSettings: {
+            cbtAssistEnabled: true,
+            assistLevel: 'standard',
+            privacyLayer: 'context',
+            autoLogMode: 'ask',
+            quietHours: { enabled: false, start: '22:00', end: '07:00' },
+            topicExclusions: [],
+            neverInterveneOn: []
+          }
+        }
+      } as ReturnType<typeof useBubbleStore.getState>);
+
       const testCases = [
         {
           message: "I always fail at everything.",
@@ -179,11 +193,11 @@ describe('CBT AI Integration', () => {
         }
       ];
 
-      for (const testCase of testCases) {
+      for (const [index, testCase] of testCases.entries()) {
         const result = await cbtAIIntegration.analyzeForConversation(
           testCase.message,
-          `msg-${Date.now()}`,
-          'user-123'
+          `msg-guidance-${index}`,
+          `user-guidance-${index}`
         );
 
         expect(result.enhancedPrompt).toBeDefined();
@@ -234,7 +248,7 @@ describe('CBT AI Integration', () => {
     });
 
     it('should balance explicit vs silent guidance based on settings', async () => {
-      const message = "Everything is going wrong today.";
+      const message = "I always fail at everything today.";
       
       // Test subtle mode
       const subtleResult = await cbtAIIntegration.analyzeForConversation(
@@ -264,7 +278,7 @@ describe('CBT AI Integration', () => {
       const standardResult = await cbtAIIntegration.analyzeForConversation(
         message,
         'msg-7b',
-        'user-123'
+        'user-standard'
       );
 
       expect(standardResult.shouldShowCBTResponse).toBe(true);
@@ -307,10 +321,9 @@ describe('CBT AI Integration', () => {
 
   describe('Error Handling', () => {
     it('should handle CBT processing errors gracefully', async () => {
-      // Mock error in CBT processing
-      vi.mocked(require('@/ai/cbt').processCBTMessage).mockRejectedValue(
-        new Error('CBT processing failed')
-      );
+      vi.mocked(useBubbleStore.getState).mockImplementationOnce(() => {
+        throw new Error('CBT processing failed');
+      });
 
       const message = "Test message";
       

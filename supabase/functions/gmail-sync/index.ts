@@ -1,166 +1,332 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.56.0";
+import {
+  googleOAuthCorsHeaders,
+  GoogleOAuthRequestError,
+  isUuid,
+  requireAllowedGoogleOAuthOrigin,
+} from "../_shared/googleOAuthPolicy.ts";
+import {
+  decryptOAuthToken,
+  encryptOAuthToken,
+  loadOAuthTokenEncryptionKey,
+} from "../_shared/oauthTokenCrypto.ts";
 
 interface GmailSyncRequest {
-  accountId: string;
-  operation: 'list' | 'get' | 'search';
-  messageId?: string;
-  query?: string;
-  maxResults?: number;
-  pageToken?: string;
+  accountId?: unknown;
+  operation?: unknown;
+  messageId?: unknown;
+  query?: unknown;
+  maxResults?: unknown;
+  pageToken?: unknown;
 }
 
-const handler = async (req: Request): Promise<Response> => {
-  // Handle CORS preflight requests
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+class GmailSyncError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "GmailSyncError";
+  }
+}
+
+function requireEnvironment(name: string): string {
+  const value = Deno.env.get(name);
+  if (!value) throw new Error(`${name} is required`);
+  return value;
+}
+
+function bearerToken(request: Request): string {
+  const authorization = request.headers.get("authorization");
+  const match = authorization?.match(/^Bearer\s+([^\s]+)$/i);
+  if (!match) throw new GmailSyncError("Authentication required", 401);
+  return match[1];
+}
+
+function responseHeaders(origin: string | null): Record<string, string> {
+  if (!origin) return { "Content-Type": "application/json" };
+  try {
+    return {
+      ...googleOAuthCorsHeaders(origin),
+      "Content-Type": "application/json",
+    };
+  } catch {
+    return { "Content-Type": "application/json" };
+  }
+}
+
+function jsonResponse(
+  origin: string | null,
+  body: unknown,
+  status: number,
+): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: responseHeaders(origin),
+  });
+}
+
+function parseRequest(value: unknown): {
+  accountId: string;
+  operation: "list" | "get" | "search";
+  messageId?: string;
+  query?: string;
+  maxResults: number;
+  pageToken?: string;
+} {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new GmailSyncError("Invalid request body", 400);
+  }
+  const body = value as GmailSyncRequest;
+  if (!isUuid(body.accountId)) {
+    throw new GmailSyncError("A valid OAuth account ID is required", 400);
+  }
+  if (!["list", "get", "search"].includes(String(body.operation))) {
+    throw new GmailSyncError("Unsupported Gmail operation", 400);
+  }
+  const operation = body.operation as "list" | "get" | "search";
+  if (
+    body.messageId !== undefined &&
+    (typeof body.messageId !== "string" || !body.messageId ||
+      body.messageId.length > 512)
+  ) {
+    throw new GmailSyncError("Invalid Gmail message ID", 400);
+  }
+  if (
+    body.query !== undefined &&
+    (typeof body.query !== "string" || body.query.length > 2048)
+  ) {
+    throw new GmailSyncError("Invalid Gmail search query", 400);
+  }
+  if (
+    body.pageToken !== undefined &&
+    (typeof body.pageToken !== "string" || body.pageToken.length > 4096)
+  ) {
+    throw new GmailSyncError("Invalid Gmail page token", 400);
+  }
+  const maxResults = body.maxResults === undefined ? 50 : body.maxResults;
+  if (
+    typeof maxResults !== "number" || !Number.isInteger(maxResults) ||
+    maxResults < 1 || maxResults > 100
+  ) {
+    throw new GmailSyncError(
+      "maxResults must be an integer from 1 to 100",
+      400,
+    );
+  }
+  if (operation === "get" && typeof body.messageId !== "string") {
+    throw new GmailSyncError("Gmail message ID is required", 400);
+  }
+  if (operation === "search" && typeof body.query !== "string") {
+    throw new GmailSyncError("Gmail search query is required", 400);
+  }
+  return {
+    accountId: body.accountId,
+    operation,
+    messageId: body.messageId as string | undefined,
+    query: body.query as string | undefined,
+    maxResults,
+    pageToken: body.pageToken as string | undefined,
+  };
+}
+
+function buildGmailUrl(input: ReturnType<typeof parseRequest>): string {
+  const base = "https://gmail.googleapis.com/gmail/v1/users/me/messages";
+  if (input.operation === "get") {
+    return `${base}/${encodeURIComponent(input.messageId!)}`;
   }
 
+  const params = new URLSearchParams({ maxResults: String(input.maxResults) });
+  if (input.query) params.set("q", input.query);
+  if (input.pageToken) params.set("pageToken", input.pageToken);
+  return `${base}?${params.toString()}`;
+}
+
+const handler = async (request: Request): Promise<Response> => {
+  const requestOrigin = request.headers.get("origin");
+
   try {
+    const origin = requireAllowedGoogleOAuthOrigin(requestOrigin);
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: googleOAuthCorsHeaders(origin),
+      });
+    }
+    if (request.method !== "POST") {
+      throw new GmailSyncError("Method not allowed", 405);
+    }
+
     const supabase = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+      requireEnvironment("SUPABASE_URL"),
+      requireEnvironment("SUPABASE_SERVICE_ROLE_KEY"),
+      { auth: { persistSession: false, autoRefreshToken: false } },
     );
+    const googleClientId = requireEnvironment("GOOGLE_CLIENT_ID");
+    const googleClientSecret = requireEnvironment("GOOGLE_CLIENT_SECRET");
+    const encryptionKey = await loadOAuthTokenEncryptionKey();
 
-    const authHeader = req.headers.get('Authorization');
-    if (!authHeader) {
-      throw new Error('No authorization header');
+    const { data: authData, error: authError } = await supabase.auth.getUser(
+      bearerToken(request),
+    );
+    if (authError || !authData.user) {
+      throw new GmailSyncError("Authentication required", 401);
     }
 
-    // Verify the user
-    const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    
-    if (authError || !user) {
-      throw new Error('Unauthorized');
+    let rawBody: unknown;
+    try {
+      rawBody = await request.json();
+    } catch {
+      throw new GmailSyncError("Invalid request body", 400);
+    }
+    const input = parseRequest(rawBody);
+
+    const { data: account, error: accountError } = await supabase
+      .from("oauth_accounts")
+      .select("id,user_id,provider,access_token,refresh_token")
+      .eq("id", input.accountId)
+      .eq("user_id", authData.user.id)
+      .eq("provider", "google")
+      .maybeSingle();
+    if (accountError || !account || typeof account.access_token !== "string") {
+      throw new GmailSyncError("OAuth account not found", 404);
     }
 
-    const { accountId, operation, messageId, query, maxResults = 50, pageToken }: GmailSyncRequest = await req.json();
-
-    // Get OAuth account with decrypted token
-    const { data: oauthAccount, error: accountError } = await supabase
-      .from('oauth_accounts')
-      .select('*')
-      .eq('id', accountId)
-      .eq('user_id', user.id)
-      .eq('provider', 'google')
-      .single();
-
-    if (accountError || !oauthAccount) {
-      throw new Error('OAuth account not found');
-    }
-
-    // Make Gmail API request
-    const gmailBaseUrl = 'https://gmail.googleapis.com/gmail/v1';
-    let gmailUrl = '';
-    
-    switch (operation) {
-      case 'list':
-        gmailUrl = `${gmailBaseUrl}/users/me/messages?maxResults=${maxResults}`;
-        if (query) gmailUrl += `&q=${encodeURIComponent(query)}`;
-        if (pageToken) gmailUrl += `&pageToken=${pageToken}`;
-        break;
-      case 'get':
-        if (!messageId) throw new Error('Message ID required for get operation');
-        gmailUrl = `${gmailBaseUrl}/users/me/messages/${messageId}`;
-        break;
-      case 'search':
-        if (!query) throw new Error('Query required for search operation');
-        gmailUrl = `${gmailBaseUrl}/users/me/messages?q=${encodeURIComponent(query)}&maxResults=${maxResults}`;
-        break;
-    }
-
-    const gmailResponse = await fetch(gmailUrl, {
-      headers: {
-        'Authorization': `Bearer ${oauthAccount.access_token}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    if (!gmailResponse.ok) {
-      if (gmailResponse.status === 401) {
-        // Token might be expired, try to refresh
-        const refreshUrl = 'https://oauth2.googleapis.com/token';
-        const refreshResponse = await fetch(refreshUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({
-            grant_type: 'refresh_token',
-            refresh_token: oauthAccount.refresh_token,
-            client_id: Deno.env.get('GOOGLE_CLIENT_ID') ?? '',
-            client_secret: Deno.env.get('GOOGLE_CLIENT_SECRET') ?? '',
-          }),
-        });
-
-        if (refreshResponse.ok) {
-          const refreshData = await refreshResponse.json();
-          
-          // Update the access token
-          await supabase
-            .from('oauth_accounts')
-            .update({ 
-              access_token: refreshData.access_token,
-              expires_at: new Date(Date.now() + refreshData.expires_in * 1000).toISOString(),
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', accountId);
-
-          // Retry the Gmail request with new token
-          const retryResponse = await fetch(gmailUrl, {
-            headers: {
-              'Authorization': `Bearer ${refreshData.access_token}`,
-              'Content-Type': 'application/json',
-            },
-          });
-
-          if (retryResponse.ok) {
-            const data = await retryResponse.json();
-            return new Response(JSON.stringify(data), {
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
-          }
-        }
-      }
-      
-      throw new Error(`Gmail API error: ${gmailResponse.status} ${gmailResponse.statusText}`);
-    }
-
-    const data = await gmailResponse.json();
-
-    // Log successful sync
-    await supabase
-      .from('sync_logs')
-      .insert({
-        user_id: user.id,
-        provider: 'google',
-        service_type: 'gmail',
-        operation: operation,
-        status: 'success',
-        account_id: accountId,
-        items_processed: operation === 'list' ? (data.messages?.length || 0) : 1,
-        started_at: new Date().toISOString(),
-        completed_at: new Date().toISOString(),
+    let accessToken = await decryptOAuthToken(
+      account.access_token,
+      encryptionKey,
+    );
+    const gmailUrl = buildGmailUrl(input);
+    const providerRequest = (token: string) =>
+      fetch(gmailUrl, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(15_000),
       });
 
-    return new Response(JSON.stringify(data), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
-
-  } catch (error: any) {
-    console.error('Gmail sync error:', error);
-    
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    let gmailResponse = await providerRequest(accessToken);
+    if (gmailResponse.status === 401) {
+      if (typeof account.refresh_token !== "string") {
+        throw new GmailSyncError(
+          "Gmail access expired; reconnect the account",
+          409,
+        );
       }
-    );
+      const refreshToken = await decryptOAuthToken(
+        account.refresh_token,
+        encryptionKey,
+      );
+      const refreshResponse = await fetch(
+        "https://oauth2.googleapis.com/token",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            grant_type: "refresh_token",
+            refresh_token: refreshToken,
+            client_id: googleClientId,
+            client_secret: googleClientSecret,
+          }),
+          signal: AbortSignal.timeout(15_000),
+        },
+      );
+      if (!refreshResponse.ok) {
+        console.error("Gmail token refresh failed", {
+          status: refreshResponse.status,
+        });
+        throw new GmailSyncError(
+          "Gmail access expired; reconnect the account",
+          409,
+        );
+      }
+      const refreshData = await refreshResponse.json();
+      if (
+        typeof refreshData?.access_token !== "string" ||
+        !refreshData.access_token ||
+        refreshData.access_token.length > 64 * 1024 ||
+        typeof refreshData?.expires_in !== "number" ||
+        !Number.isFinite(refreshData.expires_in) ||
+        refreshData.expires_in <= 0 ||
+        (refreshData.refresh_token !== undefined &&
+          (typeof refreshData.refresh_token !== "string" ||
+            !refreshData.refresh_token ||
+            refreshData.refresh_token.length > 64 * 1024))
+      ) {
+        throw new GmailSyncError("Gmail token refresh failed", 502);
+      }
+      accessToken = refreshData.access_token;
+      const tokenUpdate: Record<string, unknown> = {
+        access_token: await encryptOAuthToken(accessToken, encryptionKey),
+        expires_at: new Date(
+          Date.now() + refreshData.expires_in * 1000,
+        ).toISOString(),
+        last_used_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      if (typeof refreshData.refresh_token === "string") {
+        tokenUpdate.refresh_token = await encryptOAuthToken(
+          refreshData.refresh_token,
+          encryptionKey,
+        );
+      }
+      const { error: updateError } = await supabase
+        .from("oauth_accounts")
+        .update(tokenUpdate)
+        .eq("id", input.accountId)
+        .eq("user_id", authData.user.id);
+      if (updateError) {
+        throw new GmailSyncError(
+          "Refreshed Gmail access could not be saved",
+          500,
+        );
+      }
+      gmailResponse = await providerRequest(accessToken);
+    }
+
+    if (!gmailResponse.ok) {
+      console.error("Gmail API request failed", {
+        status: gmailResponse.status,
+      });
+      throw new GmailSyncError("Gmail request failed", 502);
+    }
+    const providerData = await gmailResponse.json();
+
+    const now = new Date().toISOString();
+    const { error: logError } = await supabase.from("sync_logs").insert({
+      user_id: authData.user.id,
+      provider: "google",
+      service_type: "gmail",
+      operation: input.operation,
+      status: "success",
+      account_id: input.accountId,
+      items_processed: input.operation === "get"
+        ? 1
+        : Array.isArray(providerData?.messages)
+        ? providerData.messages.length
+        : 0,
+      started_at: now,
+      completed_at: now,
+    });
+    if (logError) {
+      console.warn("Gmail sync receipt failed", { code: logError.code });
+    }
+
+    return jsonResponse(origin, providerData, 200);
+  } catch (error) {
+    const status = error instanceof GoogleOAuthRequestError ||
+        error instanceof GmailSyncError
+      ? error.status
+      : 500;
+    const message = error instanceof GoogleOAuthRequestError ||
+        error instanceof GmailSyncError
+      ? error.message
+      : "Unable to sync Gmail";
+    if (status >= 500) {
+      console.error("Gmail sync failed", {
+        category: error instanceof Error ? error.name : "unknown",
+      });
+    }
+    return jsonResponse(requestOrigin, { error: message }, status);
   }
 };
 

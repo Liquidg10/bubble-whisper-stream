@@ -18,6 +18,14 @@ const DENSITY_RATIOS: Record<BubbleDensity, number> = {
   high: 1,
 };
 
+/**
+ * React renders once before the canvas can report a real layout box. Keep that
+ * unmeasured frame bounded so a large task collection cannot materialize
+ * thousands of bubble components while `useLayoutEffect` is still waiting to
+ * record the viewport. A measured viewport replaces this fallback immediately.
+ */
+export const UNMEASURED_VIEWPORT_CAPACITY = 100;
+
 function positiveFinite(value: number): number {
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
@@ -73,7 +81,8 @@ export function planBubbleVisibility(
   const ratio = DENSITY_RATIOS[density];
   const densityTarget = Math.ceil(safeTotal * ratio);
   const measuredCapacity = getViewportBubbleCapacity(viewport);
-  const viewportCapacity = measuredCapacity ?? safeTotal;
+  const viewportCapacity = measuredCapacity
+    ?? Math.min(safeTotal, UNMEASURED_VIEWPORT_CAPACITY);
   const densityCapacity = Math.max(1, Math.ceil(viewportCapacity * ratio));
   const visibleCount = Math.min(
     safeTotal,

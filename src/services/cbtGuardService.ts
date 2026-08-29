@@ -248,12 +248,19 @@ class CBTGuardService {
   }
 
   private sanitizeMessage(message: string): string {
-    // Remove potential PII patterns
+    // Remove potential PII patterns from longest digit runs to shortest.
+    // The seven-digit rule must remain last: otherwise it can consume the
+    // tail of a 10-digit phone number or an SSN before the more specific rule
+    // has a chance to classify the complete value.
     return message
       .replace(/\b[\w._%+-]+@[\w.-]+\.[A-Z|a-z]{2,}\b/g, '[EMAIL]') // Email addresses
-      .replace(/\b\d{3}-?\d{3}-?\d{4}\b/g, '[PHONE]') // Phone numbers
       .replace(/\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/g, '[CARD]') // Credit card numbers
-      .replace(/\b\d{3}-?\d{2}-?\d{4}\b/g, '[SSN]'); // SSN patterns
+      .replace(/\b\d{3}-?\d{3}-?\d{4}\b/g, '[PHONE]') // Phone numbers (10-digit)
+      .replace(/\b\d{3}-?\d{2}-?\d{4}\b/g, '[SSN]') // SSN patterns
+      // Intentionally over-redacts bare seven-digit identifiers. This runs at
+      // the network boundary, where a false positive is safer than leaking a
+      // local phone number.
+      .replace(/\b\d{3}-?\d{4}\b/g, '[PHONE]'); // Phone numbers (7-digit local)
   }
 }
 

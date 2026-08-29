@@ -6,22 +6,34 @@ import {
 import {
   buildGmailProviderRequest,
   classifyGmailReceiptReplay,
-  hashGmailMutationRequest,
-  hasGmailComposeCapability,
-  isGmailComposeOperation,
-  isGmailMutationOperation,
-  isValidGmailIdempotencyKey,
-  parseGmailSuccessResponse,
   type GmailComposeOperation,
   type GmailComposeReceipt,
   type GmailMutationOperation,
   type GmailProviderRequest,
+  hasGmailComposeCapability,
+  hashGmailMutationRequest,
+  isGmailComposeOperation,
+  isGmailMutationOperation,
+  isValidGmailIdempotencyKey,
+  parseGmailSuccessResponse,
 } from "./gmailComposeProtocol.ts";
+import {
+  decryptOAuthToken,
+  encryptOAuthToken,
+  loadOAuthTokenEncryptionKey,
+} from "../_shared/oauthTokenCrypto.ts";
+import {
+  googleOAuthCorsHeaders,
+  GoogleOAuthRequestError,
+  isUuid,
+  requireAllowedGoogleOAuthOrigin,
+} from "../_shared/googleOAuthPolicy.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+function requireEnvironment(name: string): string {
+  const value = Deno.env.get(name);
+  if (!value) throw new Error(`${name} is required`);
+  return value;
+}
 
 interface GmailComposeRequest {
   accountId?: unknown;
@@ -58,7 +70,20 @@ class HttpError extends Error {
 function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function withGoogleCors(response: Response, origin: string | null): Response {
+  if (!origin) return response;
+  const headers = new Headers(response.headers);
+  for (const [name, value] of Object.entries(googleOAuthCorsHeaders(origin))) {
+    headers.set(name, value);
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
   });
 }
 
@@ -72,7 +97,8 @@ function receiptEnvelope(
 
 function pendingReceiptResponse(key: string, replayed: boolean): Response {
   return jsonResponse({
-    error: "This Gmail action has an in-progress or ambiguous provider receipt. It was not sent again.",
+    error:
+      "This Gmail action has an in-progress or ambiguous provider receipt. It was not sent again.",
     code: "IDEMPOTENCY_IN_PROGRESS",
     idempotency: receiptEnvelope(key, "pending", replayed),
   });
@@ -96,8 +122,9 @@ async function fetchWithRefresh(input: {
   userId: string;
   accountId: string;
   providerRequest: GmailProviderRequest;
+  encryptionKey: CryptoKey;
 }): Promise<ProviderAttempt> {
-  const makeProviderRequest = async (accessToken: string): Promise<Response> =>
+  const makeProviderRequest = (accessToken: string): Promise<Response> =>
     fetch(input.providerRequest.url, {
       method: input.providerRequest.method,
       headers: {
@@ -105,16 +132,42 @@ async function fetchWithRefresh(input: {
         "Content-Type": "application/json",
       },
       body: input.providerRequest.body,
+      signal: AbortSignal.timeout(15_000),
     });
+
+  const storedAccessToken = String(input.oauthAccount.access_token ?? "");
+  if (!storedAccessToken) {
+    return {
+      kind: "definite_failure",
+      code: "GMAIL_ACCESS_TOKEN_MISSING",
+      message: "Gmail access is unavailable; reconnect the account",
+    };
+  }
+
+  let accessToken: string;
+  try {
+    accessToken = await decryptOAuthToken(
+      storedAccessToken,
+      input.encryptionKey,
+    );
+  } catch {
+    return {
+      kind: "definite_failure",
+      code: "GMAIL_CREDENTIAL_INVALID",
+      message: "Gmail access is unavailable; reconnect the account",
+    };
+  }
 
   let response: Response;
   try {
-    response = await makeProviderRequest(String(input.oauthAccount.access_token ?? ""));
+    response = await makeProviderRequest(accessToken);
   } catch (error) {
     return {
       kind: "ambiguous",
       code: "GMAIL_NETWORK_AMBIGUOUS",
-      message: error instanceof Error ? error.message : "Gmail network response was ambiguous",
+      message: error instanceof Error
+        ? error.message
+        : "Gmail network response was ambiguous",
     };
   }
 
@@ -123,12 +176,26 @@ async function fetchWithRefresh(input: {
   // Gmail rejected the first request before applying it. Refreshing and
   // retrying inside this one receipt is safe; a network failure on the second
   // request is still ambiguous and leaves the receipt pending.
-  const refreshToken = String(input.oauthAccount.refresh_token ?? "");
-  if (!refreshToken) {
+  const storedRefreshToken = String(input.oauthAccount.refresh_token ?? "");
+  if (!storedRefreshToken) {
     return {
       kind: "definite_failure",
       code: "GMAIL_REFRESH_TOKEN_MISSING",
       message: "Gmail access expired and no refresh token is available",
+    };
+  }
+
+  let refreshToken: string;
+  try {
+    refreshToken = await decryptOAuthToken(
+      storedRefreshToken,
+      input.encryptionKey,
+    );
+  } catch {
+    return {
+      kind: "definite_failure",
+      code: "GMAIL_CREDENTIAL_INVALID",
+      message: "Gmail access is unavailable; reconnect the account",
     };
   }
 
@@ -140,15 +207,18 @@ async function fetchWithRefresh(input: {
       body: new URLSearchParams({
         grant_type: "refresh_token",
         refresh_token: refreshToken,
-        client_id: Deno.env.get("GOOGLE_CLIENT_ID") ?? "",
-        client_secret: Deno.env.get("GOOGLE_CLIENT_SECRET") ?? "",
+        client_id: requireEnvironment("GOOGLE_CLIENT_ID"),
+        client_secret: requireEnvironment("GOOGLE_CLIENT_SECRET"),
       }),
+      signal: AbortSignal.timeout(15_000),
     });
   } catch (error) {
     return {
       kind: "definite_failure",
       code: "GMAIL_TOKEN_REFRESH_FAILED",
-      message: error instanceof Error ? error.message : "Gmail token refresh failed",
+      message: error instanceof Error
+        ? error.message
+        : "Gmail token refresh failed",
     };
   }
 
@@ -156,26 +226,51 @@ async function fetchWithRefresh(input: {
     return {
       kind: "definite_failure",
       code: "GMAIL_TOKEN_REFRESH_REJECTED",
-      message: `Gmail token refresh failed with status ${refreshResponse.status}`,
+      message:
+        `Gmail token refresh failed with status ${refreshResponse.status}`,
     };
   }
 
   const refreshData = await refreshResponse.json();
-  if (typeof refreshData?.access_token !== "string") {
+  if (
+    typeof refreshData?.access_token !== "string" ||
+    !refreshData.access_token ||
+    refreshData.access_token.length > 64 * 1024 ||
+    typeof refreshData.expires_in !== "number" ||
+    !Number.isFinite(refreshData.expires_in) ||
+    refreshData.expires_in <= 0 ||
+    (refreshData.refresh_token !== undefined &&
+      (typeof refreshData.refresh_token !== "string" ||
+        !refreshData.refresh_token ||
+        refreshData.refresh_token.length > 64 * 1024))
+  ) {
     return {
       kind: "definite_failure",
       code: "GMAIL_TOKEN_REFRESH_INVALID",
-      message: "Gmail token refresh returned no access token",
+      message: "Gmail token refresh returned an invalid credential receipt",
     };
   }
 
+  const encryptedAccessToken = await encryptOAuthToken(
+    refreshData.access_token,
+    input.encryptionKey,
+  );
+  const tokenUpdate: Record<string, unknown> = {
+    access_token: encryptedAccessToken,
+    expires_at: new Date(
+      Date.now() + refreshData.expires_in * 1000,
+    ).toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  if (typeof refreshData.refresh_token === "string") {
+    tokenUpdate.refresh_token = await encryptOAuthToken(
+      refreshData.refresh_token,
+      input.encryptionKey,
+    );
+  }
   const { error: tokenUpdateError } = await input.supabase
     .from("oauth_accounts")
-    .update({
-      access_token: refreshData.access_token,
-      expires_at: new Date(Date.now() + Number(refreshData.expires_in ?? 3600) * 1000).toISOString(),
-      updated_at: new Date().toISOString(),
-    })
+    .update(tokenUpdate)
     .eq("id", input.accountId)
     .eq("user_id", input.userId);
 
@@ -196,7 +291,9 @@ async function fetchWithRefresh(input: {
     return {
       kind: "ambiguous",
       code: "GMAIL_RETRY_AMBIGUOUS",
-      message: error instanceof Error ? error.message : "Gmail retry response was ambiguous",
+      message: error instanceof Error
+        ? error.message
+        : "Gmail retry response was ambiguous",
     };
   }
 }
@@ -248,7 +345,10 @@ async function completeReceipt(input: {
     .maybeSingle();
 
   if (error || !data) {
-    console.error("Failed to finalize Gmail receipt:", error ?? "receipt was not pending");
+    console.error(
+      "Failed to finalize Gmail receipt:",
+      error ?? "receipt was not pending",
+    );
     return false;
   }
   return true;
@@ -327,7 +427,8 @@ async function reserveReceipt(input: {
 }
 
 function isAmbiguousProviderStatus(status: number): boolean {
-  return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
+  return status === 408 || status === 409 || status === 425 || status === 429 ||
+    status >= 500;
 }
 
 async function logSuccessfulOperation(input: {
@@ -359,6 +460,7 @@ async function executeMutation(input: {
   operation: GmailMutationOperation;
   idempotencyKey: string;
   providerRequest: GmailProviderRequest;
+  encryptionKey: CryptoKey;
 }): Promise<Response> {
   const requestSha256 = await hashGmailMutationRequest({
     accountId: input.accountId,
@@ -382,10 +484,16 @@ async function executeMutation(input: {
     userId: input.userId,
     accountId: input.accountId,
     providerRequest: input.providerRequest,
+    encryptionKey: input.encryptionKey,
   });
 
   if (attempt.kind === "ambiguous") {
-    await notePendingReceipt(input.supabase, receipt, attempt.code, attempt.message);
+    await notePendingReceipt(
+      input.supabase,
+      receipt,
+      attempt.code,
+      attempt.message,
+    );
     return pendingReceiptResponse(input.idempotencyKey, false);
   }
 
@@ -406,9 +514,15 @@ async function executeMutation(input: {
 
   if (!attempt.response.ok) {
     const providerError = (await attempt.response.text()).slice(0, 2000);
-    const message = `Gmail API error: ${attempt.response.status} ${providerError}`;
+    const message =
+      `Gmail API error: ${attempt.response.status} ${providerError}`;
     if (isAmbiguousProviderStatus(attempt.response.status)) {
-      await notePendingReceipt(input.supabase, receipt, "GMAIL_PROVIDER_AMBIGUOUS", message);
+      await notePendingReceipt(
+        input.supabase,
+        receipt,
+        "GMAIL_PROVIDER_AMBIGUOUS",
+        message,
+      );
       return pendingReceiptResponse(input.idempotencyKey, false);
     }
 
@@ -428,10 +542,20 @@ async function executeMutation(input: {
 
   let providerData: unknown;
   try {
-    providerData = await parseGmailSuccessResponse(input.operation, attempt.response);
+    providerData = await parseGmailSuccessResponse(
+      input.operation,
+      attempt.response,
+    );
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Gmail success response could not be parsed";
-    await notePendingReceipt(input.supabase, receipt, "GMAIL_RESPONSE_AMBIGUOUS", message);
+    const message = error instanceof Error
+      ? error.message
+      : "Gmail success response could not be parsed";
+    await notePendingReceipt(
+      input.supabase,
+      receipt,
+      "GMAIL_RESPONSE_AMBIGUOUS",
+      message,
+    );
     return pendingReceiptResponse(input.idempotencyKey, false);
   }
 
@@ -466,16 +590,33 @@ async function executeMutation(input: {
     accountId: input.accountId,
     operation: input.operation,
   });
-  return terminalReceiptResponse(responseBody, input.idempotencyKey, "succeeded", false);
+  return terminalReceiptResponse(
+    responseBody,
+    input.idempotencyKey,
+    "succeeded",
+    false,
+  );
 }
 
 const handler = async (req: Request): Promise<Response> => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  const requestOrigin = req.headers.get("origin");
+  let origin: string | null = null;
 
   try {
+    origin = requireAllowedGoogleOAuthOrigin(requestOrigin);
+    if (req.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: googleOAuthCorsHeaders(origin),
+      });
+    }
+    if (req.method !== "POST") {
+      throw new HttpError("Method not allowed", 405, "METHOD_NOT_ALLOWED");
+    }
+
     const supabase = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+      requireEnvironment("SUPABASE_URL"),
+      requireEnvironment("SUPABASE_SERVICE_ROLE_KEY"),
     );
 
     const authHeader = req.headers.get("Authorization");
@@ -484,8 +625,13 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     const token = authHeader.slice("Bearer ".length);
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) throw new HttpError("Unauthorized", 401, "UNAUTHORIZED");
+    const { data: { user }, error: authError } = await supabase.auth.getUser(
+      token,
+    );
+    if (authError || !user) {
+      throw new HttpError("Unauthorized", 401, "UNAUTHORIZED");
+    }
+    const encryptionKey = await loadOAuthTokenEncryptionKey();
 
     let body: GmailComposeRequest;
     try {
@@ -494,11 +640,15 @@ const handler = async (req: Request): Promise<Response> => {
       throw new HttpError("Invalid JSON body", 400, "INVALID_REQUEST");
     }
 
-    if (typeof body.accountId !== "string" || !body.accountId) {
+    if (!isUuid(body.accountId)) {
       throw new HttpError("Account ID required", 400, "INVALID_REQUEST");
     }
     if (!isGmailComposeOperation(body.operation)) {
-      throw new HttpError("Unsupported Gmail operation", 400, "INVALID_REQUEST");
+      throw new HttpError(
+        "Unsupported Gmail operation",
+        400,
+        "INVALID_REQUEST",
+      );
     }
     if (body.draftId !== undefined && typeof body.draftId !== "string") {
       throw new HttpError("Draft ID must be a string", 400, "INVALID_REQUEST");
@@ -515,7 +665,11 @@ const handler = async (req: Request): Promise<Response> => {
       .single();
 
     if (accountError || !oauthAccount) {
-      throw new HttpError("OAuth account not found", 404, "OAUTH_ACCOUNT_NOT_FOUND");
+      throw new HttpError(
+        "OAuth account not found",
+        404,
+        "OAUTH_ACCOUNT_NOT_FOUND",
+      );
     }
     if (!hasGmailComposeCapability(oauthAccount)) {
       throw new HttpError(
@@ -540,15 +694,19 @@ const handler = async (req: Request): Promise<Response> => {
           "IDEMPOTENCY_KEY_REQUIRED",
         );
       }
-      return executeMutation({
-        supabase,
-        oauthAccount,
-        userId: user.id,
-        accountId,
-        operation,
-        idempotencyKey: body.idempotencyKey,
-        providerRequest,
-      });
+      return withGoogleCors(
+        await executeMutation({
+          supabase,
+          oauthAccount,
+          userId: user.id,
+          accountId,
+          operation,
+          idempotencyKey: body.idempotencyKey,
+          providerRequest,
+          encryptionKey,
+        }),
+        origin,
+      );
     }
 
     const attempt = await fetchWithRefresh({
@@ -557,6 +715,7 @@ const handler = async (req: Request): Promise<Response> => {
       userId: user.id,
       accountId,
       providerRequest,
+      encryptionKey,
     });
     if (attempt.kind !== "response") {
       throw new HttpError(attempt.message, 502, attempt.code);
@@ -571,18 +730,34 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     const data = await parseGmailSuccessResponse(operation, attempt.response);
-    await logSuccessfulOperation({ supabase, userId: user.id, accountId, operation });
-    return jsonResponse(data as Record<string, unknown>);
+    await logSuccessfulOperation({
+      supabase,
+      userId: user.id,
+      accountId,
+      operation,
+    });
+    return withGoogleCors(
+      jsonResponse(data as Record<string, unknown>),
+      origin,
+    );
   } catch (error) {
     console.error("Gmail compose error:", error);
     const httpError = error instanceof HttpError
       ? error
+      : error instanceof GoogleOAuthRequestError
+      ? new HttpError(error.message, error.status, "ORIGIN_NOT_ALLOWED")
       : new HttpError(
         error instanceof Error ? error.message : "Unknown Gmail compose error",
         500,
         "GMAIL_COMPOSE_FAILED",
       );
-    return jsonResponse({ error: httpError.message, code: httpError.code }, httpError.status);
+    return withGoogleCors(
+      jsonResponse(
+        { error: httpError.message, code: httpError.code },
+        httpError.status,
+      ),
+      origin,
+    );
   }
 };
 

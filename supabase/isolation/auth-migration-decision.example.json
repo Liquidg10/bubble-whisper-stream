@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "sourceProjectRef": "ekekeywoxvdbfbmqyhjy",
+  "targetProjectRef": "replace-with-created-target-ref",
+  "mode": "preserve_users_and_identities_force_reauthentication",
+  "expectedUserCount": 1,
+  "sourceAuthSubjectsSha256": "replace-from-source-preflight-receipt",
+  "approvedBy": "owner",
+  "approvedAt": "YYYY-MM-DDTHH:MM:SSZ",
+  "sourceWriteFreezeConfirmed": true,
+  "sourceWriteFreezeConfirmedAt": "YYYY-MM-DDTHH:MM:SSZ",
+  "sourceReceiptSha256": "replace-with-sha256-of-source-preflight-receipt"
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render } from '@testing-library/react';
+import { act, render } from '@testing-library/react';
 import { screen, fireEvent } from '@testing-library/dom';
 import { GlimmerNotificationSystem } from '../GlimmerNotificationSystem';
 
@@ -7,17 +7,10 @@ import { GlimmerNotificationSystem } from '../GlimmerNotificationSystem';
 // vi.mock factories are hoisted above top-level const declarations, so each
 // mock object must be created via vi.hoisted() -- referencing a plain const
 // here throws "Cannot access before initialization" at module load time.
-const { mockGlimmerService, mockAccessibility, mockBubbleStore } = vi.hoisted(() => ({
+const { mockGlimmerService, mockAccessibility, mockBubbleStore, mockTTS } = vi.hoisted(() => ({
   mockGlimmerService: {
     shouldTriggerGlimmer: vi.fn(() => true),
-    generateGlimmer: vi.fn(() => Promise.resolve({
-      id: 'glimmer-1',
-      tone: 'supportive' as const, // was 'Friend', not a valid GlimmerTone -- crashed TONE_ICONS[tone] lookup
-      message: 'You\'re doing great! Remember that progress isn\'t always linear.',
-      cause: 'consistent_activity',
-      createdAt: Date.now(),
-      deliveredVia: 'text' as const,
-    })),
+    generateGlimmer: vi.fn(),
     // real GlimmerNotificationSystem.tsx:64 calls glimmerService.dismissGlimmer(id) on
     // dismiss; this mock omitted it entirely -- unhandled "not a function" rejection.
     dismissGlimmer: vi.fn(() => Promise.resolve()),
@@ -45,6 +38,10 @@ const { mockGlimmerService, mockAccessibility, mockBubbleStore } = vi.hoisted(()
       ttsEnabled: true,
     },
   },
+  mockTTS: {
+    speak: vi.fn(() => Promise.resolve()),
+    isAvailable: vi.fn(() => true),
+  },
 }));
 
 vi.mock('@/services/glimmerService', () => ({
@@ -59,10 +56,40 @@ vi.mock('@/stores/bubbleStore', () => ({
   useBubbleStore: () => mockBubbleStore,
 }));
 
+vi.mock('@/services/tts', () => ({
+  ttsService: mockTTS,
+}));
+
+const makeGlimmer = () => ({
+  id: 'glimmer-1',
+  tone: 'supportive' as const,
+  message: 'You\'re doing great! Remember that progress isn\'t always linear.',
+  cause: 'consistent_activity',
+  createdAt: Date.now(),
+  deliveredVia: 'text' as const,
+});
+
+async function flushGlimmerCheck() {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
 describe('GlimmerNotificationSystem', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
+    mockBubbleStore.settings.intelligenceEnabled = true;
+    mockBubbleStore.settings.glimmersEnabled = true;
+    mockBubbleStore.settings.ttsEnabled = true;
+    mockGlimmerService.shouldTriggerGlimmer.mockReturnValue(true);
+    mockGlimmerService.generateGlimmer.mockImplementation(async () =>
+      mockGlimmerService.shouldTriggerGlimmer() ? makeGlimmer() : null
+    );
+    mockGlimmerService.dismissGlimmer.mockResolvedValue(undefined);
+    mockTTS.speak.mockResolvedValue(undefined);
+    mockTTS.isAvailable.mockReturnValue(true);
   });
 
   afterEach(() => {
@@ -74,6 +101,7 @@ describe('GlimmerNotificationSystem', () => {
     
     const { container } = render(<GlimmerNotificationSystem />);
     expect(container.firstChild).toBeNull();
+    expect(mockGlimmerService.generateGlimmer).not.toHaveBeenCalled();
   });
 
   it('generates glimmers when conditions are met', async () => {
@@ -82,12 +110,10 @@ describe('GlimmerNotificationSystem', () => {
 
     render(<GlimmerNotificationSystem />);
 
-    // Fast-forward past the initial check interval
-    vi.advanceTimersByTime(900000); // 15 minutes
+    await flushGlimmerCheck();
 
-    await vi.waitFor(() => {
-      expect(mockGlimmerService.shouldTriggerGlimmer).toHaveBeenCalled();
-    });
+    expect(mockGlimmerService.shouldTriggerGlimmer).toHaveBeenCalledTimes(1);
+    expect(mockGlimmerService.generateGlimmer).toHaveBeenCalledTimes(1);
   });
 
   it('displays active glimmers with proper styling', async () => {
@@ -95,15 +121,12 @@ describe('GlimmerNotificationSystem', () => {
     
     render(<GlimmerNotificationSystem />);
 
-    // Trigger glimmer generation
-    vi.advanceTimersByTime(900000);
+    await flushGlimmerCheck();
 
-    await vi.waitFor(() => {
-      expect(screen.getByText(/You're doing great!/)).toBeInTheDocument();
-    });
+    expect(screen.getByText(/You're doing great!/)).toBeInTheDocument();
 
-    // Check for proper tone badge
-    expect(screen.getByText('Trusted Friend')).toBeInTheDocument();
+    expect(screen.getByText('Assistant')).toBeInTheDocument();
+    expect(screen.getByText('Glimmer')).toBeInTheDocument();
   });
 
   it('handles glimmer dismissal', async () => {
@@ -111,20 +134,18 @@ describe('GlimmerNotificationSystem', () => {
     
     render(<GlimmerNotificationSystem />);
 
-    // Wait for glimmer to appear
-    vi.advanceTimersByTime(900000);
-
-    await vi.waitFor(() => {
-      expect(screen.getByText(/You're doing great!/)).toBeInTheDocument();
-    });
+    await flushGlimmerCheck();
+    expect(screen.getByText(/You're doing great!/)).toBeInTheDocument();
 
     // Dismiss the glimmer
     const dismissButton = screen.getByRole('button', { name: /dismiss/i });
-    fireEvent.click(dismissButton);
-
-    await vi.waitFor(() => {
-      expect(screen.queryByText(/You're doing great!/)).not.toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(dismissButton);
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(500);
     });
+    expect(screen.queryByText(/You're doing great!/)).not.toBeInTheDocument();
+    expect(mockGlimmerService.dismissGlimmer).toHaveBeenCalledWith('glimmer-1');
   });
 
   it('respects quiet hours settings', async () => {
@@ -140,14 +161,11 @@ describe('GlimmerNotificationSystem', () => {
 
     render(<GlimmerNotificationSystem />);
 
-    vi.advanceTimersByTime(900000);
+    await flushGlimmerCheck();
 
-    await vi.waitFor(() => {
-      expect(mockGlimmerService.shouldTriggerGlimmer).toHaveBeenCalled();
-    });
-
-    // Should not generate glimmer during quiet hours
-    expect(mockGlimmerService.generateGlimmer).not.toHaveBeenCalled();
+    expect(mockGlimmerService.shouldTriggerGlimmer).toHaveBeenCalledTimes(1);
+    expect(mockAccessibility.announceText).not.toHaveBeenCalled();
+    expect(screen.queryByText(/You're doing great!/)).not.toBeInTheDocument();
   });
 
   it('announces glimmers to screen readers', async () => {
@@ -155,59 +173,48 @@ describe('GlimmerNotificationSystem', () => {
     
     render(<GlimmerNotificationSystem />);
 
-    vi.advanceTimersByTime(900000);
+    await flushGlimmerCheck();
 
-    await vi.waitFor(() => {
-      expect(mockAccessibility.announceText).toHaveBeenCalledWith(
-        expect.stringContaining('New glimmer')
-      );
-    });
+    expect(mockAccessibility.announceText).toHaveBeenCalledWith(
+      expect.stringContaining('New glimmer')
+    );
   });
 
   it('handles TTS playback for glimmers', async () => {
     mockBubbleStore.settings.intelligenceEnabled = true;
     mockBubbleStore.settings.ttsEnabled = true;
     
-    const mockTTS = {
-      speak: vi.fn(() => Promise.resolve()),
-      isAvailable: () => true,
-    };
-
-    vi.doMock('@/services/tts', () => ({
-      ttsService: mockTTS,
-    }));
-
     render(<GlimmerNotificationSystem />);
 
-    vi.advanceTimersByTime(900000);
+    await flushGlimmerCheck();
+    expect(screen.getByText(/You're doing great!/)).toBeInTheDocument();
 
-    await vi.waitFor(() => {
-      expect(screen.getByText(/You're doing great!/)).toBeInTheDocument();
+    const speakButton = screen.getByRole('button', { name: /read glimmer aloud/i });
+    await act(async () => {
+      fireEvent.click(speakButton);
+      await Promise.resolve();
     });
 
-    // Click speak button
-    const speakButton = screen.getByRole('button', { name: /speak/i });
-    fireEvent.click(speakButton);
-
-    await vi.waitFor(() => {
-      expect(mockTTS.speak).toHaveBeenCalledWith(
-        expect.stringContaining('You\'re doing great!')
-      );
-    });
+    expect(mockTTS.speak).toHaveBeenCalledWith(
+      expect.stringContaining('You\'re doing great!'),
+      expect.objectContaining({ interrupt: true })
+    );
   });
 
   it('respects frequency caps', async () => {
     mockBubbleStore.settings.intelligenceEnabled = true;
+    mockGlimmerService.shouldTriggerGlimmer
+      .mockReturnValueOnce(true)
+      .mockReturnValue(false);
     
     render(<GlimmerNotificationSystem />);
 
-    // Trigger multiple times rapidly
-    vi.advanceTimersByTime(900000); // First trigger
-    vi.advanceTimersByTime(900000); // Second trigger within cap window
-
-    // Should only call generate once due to frequency cap
-    await vi.waitFor(() => {
-      expect(mockGlimmerService.generateGlimmer).toHaveBeenCalledTimes(1);
+    await flushGlimmerCheck();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60000);
     });
+
+    expect(mockGlimmerService.shouldTriggerGlimmer).toHaveBeenCalledTimes(3);
+    expect(mockAccessibility.announceText).toHaveBeenCalledTimes(1);
   });
 });

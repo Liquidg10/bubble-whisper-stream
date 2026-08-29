@@ -798,6 +798,117 @@ export type Database = {
         }
         Relationships: []
       }
+      gmail_history_events: {
+        Row: {
+          created_at: string
+          event_type: string
+          gmail_message_id: string
+          gmail_thread_id: string | null
+          history_id: string
+          id: string
+          label_ids: string[]
+          oauth_account_id: string
+          receipt_id: string
+          user_id: string
+          watch_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_type: string
+          gmail_message_id: string
+          gmail_thread_id?: string | null
+          history_id: string
+          id?: string
+          label_ids?: string[]
+          oauth_account_id: string
+          receipt_id: string
+          user_id: string
+          watch_id: string
+        }
+        Update: {
+          created_at?: string
+          event_type?: string
+          gmail_message_id?: string
+          gmail_thread_id?: string | null
+          history_id?: string
+          id?: string
+          label_ids?: string[]
+          oauth_account_id?: string
+          receipt_id?: string
+          user_id?: string
+          watch_id?: string
+        }
+        Relationships: []
+      }
+      gmail_pubsub_receipts: {
+        Row: {
+          attempt_count: number
+          change_events: number
+          created_at: string
+          error_code: string | null
+          error_message: string | null
+          history_records: number
+          id: string
+          lease_expires_at: string | null
+          notification_history_id: string
+          oauth_account_id: string
+          processed_at: string | null
+          publish_time: string | null
+          pubsub_message_id: string
+          received_at: string
+          result_summary: Json
+          status: string
+          subscription_name: string
+          updated_at: string
+          user_id: string
+          watch_id: string
+        }
+        Insert: {
+          attempt_count?: number
+          change_events?: number
+          created_at?: string
+          error_code?: string | null
+          error_message?: string | null
+          history_records?: number
+          id?: string
+          lease_expires_at?: string | null
+          notification_history_id: string
+          oauth_account_id: string
+          processed_at?: string | null
+          publish_time?: string | null
+          pubsub_message_id: string
+          received_at?: string
+          result_summary?: Json
+          status?: string
+          subscription_name: string
+          updated_at?: string
+          user_id: string
+          watch_id: string
+        }
+        Update: {
+          attempt_count?: number
+          change_events?: number
+          created_at?: string
+          error_code?: string | null
+          error_message?: string | null
+          history_records?: number
+          id?: string
+          lease_expires_at?: string | null
+          notification_history_id?: string
+          oauth_account_id?: string
+          processed_at?: string | null
+          publish_time?: string | null
+          pubsub_message_id?: string
+          received_at?: string
+          result_summary?: Json
+          status?: string
+          subscription_name?: string
+          updated_at?: string
+          user_id?: string
+          watch_id?: string
+        }
+        Relationships: []
+      }
       gmail_threads: {
         Row: {
           created_at: string
@@ -834,6 +945,72 @@ export type Database = {
           thread_id?: string
           updated_at?: string
           user_id?: string
+        }
+        Relationships: []
+      }
+      gmail_watch_subscriptions: {
+        Row: {
+          account_email: string
+          created_at: string
+          history_id: string | null
+          id: string
+          label_ids: string[]
+          last_error_code: string | null
+          last_error_message: string | null
+          last_notification_at: string | null
+          last_notification_history_id: string | null
+          last_sync_at: string | null
+          oauth_account_id: string
+          status: string
+          stopped_at: string | null
+          subscription_name: string
+          topic_name: string
+          updated_at: string
+          user_id: string
+          watch_expires_at: string | null
+          watch_generation: number
+        }
+        Insert: {
+          account_email: string
+          created_at?: string
+          history_id?: string | null
+          id?: string
+          label_ids?: string[]
+          last_error_code?: string | null
+          last_error_message?: string | null
+          last_notification_at?: string | null
+          last_notification_history_id?: string | null
+          last_sync_at?: string | null
+          oauth_account_id: string
+          status?: string
+          stopped_at?: string | null
+          subscription_name: string
+          topic_name: string
+          updated_at?: string
+          user_id: string
+          watch_expires_at?: string | null
+          watch_generation?: number
+        }
+        Update: {
+          account_email?: string
+          created_at?: string
+          history_id?: string | null
+          id?: string
+          label_ids?: string[]
+          last_error_code?: string | null
+          last_error_message?: string | null
+          last_notification_at?: string | null
+          last_notification_history_id?: string | null
+          last_sync_at?: string | null
+          oauth_account_id?: string
+          status?: string
+          stopped_at?: string | null
+          subscription_name?: string
+          topic_name?: string
+          updated_at?: string
+          user_id?: string
+          watch_expires_at?: string | null
+          watch_generation?: number
         }
         Relationships: []
       }
@@ -895,8 +1072,10 @@ export type Database = {
           created_at: string
           expires_at: string
           id: string
+          oauth_account_id: string | null
           origin: string
           redirect_uri: string | null
+          requested_scope: string | null
           service: string | null
           state: string
           user_id: string | null
@@ -907,8 +1086,10 @@ export type Database = {
           created_at?: string
           expires_at?: string
           id?: string
+          oauth_account_id?: string | null
           origin: string
           redirect_uri?: string | null
+          requested_scope?: string | null
           service?: string | null
           state: string
           user_id?: string | null
@@ -919,8 +1100,10 @@ export type Database = {
           created_at?: string
           expires_at?: string
           id?: string
+          oauth_account_id?: string | null
           origin?: string
           redirect_uri?: string | null
+          requested_scope?: string | null
           service?: string | null
           state?: string
           user_id?: string | null
@@ -1797,6 +1980,90 @@ export type Database = {
       }
     }
     Views: {
+      oauth_accounts_metadata: {
+        Row: {
+          account_email: string | null
+          created_at: string
+          expires_at: string | null
+          id: string
+          last_used_at: string | null
+          provider: string
+          provider_user_id: string
+          scopes: string[] | null
+          scopes_string: string | null
+          token_type: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_email?: string | null
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          last_used_at?: string | null
+          provider?: string
+          provider_user_id?: string
+          scopes?: string[] | null
+          scopes_string?: string | null
+          token_type?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Update: {
+          account_email?: string | null
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          last_used_at?: string | null
+          provider?: string
+          provider_user_id?: string
+          scopes?: string[] | null
+          scopes_string?: string | null
+          token_type?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      oauth_tokens_metadata: {
+        Row: {
+          account_email: string
+          created_at: string
+          id: string
+          provider: string
+          provider_account_id: string | null
+          scope: string
+          service_type: string
+          token_expires_at: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_email?: string
+          created_at?: string
+          id?: string
+          provider?: string
+          provider_account_id?: string | null
+          scope?: string
+          service_type?: string
+          token_expires_at?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Update: {
+          account_email?: string
+          created_at?: string
+          id?: string
+          provider?: string
+          provider_account_id?: string | null
+          scope?: string
+          service_type?: string
+          token_expires_at?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       plaid_items_safe: {
         Row: {
           created_at: string | null
@@ -1829,6 +2096,21 @@ export type Database = {
       }
     }
     Functions: {
+      claim_gmail_pubsub_message: {
+        Args: {
+          p_notification_history_id: string
+          p_publish_time: string | null
+          p_pubsub_message_id: string
+          p_subscription_name: string
+          p_watch_id: string
+        }
+        Returns: {
+          attempts: number
+          claim_state: string
+          receipt_id: string
+          receipt_status: string
+        }[]
+      }
       cleanup_expired_google_calendar_oauth_state: {
         Args: never
         Returns: number
@@ -1838,6 +2120,22 @@ export type Database = {
         Args: { account_id: string; window_days?: number }
         Returns: number
       }
+      complete_gmail_pubsub_message: {
+        Args: {
+          p_change_events: number
+          p_effective_history_id: string
+          p_error_code: string | null
+          p_error_message: string | null
+          p_history_records: number
+          p_receipt_id: string
+          p_result_summary: Json
+          p_status: string
+        }
+        Returns: {
+          completion_state: string
+          stored_history_id: string
+        }[]
+      }
       consume_google_calendar_oauth_state: {
         Args: { p_state: string; p_user_id: string }
         Returns: {
@@ -1845,6 +2143,17 @@ export type Database = {
           code_verifier: string
           origin: string
           redirect_uri: string
+          service: string
+        }[]
+      }
+      consume_google_oauth_state: {
+        Args: { p_state: string; p_user_id: string }
+        Returns: {
+          code_verifier: string
+          oauth_account_id: string | null
+          origin: string
+          redirect_uri: string
+          requested_scope: string
           service: string
         }[]
       }

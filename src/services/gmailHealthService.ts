@@ -31,16 +31,16 @@ class GmailHealthService {
    */
   async getAccountHealthStatus(): Promise<GmailHealthStatus[]> {
     const { data: accounts, error } = await supabase
-      .from('email_accounts')
+      .from('gmail_watch_subscriptions')
       .select(`
         id,
+        oauth_account_id,
         account_email,
-        watch_expiration,
-        watch_channel_id,
-        watch_resource_id,
+        status,
+        history_id,
+        watch_expires_at,
         last_sync_at
-      `)
-      .eq('provider', 'gmail');
+      `);
 
     if (error) {
       console.error('Error fetching Gmail accounts:', error);
@@ -64,18 +64,20 @@ class GmailHealthService {
     }, {} as Record<string, number>);
 
     return accounts.map(account => {
-      const syncErrors = errorCounts[account.id] || 0;
-      const expiresAt = account.watch_expiration;
+      const syncErrors = errorCounts[account.oauth_account_id] || 0;
+      const expiresAt = account.watch_expires_at;
       let watchStatus: GmailHealthStatus['watchStatus'] = 'inactive';
 
-      if (expiresAt && account.watch_channel_id) {
+      if (account.status === 'resync_required' || account.status === 'error') {
+        watchStatus = 'expired';
+      } else if (expiresAt && account.status === 'active') {
         const expiryTime = new Date(expiresAt).getTime();
         const now = Date.now();
         const hoursUntilExpiry = (expiryTime - now) / (1000 * 60 * 60);
 
         if (hoursUntilExpiry <= 0) {
           watchStatus = 'expired';
-        } else if (hoursUntilExpiry <= 168) { // Gmail: ≤7 days
+        } else if (hoursUntilExpiry <= 24) {
           watchStatus = 'expiring';
         } else {
           watchStatus = 'active';
@@ -83,18 +85,18 @@ class GmailHealthService {
       }
 
       let health: GmailHealthStatus['health'] = 'healthy';
-      if (syncErrors > 5) {
+      if (syncErrors > 5 || watchStatus === 'expired') {
         health = 'error';
       } else if (syncErrors > 2 || watchStatus === 'expiring') {
         health = 'warning';
       }
 
       return {
-        id: account.id,
+        id: account.oauth_account_id,
         accountEmail: account.account_email,
         watchStatus,
         watchExpiresAt: expiresAt,
-        historyId: undefined, // Will be added when history_id column exists
+        historyId: account.history_id || undefined,
         lastSyncAt: account.last_sync_at,
         syncErrors,
         health,
@@ -217,7 +219,7 @@ class GmailHealthService {
   /**
    * Get recent sync logs for Gmail
    */
-  async getRecentSyncLogs(limit = 50): Promise<any[]> {
+  async getRecentSyncLogs(limit = 50): Promise<Array<Record<string, unknown>>> {
     const { data, error } = await supabase
       .from('sync_logs')
       .select('*')
@@ -235,12 +237,11 @@ class GmailHealthService {
   async simulate410Gone(accountId: string): Promise<void> {
     // Mark watch as expired to simulate 410 Gone
     const { error } = await supabase
-      .from('email_accounts')
+      .from('gmail_watch_subscriptions')
       .update({
-        watch_expiration: new Date(Date.now() - 1000).toISOString() // Expired 1 second ago
-        // Note: history_id column doesn't exist yet, will be added in future migration
+        watch_expires_at: new Date(Date.now() - 1000).toISOString()
       })
-      .eq('id', accountId);
+      .eq('oauth_account_id', accountId);
 
     if (error) throw error;
 

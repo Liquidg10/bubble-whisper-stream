@@ -57,7 +57,7 @@ describe('CBT Conversation Integration', () => {
       });
 
       expect(result.shouldShowCBT).toBe(false);
-      expect(result.devMetrics?.reason).toBe('feature_disabled');
+      expect(result.devMetrics).toBeUndefined();
     });
 
     it('should run silent observation when cbtSilentObserve is true but assist is off', async () => {

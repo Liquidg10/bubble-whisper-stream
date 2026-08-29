@@ -25,6 +25,7 @@ jwt_expiry = 3600
 enable_signup = true
 double_confirm_changes = true
 enable_confirmations = false
+otp_expiry = 3600
 
 # Edge Functions
 [functions.calendar-oauth-start]
@@ -36,8 +37,35 @@ verify_jwt = true
 [functions.calendar-sync]
 verify_jwt = true
 
+[functions.oauth-google]
+verify_jwt = true
+
+[functions.oauth-google-start]
+verify_jwt = true
+
+[functions.oauth-google-callback]
+verify_jwt = true
+
+[functions.oauth-google-refresh]
+verify_jwt = true
+
+[functions.oauth-google-revoke]
+verify_jwt = true
+
+[functions.oauth-scope-decay]
+verify_jwt = true
+
+[functions.gmail-sync]
+verify_jwt = true
+
 [functions.gmail-compose]
 verify_jwt = true
+
+# Google Cloud Pub/Sub cannot attach a Supabase user JWT. The function keeps
+# gateway verification off so it can validate Google's signed OIDC JWT itself;
+# every user/scheduler control request is separately authenticated in-handler.
+[functions.gmail-watch]
+verify_jwt = false
 
 [functions.watch-renewal-cron]
 verify_jwt = true

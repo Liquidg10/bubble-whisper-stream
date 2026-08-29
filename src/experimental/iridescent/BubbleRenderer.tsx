@@ -98,6 +98,7 @@ const COMPACT_ICON_BUTTON_CLASSES = [
 ].join(' ');
 const COMPACT_CONTROL_SAFE_TOP_INSET = 112;
 const DESKTOP_CONTROL_SAFE_TOP_INSET = 136;
+const NAVIGATOR_PAGE_SIZE = 100;
 
 interface AdaptiveTaskNavigatorProps {
   projections: readonly AdaptiveBubbleProjection[];
@@ -110,9 +111,19 @@ export function AdaptiveTaskNavigator({
   onTaskSelect,
   compact = false,
 }: AdaptiveTaskNavigatorProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(NAVIGATOR_PAGE_SIZE);
+  const visibleProjections = projections.slice(0, visibleCount);
+  const remainingCount = Math.max(0, projections.length - visibleCount);
+
+  useEffect(() => {
+    setVisibleCount(NAVIGATOR_PAGE_SIZE);
+  }, [projections]);
+
   return (
     <details
       data-panel
+      onToggle={(event) => setIsOpen(event.currentTarget.open)}
       className={`absolute z-30 rounded-md border bg-card/95 text-card-foreground shadow-lg backdrop-blur-sm ${
         compact
           ? 'right-4 top-4 max-w-[min(24rem,calc(100%-13rem))]'
@@ -126,26 +137,45 @@ export function AdaptiveTaskNavigator({
         <span className={compact ? 'sr-only' : undefined}>All </span>
         tasks ({projections.length})
       </summary>
-      <ol
-        aria-label="All tasks by current readiness"
-        className="max-h-40 space-y-1 overflow-y-auto border-t p-2 sm:max-h-64"
-      >
-        {projections.map(({ task, semantics }) => (
-          <li key={task.id}>
-            <button
+      {isOpen && (
+        <>
+          <ol
+            aria-label="All tasks by current readiness"
+            className="max-h-40 space-y-1 overflow-y-auto border-t p-2 sm:max-h-64"
+          >
+            {visibleProjections.map(({ task, semantics }) => (
+              <li key={task.id}>
+                <button
+                  type="button"
+                  onClick={() => onTaskSelect(task.id)}
+                  className="w-full rounded-md px-2 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label={`Open ${semantics.accessibleSummary}`}
+                >
+                  <span className="block font-medium">{task.title}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {semantics.readinessLabel} · {semantics.urgencyLabel}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ol>
+          {remainingCount > 0 && (
+            <Button
               type="button"
-              onClick={() => onTaskSelect(task.id)}
-              className="w-full rounded-md px-2 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              aria-label={`Open ${semantics.accessibleSummary}`}
+              variant="ghost"
+              size="sm"
+              className="m-2 min-h-11 w-[calc(100%-1rem)]"
+              onClick={() => setVisibleCount((current) => Math.min(
+                projections.length,
+                current + NAVIGATOR_PAGE_SIZE,
+              ))}
+              aria-label={`Show ${Math.min(NAVIGATOR_PAGE_SIZE, remainingCount)} more tasks`}
             >
-              <span className="block font-medium">{task.title}</span>
-              <span className="block text-xs text-muted-foreground">
-                {semantics.readinessLabel} · {semantics.urgencyLabel}
-              </span>
-            </button>
-          </li>
-        ))}
-      </ol>
+              Show {Math.min(NAVIGATOR_PAGE_SIZE, remainingCount)} more
+            </Button>
+          )}
+        </>
+      )}
     </details>
   );
 }

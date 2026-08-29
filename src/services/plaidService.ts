@@ -275,18 +275,31 @@ class PlaidService {
   // Get sync status for all connections
   async getSyncStatuses(): Promise<any[]> {
     try {
-      const { data, error } = await supabase
-        .from('plaid_sync_status')
-        .select(`
-          *,
-          plaid_items (
-            item_id,
-            institution_name
-          )
-        `);
+      // Never join through plaid_items from a browser query: PostgREST needs
+      // SELECT on the base table for that relationship, which would expose the
+      // stored Plaid access_token column. Fetch only the safe view and join the
+      // non-sensitive metadata in memory.
+      const [statusResult, itemResult] = await Promise.all([
+        supabase.from('plaid_sync_status').select('*'),
+        supabase
+          .from('plaid_items_safe')
+          .select('id, item_id, institution_name')
+      ]);
 
-      if (error) throw error;
-      return data || [];
+      if (statusResult.error) throw statusResult.error;
+      if (itemResult.error) throw itemResult.error;
+
+      const itemsById = new Map(
+        (itemResult.data || []).map(item => [item.id, {
+          item_id: item.item_id,
+          institution_name: item.institution_name
+        }])
+      );
+
+      return (statusResult.data || []).map(status => ({
+        ...status,
+        plaid_items: itemsById.get(status.plaid_item_id) ?? null
+      }));
     } catch (error) {
       console.error('Failed to fetch sync statuses:', error);
       throw error;

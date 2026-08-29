@@ -1,15 +1,27 @@
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.56.0';
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.56.0";
+import {
+  combineGoogleOAuthScopes,
+  getGoogleOAuthRedirectUri,
+  googleOAuthCorsHeaders,
+  GoogleOAuthRequestError,
+  requireAllowedGoogleOAuthOrigin,
+} from "../_shared/googleOAuthPolicy.ts";
+import {
+  decryptOAuthToken,
+  encryptOAuthToken,
+  loadOAuthTokenEncryptionKey,
+} from "../_shared/oauthTokenCrypto.ts";
+import { buildGoogleOAuthCompletion } from "./completionResponse.ts";
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
-
-const supabase = createClient(
-  Deno.env.get('SUPABASE_URL') ?? '',
-  Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
-);
+interface ConsumedOAuthState {
+  code_verifier: string;
+  service: string;
+  origin: string;
+  redirect_uri: string;
+  oauth_account_id: string | null;
+  requested_scope: string;
+}
 
 interface GoogleTokenResponse {
   access_token: string;
@@ -17,269 +29,398 @@ interface GoogleTokenResponse {
   expires_in: number;
   refresh_token?: string;
   scope: string;
-  id_token?: string;
 }
 
 interface GoogleUserInfo {
-  id: string;
+  sub: string;
   email: string;
-  verified_email: boolean;
-  name: string;
-  given_name: string;
-  family_name: string;
-  picture: string;
+  email_verified: boolean;
 }
 
-const handler = async (req: Request): Promise<Response> => {
-  // Handle CORS preflight requests
-  if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders });
+class OAuthCallbackError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "OAuthCallbackError";
   }
+}
+
+function requireEnvironment(name: string): string {
+  const value = Deno.env.get(name);
+  if (!value) throw new Error(`${name} is required`);
+  return value;
+}
+
+function bearerToken(request: Request): string {
+  const authorization = request.headers.get("authorization");
+  const match = authorization?.match(/^Bearer\s+([^\s]+)$/i);
+  if (!match) throw new OAuthCallbackError("Authentication required", 401);
+  return match[1];
+}
+
+function parseCallbackBody(value: unknown): { code: string; state: string } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new OAuthCallbackError("Invalid callback request", 400);
+  }
+  const body = value as Record<string, unknown>;
+  if (
+    typeof body.code !== "string" || !body.code || body.code.length > 4096 ||
+    typeof body.state !== "string" || !body.state || body.state.length > 512
+  ) {
+    throw new OAuthCallbackError("Invalid callback request", 400);
+  }
+  return { code: body.code, state: body.state };
+}
+
+function parseGoogleTokens(value: unknown): GoogleTokenResponse {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new OAuthCallbackError("Google token exchange failed", 502);
+  }
+  const token = value as Record<string, unknown>;
+  if (
+    typeof token.access_token !== "string" || !token.access_token ||
+    token.access_token.length > 64 * 1024 ||
+    typeof token.token_type !== "string" || !token.token_type ||
+    typeof token.expires_in !== "number" ||
+    !Number.isFinite(token.expires_in) || token.expires_in <= 0 ||
+    typeof token.scope !== "string" || !token.scope ||
+    (token.refresh_token !== undefined &&
+      (typeof token.refresh_token !== "string" || !token.refresh_token ||
+        token.refresh_token.length > 64 * 1024))
+  ) {
+    throw new OAuthCallbackError("Google token exchange failed", 502);
+  }
+  return token as unknown as GoogleTokenResponse;
+}
+
+function parseGoogleUser(value: unknown): GoogleUserInfo {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new OAuthCallbackError("Unable to verify the Google account", 502);
+  }
+  const user = value as Record<string, unknown>;
+  if (
+    typeof user.sub !== "string" || !user.sub || user.sub.length > 512 ||
+    typeof user.email !== "string" || !user.email || user.email.length > 320 ||
+    user.email_verified !== true
+  ) {
+    throw new OAuthCallbackError("Unable to verify the Google account", 502);
+  }
+  return user as unknown as GoogleUserInfo;
+}
+
+function responseHeaders(origin: string | null): Record<string, string> {
+  if (!origin) return { "Content-Type": "application/json" };
+  try {
+    return {
+      ...googleOAuthCorsHeaders(origin),
+      "Content-Type": "application/json",
+    };
+  } catch {
+    return { "Content-Type": "application/json" };
+  }
+}
+
+function jsonResponse(
+  origin: string | null,
+  body: Record<string, unknown>,
+  status: number,
+): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: responseHeaders(origin),
+  });
+}
+
+const handler = async (request: Request): Promise<Response> => {
+  const requestOrigin = request.headers.get("origin");
 
   try {
-    const { code, state } = await req.json();
-
-    if (!code || !state) {
-      throw new Error('Authorization code and state are required');
-    }
-
-    console.log('Processing OAuth callback with code and state');
-
-    // Verify state and get stored data
-    const { data: stateData, error: stateError } = await supabase
-      .from('oauth_state')
-      .select('*')
-      .eq('state', state)
-      .single();
-
-    if (stateError || !stateData) {
-      console.error('Invalid or expired state:', stateError);
-      throw new Error('Invalid or expired OAuth state');
-    }
-
-    // Check if state is not too old (5 minutes max)
-    const stateAge = Date.now() - new Date(stateData.created_at).getTime();
-    if (stateAge > 5 * 60 * 1000) {
-      throw new Error('OAuth state expired');
-    }
-
-    console.log('State verified successfully');
-
-    // Determine redirect URI based on stored origin
-    const redirectUri = getRedirectUri(stateData.origin);
-
-    // Exchange authorization code for tokens using PKCE
-    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({
-        client_id: Deno.env.get('GOOGLE_CLIENT_ID') ?? '',
-        client_secret: Deno.env.get('GOOGLE_CLIENT_SECRET') ?? '',
-        code: code,
-        grant_type: 'authorization_code',
-        redirect_uri: redirectUri,
-        code_verifier: stateData.code_verifier,
-      }),
-    });
-
-    if (!tokenResponse.ok) {
-      const error = await tokenResponse.text();
-      console.error('Token exchange failed:', error);
-      throw new Error(`Token exchange failed: ${error}`);
-    }
-
-    const tokens: GoogleTokenResponse = await tokenResponse.json();
-    console.log('Tokens received successfully');
-
-    // Get user info from Google
-    const userResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-      headers: {
-        'Authorization': `Bearer ${tokens.access_token}`,
-      },
-    });
-
-    if (!userResponse.ok) {
-      const error = await userResponse.text();
-      console.error('User info fetch failed:', error);
-      throw new Error(`User info fetch failed: ${error}`);
-    }
-
-    const userInfo: GoogleUserInfo = await userResponse.json();
-    console.log('User info received:', { email: userInfo.email, name: userInfo.name });
-
-    // Determine provider type based on scopes
-    const provider = determineProvider(tokens.scope, stateData.service);
-
-    // Check if OAuth account exists
-    const { data: existingOAuth, error: oauthError } = await supabase
-      .from('oauth_accounts')
-      .select('user_id, id')
-      .eq('provider', provider)
-      .eq('provider_user_id', userInfo.id)
-      .maybeSingle();
-
-    let authUser;
-    let oauthAccountId;
-
-    if (existingOAuth) {
-      console.log('Updating existing OAuth account');
-      
-      // Update OAuth account tokens with incremental scope union
-      const { data: currentAccount } = await supabase
-        .from('oauth_accounts')
-        .select('scopes_string')
-        .eq('id', existingOAuth.id)
-        .single();
-
-      const currentScopes = currentAccount?.scopes_string?.split(' ').filter(Boolean) || [];
-      const newScopes = tokens.scope.split(' ').filter(Boolean);
-      const allScopes = [...new Set([...currentScopes, ...newScopes])];
-
-      await supabase
-        .from('oauth_accounts')
-        .update({ 
-          last_used_at: new Date().toISOString(),
-          access_token: await encryptToken(tokens.access_token),
-          refresh_token: tokens.refresh_token ? await encryptToken(tokens.refresh_token) : null,
-          expires_at: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
-          scopes_string: allScopes.join(' '),
-          token_type: tokens.token_type
-        })
-        .eq('id', existingOAuth.id);
-
-      oauthAccountId = existingOAuth.id;
-
-      // Get user info
-      const { data: userData } = await supabase.auth.admin.getUserById(existingOAuth.user_id);
-      authUser = userData.user;
-    } else {
-      console.log('Creating new user and OAuth account');
-      
-      // Create user via Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-        email: userInfo.email,
-        email_confirm: true,
-        user_metadata: {
-          name: userInfo.name,
-          avatar_url: userInfo.picture,
-          provider: 'google'
-        }
+    const origin = requireAllowedGoogleOAuthOrigin(requestOrigin);
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        status: 204,
+        headers: googleOAuthCorsHeaders(origin),
       });
-
-      if (authError) {
-        console.error('User creation failed:', authError);
-        throw new Error(`User creation failed: ${authError.message}`);
-      }
-
-      authUser = authData.user;
-
-      // Create OAuth account record
-      const { data: newOAuth, error: oauthCreateError } = await supabase
-        .from('oauth_accounts')
-        .insert({
-          user_id: authUser.id,
-          provider: provider,
-          provider_user_id: userInfo.id,
-          access_token: await encryptToken(tokens.access_token),
-          refresh_token: tokens.refresh_token ? await encryptToken(tokens.refresh_token) : null,
-          expires_at: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
-          last_used_at: new Date().toISOString(),
-          scopes_string: tokens.scope,
-          account_email: userInfo.email,
-          token_type: tokens.token_type
-        })
-        .select('id')
-        .single();
-
-      if (oauthCreateError) {
-        console.error('OAuth account creation failed:', oauthCreateError);
-        throw new Error(`OAuth account creation failed: ${oauthCreateError.message}`);
-      }
-
-      oauthAccountId = newOAuth.id;
+    }
+    if (request.method !== "POST") {
+      throw new OAuthCallbackError("Method not allowed", 405);
     }
 
-    // Clean up used state
-    await supabase
-      .from('oauth_state')
-      .delete()
-      .eq('state', state);
+    const supabase = createClient(
+      requireEnvironment("SUPABASE_URL"),
+      requireEnvironment("SUPABASE_SERVICE_ROLE_KEY"),
+      { auth: { persistSession: false, autoRefreshToken: false } },
+    );
+    const googleClientId = requireEnvironment("GOOGLE_CLIENT_ID");
+    const googleClientSecret = requireEnvironment("GOOGLE_CLIENT_SECRET");
+    const tokenEncryptionKey = await loadOAuthTokenEncryptionKey();
 
-    // Generate Supabase Auth session
-    const { data: sessionData, error: sessionError } = await supabase.auth.admin.generateLink({
-      type: 'magiclink',
-      email: authUser.email,
-      options: {
-        redirectTo: `${stateData.origin}/auth/callback`
-      }
-    });
-
-    if (sessionError) {
-      console.error('Session generation failed:', sessionError);
-      throw new Error(`Session generation failed: ${sessionError.message}`);
+    const { data: authData, error: authError } = await supabase.auth.getUser(
+      bearerToken(request),
+    );
+    if (authError || !authData.user) {
+      throw new OAuthCallbackError("Authentication required", 401);
     }
 
-    console.log('OAuth flow completed successfully');
+    let rawBody: unknown;
+    try {
+      rawBody = await request.json();
+    } catch {
+      throw new OAuthCallbackError("Invalid callback request", 400);
+    }
+    const { code, state } = parseCallbackBody(rawBody);
 
-    return new Response(JSON.stringify({
-      success: true,
-      session_url: sessionData.properties?.action_link,
-      oauth_account_id: oauthAccountId,
-      user: {
-        id: authUser.id,
-        email: authUser.email,
-        name: userInfo.name,
-        picture: userInfo.picture
-      },
-      scopes: tokens.scope
-    }), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-        ...corsHeaders,
-      },
-    });
+    const { data: consumedRows, error: consumeError } = await supabase.rpc(
+      "consume_google_oauth_state",
+      { p_state: state, p_user_id: authData.user.id },
+    );
+    const consumed = Array.isArray(consumedRows)
+      ? consumedRows[0] as ConsumedOAuthState | undefined
+      : undefined;
+    if (consumeError || !consumed) {
+      if (consumeError) {
+        console.error("OAuth state consume failed", {
+          code: consumeError.code,
+        });
+      }
+      throw new OAuthCallbackError("Invalid or expired OAuth state", 400);
+    }
+    if (
+      consumed.service !== "email" || consumed.origin !== origin ||
+      consumed.redirect_uri !== getGoogleOAuthRedirectUri(origin)
+    ) {
+      throw new OAuthCallbackError("Invalid or expired OAuth state", 400);
+    }
 
-  } catch (error: any) {
-    console.error('OAuth callback error:', error);
-    return new Response(
-      JSON.stringify({ 
-        success: false, 
-        error: error.message 
+    const requestedScopes = consumed.requested_scope.split(/\s+/).filter(
+      Boolean,
+    );
+    const normalizedRequestedScopes = combineGoogleOAuthScopes(
+      [],
+      requestedScopes,
+    );
+    if (
+      requestedScopes.length !== normalizedRequestedScopes.length ||
+      requestedScopes.some((scope) =>
+        !normalizedRequestedScopes.includes(scope)
+      )
+    ) {
+      throw new OAuthCallbackError("Invalid or expired OAuth state", 400);
+    }
+
+    const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: googleClientId,
+        client_secret: googleClientSecret,
+        code,
+        grant_type: "authorization_code",
+        redirect_uri: consumed.redirect_uri,
+        code_verifier: consumed.code_verifier,
       }),
-      {
-        status: 500,
-        headers: { 
-          'Content-Type': 'application/json', 
-          ...corsHeaders 
-        },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!tokenResponse.ok) {
+      console.error("Google token exchange failed", {
+        status: tokenResponse.status,
+      });
+      throw new OAuthCallbackError("Google token exchange failed", 502);
+    }
+
+    let tokenPayload: unknown;
+    try {
+      tokenPayload = await tokenResponse.json();
+    } catch {
+      throw new OAuthCallbackError("Google token exchange failed", 502);
+    }
+    const tokens = parseGoogleTokens(tokenPayload);
+
+    const grantedScopes = new Set(tokens.scope.split(/\s+/).filter(Boolean));
+    for (
+      const requestedScope of requestedScopes.filter((scope) =>
+        scope.startsWith("https://www.googleapis.com/auth/gmail.")
+      )
+    ) {
+      if (!grantedScopes.has(requestedScope)) {
+        throw new OAuthCallbackError(
+          "Google did not grant the requested Gmail permissions",
+          409,
+        );
       }
+    }
+
+    const userResponse = await fetch(
+      "https://openidconnect.googleapis.com/v1/userinfo",
+      {
+        headers: { Authorization: `Bearer ${tokens.access_token}` },
+        signal: AbortSignal.timeout(15_000),
+      },
+    );
+    if (!userResponse.ok) {
+      console.error("Google identity verification failed", {
+        status: userResponse.status,
+      });
+      throw new OAuthCallbackError("Unable to verify the Google account", 502);
+    }
+
+    let userPayload: unknown;
+    try {
+      userPayload = await userResponse.json();
+    } catch {
+      throw new OAuthCallbackError("Unable to verify the Google account", 502);
+    }
+    const googleUser = parseGoogleUser(userPayload);
+
+    let existingAccount: Record<string, unknown> | null = null;
+    if (consumed.oauth_account_id) {
+      const { data, error } = await supabase
+        .from("oauth_accounts")
+        .select(
+          "id,user_id,provider,provider_user_id,refresh_token,scopes,scopes_string",
+        )
+        .eq("id", consumed.oauth_account_id)
+        .eq("user_id", authData.user.id)
+        .eq("provider", "google")
+        .maybeSingle();
+      if (error || !data) {
+        throw new OAuthCallbackError("OAuth account not found", 404);
+      }
+      if (data.provider_user_id !== googleUser.sub) {
+        throw new OAuthCallbackError(
+          "The selected Google account does not match this Gmail connection",
+          409,
+        );
+      }
+      existingAccount = data;
+    } else {
+      const { data, error } = await supabase
+        .from("oauth_accounts")
+        .select(
+          "id,user_id,provider,provider_user_id,refresh_token,scopes,scopes_string",
+        )
+        .eq("user_id", authData.user.id)
+        .eq("provider", "google")
+        .eq("provider_user_id", googleUser.sub)
+        .maybeSingle();
+      if (error) {
+        throw new OAuthCallbackError("Unable to save Gmail connection", 500);
+      }
+      existingAccount = data;
+    }
+
+    const encryptedAccessToken = await encryptOAuthToken(
+      tokens.access_token,
+      tokenEncryptionKey,
+    );
+    let encryptedRefreshToken: string;
+    if (tokens.refresh_token) {
+      encryptedRefreshToken = await encryptOAuthToken(
+        tokens.refresh_token,
+        tokenEncryptionKey,
+      );
+    } else if (typeof existingAccount?.refresh_token === "string") {
+      const retained = await decryptOAuthToken(
+        existingAccount.refresh_token,
+        tokenEncryptionKey,
+      );
+      encryptedRefreshToken = await encryptOAuthToken(
+        retained,
+        tokenEncryptionKey,
+      );
+    } else {
+      throw new OAuthCallbackError(
+        "Google did not issue offline Gmail access; reconnect and approve access again",
+        409,
+      );
+    }
+
+    const existingScopes = typeof existingAccount?.scopes_string === "string"
+      ? existingAccount.scopes_string.split(/\s+/).filter(Boolean)
+      : Array.isArray(existingAccount?.scopes)
+      ? existingAccount.scopes.filter((scope): scope is string =>
+        typeof scope === "string"
+      )
+      : [];
+    const persistedScopes = combineGoogleOAuthScopes(
+      existingScopes,
+      grantedScopes,
+    );
+    const expiresAt = new Date(Date.now() + tokens.expires_in * 1000)
+      .toISOString();
+    const accountEmail = googleUser.email.trim().toLowerCase();
+    const values = {
+      user_id: authData.user.id,
+      provider: "google",
+      provider_user_id: googleUser.sub,
+      access_token: encryptedAccessToken,
+      refresh_token: encryptedRefreshToken,
+      expires_at: expiresAt,
+      last_used_at: new Date().toISOString(),
+      scopes: persistedScopes,
+      scopes_string: persistedScopes.join(" "),
+      account_email: accountEmail,
+      token_type: tokens.token_type,
+      updated_at: new Date().toISOString(),
+    };
+
+    let savedAccount: Record<string, unknown> | null = null;
+    if (typeof existingAccount?.id === "string") {
+      const { data, error } = await supabase
+        .from("oauth_accounts")
+        .update(values)
+        .eq("id", existingAccount.id)
+        .eq("user_id", authData.user.id)
+        .select(
+          "id,provider,provider_user_id,account_email,expires_at,last_used_at",
+        )
+        .single();
+      if (error || !data) {
+        throw new OAuthCallbackError("Unable to save Gmail connection", 500);
+      }
+      savedAccount = data;
+    } else {
+      const { data, error } = await supabase
+        .from("oauth_accounts")
+        .insert(values)
+        .select(
+          "id,provider,provider_user_id,account_email,expires_at,last_used_at",
+        )
+        .single();
+      if (error || !data) {
+        throw new OAuthCallbackError("Unable to save Gmail connection", 500);
+      }
+      savedAccount = data;
+    }
+
+    return jsonResponse(
+      origin,
+      buildGoogleOAuthCompletion(savedAccount, persistedScopes),
+      200,
+    );
+  } catch (error) {
+    const status = error instanceof GoogleOAuthRequestError ||
+        error instanceof OAuthCallbackError
+      ? error.status
+      : 500;
+    const message = error instanceof GoogleOAuthRequestError ||
+        error instanceof OAuthCallbackError
+      ? error.message
+      : "Unable to complete Gmail connection";
+
+    if (status >= 500) {
+      console.error("OAuth callback failed", {
+        category: error instanceof Error ? error.name : "unknown",
+      });
+    }
+    return jsonResponse(
+      requestOrigin,
+      { success: false, error: message },
+      status,
     );
   }
 };
-
-function determineProvider(scope: string, service?: string): string {
-  if (scope.includes('calendar')) return 'google-calendar';
-  if (scope.includes('gmail') || scope.includes('mail')) return 'gmail';
-  return 'google';
-}
-
-function getRedirectUri(origin: string): string {
-  if (origin.includes('localhost')) {
-    return `${origin}/oauth-callback`;
-  } else if (origin.includes('sandbox.lovable.dev')) {
-    return `${origin}/oauth-callback`;
-  } else {
-    return `${origin}/oauth-callback`;
-  }
-}
-
-async function encryptToken(token: string): Promise<string> {
-  // For now, return the token as-is. In production, implement proper encryption
-  // This matches the database function we created
-  return token;
-}
 
 serve(handler);
