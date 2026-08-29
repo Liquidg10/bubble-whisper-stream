@@ -22,6 +22,7 @@ grocery-intelligence	true
 oauth-google	true
 oauth-google-callback	true
 oauth-google-refresh	true
+oauth-google-revoke	true
 oauth-google-start	true
 oauth-scope-decay	true
 personal-voice-record	true
