@@ -120,7 +120,7 @@ PGPASSWORD="$db_pass" pg_dump "${connection_args[@]}" --role postgres \
 
 PGPASSWORD="$db_pass" psql "${connection_args[@]}" --no-psqlrc \
   --quiet --tuples-only --no-align --set ON_ERROR_STOP=1 \
-  --command "SET ROLE postgres; SELECT pg_catalog.pg_get_functiondef(p.oid) FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname IN ($function_list) ORDER BY p.proname, pg_catalog.pg_get_function_identity_arguments(p.oid);" \
+  --command "SET ROLE postgres; SELECT pg_catalog.pg_get_functiondef(p.oid) || ';' FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname IN ($function_list) ORDER BY p.proname, pg_catalog.pg_get_function_identity_arguments(p.oid);" \
   > "$work_dir/functions.sql"
 
 PGPASSWORD="$db_pass" pg_dump "${connection_args[@]}" --role postgres \
