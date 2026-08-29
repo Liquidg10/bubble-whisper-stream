@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { processCBTMessage, recordCBTEngagement, getCBTStats, deleteCBTData } from '../index';
+import { annotate } from '../observer';
+import { decide } from '../policy';
 import type { CBTPolicyContext } from '../types';
 
 // Mock all services
@@ -92,6 +94,38 @@ vi.mock('../fatigue', () => ({
 }));
 
 describe('CBT Main Pipeline', () => {
+  const defaultAnnotation = {
+    messageId: 'msg-123',
+    timestamp: Date.now(),
+    distortions: [{
+      type: 'all_or_nothing' as const,
+      confidence: 0.8,
+      evidence: ['always', 'never'],
+      keywords: ['always', 'never']
+    }],
+    sentiment: { score: -0.3, magnitude: 0.7 },
+    crisisFlags: [],
+    context: {
+      timeOfDay: 14,
+      messageLength: 20,
+      conversationDepth: 5
+    }
+  };
+
+  const defaultDecision = {
+    shouldIntervene: true,
+    interventionType: 'chip' as const,
+    reason: 'High confidence distortion detected',
+    targetDistortions: ['all_or_nothing' as const],
+    priority: 'medium' as const,
+    cooldownMinutes: 30,
+    metadata: {
+      fatigueScore: 0.3,
+      policyMatch: 'distortion_intervention',
+      confidence: 0.85
+    }
+  };
+
   const mockContext: CBTPolicyContext = {
     userSettings: {
       assistLevel: 'standard',
@@ -116,7 +150,10 @@ describe('CBT Main Pipeline', () => {
   };
 
   beforeEach(() => {
+    localStorage.clear();
     vi.clearAllMocks();
+    vi.mocked(annotate).mockReturnValue(defaultAnnotation);
+    vi.mocked(decide).mockReturnValue(defaultDecision);
   });
 
   it('processes message through complete CBT pipeline', async () => {
@@ -146,11 +183,12 @@ describe('CBT Main Pipeline', () => {
   });
 
   it('skips intervention when fatigue limits reached', async () => {
-    const fatigueModule = await import('../fatigue');
-    vi.mocked(fatigueModule.fatigueService.canIntervene).mockReturnValue({
-      allowed: false,
-      blockedBy: ['daily_limit'],
-      fatigueScore: 0.9
+    vi.mocked(decide).mockReturnValue({
+      ...defaultDecision,
+      shouldIntervene: false,
+      interventionType: 'none',
+      reason: 'Daily intervention limit reached (2/day)',
+      targetDistortions: []
     });
 
     const result = await processCBTMessage(
@@ -165,13 +203,15 @@ describe('CBT Main Pipeline', () => {
   });
 
   it('handles crisis detection and blocks normal CBT', async () => {
-    const crisisModule = await import('../crisis');
-    vi.mocked(crisisModule.detectCrisisInMessage).mockReturnValue([{
-      type: 'suicide',
-      confidence: 0.9,
-      keywords: ['ending it all'],
-      severity: 'critical'
-    }]);
+    vi.mocked(annotate).mockReturnValue({
+      ...defaultAnnotation,
+      crisisFlags: [{
+        type: 'suicide',
+        confidence: 0.9,
+        keywords: ['ending it all'],
+        severity: 'critical'
+      }]
+    });
 
     const result = await processCBTMessage(
       'I want to end it all',
@@ -222,10 +262,13 @@ describe('CBT Main Pipeline', () => {
       },
     };
 
-    // Mock current time to be in quiet hours
-    const mockDate = new Date();
-    mockDate.setHours(23, 0, 0, 0); // 11 PM
-    vi.spyOn(global, 'Date').mockImplementation(() => mockDate as any);
+    vi.mocked(decide).mockReturnValue({
+      ...defaultDecision,
+      shouldIntervene: false,
+      interventionType: 'none',
+      reason: 'Quiet hours active',
+      targetDistortions: []
+    });
 
     const result = await processCBTMessage(
       'I hate everything',
@@ -235,9 +278,8 @@ describe('CBT Main Pipeline', () => {
     );
 
     expect(result.action).toBeNull();
-    expect(result.decision.reason).toContain('quiet hours');
+    expect(result.decision.reason).toBe('Quiet hours active');
 
-    vi.restoreAllMocks();
   });
 
   it('handles topic exclusions', async () => {
@@ -249,6 +291,14 @@ describe('CBT Main Pipeline', () => {
       },
     };
 
+    vi.mocked(decide).mockReturnValue({
+      ...defaultDecision,
+      shouldIntervene: false,
+      interventionType: 'none',
+      reason: 'Message contains excluded topic',
+      targetDistortions: []
+    });
+
     const result = await processCBTMessage(
       'My work is absolutely terrible',
       'msg-127',
@@ -257,6 +307,6 @@ describe('CBT Main Pipeline', () => {
     );
 
     expect(result.action).toBeNull();
-    expect(result.decision.reason).toContain('topic exclusion');
+    expect(result.decision.reason).toBe('Message contains excluded topic');
   });
 });

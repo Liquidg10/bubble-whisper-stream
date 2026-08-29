@@ -47,7 +47,10 @@ export function setHorizon(bubble: Bubble, horizon: Horizon): Bubble {
   const updatedBubble = {
     ...bubble,
     tags: [...filteredTags, newTag],
-    updatedAt: Date.now()
+    // Preserve a strict last-write ordering even when two updates happen in
+    // the same clock millisecond. Several consumers compare this value rather
+    // than treating it as display-only metadata.
+    updatedAt: Math.max(Date.now(), bubble.updatedAt + 1)
   };
   
   devLog('setHorizon', {

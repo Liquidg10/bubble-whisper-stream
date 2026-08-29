@@ -138,6 +138,16 @@ class CBTConversationIntegrationService {
       devMetrics.decisionMade = !!cbtResult.decision;
       devMetrics.interventionAllowed = !!cbtResult.action;
 
+      // Silent observation is deliberately non-rendering even if the shared
+      // analyzer produced an action-shaped result. Keep the dev reason stable
+      // so operators can distinguish observation from a lack of signal.
+      const silentObservationOnly = cbtSilentObserve && (!cbtAssistEnabled || assistLevel === 'off');
+      if (silentObservationOnly) {
+        devMetrics.reason = 'silent_observation';
+        devMetrics.interventionAllowed = false;
+        return this.createResult(false, undefined, cbtResult.traceId, devMetrics);
+      }
+
       // Normal flow - show CBT UI if action available and flags allow
       if (cbtResult.action && cbtAssistEnabled && assistLevel !== 'off') {
         devMetrics.reason = 'intervention_shown';

@@ -79,10 +79,10 @@ class CBTAIIntegrationService {
       });
 
       // Determine response strategy
-      if (cbtResult.decision.shouldIntervene) {
+      if (cbtResult.decision?.shouldIntervene) {
         return this.createInterventionResponse(cbtResult, message);
       } else {
-        return this.createSilentGuidanceResponse(cbtResult, message);
+        return this.createSilentGuidanceResponse(cbtResult, message, conversationContext);
       }
 
     } catch (error) {
@@ -143,14 +143,35 @@ class CBTAIIntegrationService {
   /**
    * Create silent guidance for AI without explicit CBT intervention
    */
-  private createSilentGuidanceResponse(cbtResult: any, originalMessage: string): CBTIntegrationResult {
+  private createSilentGuidanceResponse(
+    cbtResult: any,
+    originalMessage: string,
+    conversationContext?: {
+      messageCount: number;
+      recentMood?: string;
+      averageSentiment: number;
+    }
+  ): CBTIntegrationResult {
     const { annotation } = cbtResult;
 
     // Even without intervention, we can guide the AI subtly
-    if (annotation.distortions.length > 0 || annotation.sentiment.score < -0.5) {
+    if (annotation && (annotation.distortions.length > 0 || annotation.sentiment.score < -0.5)) {
       return {
         shouldShowCBTResponse: false,
         enhancedPrompt: this.createEmpatheticAIGuidance(annotation, originalMessage)
+      };
+    }
+
+    // A neutral final sentence can still sit inside a clearly difficult recent
+    // conversation. Use the supplied context to guide tone without surfacing a
+    // CBT intervention or inventing a diagnosis.
+    if (
+      conversationContext?.averageSentiment < -0.5 ||
+      ['sad', 'overwhelmed', 'negative'].includes(conversationContext?.recentMood || '')
+    ) {
+      return {
+        shouldShowCBTResponse: false,
+        enhancedPrompt: 'The recent conversation context suggests sustained difficulty. Respond with extra empathy and emotional support, while staying natural and non-clinical.'
       };
     }
 
