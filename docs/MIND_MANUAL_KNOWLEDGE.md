@@ -14,7 +14,7 @@ Mind Manual is a **neurodivergent-first productivity companion** that provides "
 - **Privacy-layered**: Surface/Context/Deep data with user controls
 - **Explainable AI**: Every action has "Because..." explanations
 - **Reversible actions**: All changes can be undone
-- **Multi-device CRDT sync**: Conflict-free collaborative editing
+- **Multi-device CRDT sync (planned)**: Prototype conflict/outbox code exists, but remote replication is disabled until shared-key exchange, remote apply, and durable receipts are implemented
 
 ## Unified Architecture
 
@@ -51,10 +51,11 @@ interface Task {
 - Crisis detection and safety protocols
 
 ### Auto-Write Ladder
-Three-tier confidence system:
+Three confidence bands plus a tighten-only safety tier:
 1. **Suggest** (<60%): Show chip with one-tap apply
 2. **Draft** (60-85%): Create pending object, never auto-commit
-3. **Auto-write** (>85%): Only for trivially reversible actions
+3. **Draft + Ask**: Require explicit confirmation for a known new or non-allowlisted recipient
+4. **Auto-write** (>85%): Only for trivially reversible actions with stored trust receipts
 
 Domain-specific rules prevent destructive actions (never auto-send email, careful with calendar invites, read-only financial data).
 

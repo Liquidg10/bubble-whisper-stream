@@ -1,6 +1,11 @@
 import { supabase } from "@/integrations/supabase/client";
-import { autoWritePrecisionGate } from './autoWritePrecisionGate';
+import {
+  autoWritePrecisionGate,
+  type PrecisionGateInput
+} from './autoWritePrecisionGate';
 import { decisionTraceService } from './decisionTraceService';
+import { recipientAllowlistService } from './recipientAllowlistService';
+import { userTrustService } from './userTrustService';
 
 export interface CalendarEventDraft {
   id: string;
@@ -28,6 +33,77 @@ export interface WriteEventOptions {
   confidence?: number;
   /** Record acceptance only when the caller owns an explicit user confirmation. */
   recordUserAcceptance?: boolean;
+}
+
+/** Strongly typed caller contract for the provider-backed calendar path. */
+export interface CalendarWriteEventInput {
+  title: string;
+  description?: string;
+  location?: string;
+  startTime: string;
+  endTime: string;
+  startTz?: string;
+  endTz?: string;
+  attendees?: CalendarEventDraft['attendees'];
+  /** Confidence supplied by the intent producer, not inferred from field presence. */
+  intentConfidence?: number;
+  /** Legacy alias retained for existing producers. Prefer intentConfidence. */
+  confidence?: number;
+}
+
+export interface CalendarPrecisionGateEntities {
+  dateTime: NonNullable<PrecisionGateInput['entities']>['dateTime'] & {
+    confidence: number;
+  };
+  location?: NonNullable<PrecisionGateInput['entities']>['location'];
+  recipients: NonNullable<PrecisionGateInput['entities']>['recipients'];
+}
+
+interface CalendarWriteTrustContext {
+  calendarWhitelisted: boolean;
+  calendarAutoWriteEnabled: boolean;
+  recipientAllowlisted?: boolean;
+  recipientFirstTime?: boolean;
+  contactTrustScore?: number;
+  evidenceComplete: boolean;
+}
+
+function clampConfidence(value: number | undefined, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(0, Math.min(1, value))
+    : fallback;
+}
+
+/**
+ * Calendar-specific builder keeps the gate's structural contract in one typed
+ * place. A future caller cannot silently pass title/startTime/attendees as
+ * unrelated top-level keys and still claim a populated gate entity set.
+ */
+export function buildCalendarPrecisionGateEntities(
+  eventData: CalendarWriteEventInput
+): CalendarPrecisionGateEntities {
+  const start = new Date(eventData.startTime);
+  const end = new Date(eventData.endTime);
+  const hasValidRange = Number.isFinite(start.getTime()) &&
+    Number.isFinite(end.getTime()) && end.getTime() > start.getTime();
+  const attendees = eventData.attendees ?? [];
+  const attendeeEmails = attendees
+    .map(attendee => attendee.email.trim())
+    .filter(Boolean);
+  const location = eventData.location?.trim();
+
+  return {
+    dateTime: {
+      value: `${eventData.startTime}/${eventData.endTime}`,
+      confidence: hasValidRange ? 1 : 0,
+      ...(hasValidRange ? { parsed: start } : {})
+    },
+    ...(location ? { location: { value: location, confidence: 1 } } : {}),
+    recipients: {
+      emails: attendeeEmails,
+      confidence: attendeeEmails.length === attendees.length ? 1 : 0
+    }
+  };
 }
 
 export interface CalendarEventConfirmationResult extends Record<string, unknown> {
@@ -95,7 +171,8 @@ class CalendarWriteService {
       attendees: eventData.attendees || [],
       calendarAccountId,
       confidence,
-      autoWriteEligible: this.isAutoWriteEligible(eventData, confidence),
+      autoWriteEligible: eventData.autoWriteEligible ??
+        this.isAutoWriteEligible(eventData, confidence),
       traceId
     };
 
@@ -250,33 +327,53 @@ class CalendarWriteService {
 
   async createEvent(
     calendarAccountId: string,
-    eventData: any,
+    eventData: CalendarWriteEventInput,
     options: WriteEventOptions = {}
   ): Promise<any> {
-    // Use unified precision gate for decision making. A gate failure must fail
-    // closed; bypassing it with a direct provider write defeats the policy that
-    // was supposed to authorize the side effect.
-    const entities = {
-      title: eventData.title || '',
-      startTime: eventData.startTime || '',
-      endTime: eventData.endTime || '',
-      location: eventData.location || '',
-      attendees: eventData.attendees || []
+    const intentConfidence = clampConfidence(
+      options.confidence ?? eventData.intentConfidence ?? eventData.confidence,
+      0.5
+    );
+    const entities = buildCalendarPrecisionGateEntities(eventData);
+    const trust = await this.resolveAutoWriteTrust(calendarAccountId, eventData);
+    const userTrust: PrecisionGateInput['userTrust'] = {
+      calendarWhitelisted: trust.calendarWhitelisted,
+      ...(trust.recipientAllowlisted === undefined
+        ? {}
+        : { recipientAllowlisted: trust.recipientAllowlisted }),
+      ...(trust.recipientFirstTime === undefined
+        ? {}
+        : { recipientFirstTime: trust.recipientFirstTime }),
+      ...(trust.contactTrustScore === undefined
+        ? {}
+        : { contactTrustScore: trust.contactTrustScore })
     };
 
-    const decision = await autoWritePrecisionGate.evaluateDecision({
-      content: `${eventData.title} ${eventData.description || ''}`.trim(),
-      entities,
-      feature: 'calendar',
-      userTrust: {
-        calendarWhitelisted: true,
-        contactTrustScore: 0.8
-      },
-      userPreferences: {
-        autoWriteEnabled: options.autoWrite || false,
-        featureEnabled: true
-      }
-    });
+    let decision;
+    try {
+      decision = await autoWritePrecisionGate.evaluateDecision({
+        content: `${eventData.title} ${eventData.description || ''}`.trim(),
+        intentConfidence,
+        entities,
+        feature: 'calendar',
+        userTrust,
+        userPreferences: {
+          autoWriteEnabled: options.autoWrite === true &&
+            trust.calendarAutoWriteEnabled &&
+            trust.evidenceComplete,
+          featureEnabled: true
+        }
+      });
+    } catch (error) {
+      console.warn('Calendar precision gate unavailable; creating review draft:', error);
+      return this.createReviewDraft(
+        calendarAccountId,
+        eventData,
+        intentConfidence,
+        undefined,
+        { reviewReason: 'precision-gate-unavailable' }
+      );
+    }
 
     // The precision gate already created the canonical decision trace.
     const traceId = decision.traceId;
@@ -284,19 +381,17 @@ class CalendarWriteService {
     // Execute based on decision
     switch (decision.decision) {
       case 'auto-write': {
-        if (!this.passesAutoWriteSafetyChecks(eventData)) {
-          const draft = await this.createEventDraft(calendarAccountId, { ...eventData, traceId });
-          decisionTraceService.recordExecution(traceId, 'pending', {
-            source: 'calendar-draft',
-            reference: draft.id
-          });
-          return {
-            ...draft,
+        if (!this.passesAutoWriteSafetyChecks(eventData, trust)) {
+          return this.createReviewDraft(
+            calendarAccountId,
+            eventData,
+            intentConfidence,
             traceId,
-            drafted: true,
-            autoWritten: false,
-            downgradedFrom: 'auto-write'
-          };
+            {
+              reviewReason: 'auto-write-safety-check-failed',
+              downgradedFrom: 'auto-write'
+            }
+          );
         }
 
         try {
@@ -319,10 +414,23 @@ class CalendarWriteService {
         }
       }
 
-      case 'draft': {
-        const draft = await this.createEventDraft(calendarAccountId, { ...eventData, traceId });
-        return { ...draft, traceId, drafted: true };
-      }
+      case 'draft':
+      case 'draft-ask':
+        return this.createReviewDraft(
+          calendarAccountId,
+          eventData,
+          intentConfidence,
+          traceId,
+          decision.decision === 'draft-ask'
+            ? {
+                reviewReason: trust.recipientFirstTime === true
+                  ? 'first-time-recipient'
+                  : trust.recipientAllowlisted === false
+                    ? 'recipient-not-allowlisted'
+                    : 'recipient-confirmation-required'
+              }
+            : undefined
+        );
 
       case 'suggest':
       default:
@@ -337,7 +445,7 @@ class CalendarWriteService {
 
   private async executeAutoWrite(
     calendarAccountId: string,
-    eventData: any,
+    eventData: CalendarWriteEventInput,
     options: WriteEventOptions
   ): Promise<any> {
     const googleEventData = this.convertToGoogleFormat(eventData);
@@ -394,16 +502,24 @@ class CalendarWriteService {
     );
   }
 
-  private passesAutoWriteSafetyChecks(eventData: any): boolean {
-    // Additional safety checks for auto-write
+  private passesAutoWriteSafetyChecks(
+    eventData: CalendarWriteEventInput,
+    trust: CalendarWriteTrustContext
+  ): boolean {
     const startTime = new Date(eventData.startTime);
     const now = new Date();
     const daysFromNow = (startTime.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
+    const hasAttendees = (eventData.attendees?.length ?? 0) > 0;
     
     return (
+      trust.evidenceComplete &&
+      trust.calendarWhitelisted &&
+      trust.calendarAutoWriteEnabled &&
       daysFromNow >= 0 && // Not in the past
       daysFromNow <= 14 && // Within next 14 days
-      !eventData.attendees?.some((a: any) => this.isExternalAttendee(a)) && // No external attendees
+      this.hasValidTimeRange(eventData.startTime, eventData.endTime) &&
+      (!hasAttendees || trust.recipientAllowlisted === true) &&
+      trust.recipientFirstTime !== true &&
       eventData.title.length > 3 && // Reasonable title length
       !this.containsSensitiveKeywords(eventData.title, eventData.description)
     );
@@ -425,12 +541,6 @@ class CalendarWriteService {
     return durationHours > 0 && durationHours <= 24; // 0-24 hours duration
   }
 
-  private isExternalAttendee(attendee: any): boolean {
-    // Check if attendee is external (not in your organization)
-    // This is a simplified check - in reality you'd check against your domain
-    return attendee.email && !attendee.email.includes('@yourcompany.com');
-  }
-
   private containsSensitiveKeywords(title: string, description?: string): boolean {
     const sensitiveKeywords = ['confidential', 'secret', 'private', 'internal', 'sensitive'];
     const text = `${title} ${description || ''}`.toLowerCase();
@@ -438,7 +548,7 @@ class CalendarWriteService {
     return sensitiveKeywords.some(keyword => text.includes(keyword));
   }
 
-  private convertToGoogleFormat(eventData: any): any {
+  private convertToGoogleFormat(eventData: CalendarWriteEventInput): any {
     return {
       summary: eventData.title,
       description: eventData.description,
@@ -455,6 +565,111 @@ class CalendarWriteService {
         email: a.email,
         displayName: a.displayName
       }))
+    };
+  }
+
+  private async resolveAutoWriteTrust(
+    calendarAccountId: string,
+    eventData: CalendarWriteEventInput
+  ): Promise<CalendarWriteTrustContext> {
+    const attendeeEmails = (eventData.attendees ?? [])
+      .map(attendee => attendee.email.trim().toLowerCase())
+      .filter(Boolean);
+    const attendeeEvidenceComplete = attendeeEmails.length ===
+      (eventData.attendees?.length ?? 0);
+
+    let calendarTrust: Awaited<
+      ReturnType<typeof userTrustService.getCalendarTrustByAccountId>
+    >;
+    try {
+      calendarTrust = await userTrustService.getCalendarTrustByAccountId(
+        calendarAccountId
+      );
+    } catch (error) {
+      console.warn('Calendar trust evidence unavailable:', error);
+      return {
+        calendarWhitelisted: false,
+        calendarAutoWriteEnabled: false,
+        evidenceComplete: false
+      };
+    }
+
+    if (!calendarTrust) {
+      return {
+        calendarWhitelisted: false,
+        calendarAutoWriteEnabled: false,
+        evidenceComplete: false
+      };
+    }
+
+    if ((eventData.attendees?.length ?? 0) === 0) {
+      return {
+        calendarWhitelisted: calendarTrust.isWhitelisted,
+        calendarAutoWriteEnabled: calendarTrust.autoWriteEnabled,
+        evidenceComplete: true
+      };
+    }
+
+    try {
+      const recipientStatuses = await Promise.all(
+        attendeeEmails.map(email => recipientAllowlistService.checkRecipientStatus(email))
+      );
+      const contactTrustScore = recipientStatuses.reduce(
+        (minimum, status) => Math.min(minimum, status.trustScore),
+        1
+      );
+
+      return {
+        calendarWhitelisted: calendarTrust.isWhitelisted,
+        calendarAutoWriteEnabled: calendarTrust.autoWriteEnabled,
+        recipientAllowlisted: recipientStatuses.every(status => status.isAllowlisted),
+        recipientFirstTime: recipientStatuses.some(status => status.isFirstTime),
+        // Minimum, not mean: one unfamiliar attendee cannot be averaged away
+        // by several trusted attendees.
+        contactTrustScore,
+        evidenceComplete: attendeeEvidenceComplete &&
+          recipientStatuses.length === attendeeEmails.length
+      };
+    } catch (error) {
+      console.warn('Calendar recipient trust evidence unavailable:', error);
+      return {
+        calendarWhitelisted: calendarTrust.isWhitelisted,
+        calendarAutoWriteEnabled: false,
+        evidenceComplete: false
+      };
+    }
+  }
+
+  private async createReviewDraft(
+    calendarAccountId: string,
+    eventData: CalendarWriteEventInput,
+    confidence: number,
+    traceId?: string,
+    review?: {
+      reviewReason?: string;
+      downgradedFrom?: string;
+    }
+  ): Promise<CalendarEventDraft & Record<string, unknown>> {
+    const draft = await this.createEventDraft(calendarAccountId, {
+      ...eventData,
+      confidence,
+      traceId,
+      autoWriteEligible: false
+    });
+    const canonicalTraceId = draft.traceId!;
+    decisionTraceService.recordExecution(canonicalTraceId, 'pending', {
+      source: 'calendar-draft',
+      reference: draft.id
+    });
+
+    return {
+      ...draft,
+      traceId: canonicalTraceId,
+      drafted: true,
+      autoWritten: false,
+      requiresExplicitConfirmation: true,
+      ...(review?.reviewReason ? { reviewReason: review.reviewReason } : {}),
+      ...(review?.downgradedFrom ? { downgradedFrom: review.downgradedFrom } : {})
     };
   }
 

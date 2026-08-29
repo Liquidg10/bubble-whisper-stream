@@ -1,7 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { evaluateDecision, invoke } = vi.hoisted(() => ({
+const {
+  checkRecipientStatus,
+  evaluateDecision,
+  getCalendarTrustByAccountId,
+  invoke
+} = vi.hoisted(() => ({
+  checkRecipientStatus: vi.fn(),
   evaluateDecision: vi.fn(),
+  getCalendarTrustByAccountId: vi.fn(),
   invoke: vi.fn()
 }));
 
@@ -11,6 +18,14 @@ vi.mock('@/integrations/supabase/client', () => ({
 
 vi.mock('../autoWritePrecisionGate', () => ({
   autoWritePrecisionGate: { evaluateDecision }
+}));
+
+vi.mock('../recipientAllowlistService', () => ({
+  recipientAllowlistService: { checkRecipientStatus }
+}));
+
+vi.mock('../userTrustService', () => ({
+  userTrustService: { getCalendarTrustByAccountId }
 }));
 
 import { calendarWriteService } from '../calendarWriteService';
@@ -28,8 +43,26 @@ describe('calendarWriteService observed outcomes', () => {
   beforeEach(() => {
     localStorage.clear();
     decisionTraceService.clear();
+    checkRecipientStatus.mockReset();
     evaluateDecision.mockReset();
+    getCalendarTrustByAccountId.mockReset();
     invoke.mockReset();
+    getCalendarTrustByAccountId.mockResolvedValue({
+      calendarAccountId: 'account-1',
+      calendarId: 'primary',
+      calendarName: 'Primary calendar',
+      accountEmail: 'owner@example.com',
+      isWhitelisted: true,
+      autoWriteEnabled: true,
+      trustLevel: 'high'
+    });
+    checkRecipientStatus.mockResolvedValue({
+      email: 'known@example.com',
+      isAllowlisted: true,
+      isFirstTime: false,
+      trustScore: 0.9,
+      interactionCount: 5
+    });
   });
 
   it('creates a canonical trace for direct draft producers', async () => {
@@ -173,6 +206,13 @@ describe('calendarWriteService observed outcomes', () => {
       canAutoWrite: true,
       traceId
     });
+    checkRecipientStatus.mockResolvedValue({
+      email: 'guest@example.com',
+      isAllowlisted: false,
+      isFirstTime: true,
+      trustScore: 0,
+      interactionCount: 0
+    });
 
     const result = await calendarWriteService.createEvent('account-1', {
       title: 'External meeting',
@@ -187,7 +227,8 @@ describe('calendarWriteService observed outcomes', () => {
       traceId,
       drafted: true,
       autoWritten: false,
-      downgradedFrom: 'auto-write'
+      downgradedFrom: 'auto-write',
+      reviewReason: 'auto-write-safety-check-failed'
     });
     expect(calendarWriteService.getDrafts()).toEqual([
       expect.objectContaining({ id: result.id, traceId })
@@ -270,16 +311,238 @@ describe('calendarWriteService observed outcomes', () => {
     expect(decisionTraceService.getTrace(traceId)?.metadata.executionStatus).toBe('failed');
   });
 
-  it('fails closed when the precision gate fails', async () => {
+  it('fails closed to a review draft when the precision gate fails', async () => {
     evaluateDecision.mockRejectedValue(new Error('gate unavailable'));
 
-    await expect(calendarWriteService.createEvent('account-1', {
+    const result = await calendarWriteService.createEvent('account-1', {
       title: 'No bypass',
       startTime: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
       endTime: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
       attendees: []
-    }, { autoWrite: true })).rejects.toThrow('gate unavailable');
+    }, { autoWrite: true });
 
+    expect(invoke).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      drafted: true,
+      autoWritten: false,
+      requiresExplicitConfirmation: true,
+      reviewReason: 'precision-gate-unavailable'
+    });
+    expect(decisionTraceService.getTrace(result.traceId)?.metadata.executionStatus)
+      .toBe('pending');
+  });
+
+  it('passes the typed entity shape, explicit intent confidence, and minimum stored trust to the gate', async () => {
+    const traceId = decisionTraceService.addTrace({
+      feature: 'calendar',
+      signals: [],
+      confidenceThreshold: 0.6,
+      finalConfidence: 0.7,
+      decision: 'draft',
+      action: 'Calendar gate',
+      becauseText: 'Test',
+      metadata: { telemetryKind: 'acceptance' },
+      undoable: true
+    });
+    evaluateDecision.mockResolvedValue({
+      score: 0.7,
+      decision: 'draft',
+      reasons: ['review'],
+      entityFillRate: 1,
+      policyGatesApplied: [],
+      userTrustScore: 0.4,
+      historyInfluence: 0.5,
+      canAutoWrite: true,
+      traceId
+    });
+    checkRecipientStatus
+      .mockResolvedValueOnce({
+        email: 'trusted@example.com',
+        isAllowlisted: true,
+        isFirstTime: false,
+        trustScore: 0.9,
+        interactionCount: 8
+      })
+      .mockResolvedValueOnce({
+        email: 'new@example.com',
+        isAllowlisted: false,
+        isFirstTime: true,
+        trustScore: 0.2,
+        interactionCount: 0
+      });
+
+    const startTime = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    const endTime = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+    await calendarWriteService.createEvent('account-1', {
+      title: 'Trust-shaped meeting',
+      location: 'Kaimana Beach',
+      startTime,
+      endTime,
+      attendees: [
+        { email: 'trusted@example.com' },
+        { email: 'new@example.com' }
+      ],
+      intentConfidence: 0.93
+    }, { autoWrite: true });
+
+    expect(evaluateDecision).toHaveBeenCalledWith(expect.objectContaining({
+      intentConfidence: 0.93,
+      entities: {
+        dateTime: {
+          value: `${startTime}/${endTime}`,
+          confidence: 1,
+          parsed: new Date(startTime)
+        },
+        location: { value: 'Kaimana Beach', confidence: 1 },
+        recipients: {
+          emails: ['trusted@example.com', 'new@example.com'],
+          confidence: 1
+        }
+      },
+      userTrust: {
+        calendarWhitelisted: true,
+        recipientAllowlisted: false,
+        recipientFirstTime: true,
+        contactTrustScore: 0.2
+      },
+      userPreferences: {
+        autoWriteEnabled: true,
+        featureEnabled: true
+      }
+    }));
+  });
+
+  it('cannot auto-write when the calendar trust receipt is unavailable', async () => {
+    const traceId = decisionTraceService.addTrace({
+      feature: 'calendar',
+      signals: [],
+      confidenceThreshold: 0.85,
+      finalConfidence: 0.99,
+      decision: 'auto-write',
+      action: 'Calendar gate',
+      becauseText: 'Test',
+      metadata: { telemetryKind: 'acceptance' },
+      undoable: true
+    });
+    getCalendarTrustByAccountId.mockResolvedValue(null);
+    evaluateDecision.mockResolvedValue({
+      score: 0.99,
+      decision: 'auto-write',
+      reasons: ['mock attempted promotion'],
+      entityFillRate: 1,
+      policyGatesApplied: [],
+      userTrustScore: 1,
+      historyInfluence: 1,
+      canAutoWrite: true,
+      traceId
+    });
+
+    const result = await calendarWriteService.createEvent('missing-account', {
+      title: 'Never bypass trust',
+      startTime: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      endTime: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+      attendees: []
+    }, { autoWrite: true, confidence: 1 });
+
+    expect(evaluateDecision).toHaveBeenCalledWith(expect.objectContaining({
+      userTrust: { calendarWhitelisted: false },
+      userPreferences: { autoWriteEnabled: false, featureEnabled: true }
+    }));
+    expect(invoke).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      drafted: true,
+      autoWritten: false,
+      requiresExplicitConfirmation: true
+    });
+  });
+
+  it('preserves the draft-ask tier through the Calendar result', async () => {
+    const traceId = decisionTraceService.addTrace({
+      feature: 'calendar',
+      signals: [],
+      confidenceThreshold: 0.85,
+      finalConfidence: 0.9,
+      decision: 'draft-ask',
+      action: 'Calendar gate',
+      becauseText: 'First-time recipient',
+      metadata: { telemetryKind: 'acceptance' },
+      undoable: true
+    });
+    evaluateDecision.mockResolvedValue({
+      score: 0.9,
+      decision: 'draft-ask',
+      reasons: ['first-time recipient'],
+      entityFillRate: 1,
+      policyGatesApplied: [],
+      userTrustScore: 0.5,
+      historyInfluence: 1,
+      canAutoWrite: true,
+      traceId
+    });
+    checkRecipientStatus.mockResolvedValue({
+      email: 'new@example.com',
+      isAllowlisted: false,
+      isFirstTime: true,
+      trustScore: 0,
+      interactionCount: 0
+    });
+
+    const result = await calendarWriteService.createEvent('account-1', {
+      title: 'Review this invite',
+      startTime: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      endTime: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+      attendees: [{ email: 'new@example.com' }],
+      intentConfidence: 0.95
+    }, { autoWrite: true });
+
+    expect(invoke).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      traceId,
+      drafted: true,
+      requiresExplicitConfirmation: true,
+      reviewReason: 'first-time-recipient'
+    });
+    expect(result).not.toHaveProperty('downgradedFrom');
+  });
+
+  it('does not invent a first-time receipt when recipient trust lookup fails', async () => {
+    const traceId = decisionTraceService.addTrace({
+      feature: 'calendar',
+      signals: [],
+      confidenceThreshold: 0.6,
+      finalConfidence: 0.7,
+      decision: 'draft',
+      action: 'Calendar gate',
+      becauseText: 'Trust unavailable',
+      metadata: { telemetryKind: 'acceptance' },
+      undoable: true
+    });
+    checkRecipientStatus.mockRejectedValue(new Error('trust store unavailable'));
+    evaluateDecision.mockResolvedValue({
+      score: 0.7,
+      decision: 'draft',
+      reasons: ['review'],
+      entityFillRate: 1,
+      policyGatesApplied: [],
+      userTrustScore: 0.5,
+      historyInfluence: 0.5,
+      canAutoWrite: false,
+      traceId
+    });
+
+    const result = await calendarWriteService.createEvent('account-1', {
+      title: 'Unknown recipient evidence',
+      startTime: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      endTime: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+      attendees: [{ email: 'unknown@example.com' }],
+      intentConfidence: 0.9
+    }, { autoWrite: true });
+
+    expect(evaluateDecision).toHaveBeenCalledWith(expect.objectContaining({
+      userTrust: { calendarWhitelisted: true },
+      userPreferences: { autoWriteEnabled: false, featureEnabled: true }
+    }));
+    expect(result).not.toHaveProperty('reviewReason', 'first-time-recipient');
     expect(invoke).not.toHaveBeenCalled();
   });
 });

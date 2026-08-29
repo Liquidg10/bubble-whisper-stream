@@ -45,6 +45,8 @@ export interface PrecisionGateInput {
   // User trust factors
   userTrust?: {
     recipientAllowlisted?: boolean;
+    /** Explicit history receipt; do not infer this from allowlist membership. */
+    recipientFirstTime?: boolean;
     calendarWhitelisted?: boolean;
     contactTrustScore?: number; // 0-1
   };
@@ -64,7 +66,7 @@ export interface PrecisionGateInput {
 
 export interface PrecisionGateResult {
   score: number; // 0-1 final confidence score
-  decision: 'suggest' | 'draft' | 'auto-write';
+  decision: 'suggest' | 'draft' | 'draft-ask' | 'auto-write';
   reasons: string[];
   entityFillRate: number;
   policyGatesApplied: string[];
@@ -115,7 +117,7 @@ class AutoWritePrecisionGateService {
     
     // 6. Calculate final weighted score
     const rawScore = this.calculateWeightedScore({
-      intentConfidence: input.intentConfidence || 0.5,
+      intentConfidence: input.intentConfidence ?? 0.5,
       entityFillRate,
       userTrustScore,
       historyInfluence,
@@ -130,7 +132,7 @@ class AutoWritePrecisionGateService {
     
     // 9. Generate reasons
     const reasons = this.generateReasons({
-      intentConfidence: input.intentConfidence || 0.5,
+      intentConfidence: input.intentConfidence ?? 0.5,
       entityFillRate,
       userTrustScore,
       historyInfluence,
@@ -481,20 +483,32 @@ class AutoWritePrecisionGateService {
   /**
    * Determine final decision based on score and user preferences
    */
-  private determineDecision(score: number, input: PrecisionGateInput): 'suggest' | 'draft' | 'auto-write' {
+  private determineDecision(
+    score: number,
+    input: PrecisionGateInput
+  ): 'suggest' | 'draft' | 'draft-ask' | 'auto-write' {
     // Check feature enabled status first
     if (!this.checkFeatureEnabled(input)) {
       return score >= PRECISION_THRESHOLDS.DRAFT_MIN ? 'draft' : 'suggest';
     }
-    
-    // Apply thresholds
-    if (score >= PRECISION_THRESHOLDS.AUTO_WRITE_MIN) {
-      return 'auto-write';
-    } else if (score >= PRECISION_THRESHOLDS.DRAFT_MIN) {
-      return 'draft';
-    } else {
-      return 'suggest';
+
+    const baseDecision = score >= PRECISION_THRESHOLDS.AUTO_WRITE_MIN
+      ? 'auto-write'
+      : score >= PRECISION_THRESHOLDS.DRAFT_MIN
+        ? 'draft'
+        : 'suggest';
+    const requiresRecipientConfirmation =
+      input.userTrust?.recipientFirstTime === true ||
+      input.userTrust?.recipientAllowlisted === false;
+
+    // Tighten only: known first-time or non-allowlisted recipients turn either
+    // writable tier into explicit-confirmation draft-ask. Suggest remains
+    // suggest, so this safety rule can never promote a weak decision.
+    if (requiresRecipientConfirmation && baseDecision !== 'suggest') {
+      return 'draft-ask';
     }
+
+    return baseDecision;
   }
   
   /**
@@ -524,7 +538,7 @@ class AutoWritePrecisionGateService {
     // Main decision reason
     if (components.decision === 'auto-write') {
       reasons.push(`High confidence (${Math.round(components.intentConfidence * 100)}%) enables auto-write`);
-    } else if (components.decision === 'draft') {
+    } else if (components.decision === 'draft' || components.decision === 'draft-ask') {
       reasons.push(`Medium confidence (${Math.round(components.intentConfidence * 100)}%) requires confirmation`);
     } else {
       reasons.push(`Low confidence (${Math.round(components.intentConfidence * 100)}%) suggests manual review`);
@@ -576,7 +590,7 @@ class AutoWritePrecisionGateService {
     const signals: DecisionSignal[] = [
       {
         type: 'intent',
-        value: input.intentConfidence || 0.5,
+        value: input.intentConfidence ?? 0.5,
         confidence: 0.9,
         source: 'precision-gate'
       },

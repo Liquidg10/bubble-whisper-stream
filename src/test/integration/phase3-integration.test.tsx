@@ -62,48 +62,17 @@ describe('Bubble Universe Integration Tests', () => {
   });
 
   describe('Cross-Device Sync Integration', () => {
-    /**
-     * HONEST FAILURE -- do not "fix" by asserting on the mock.
-     *
-     * This test asserts that adding a bubble triggers `syncEntity`. It cannot
-     * pass, and not because of the harness: `crossDeviceSyncService.syncEntity`
-     * has ZERO call sites in `src/` outside its own definition
-     * (`crossDeviceSyncService.ts:164`), and `bubbleStore.addBubble`
-     * (`bubbleStore.ts:321`) never reaches it. The cross-device sync this suite
-     * is named for is not wired to bubble creation.
-     *
-     * Previously this failed earlier and for an unrelated reason -- a bare
-     * `render(<BubbleCanvas />)` threw "useTheme must be used within a
-     * ThemeProvider" -- which masked the real gap. The provider is now supplied
-     * so the failure points at the actual missing wiring.
-     *
-     * Mark's call: wire `addBubble` -> `syncEntity`, or retire this assertion.
-     */
-    it('should sync bubbles across devices', async () => {
-      const mockSyncEntity = vi.mocked(crossDeviceSyncService.syncEntity);
-      mockSyncEntity.mockResolvedValue();
+    it('does not advertise the prototype local outbox as bubble replication', async () => {
+      const { CROSS_DEVICE_SYNC_CAPABILITIES } = await vi.importActual<
+        typeof import('@/services/crossDeviceSyncService')
+      >('@/services/crossDeviceSyncService');
 
-      renderWithProviders(<BubbleCanvas />);
-
-      const store = useBubbleStore();
-      await store.addBubble({
-        id: 'sync-test',
-        type: 'Thought',
-        content: 'Sync test',
-        x: 100,
-        y: 100,
-        size: 1,
-        tags: [],
-        createdAt: Date.now(),
-        updatedAt: Date.now()
+      expect(CROSS_DEVICE_SYNC_CAPABILITIES).toMatchObject({
+        status: 'prototype',
+        bubbleReplication: false,
+        durableRemoteReceipts: false,
+        sharedKeyExchange: false
       });
-
-      expect(mockSyncEntity).toHaveBeenCalledWith(
-        'bubble',
-        'sync-test',
-        expect.any(Object),
-        'create'
-      );
     });
 
     /**

@@ -1,5 +1,15 @@
-// Cross-device sync infrastructure with E2E encryption
+// Prototype conflict/outbox infrastructure. Bubble replication is not a
+// shipped capability: remote apply and cross-device key exchange are not
+// implemented, so a local queue entry must never be reported as a remote sync.
 import { supabase } from '@/integrations/supabase/client';
+
+export const CROSS_DEVICE_SYNC_CAPABILITIES = Object.freeze({
+  status: 'prototype' as const,
+  bubbleReplication: false,
+  durableRemoteReceipts: false,
+  sharedKeyExchange: false,
+  reason: 'Remote apply and cross-device key exchange are not implemented.'
+});
 
 export interface SyncDevice {
   id: string;
@@ -161,6 +171,11 @@ class CrossDeviceSyncService {
   }
 
   // Sync specific data entity
+  /**
+   * Prototype-only local outbox. This method intentionally has no production
+   * callers until it can return a durable remote receipt and another device
+   * can decrypt and apply the change.
+   */
   async syncEntity(
     type: 'bubble' | 'cbt' | 'glimmer' | 'setting',
     id: string,
