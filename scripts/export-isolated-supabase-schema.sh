@@ -63,6 +63,7 @@ for required_value in "$db_host" "$db_port" "$db_user" "$db_pass" "$db_name"; do
 done
 
 table_args=()
+relation_literals=()
 while IFS= read -r table_name; do
   [[ -z "$table_name" ]] && continue
   if [[ ! "$table_name" =~ ^[a-z0-9_]+$ ]]; then
@@ -70,6 +71,7 @@ while IFS= read -r table_name; do
     exit 65
   fi
   table_args+=(--table="public.$table_name")
+  relation_literals+=("'$table_name'")
 done < "$table_manifest"
 
 function_literals=()
@@ -83,12 +85,34 @@ while IFS= read -r function_name; do
 done < "$function_manifest"
 
 function_list=$(IFS=,; printf '%s' "${function_literals[*]}")
+relation_list=$(IFS=,; printf '%s' "${relation_literals[*]}")
 connection_args=(
   --host "$db_host"
   --port "$db_port"
   --username "$db_user"
   --dbname "$db_name"
 )
+
+# pg_dump treats an unmatched --table pattern as non-fatal when another pattern
+# matches. Validate the entire allowlist first so a required runtime relation or
+# function can never disappear silently from an apparently successful export.
+missing_relations=$(PGPASSWORD="$db_pass" psql "${connection_args[@]}" --no-psqlrc \
+  --quiet --tuples-only --no-align --set ON_ERROR_STOP=1 \
+  --command "WITH expected(name) AS (SELECT unnest(ARRAY[$relation_list]::text[])) SELECT e.name FROM expected AS e WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relname = e.name AND c.relkind IN ('r', 'p', 'v', 'm')) ORDER BY e.name;")
+if [[ -n "$missing_relations" ]]; then
+  echo "source project is missing required public relations:" >&2
+  printf '%s\n' "$missing_relations" >&2
+  exit 65
+fi
+
+invalid_functions=$(PGPASSWORD="$db_pass" psql "${connection_args[@]}" --no-psqlrc \
+  --quiet --tuples-only --no-align --set ON_ERROR_STOP=1 \
+  --command "WITH expected(name) AS (SELECT unnest(ARRAY[$function_list]::text[])), counted AS (SELECT e.name, (SELECT count(*) FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace WHERE n.nspname = 'public' AND p.proname = e.name) AS object_count FROM expected AS e) SELECT name || ':' || object_count::text FROM counted WHERE object_count <> 1 ORDER BY name;")
+if [[ -n "$invalid_functions" ]]; then
+  echo "every reviewed public function name must resolve exactly once (name:count):" >&2
+  printf '%s\n' "$invalid_functions" >&2
+  exit 65
+fi
 
 PGPASSWORD="$db_pass" pg_dump "${connection_args[@]}" --role postgres \
   --schema-only --section=pre-data --no-owner --no-comments \

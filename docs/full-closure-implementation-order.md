@@ -61,7 +61,8 @@ must sit behind the safety contracts and a green build.
 - No provider success is inferred from code or HTTP availability.
 - No automatic external write is allowed when intent, entity completeness, or
   trust evidence is missing.
-- No Plaid access token is readable by `anon` or `authenticated` browser roles.
+- No Plaid access token or key identifier is readable by `anon` or
+  `authenticated` browser roles.
 - No migration-history repair is used to hide the legacy ledger mismatch.
 - No commerce table or data is copied into the isolated Mind Manual project.
 - No production cutover occurs without a reversible rollback value and a

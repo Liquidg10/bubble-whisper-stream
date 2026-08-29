@@ -36,8 +36,21 @@ GRANT EXECUTE ON FUNCTION public.update_thread_last_message() TO service_role;
 GRANT EXECUTE ON FUNCTION public.update_updated_at_column() TO service_role;
 GRANT EXECUTE ON FUNCTION public.upsert_google_calendar_connection(uuid, text, text, text, text, text, timestamp with time zone, text) TO service_role;
 
--- Browser roles must never read the Plaid credential-bearing base table.
-REVOKE SELECT ON TABLE public.plaid_items FROM anon, authenticated;
+-- Browser roles must never read Plaid credential columns. A security-invoker
+-- view still requires its caller to hold privileges on the safe underlying
+-- columns, so grant only the metadata projected by plaid_items_safe.
+REVOKE ALL ON TABLE public.plaid_items FROM anon;
+REVOKE SELECT, UPDATE ON TABLE public.plaid_items FROM authenticated;
+GRANT SELECT (
+  id,
+  user_id,
+  item_id,
+  institution_name,
+  is_active,
+  created_at,
+  updated_at
+) ON TABLE public.plaid_items TO authenticated;
+GRANT UPDATE (is_active) ON TABLE public.plaid_items TO authenticated;
 REVOKE SELECT ON TABLE public.plaid_items_safe FROM anon;
 GRANT SELECT ON TABLE public.plaid_items_safe TO authenticated;
 
@@ -52,6 +65,10 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
 
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('photos', 'photos', false)
+ON CONFLICT (id) DO UPDATE SET public = false;
+
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('voice-samples', 'voice-samples', false)
 ON CONFLICT (id) DO UPDATE SET public = false;
 
 DROP POLICY IF EXISTS "Users upload own photos" ON storage.objects;
@@ -87,3 +104,47 @@ CREATE POLICY "Users delete own photos"
     bucket_id = 'photos'
     AND auth.uid()::text = (storage.foldername(name))[1]
   );
+
+DROP POLICY IF EXISTS "Users can upload their own voice samples" ON storage.objects;
+DROP POLICY IF EXISTS "Users can view their own voice samples" ON storage.objects;
+DROP POLICY IF EXISTS "Users can update their own voice samples" ON storage.objects;
+DROP POLICY IF EXISTS "Users can delete their own voice samples" ON storage.objects;
+
+CREATE POLICY "Users can upload their own voice samples"
+  ON storage.objects FOR INSERT
+  WITH CHECK (
+    bucket_id = 'voice-samples'
+    AND auth.uid()::text = (storage.foldername(name))[1]
+  );
+CREATE POLICY "Users can view their own voice samples"
+  ON storage.objects FOR SELECT
+  USING (
+    bucket_id = 'voice-samples'
+    AND auth.uid()::text = (storage.foldername(name))[1]
+  );
+CREATE POLICY "Users can update their own voice samples"
+  ON storage.objects FOR UPDATE
+  USING (
+    bucket_id = 'voice-samples'
+    AND auth.uid()::text = (storage.foldername(name))[1]
+  )
+  WITH CHECK (
+    bucket_id = 'voice-samples'
+    AND auth.uid()::text = (storage.foldername(name))[1]
+  );
+CREATE POLICY "Users can delete their own voice samples"
+  ON storage.objects FOR DELETE
+  USING (
+    bucket_id = 'voice-samples'
+    AND auth.uid()::text = (storage.foldername(name))[1]
+  );
+
+-- Executable invoker-role canary for the isolated target.
+SET ROLE authenticated;
+SELECT id, user_id, item_id, institution_name, is_active, created_at, updated_at
+FROM public.plaid_items_safe
+LIMIT 0;
+UPDATE public.plaid_items
+SET is_active = is_active
+WHERE item_id = '' AND false;
+RESET ROLE;
