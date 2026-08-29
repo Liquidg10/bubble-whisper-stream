@@ -169,6 +169,25 @@ outside its allowlist, and explicitly rejects `tenants`, `user_tenants`,
 - records only hashes and boolean readiness, never key or secret values;
 - emits the exact final `CUTOVER:<target-ref>:<rollback-prefix>` confirmation.
 
+`scripts/generate-sync-deferred-boundary-receipt.mjs`
+
+- refuses the source project and requires the clean worktree to be linked to
+  the exact target ref;
+- opens the direct target database only for two `BEGIN TRANSACTION READ ONLY`
+  snapshots and records aggregate counts/SHA-256 digests without row IDs;
+- proves zero policies, zero anon/authenticated table privileges, RLS enabled,
+  and absent Realtime publication membership for `sync_conflicts`, `sync_data`,
+  and `sync_devices` before and after the HTTP probes;
+- sends both `GET` and denied `POST {}` probes for all three relations as anon
+  and as a freshly authenticated target user, requiring exactly PostgreSQL
+  `42501` with HTTP 401 for anon and HTTP 403 for authenticated;
+- runs the exact six-test
+  `crossDeviceSyncService.deferred.test.ts` file and emits a separate private
+  test receipt whose hash is embedded in the boundary receipt;
+- binds both mode-0600 JSON receipts to the complete
+  source/import/storage/OAuth-reset/quarantine hash chain and never records the
+  database password, public API key, access token, response body, or row IDs.
+
 ## Auth identity decision
 
 Use
@@ -475,9 +494,10 @@ With the application still pointed at the source, verify the target directly:
 - Gmail OAuth scope, watch start, signed Pub/Sub delivery, history advance, and
   replay/idempotency receipt;
 - Gmail compose draft acceptance receipt;
-- cross-device sync deferred-boundary receipt proving anon/authenticated
-  privileges are denied, the three prototype relations are absent from
-  realtime, and the client service fails closed;
+- generated cross-device sync deferred-boundary receipt proving catalog denial,
+  exact anon/authenticated GET and POST denials, before/after row equality, the
+  three prototype relations absent from Realtime, and the exact client service
+  test passing;
 - Plaid empty-state or a separately approved reauthorization receipt;
 - zero console errors, typecheck/build/tests, and security advisor review.
 
@@ -492,11 +512,35 @@ its hash, and validates the envelope. Calendar reconnect additionally follows
 `supabase/isolation/calendar-oauth-reauthorization.example.json`: it proves the
 same OAuth/Calendar identity linkage and pre-sync event digest, fresh strict
 access/refresh envelopes, future expiry, and zero tombstone matches.
-The sync boundary follows
-`supabase/isolation/sync-deferred-boundary.example.json` and binds the exact
-deferral migration, data-scope manifest, and fail-closed client service hashes;
-signed-in cross-device read/write would be a release regression, not a canary
-success.
+The sync boundary is generated, never hand-filled. First place the fresh target
+public API key and the signed-in target user's access token in ephemeral
+environment variables; neither value is printed or written. The target
+database password is consumed by the shared target-only direct-admin guard,
+but both database snapshots execute as read-only transactions:
+
+```sh
+MIND_MANUAL_TARGET_DB_PASSWORD='from-operator-secret-store' \
+MIND_MANUAL_TARGET_PUBLIC_API_KEY='from-operator-secret-store' \
+MIND_MANUAL_TARGET_AUTH_ACCESS_TOKEN='fresh-target-user-access-token' \
+node scripts/generate-sync-deferred-boundary-receipt.mjs \
+  --source-receipt /absolute/private/path/mind-manual-data-package/source-preflight.json \
+  --import-receipt /absolute/private/path/import-receipt.json \
+  --storage-receipt /absolute/private/path/storage-receipt.json \
+  --oauth-reset-receipt /absolute/private/path/oauth-reset-receipt.json \
+  --quarantine-receipt /absolute/private/path/quarantine-receipt.json \
+  --target-ref TARGET_REF \
+  --service-test-receipt /absolute/private/path/sync-deferred-service-test.json \
+  --receipt /absolute/private/path/sync-deferred-boundary.json
+```
+
+Use the generated receipt and hash in the target canary. The validator rejects
+the old version-1 boolean envelope. It reads the nested service-test receipt,
+recomputes both file hashes, validates the exact twelve HTTP status/code
+receipts, and independently compares the aggregate before/after evidence.
+`supabase/isolation/sync-deferred-boundary.example.json` and
+`supabase/isolation/sync-deferred-service-test.example.json` document the
+generated shapes; they are not operator checklists. A successful signed-in
+cross-device read or write is a release regression, not a canary success.
 Self-attested prose, a deploy result, or an HTTP 200 does not satisfy the
 envelope. The completed canary must be less than two hours old when the
 rollback receipt is prepared.

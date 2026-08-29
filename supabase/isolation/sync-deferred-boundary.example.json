@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "status": "verified",
   "evidenceType": "syncDeferredBoundary",
   "capturedAt": "YYYY-MM-DDTHH:MM:SSZ",
@@ -14,13 +14,352 @@
     "sync_data",
     "sync_devices"
   ],
-  "anonPrivilegesDenied": true,
-  "authenticatedPrivilegesDenied": true,
-  "realtimePublicationAbsent": true,
-  "syncServiceFailClosed": true,
-  "syncDeferralMigrationSha256": "replace-with-sha256",
-  "syncServiceSha256": "replace-with-sha256",
-  "dataScopesManifestSha256": "replace-with-sha256",
+  "catalogProbeSqlSha256": "replace-with-generated-sha256",
+  "catalogBefore": [
+    {
+      "relation": "sync_conflicts",
+      "relationKind": "r",
+      "rowSecurityEnabled": true,
+      "policyCount": 0,
+      "realtimePublicationMember": false,
+      "privileges": {
+        "anon": {
+          "select": false,
+          "insert": false,
+          "update": false,
+          "delete": false,
+          "truncate": false,
+          "references": false,
+          "trigger": false
+        },
+        "authenticated": {
+          "select": false,
+          "insert": false,
+          "update": false,
+          "delete": false,
+          "truncate": false,
+          "references": false,
+          "trigger": false
+        }
+      }
+    },
+    {
+      "relation": "sync_data",
+      "relationKind": "r",
+      "rowSecurityEnabled": true,
+      "policyCount": 0,
+      "realtimePublicationMember": false,
+      "privileges": {
+        "anon": {
+          "select": false,
+          "insert": false,
+          "update": false,
+          "delete": false,
+          "truncate": false,
+          "references": false,
+          "trigger": false
+        },
+        "authenticated": {
+          "select": false,
+          "insert": false,
+          "update": false,
+          "delete": false,
+          "truncate": false,
+          "references": false,
+          "trigger": false
+        }
+      }
+    },
+    {
+      "relation": "sync_devices",
+      "relationKind": "r",
+      "rowSecurityEnabled": true,
+      "policyCount": 0,
+      "realtimePublicationMember": false,
+      "privileges": {
+        "anon": {
+          "select": false,
+          "insert": false,
+          "update": false,
+          "delete": false,
+          "truncate": false,
+          "references": false,
+          "trigger": false
+        },
+        "authenticated": {
+          "select": false,
+          "insert": false,
+          "update": false,
+          "delete": false,
+          "truncate": false,
+          "references": false,
+          "trigger": false
+        }
+      }
+    }
+  ],
+  "catalogAfter": [
+    {
+      "relation": "sync_conflicts",
+      "relationKind": "r",
+      "rowSecurityEnabled": true,
+      "policyCount": 0,
+      "realtimePublicationMember": false,
+      "privileges": {
+        "anon": {
+          "select": false,
+          "insert": false,
+          "update": false,
+          "delete": false,
+          "truncate": false,
+          "references": false,
+          "trigger": false
+        },
+        "authenticated": {
+          "select": false,
+          "insert": false,
+          "update": false,
+          "delete": false,
+          "truncate": false,
+          "references": false,
+          "trigger": false
+        }
+      }
+    },
+    {
+      "relation": "sync_data",
+      "relationKind": "r",
+      "rowSecurityEnabled": true,
+      "policyCount": 0,
+      "realtimePublicationMember": false,
+      "privileges": {
+        "anon": {
+          "select": false,
+          "insert": false,
+          "update": false,
+          "delete": false,
+          "truncate": false,
+          "references": false,
+          "trigger": false
+        },
+        "authenticated": {
+          "select": false,
+          "insert": false,
+          "update": false,
+          "delete": false,
+          "truncate": false,
+          "references": false,
+          "trigger": false
+        }
+      }
+    },
+    {
+      "relation": "sync_devices",
+      "relationKind": "r",
+      "rowSecurityEnabled": true,
+      "policyCount": 0,
+      "realtimePublicationMember": false,
+      "privileges": {
+        "anon": {
+          "select": false,
+          "insert": false,
+          "update": false,
+          "delete": false,
+          "truncate": false,
+          "references": false,
+          "trigger": false
+        },
+        "authenticated": {
+          "select": false,
+          "insert": false,
+          "update": false,
+          "delete": false,
+          "truncate": false,
+          "references": false,
+          "trigger": false
+        }
+      }
+    }
+  ],
+  "rowStateBefore": [
+    {
+      "relation": "sync_conflicts",
+      "rowCount": 0,
+      "rowsSha256": "replace-with-generated-aggregate-sha256"
+    },
+    {
+      "relation": "sync_data",
+      "rowCount": 0,
+      "rowsSha256": "replace-with-generated-aggregate-sha256"
+    },
+    {
+      "relation": "sync_devices",
+      "rowCount": 0,
+      "rowsSha256": "replace-with-generated-aggregate-sha256"
+    }
+  ],
+  "rowStateAfter": [
+    {
+      "relation": "sync_conflicts",
+      "rowCount": 0,
+      "rowsSha256": "replace-with-generated-aggregate-sha256"
+    },
+    {
+      "relation": "sync_data",
+      "rowCount": 0,
+      "rowsSha256": "replace-with-generated-aggregate-sha256"
+    },
+    {
+      "relation": "sync_devices",
+      "rowCount": 0,
+      "rowsSha256": "replace-with-generated-aggregate-sha256"
+    }
+  ],
+  "httpProbeContractSha256": "replace-with-generated-sha256",
+  "httpNegativeProbes": [
+    {
+      "relation": "sync_conflicts",
+      "role": "anon",
+      "method": "GET",
+      "path": "/rest/v1/sync_conflicts?select=*&limit=1",
+      "expectedStatus": 401,
+      "observedStatus": 401,
+      "postgresCode": "42501",
+      "requestBodySha256": "replace-with-generated-sha256",
+      "responseBodySha256": "replace-with-generated-sha256"
+    },
+    {
+      "relation": "sync_conflicts",
+      "role": "anon",
+      "method": "POST",
+      "path": "/rest/v1/sync_conflicts?select=*",
+      "expectedStatus": 401,
+      "observedStatus": 401,
+      "postgresCode": "42501",
+      "requestBodySha256": "replace-with-generated-sha256",
+      "responseBodySha256": "replace-with-generated-sha256"
+    },
+    {
+      "relation": "sync_conflicts",
+      "role": "authenticated",
+      "method": "GET",
+      "path": "/rest/v1/sync_conflicts?select=*&limit=1",
+      "expectedStatus": 403,
+      "observedStatus": 403,
+      "postgresCode": "42501",
+      "requestBodySha256": "replace-with-generated-sha256",
+      "responseBodySha256": "replace-with-generated-sha256"
+    },
+    {
+      "relation": "sync_conflicts",
+      "role": "authenticated",
+      "method": "POST",
+      "path": "/rest/v1/sync_conflicts?select=*",
+      "expectedStatus": 403,
+      "observedStatus": 403,
+      "postgresCode": "42501",
+      "requestBodySha256": "replace-with-generated-sha256",
+      "responseBodySha256": "replace-with-generated-sha256"
+    },
+    {
+      "relation": "sync_data",
+      "role": "anon",
+      "method": "GET",
+      "path": "/rest/v1/sync_data?select=*&limit=1",
+      "expectedStatus": 401,
+      "observedStatus": 401,
+      "postgresCode": "42501",
+      "requestBodySha256": "replace-with-generated-sha256",
+      "responseBodySha256": "replace-with-generated-sha256"
+    },
+    {
+      "relation": "sync_data",
+      "role": "anon",
+      "method": "POST",
+      "path": "/rest/v1/sync_data?select=*",
+      "expectedStatus": 401,
+      "observedStatus": 401,
+      "postgresCode": "42501",
+      "requestBodySha256": "replace-with-generated-sha256",
+      "responseBodySha256": "replace-with-generated-sha256"
+    },
+    {
+      "relation": "sync_data",
+      "role": "authenticated",
+      "method": "GET",
+      "path": "/rest/v1/sync_data?select=*&limit=1",
+      "expectedStatus": 403,
+      "observedStatus": 403,
+      "postgresCode": "42501",
+      "requestBodySha256": "replace-with-generated-sha256",
+      "responseBodySha256": "replace-with-generated-sha256"
+    },
+    {
+      "relation": "sync_data",
+      "role": "authenticated",
+      "method": "POST",
+      "path": "/rest/v1/sync_data?select=*",
+      "expectedStatus": 403,
+      "observedStatus": 403,
+      "postgresCode": "42501",
+      "requestBodySha256": "replace-with-generated-sha256",
+      "responseBodySha256": "replace-with-generated-sha256"
+    },
+    {
+      "relation": "sync_devices",
+      "role": "anon",
+      "method": "GET",
+      "path": "/rest/v1/sync_devices?select=*&limit=1",
+      "expectedStatus": 401,
+      "observedStatus": 401,
+      "postgresCode": "42501",
+      "requestBodySha256": "replace-with-generated-sha256",
+      "responseBodySha256": "replace-with-generated-sha256"
+    },
+    {
+      "relation": "sync_devices",
+      "role": "anon",
+      "method": "POST",
+      "path": "/rest/v1/sync_devices?select=*",
+      "expectedStatus": 401,
+      "observedStatus": 401,
+      "postgresCode": "42501",
+      "requestBodySha256": "replace-with-generated-sha256",
+      "responseBodySha256": "replace-with-generated-sha256"
+    },
+    {
+      "relation": "sync_devices",
+      "role": "authenticated",
+      "method": "GET",
+      "path": "/rest/v1/sync_devices?select=*&limit=1",
+      "expectedStatus": 403,
+      "observedStatus": 403,
+      "postgresCode": "42501",
+      "requestBodySha256": "replace-with-generated-sha256",
+      "responseBodySha256": "replace-with-generated-sha256"
+    },
+    {
+      "relation": "sync_devices",
+      "role": "authenticated",
+      "method": "POST",
+      "path": "/rest/v1/sync_devices?select=*",
+      "expectedStatus": 403,
+      "observedStatus": 403,
+      "postgresCode": "42501",
+      "requestBodySha256": "replace-with-generated-sha256",
+      "responseBodySha256": "replace-with-generated-sha256"
+    }
+  ],
+  "serviceTestReceiptPath": "/absolute/private/path/sync-deferred-service-test.json",
+  "serviceTestReceiptSha256": "replace-with-generated-sha256",
+  "syncDeferralMigrationSha256": "replace-with-generated-sha256",
+  "syncServiceSha256": "replace-with-generated-sha256",
+  "syncServiceTestSha256": "replace-with-generated-sha256",
+  "dataScopesManifestSha256": "replace-with-generated-sha256",
+  "generatorSha256": "replace-with-generated-sha256",
+  "databaseTransactionMode": "read_only",
+  "targetRowsMutated": false,
+  "sourceMutated": false,
   "secretValuesIncluded": false,
   "rowIdsIncluded": false
 }

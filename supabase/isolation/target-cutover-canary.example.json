@@ -19,7 +19,6 @@
     "gmailWatchSignedPubsubDelivery": true,
     "gmailHistoryAdvanceAndReplayIdempotency": true,
     "gmailComposeAcceptance": true,
-    "syncDeferredBoundary": true,
     "appBuildAndTestGates": true
   },
   "plaidDisposition": "empty",
