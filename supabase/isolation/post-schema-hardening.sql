@@ -15,6 +15,8 @@ CREATE TRIGGER on_auth_user_created
 REVOKE ALL ON FUNCTION public.cleanup_expired_google_calendar_oauth_state() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.cleanup_expired_oauth_state() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.cleanup_old_calendar_events(uuid, integer) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.claim_gmail_pubsub_message(uuid, text, text, text, timestamp with time zone) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.complete_gmail_pubsub_message(uuid, text, text, integer, integer, jsonb, text, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.consume_google_calendar_oauth_state(text, uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.create_plaid_secret(text, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.get_expiring_watch_channels(integer) FROM PUBLIC, anon, authenticated;
@@ -27,6 +29,8 @@ REVOKE ALL ON FUNCTION public.upsert_google_calendar_connection(uuid, text, text
 GRANT EXECUTE ON FUNCTION public.cleanup_expired_google_calendar_oauth_state() TO service_role;
 GRANT EXECUTE ON FUNCTION public.cleanup_expired_oauth_state() TO service_role;
 GRANT EXECUTE ON FUNCTION public.cleanup_old_calendar_events(uuid, integer) TO service_role;
+GRANT EXECUTE ON FUNCTION public.claim_gmail_pubsub_message(uuid, text, text, text, timestamp with time zone) TO service_role;
+GRANT EXECUTE ON FUNCTION public.complete_gmail_pubsub_message(uuid, text, text, integer, integer, jsonb, text, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.consume_google_calendar_oauth_state(text, uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.create_plaid_secret(text, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.get_expiring_watch_channels(integer) TO service_role, authenticated;
@@ -53,6 +57,18 @@ GRANT SELECT (
 GRANT UPDATE (is_active) ON TABLE public.plaid_items TO authenticated;
 REVOKE SELECT ON TABLE public.plaid_items_safe FROM anon;
 GRANT SELECT ON TABLE public.plaid_items_safe TO authenticated;
+
+REVOKE ALL ON TABLE public.gmail_watch_subscriptions,
+  public.gmail_pubsub_receipts,
+  public.gmail_history_events
+  FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON TABLE public.gmail_watch_subscriptions,
+  public.gmail_history_events
+  TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.gmail_watch_subscriptions,
+  public.gmail_pubsub_receipts,
+  public.gmail_history_events
+  TO service_role;
 
 -- The isolated app has no signed-out data surface. Remove inherited anonymous
 -- table access now and for future postgres-owned migrations.

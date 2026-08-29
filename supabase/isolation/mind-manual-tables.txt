@@ -8,7 +8,10 @@ email_messages
 email_recipients
 gmail_actionables
 gmail_compose_receipts
+gmail_history_events
+gmail_pubsub_receipts
 gmail_threads
+gmail_watch_subscriptions
 oauth_accounts
 oauth_state
 oauth_tokens

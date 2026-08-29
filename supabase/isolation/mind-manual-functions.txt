@@ -1,6 +1,8 @@
 cleanup_expired_google_calendar_oauth_state
 cleanup_expired_oauth_state
 cleanup_old_calendar_events
+claim_gmail_pubsub_message
+complete_gmail_pubsub_message
 consume_google_calendar_oauth_state
 create_plaid_secret
 get_expiring_watch_channels

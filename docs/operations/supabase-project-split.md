@@ -5,7 +5,7 @@ isolated target must be built from an allowlist, never from an all-schema dump.
 
 ## Allowed Mind Manual surface
 
-- 29 public tables and the `plaid_items_safe` view listed in
+- 32 public tables and the `plaid_items_safe` view listed in
   `supabase/isolation/mind-manual-tables.txt`
 - the reviewed public functions listed in
   `supabase/isolation/mind-manual-functions.txt`
