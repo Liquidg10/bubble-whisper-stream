@@ -2,6 +2,7 @@
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   assertAbsolutePath,
   assertPrivateFile,
@@ -13,6 +14,15 @@ import {
   sha256File,
   writePrivateJson,
 } from "./lib/supabase-isolation.mjs";
+import {
+  DEFERRED_RELATIONS,
+  deferredServiceTestCommandSha256,
+  expectedDeferredAssertionsSha256,
+  expectedHttpProbeContract,
+  targetSnapshotSql,
+  validateHttpProbeReceipts,
+  validateTargetSnapshot,
+} from "./generate-sync-deferred-boundary-receipt.mjs";
 
 const SOURCE_PROJECT_REF = "ekekeywoxvdbfbmqyhjy";
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
@@ -25,6 +35,14 @@ const SYNC_DEFERRAL_MIGRATION_PATH = resolve(
 const SYNC_SERVICE_PATH = resolve(
   repoRoot,
   "src/services/crossDeviceSyncService.ts",
+);
+const SYNC_SERVICE_TEST_PATH = resolve(
+  repoRoot,
+  "src/services/__tests__/crossDeviceSyncService.deferred.test.ts",
+);
+const SYNC_RECEIPT_GENERATOR_PATH = resolve(
+  repoRoot,
+  "scripts/generate-sync-deferred-boundary-receipt.mjs",
 );
 const DATA_SCOPES_PATH = resolve(
   repoRoot,
@@ -71,7 +89,6 @@ const REQUIRED_BOOLEAN_CANARIES = [
   "gmailWatchSignedPubsubDelivery",
   "gmailHistoryAdvanceAndReplayIdempotency",
   "gmailComposeAcceptance",
-  "syncDeferredBoundary",
   "appBuildAndTestGates",
 ];
 const REQUIRED_EVIDENCE_RECEIPTS = [
@@ -132,13 +149,50 @@ const SYNC_DEFERRED_EVIDENCE_FIELDS = Object.freeze([
   "oauthResetReceiptSha256",
   "quarantineReceiptSha256",
   "deferredRelations",
-  "anonPrivilegesDenied",
-  "authenticatedPrivilegesDenied",
-  "realtimePublicationAbsent",
-  "syncServiceFailClosed",
+  "catalogProbeSqlSha256",
+  "catalogBefore",
+  "catalogAfter",
+  "rowStateBefore",
+  "rowStateAfter",
+  "httpProbeContractSha256",
+  "httpNegativeProbes",
+  "serviceTestReceiptPath",
+  "serviceTestReceiptSha256",
   "syncDeferralMigrationSha256",
   "syncServiceSha256",
+  "syncServiceTestSha256",
   "dataScopesManifestSha256",
+  "generatorSha256",
+  "databaseTransactionMode",
+  "targetRowsMutated",
+  "sourceMutated",
+  "secretValuesIncluded",
+  "rowIdsIncluded",
+]);
+const SYNC_SERVICE_TEST_EVIDENCE_FIELDS = Object.freeze([
+  "version",
+  "status",
+  "evidenceType",
+  "capturedAt",
+  "targetProjectRef",
+  "sourceReceiptSha256",
+  "importReceiptSha256",
+  "storageReceiptSha256",
+  "oauthResetReceiptSha256",
+  "quarantineReceiptSha256",
+  "testFilePath",
+  "testFileSha256",
+  "syncServiceSha256",
+  "commandSha256",
+  "vitestReportSha256",
+  "testFileCount",
+  "totalTests",
+  "passedTests",
+  "failedTests",
+  "skippedTests",
+  "testAssertionsSha256",
+  "sourceMutated",
+  "targetMutated",
   "secretValuesIncluded",
   "rowIdsIncluded",
 ]);
@@ -408,31 +462,115 @@ function validateCalendarReauthorizationEvidence(
   }
 }
 
-function validateSyncDeferredEvidence(receipt, targetRef) {
+export function validateSyncDeferredEvidence(
+  receipt,
+  targetRef,
+  sourceReceiptSha256,
+  importReceiptSha256,
+  storageReceiptSha256,
+  oauthResetReceiptSha256,
+  quarantineReceiptSha256,
+) {
   if (
     !hasExactKeys(receipt, SYNC_DEFERRED_EVIDENCE_FIELDS) ||
-    receipt.version !== 1 ||
+    receipt.version !== 2 ||
     receipt.status !== "verified" ||
     receipt.evidenceType !== "syncDeferredBoundary" ||
     receipt.targetProjectRef !== targetRef ||
-    canonicalJson(receipt.deferredRelations) !== canonicalJson([
-      "sync_conflicts",
-      "sync_data",
-      "sync_devices",
-    ]) ||
-    receipt.anonPrivilegesDenied !== true ||
-    receipt.authenticatedPrivilegesDenied !== true ||
-    receipt.realtimePublicationAbsent !== true ||
-    receipt.syncServiceFailClosed !== true ||
+    receipt.sourceReceiptSha256 !== sourceReceiptSha256 ||
+    receipt.importReceiptSha256 !== importReceiptSha256 ||
+    receipt.storageReceiptSha256 !== storageReceiptSha256 ||
+    receipt.oauthResetReceiptSha256 !== oauthResetReceiptSha256 ||
+    receipt.quarantineReceiptSha256 !== quarantineReceiptSha256 ||
+    canonicalJson(receipt.deferredRelations) !==
+      canonicalJson(DEFERRED_RELATIONS) ||
+    receipt.catalogProbeSqlSha256 !== sha256(targetSnapshotSql()) ||
+    receipt.httpProbeContractSha256 !==
+      sha256(canonicalJson(expectedHttpProbeContract())) ||
     receipt.syncDeferralMigrationSha256 !==
       sha256File(SYNC_DEFERRAL_MIGRATION_PATH) ||
     receipt.syncServiceSha256 !== sha256File(SYNC_SERVICE_PATH) ||
+    receipt.syncServiceTestSha256 !== sha256File(SYNC_SERVICE_TEST_PATH) ||
     receipt.dataScopesManifestSha256 !== sha256File(DATA_SCOPES_PATH) ||
+    receipt.generatorSha256 !== sha256File(SYNC_RECEIPT_GENERATOR_PATH) ||
+    receipt.databaseTransactionMode !== "read_only" ||
+    receipt.targetRowsMutated !== false ||
+    receipt.sourceMutated !== false ||
     receipt.secretValuesIncluded !== false ||
     receipt.rowIdsIncluded !== false
   ) {
     throw new Error(
-      "sync deferred-boundary evidence does not prove denied browser access, absent realtime, and fail-closed service behavior",
+      "sync deferred-boundary evidence is not bound to the reviewed target-only generator and receipt chain",
+    );
+  }
+  validateTargetSnapshot(
+    { catalog: receipt.catalogBefore, rows: receipt.rowStateBefore },
+    "sync boundary before snapshot",
+  );
+  validateTargetSnapshot(
+    { catalog: receipt.catalogAfter, rows: receipt.rowStateAfter },
+    "sync boundary after snapshot",
+  );
+  if (
+    canonicalJson(receipt.catalogBefore) !==
+      canonicalJson(receipt.catalogAfter) ||
+    canonicalJson(receipt.rowStateBefore) !==
+      canonicalJson(receipt.rowStateAfter)
+  ) {
+    throw new Error(
+      "sync deferred-boundary evidence does not prove before/after target equality",
+    );
+  }
+  validateHttpProbeReceipts(receipt.httpNegativeProbes);
+
+  const serviceTestPath = assertAbsolutePath(
+    receipt.serviceTestReceiptPath,
+    "sync service-test receipt path",
+  );
+  assertPrivateFile(serviceTestPath, "sync service-test receipt");
+  const serviceTestBytes = readFileSync(serviceTestPath);
+  if (sha256(serviceTestBytes) !== receipt.serviceTestReceiptSha256) {
+    throw new Error("sync service-test receipt content drifted");
+  }
+  let serviceTest;
+  try {
+    serviceTest = JSON.parse(serviceTestBytes.toString("utf8"));
+  } catch {
+    throw new Error("sync service-test receipt is not JSON");
+  }
+  if (
+    !hasExactKeys(serviceTest, SYNC_SERVICE_TEST_EVIDENCE_FIELDS) ||
+    serviceTest.version !== 1 ||
+    serviceTest.status !== "verified" ||
+    serviceTest.evidenceType !== "crossDeviceSyncService.deferred.test" ||
+    serviceTest.capturedAt !== receipt.capturedAt ||
+    !isFreshTimestamp(serviceTest.capturedAt, CANARY_MAX_AGE_MS) ||
+    serviceTest.targetProjectRef !== targetRef ||
+    serviceTest.sourceReceiptSha256 !== sourceReceiptSha256 ||
+    serviceTest.importReceiptSha256 !== importReceiptSha256 ||
+    serviceTest.storageReceiptSha256 !== storageReceiptSha256 ||
+    serviceTest.oauthResetReceiptSha256 !== oauthResetReceiptSha256 ||
+    serviceTest.quarantineReceiptSha256 !== quarantineReceiptSha256 ||
+    serviceTest.testFilePath !==
+      "src/services/__tests__/crossDeviceSyncService.deferred.test.ts" ||
+    serviceTest.testFileSha256 !== sha256File(SYNC_SERVICE_TEST_PATH) ||
+    serviceTest.syncServiceSha256 !== sha256File(SYNC_SERVICE_PATH) ||
+    serviceTest.commandSha256 !== deferredServiceTestCommandSha256() ||
+    !SHA256_PATTERN.test(serviceTest.vitestReportSha256 ?? "") ||
+    serviceTest.testFileCount !== 1 ||
+    serviceTest.totalTests !== 6 ||
+    serviceTest.passedTests !== 6 ||
+    serviceTest.failedTests !== 0 ||
+    serviceTest.skippedTests !== 0 ||
+    serviceTest.testAssertionsSha256 !==
+      expectedDeferredAssertionsSha256() ||
+    serviceTest.sourceMutated !== false ||
+    serviceTest.targetMutated !== false ||
+    serviceTest.secretValuesIncluded !== false ||
+    serviceTest.rowIdsIncluded !== false
+  ) {
+    throw new Error(
+      "sync service-test receipt does not prove the exact passing deferred service contract",
     );
   }
 }
@@ -553,8 +691,9 @@ function validateCanaryReceipt(
     } catch {
       throw new Error(`target canary evidence is not JSON: ${name}`);
     }
+    const expectedEvidenceVersion = name === "syncDeferredBoundary" ? 2 : 1;
     if (
-      evidence.version !== 1 ||
+      evidence.version !== expectedEvidenceVersion ||
       evidence.status !== "verified" ||
       evidence.evidenceType !== name ||
       evidence.targetProjectRef !== targetRef ||
@@ -580,7 +719,13 @@ function validateCanaryReceipt(
   validateSyncDeferredEvidence(
     evidenceReceipts.get("syncDeferredBoundary"),
     targetRef,
+    sourceReceiptSha256,
+    importReceiptSha256,
+    storageReceiptSha256,
+    oauthResetReceiptSha256,
+    quarantineReceiptSha256,
   );
+  return evidenceReceipts;
 }
 
 async function main() {
@@ -880,7 +1025,7 @@ async function main() {
       "input receipts do not describe one ready source and target",
     );
   }
-  validateCanaryReceipt(
+  const evidenceReceipts = validateCanaryReceipt(
     canary,
     oauthReset,
     targetRef,
@@ -890,6 +1035,7 @@ async function main() {
     oauthResetReceiptSha256,
     quarantineReceiptSha256,
   );
+  const syncDeferredEvidence = evidenceReceipts.get("syncDeferredBoundary");
 
   const receipt = {
     version: 1,
@@ -910,6 +1056,10 @@ async function main() {
     oauthResetReceiptSha256,
     quarantineReceiptSha256,
     targetCanaryReceiptSha256: sha256File(args["target-canary-receipt"]),
+    syncDeferredBoundaryReceiptSha256:
+      canary.evidenceReceiptSha256.syncDeferredBoundary,
+    syncDeferredServiceTestReceiptSha256:
+      syncDeferredEvidence.serviceTestReceiptSha256,
     externalBindingsManifestSha256: sha256File(externalBindingsPath),
     rollbackWindowEndsAt: windowEndsAt.toISOString(),
     rollbackOwner: "owner",
@@ -930,7 +1080,11 @@ async function main() {
   );
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+const isDirectRun = process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isDirectRun) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}

@@ -187,6 +187,9 @@ describe('isolated Supabase OAuth credential reset', () => {
     const canary = readRepoFile(
       'supabase/isolation/target-cutover-canary.example.json',
     );
+    const syncGenerator = readRepoFile(
+      'scripts/generate-sync-deferred-boundary-receipt.mjs',
+    );
 
     expect(rollback).toContain('"source-revalidation-receipt": { required: true }');
     expect(rollback).toContain('"source-freeze-receipt": { required: true }');
@@ -197,11 +200,19 @@ describe('isolated Supabase OAuth credential reset', () => {
     expect(rollback).toContain('evidence.evidenceType !== name');
     expect(rollback).toContain('validateCalendarReauthorizationEvidence');
     expect(rollback).toContain('validateSyncDeferredEvidence');
+    expect(rollback).toContain('validateHttpProbeReceipts');
+    expect(rollback).toContain('serviceTestReceiptSha256');
     expect(rollback).toContain('sha256File(SYNC_DEFERRAL_MIGRATION_PATH)');
     expect(rollback).toContain('sha256File(SYNC_SERVICE_PATH)');
-    expect(canary).toContain('"syncDeferredBoundary": true');
+    expect(canary).not.toContain('"syncDeferredBoundary": true');
+    expect(canary).toContain('"syncDeferredBoundary": "replace-with-sha256"');
     expect(canary).not.toContain('"syncReadWrite"');
     expect(canary).toContain('"evidenceReceiptPaths"');
+    expect(syncGenerator).toContain('BEGIN TRANSACTION READ ONLY');
+    expect(syncGenerator).toContain('expectedPostgrestCode: EXPECTED_POSTGREST_CODE');
+    expect(syncGenerator).toContain('HTTP_METHODS = Object.freeze(["GET", "POST"])');
+    expect(syncGenerator).toContain('canonicalJson(before.rows) !== canonicalJson(after.rows)');
+    expect(syncGenerator).toContain('runDeferredServiceTest');
   });
 
   it('uses the app callback for the unpublished Google OAuth canary', () => {
