@@ -76,9 +76,8 @@ class CalendarOfflineExtensions {
       decision: 'auto-write',
       action: 'calendar_reschedule_queued',
       becauseText: `Task rescheduled from ${oldDateTime} to ${newDateTime}`,
-      metadata: { taskId, oldDateTime, newDateTime },
+      metadata: { taskId, oldDateTime, newDateTime, undoHandle: actionId, executionStatus: 'pending' },
       undoable: true,
-      undoId: actionId,
     });
 
     // If online, try to sync immediately
@@ -122,9 +121,8 @@ class CalendarOfflineExtensions {
       decision: 'auto-write',
       action: 'pinboard_to_calendar_queued',
       becauseText: `Task moved from pinboard to calendar at ${newDateTime}`,
-      metadata: { taskId, newDateTime },
+      metadata: { taskId, newDateTime, undoHandle: actionId, executionStatus: 'pending' },
       undoable: true,
-      undoId: actionId,
     });
 
     if (navigator.onLine) {
@@ -165,9 +163,8 @@ class CalendarOfflineExtensions {
       decision: 'auto-write',
       action: 'calendar_to_pinboard_queued',
       becauseText: `Task moved from calendar back to pinboard`,
-      metadata: { taskId, oldDateTime },
+      metadata: { taskId, oldDateTime, undoHandle: actionId, executionStatus: 'pending' },
       undoable: true,
-      undoId: actionId,
     });
 
     if (navigator.onLine) {
@@ -207,9 +204,8 @@ class CalendarOfflineExtensions {
       decision: 'auto-write',
       action: 'bulk_reschedule_queued',
       becauseText: `Bulk operation "${operation}" queued for ${taskIds.length} tasks`,
-      metadata: { taskIds, operation },
+      metadata: { taskIds, operation, undoHandle: actionId, executionStatus: 'pending' },
       undoable: true,
-      undoId: actionId,
     });
 
     if (navigator.onLine) {

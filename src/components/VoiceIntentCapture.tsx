@@ -10,6 +10,7 @@ import { isFeatureEnabled, isKillSwitchActive } from '@/config/flags';
 import { Bubble, BubbleType } from '@/types/bubble';
 import { setHorizon } from '@/lib/horizon';
 import { voiceRouter, IntentResult } from '@/intent/voiceRouter';
+import { decisionTraceService } from '@/services/decisionTraceService';
 
 interface VoiceIntentCaptureProps {
   onBubbleCreated?: (bubble: Bubble) => void;
@@ -37,7 +38,13 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
   const [confidence, setConfidence] = useState(0);
 
   const [awaitingConfirmation, setAwaitingConfirmation] = useState(false);
-  const [pendingIntent, setPendingIntent] = useState<{ transcript: string; intent: IntentResult } | null>(null);
+  const [confirmationInFlight, setConfirmationInFlight] = useState(false);
+  const [pendingIntent, setPendingIntent] = useState<{
+    transcript: string;
+    intent: IntentResult;
+    traceId: string;
+    presentedAt: number;
+  } | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -47,6 +54,7 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
   const isStartingRef = useRef(false);
   const startRequestRef = useRef(0);
   const heldPointerIdRef = useRef<number | null>(null);
+  const confirmationInFlightRef = useRef(false);
 
   const getTagEmoji = (tag: string): string => {
     const emojiMap: Record<string, string> = {
@@ -127,12 +135,17 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
     await addBubble(bubble);
     onBubbleCreated?.(bubble);
 
-    await provideFeedback(text, intent);
+    try {
+      await provideFeedback(text, intent);
+    } catch (error) {
+      console.warn('Bubble created, but voice feedback failed:', error);
+    }
 
     toast({
       title: `Auto-created ${intent.type}!`,
       description: `${Math.round(intent.confidence * 100)}% confidence: "${text.substring(0, 40)}${text.length > 40 ? '...' : ''}"`,
     });
+    return bubble;
   }, [addBubble, onBubbleCreated, provideFeedback, toast]);
 
   // Route the transcript through the shared voiceRouter (same classifier HeaderVoiceCapture
@@ -141,6 +154,45 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
   const handleTranscript = useCallback(async (text: string) => {
     const intent = voiceRouter.route(text);
     setConfidence(intent.confidence);
+    const needsConfirmation = (
+      intent.confidence >= confidenceThreshold && intent.confidence < 0.85
+    ) || (
+      intent.confidence >= 0.85 &&
+      intent.autoCommitRecommended &&
+      voiceAutoCommit &&
+      isKillSwitchActive()
+    );
+    const decision = needsConfirmation
+      ? 'suggest'
+      : intent.confidence >= 0.85 && intent.autoCommitRecommended
+        ? 'auto-write'
+        : 'skip';
+    const presentedAt = Date.now();
+    const traceId = decisionTraceService.addTrace({
+      feature: 'context',
+      signals: [{
+        type: 'voice_intent',
+        value: intent.type,
+        confidence: intent.confidence,
+        source: 'voice-intent-capture',
+        privacyLayer: 'surface'
+      }],
+      confidenceThreshold,
+      finalConfidence: intent.confidence,
+      decision,
+      action: `Create ${intent.type} bubble`,
+      becauseText: `Detected ${intent.type} with ${Math.round(intent.confidence * 100)}% confidence`,
+      privacyWatermark: 'surface',
+      metadata: {
+        telemetryKind: 'acceptance',
+        intentType: intent.type,
+        surface: 'voice-intent-capture',
+        presentedAt: needsConfirmation ? presentedAt : undefined
+      },
+      // This surface does not retain a compensation callback after creation.
+      // Do not advertise a generic undo that cannot actually delete the bubble.
+      undoable: false
+    });
 
     if (DEBUG) {
       console.log('🎯 Intent routed:', { text, intent });
@@ -148,14 +200,26 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
 
     if (intent.confidence >= 0.85 && intent.autoCommitRecommended && voiceAutoCommit && !isKillSwitchActive()) {
       // High confidence + auto-commit enabled + kill switch inactive = create immediately
-      await commitBubble(text, intent);
+      try {
+        const bubble = await commitBubble(text, intent);
+        decisionTraceService.recordExecution(traceId, 'succeeded', {
+          source: 'voice-intent-capture',
+          reference: bubble.id
+        });
+      } catch (error) {
+        decisionTraceService.recordExecution(traceId, 'failed', {
+          source: 'voice-intent-capture',
+          reference: error instanceof Error ? error.message : 'Bubble creation failed'
+        });
+        throw error;
+      }
     } else if (intent.confidence >= 0.85 && intent.autoCommitRecommended && voiceAutoCommit && isKillSwitchActive()) {
       // Kill switch active: fall back to confirmation instead of silently auto-creating
-      setPendingIntent({ transcript: text, intent });
+      setPendingIntent({ transcript: text, intent, traceId, presentedAt });
       setAwaitingConfirmation(true);
     } else if (intent.confidence >= confidenceThreshold && intent.confidence < 0.85) {
       // Medium confidence = ask for confirmation
-      setPendingIntent({ transcript: text, intent });
+      setPendingIntent({ transcript: text, intent, traceId, presentedAt });
       setAwaitingConfirmation(true);
     } else {
       // Low confidence = surface what was heard without creating anything
@@ -360,12 +424,49 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
 
   // Resolve a pending medium-confidence / kill-switch confirmation
   const handleConfirmation = useCallback(async (confirmed: boolean) => {
-    if (confirmed && pendingIntent) {
-      await commitBubble(pendingIntent.transcript, pendingIntent.intent);
+    if (!pendingIntent || confirmationInFlightRef.current) return;
+
+    confirmationInFlightRef.current = true;
+    setConfirmationInFlight(true);
+    try {
+      if (confirmed) {
+        try {
+          const bubble = await commitBubble(pendingIntent.transcript, pendingIntent.intent);
+          decisionTraceService.recordExecution(pendingIntent.traceId, 'succeeded', {
+            source: 'voice-intent-capture',
+            reference: bubble.id
+          });
+          decisionTraceService.recordUserAction(pendingIntent.traceId, 'accept', {
+            source: 'voice-intent-confirmation',
+            artifactId: bubble.id,
+            latencyMs: Date.now() - pendingIntent.presentedAt
+          });
+        } catch (error) {
+          decisionTraceService.recordExecution(pendingIntent.traceId, 'failed', {
+            source: 'voice-intent-capture',
+            reference: error instanceof Error ? error.message : 'Bubble creation failed'
+          });
+          toast({
+            title: 'Creation failed',
+            description: 'The item was not created. You can try again.',
+            variant: 'destructive'
+          });
+          return;
+        }
+      } else {
+        decisionTraceService.recordUserAction(pendingIntent.traceId, 'reject', {
+          source: 'voice-intent-confirmation',
+          latencyMs: Date.now() - pendingIntent.presentedAt
+        });
+      }
+
+      setAwaitingConfirmation(false);
+      setPendingIntent(null);
+    } finally {
+      confirmationInFlightRef.current = false;
+      setConfirmationInFlight(false);
     }
-    setAwaitingConfirmation(false);
-    setPendingIntent(null);
-  }, [pendingIntent, commitBubble]);
+  }, [pendingIntent, commitBubble, toast]);
 
   // Button handlers
   const handlePointerDown = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
@@ -426,6 +527,7 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
       isStartingRef.current = false;
       isRecordingRef.current = false;
       heldPointerIdRef.current = null;
+      confirmationInFlightRef.current = false;
       mediaRecorderRef.current = null;
       const stream = streamRef.current;
       streamRef.current = null;
@@ -530,6 +632,8 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
               variant="outline"
               className="h-6 px-2 text-xs"
               onClick={() => handleConfirmation(true)}
+              disabled={confirmationInFlight}
+              aria-busy={confirmationInFlight}
             >
               Yes
             </Button>
@@ -538,6 +642,7 @@ export const VoiceIntentCapture: React.FC<VoiceIntentCaptureProps> = ({
               variant="ghost"
               className="h-6 px-2 text-xs"
               onClick={() => handleConfirmation(false)}
+              disabled={confirmationInFlight}
             >
               No
             </Button>

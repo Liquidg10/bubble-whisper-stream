@@ -4,15 +4,13 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Undo2, Clock, Brain, AlertTriangle } from 'lucide-react';
+import { Clock, Brain, AlertTriangle } from 'lucide-react';
 import { decisionTraceService, type DecisionTrace } from '@/services/decisionTraceService';
 import { PrivacyWatermark } from './PrivacyWatermark';
-import { useToast } from '@/hooks/use-toast';
 
 export const EnhancedDecisionTrace: React.FC = () => {
   const [traces, setTraces] = useState<DecisionTrace[]>([]);
   const [selectedTrace, setSelectedTrace] = useState<DecisionTrace | null>(null);
-  const { toast } = useToast();
 
   React.useEffect(() => {
     const updateTraces = () => {
@@ -23,48 +21,6 @@ export const EnhancedDecisionTrace: React.FC = () => {
     const unsubscribe = decisionTraceService.subscribe(updateTraces);
     return unsubscribe;
   }, []);
-
-  const handleUndo = async (trace: DecisionTrace) => {
-    if (!trace.undoable || trace.undoId) return;
-
-    try {
-      // Generate undo ID and mark as undone
-      const undoId = crypto.randomUUID();
-      decisionTraceService.markAsUndone(trace.id, undoId);
-
-      // Add new trace for the undo action
-      decisionTraceService.addTrace({
-        feature: trace.feature,
-        signals: [{
-          type: 'undo',
-          value: trace.id,
-          confidence: 1.0,
-          source: 'user',
-          privacyLayer: 'surface'
-        }],
-        confidenceThreshold: 1.0,
-        finalConfidence: 1.0,
-        decision: 'rollback',
-        action: `Undid: ${trace.action}`,
-        becauseText: `User reversed previous action`,
-        privacyWatermark: 'surface',
-        castMember: 'System',
-        metadata: { originalTraceId: trace.id },
-        undoable: false
-      });
-
-      toast({
-        title: "Action undone",
-        description: `Reversed: ${trace.action}`,
-      });
-    } catch (error) {
-      toast({
-        title: "Undo failed",
-        description: "Could not reverse the action",
-        variant: "destructive"
-      });
-    }
-  };
 
   const formatTimestamp = (timestamp: number) => {
     const now = Date.now();
@@ -131,19 +87,6 @@ export const EnhancedDecisionTrace: React.FC = () => {
                         <span className="text-xs text-muted-foreground">
                           {formatTimestamp(trace.timestamp)}
                         </span>
-                        {trace.undoable && !trace.undoId && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleUndo(trace);
-                            }}
-                            className="h-6 w-6 p-0"
-                          >
-                            <Undo2 className="h-3 w-3" />
-                          </Button>
-                        )}
                       </div>
                     </div>
 

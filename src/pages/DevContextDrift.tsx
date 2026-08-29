@@ -16,23 +16,30 @@ import { contextEngineService } from '@/services/contextEngineService';
 import { precisionDriftTracker, PrecisionSnapshot, PrecisionDriftMetrics } from '@/services/precisionDriftTracker';
 import { unifiedRollbackService, UnifiedSnapshot } from '@/services/unifiedRollbackService';
 import { backgroundCalibrationService, CalibrationTask } from '@/services/backgroundCalibrationService';
+import {
+  decisionTraceService,
+  isAcceptanceTelemetryTrace,
+  summarizeDecisionOutcomes
+} from '@/services/decisionTraceService';
 import { isFeatureEnabled } from '@/config/flags';
 
 interface WeightSnapshot {
   timestamp: number;
   weights: Record<string, number>;
-  acceptanceRate: number;
+  acceptanceRate: number | null;
   totalDecisions: number;
+  outcomeDecisions: number;
+  outcomeCoverage: number;
 }
 
 interface ExtendedDriftMetrics extends DriftMetrics {
   precisionMetrics?: PrecisionDriftMetrics;
-  combinedHealth?: number;
+  combinedHealth?: number | null;
 }
 
 interface DriftMetrics {
   weekOverWeekDelta: number;
-  acceptanceChange: number;
+  acceptanceChange: number | null;
   volatilityScore: number;
   driftSeverity: 'stable' | 'minor' | 'moderate' | 'high';
 }
@@ -89,12 +96,15 @@ export default function DevContextDrift() {
     try {
       const weights = await contextEngineService.getSignalWeights();
       const decisions = getRecentDecisions();
+      const outcomeSummary = summarizeDecisionOutcomes(decisions);
       
       const snapshot: WeightSnapshot = {
         timestamp: Date.now(),
         weights: Object.fromEntries(weights),
-        acceptanceRate: calculateAcceptanceRate(decisions),
-        totalDecisions: decisions.length
+        acceptanceRate: outcomeSummary.acceptanceRate,
+        totalDecisions: decisions.length,
+        outcomeDecisions: outcomeSummary.resolvedDecisions,
+        outcomeCoverage: outcomeSummary.outcomeCoverage
       };
 
       const newSnapshots = [...snapshots, snapshot].slice(-14); // Keep 14 days
@@ -130,7 +140,9 @@ export default function DevContextDrift() {
     const previous = snapshots[snapshots.length - 2];
     
     const weightDelta = calculateWeightDrift(previous.weights, current.weights);
-    const acceptanceChange = current.acceptanceRate - previous.acceptanceRate;
+    const acceptanceChange = current.acceptanceRate !== null && previous.acceptanceRate !== null
+      ? current.acceptanceRate - previous.acceptanceRate
+      : null;
     
     // Calculate volatility over last 7 days
     const recentSnapshots = snapshots.slice(-7);
@@ -154,24 +166,10 @@ export default function DevContextDrift() {
   };
 
   const getRecentDecisions = () => {
-    // Get decisions from last 7 days from localStorage decision traces
-    try {
-      const traces = localStorage.getItem('decisionTraces');
-      if (!traces) return [];
-      
-      const parsed = JSON.parse(traces);
-      const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
-      
-      return parsed.filter((trace: any) => trace.timestamp > sevenDaysAgo);
-    } catch {
-      return [];
-    }
-  };
-
-  const calculateAcceptanceRate = (decisions: any[]): number => {
-    if (decisions.length === 0) return 0;
-    const accepted = decisions.filter(d => d.userAction === 'accept').length;
-    return accepted / decisions.length;
+    const sevenDaysAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
+    return decisionTraceService
+      .getTraces({ startDate: sevenDaysAgo })
+      .filter(isAcceptanceTelemetryTrace);
   };
 
   // P8 - Enhanced restore with selective options
@@ -238,7 +236,9 @@ export default function DevContextDrift() {
     return snapshots.map((snapshot, idx) => ({
       day: `Day ${idx + 1}`,
       date: new Date(snapshot.timestamp).toLocaleDateString(),
-      acceptanceRate: Math.round(snapshot.acceptanceRate * 100),
+      acceptanceRate: snapshot.acceptanceRate === null
+        ? null
+        : Math.round(snapshot.acceptanceRate * 100),
       decisions: snapshot.totalDecisions,
       avgWeight: Object.values(snapshot.weights).reduce((sum, w) => sum + w, 0) / Object.keys(snapshot.weights).length
     }));
@@ -302,13 +302,13 @@ export default function DevContextDrift() {
           taskId = await backgroundCalibrationService.startContextRecalibration();
           break;
         case 'precision':
-          taskId = await backgroundCalibrationService.startPrecisionRecalibration();
+          taskId = await backgroundCalibrationService.startPrecisionAnalysis();
           break;
         case 'combined':
-          taskId = await backgroundCalibrationService.startCombinedRecalibration();
+          taskId = await backgroundCalibrationService.startCombinedCalibrationReview();
           break;
       }
-      console.log(`Started ${type} calibration: ${taskId}`);
+      console.log(`Started ${type} calibration/analysis task: ${taskId}`);
     } catch (error) {
       console.error('Failed to start background calibration:', error);
     }
@@ -354,8 +354,9 @@ export default function DevContextDrift() {
       // P8 - Add precision metrics if available
       if (isDriftGuardEnabled && precisionSnapshots.length > 0) {
         const precisionMetrics = precisionDriftTracker.calculateDriftMetrics(precisionSnapshots);
-        const combinedHealth = unifiedSnapshots.length > 0 ? 
-          unifiedSnapshots[unifiedSnapshots.length - 1].combined.overallHealth : 0;
+        const combinedHealth = unifiedSnapshots.length > 0
+          ? unifiedSnapshots[unifiedSnapshots.length - 1].combined.overallHealth
+          : null;
         
         setDriftMetrics({
           ...metrics,
@@ -440,7 +441,10 @@ export default function DevContextDrift() {
                 <div>
                   <p className="text-sm font-medium">Acceptance Rate</p>
                   <p className="text-2xl font-bold">
-                    {driftMetrics ? Math.round((snapshots[snapshots.length - 1]?.acceptanceRate || 0) * 100) : 0}%
+                    {snapshots[snapshots.length - 1]?.acceptanceRate === null ||
+                    snapshots[snapshots.length - 1]?.acceptanceRate === undefined
+                      ? 'No outcomes'
+                      : `${Math.round(snapshots[snapshots.length - 1].acceptanceRate! * 100)}%`}
                   </p>
                 </div>
               </div>
@@ -470,7 +474,9 @@ export default function DevContextDrift() {
                   </p>
                   {isDriftGuardEnabled && driftMetrics?.combinedHealth !== undefined ? (
                     <p className="text-2xl font-bold">
-                      {Math.round(driftMetrics.combinedHealth * 100)}%
+                      {driftMetrics.combinedHealth === null
+                        ? 'No outcomes'
+                        : `${Math.round(driftMetrics.combinedHealth * 100)}%`}
                     </p>
                   ) : (
                     <Badge variant={driftMetrics ? getSeverityColor(driftMetrics.driftSeverity) : 'default'}>
@@ -500,7 +506,9 @@ export default function DevContextDrift() {
             <AlertTriangle className="h-4 w-4" />
             <AlertDescription>
               Auto-Write precision drift detected in {driftMetrics.precisionMetrics.mostDriftingFeature}. 
-              Accuracy dropped by {Math.round(Math.abs(driftMetrics.precisionMetrics.weekOverWeekAccuracy) * 100)}%.
+              Accuracy dropped by {driftMetrics.precisionMetrics.weekOverWeekAccuracy === null
+                ? 'an unmeasured amount'
+                : `${Math.round(Math.abs(driftMetrics.precisionMetrics.weekOverWeekAccuracy) * 100)}%`}.
             </AlertDescription>
           </Alert>
         )}
@@ -509,13 +517,19 @@ export default function DevContextDrift() {
         {isDriftGuardEnabled && calibrationTasks.length > 0 && (
           <Card>
             <CardHeader>
-              <CardTitle>Background Calibration Status</CardTitle>
+              <CardTitle>Background Calibration and Analysis Status</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               {calibrationTasks.map(task => (
                 <div key={task.id} className="flex items-center justify-between p-3 border rounded-lg">
                   <div>
-                    <p className="font-medium capitalize">{task.type.replace('_', ' ')} Calibration</p>
+                    <p className="font-medium">
+                      {task.type === 'context_weights'
+                        ? 'Context Weight Calibration'
+                        : task.type === 'precision_analysis'
+                          ? 'Precision Threshold Analysis'
+                          : 'Context Calibration + Precision Analysis'}
+                    </p>
                     <p className="text-sm text-muted-foreground">{task.status}</p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -601,7 +615,10 @@ export default function DevContextDrift() {
                         {new Date(snapshot.timestamp).toLocaleString()}
                       </p>
                       <p className="text-sm text-muted-foreground">
-                        {snapshot.totalDecisions} decisions, {Math.round(snapshot.acceptanceRate * 100)}% accepted
+                        {snapshot.totalDecisions} decisions,{' '}
+                        {snapshot.acceptanceRate === null
+                          ? 'no observed outcomes'
+                          : `${Math.round(snapshot.acceptanceRate * 100)}% accepted`}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -663,7 +680,7 @@ export default function DevContextDrift() {
             {/* P8 - Background Calibration Controls */}
             {isDriftGuardEnabled && (
               <div className="space-y-3 pt-3 border-t">
-                <p className="font-medium">Background Calibration</p>
+                <p className="font-medium">Background Calibration and Analysis</p>
                 <div className="flex gap-2">
                   <Button
                     variant="outline"
@@ -677,14 +694,14 @@ export default function DevContextDrift() {
                     onClick={() => startBackgroundCalibration('precision')}
                     disabled={loading}
                   >
-                    Recalibrate Precision
+                    Analyze Precision
                   </Button>
                   <Button
                     variant="outline"
                     onClick={() => startBackgroundCalibration('combined')}
                     disabled={loading}
                   >
-                    Combined Recalibration
+                    Calibrate Context + Analyze Precision
                   </Button>
                 </div>
               </div>

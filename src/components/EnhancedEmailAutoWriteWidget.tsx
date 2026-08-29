@@ -20,7 +20,6 @@ import {
   Trash2, 
   ExternalLink,
   Eye,
-  Undo2,
   CheckCircle,
   Clock,
   AlertTriangle,
@@ -40,6 +39,7 @@ interface EmailDraft {
   confidence: number;
   createdAt: number;
   draftId?: string;
+  traceId?: string;
   status: 'draft' | 'sent' | 'failed';
   guardrailResults?: {
     autoSend: boolean;
@@ -93,7 +93,8 @@ export const EnhancedEmailAutoWriteWidget: React.FC<EnhancedEmailAutoWriteWidget
         confidence: mapping.confidence,
         createdAt: mapping.createdAt,
         status: 'draft' as const,
-        draftId: mapping.draftId
+        draftId: mapping.draftId,
+        traceId: mapping.traceId
       }));
       
       // Combine and deduplicate
@@ -124,31 +125,28 @@ export const EnhancedEmailAutoWriteWidget: React.FC<EnhancedEmailAutoWriteWidget
         body: draft.body,
         recipients: draft.to
       }, {
+        requestedOperation: 'draft',
         autoSendEnabled: false, // Always manual for now
-        requireConfirmation: true
+        requireConfirmation: true,
+        traceId: draft.traceId,
+        surface: 'enhanced-email-widget',
+        recordUserAcceptance: true
       });
 
       if (result.success) {
+        const status = result.decision === 'sent' ? 'sent' as const : 'draft' as const;
         // Update draft status
         setDrafts(prev => prev.map(d => 
           d.id === draft.id 
-            ? { ...d, status: 'sent' as const, draftId: result.draftId }
+            ? { ...d, status, draftId: result.draftId || d.draftId }
             : d
         ));
 
         toast({
-          title: "Email Sent",
-          description: "Your email has been sent successfully",
-          action: result.messageId ? (
-            <Button 
-              variant="outline" 
-              size="sm"
-              onClick={() => handleUndoSend(draft.id, result.messageId!)}
-            >
-              <Undo2 className="h-3 w-3 mr-1" />
-              Undo
-            </Button>
-          ) : undefined
+          title: result.decision === 'sent' ? "Email Sent" : "Gmail Draft Created",
+          description: result.decision === 'sent'
+            ? "Your email has been sent successfully"
+            : "The message remains a draft for review in Gmail"
         });
       } else {
         throw new Error(result.error || 'Failed to send email');
@@ -215,8 +213,8 @@ export const EnhancedEmailAutoWriteWidget: React.FC<EnhancedEmailAutoWriteWidget
       localStorage.setItem('email_drafts', JSON.stringify(updatedDrafts));
       
       toast({
-        title: "Draft Deleted",
-        description: "Email draft has been removed",
+        title: "Removed From List",
+        description: "This only hides the item here; delete any provider draft in Gmail.",
       });
     } catch (error) {
       toast({
@@ -225,15 +223,6 @@ export const EnhancedEmailAutoWriteWidget: React.FC<EnhancedEmailAutoWriteWidget
         variant: "destructive"
       });
     }
-  };
-
-  const handleUndoSend = async (draftId: string, messageId: string) => {
-    // In production, this would call Gmail API to delete/recall the message
-    toast({
-      title: "Undo Not Available",
-      description: "Email undo is not available in this demo",
-      variant: "default"
-    });
   };
 
   const getStatusIcon = (status: string) => {

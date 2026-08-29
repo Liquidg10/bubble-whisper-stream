@@ -80,10 +80,13 @@ class TaskAwareAutoWriteService {
   async undoTaskEmailWrite(taskId: string, traceId?: string): Promise<boolean> {
     const mapping = this.taskEmailMappings.get(taskId);
     if (!mapping) return false;
-    
-    // For now, just remove mapping (email undo would need email service integration)
-    this.taskEmailMappings.delete(taskId);
-    return true;
+
+    logger.warn('Task email undo is unavailable without provider draft deletion', {
+      taskId,
+      traceId: traceId || mapping.traceId,
+      draftId: mapping.draftId
+    });
+    return false;
   }
 
   getAllMappings() { return this.taskCalendarMappings; }

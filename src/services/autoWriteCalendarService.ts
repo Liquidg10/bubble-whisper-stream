@@ -194,26 +194,9 @@ class AutoWriteCalendarService {
       
       this.undoRegistry.set(traceId, undoInfo);
 
-      // Update decision trace with success
-      decisionTraceService.addTrace({
-        feature: 'calendar',
-        signals: [{
-          type: 'auto_write_result',
-          value: 'success',
-          confidence: 1.0,
-          source: 'calendar_api'
-        }],
-        confidenceThreshold: THRESHOLD_LEVELS.HIGH,
-        finalConfidence: policyDecision.contextScore.score,
-        decision: 'auto-write',
-        action: `Successfully created calendar event: ${intent.title}`,
-        becauseText: `Auto-wrote because ${policyDecision.contextScore.because.join('; ')}`,
-        metadata: {
-          originalTraceId: traceId,
-          eventId: createdEvent.id,
-          eventUrl: createdEvent.htmlLink
-        },
-        undoable: true
+      decisionTraceService.recordExecution(traceId, 'succeeded', {
+        source: 'calendar-api',
+        reference: createdEvent.id
       });
 
       return {
@@ -226,22 +209,9 @@ class AutoWriteCalendarService {
       };
 
     } catch (error: any) {
-      // Log failure trace
-      decisionTraceService.addTrace({
-        feature: 'calendar',
-        signals: [{
-          type: 'auto_write_error',
-          value: error.message,
-          confidence: 1.0,
-          source: 'calendar_api'
-        }],
-        confidenceThreshold: THRESHOLD_LEVELS.HIGH,
-        finalConfidence: policyDecision.contextScore.score,
-        decision: 'auto-write',
-        action: `Failed to create calendar event: ${error.message}`,
-        becauseText: 'Auto-write attempted but failed',
-        metadata: { originalTraceId: traceId, error: error.message },
-        undoable: false
+      decisionTraceService.recordExecution(traceId, 'failed', {
+        source: 'calendar-api',
+        reference: error.message
       });
 
       throw error;
@@ -339,14 +309,20 @@ class AutoWriteCalendarService {
       // Delete the created event
       if (undoInfo.eventId) {
         const calendarAccount = await this.getActiveCalendarAccount();
-        if (calendarAccount) {
-          await supabase.functions.invoke('calendar-sync', {
-            body: {
-              action: 'delete_event',
-              calendarAccountId: calendarAccount.id,
-              eventId: undoInfo.eventId
-            }
-          });
+        if (!calendarAccount) {
+          throw new Error('No connected calendar account found for undo');
+        }
+
+        const { error } = await supabase.functions.invoke('calendar-sync', {
+          body: {
+            action: 'delete_event',
+            calendarAccountId: calendarAccount.id,
+            eventId: undoInfo.eventId
+          }
+        });
+
+        if (error) {
+          throw new Error(`Calendar undo failed: ${error.message}`);
         }
       }
 
@@ -356,7 +332,11 @@ class AutoWriteCalendarService {
       }
 
       // Mark trace as undone
-      decisionTraceService.markAsUndone(traceId, crypto.randomUUID());
+      decisionTraceService.recordUndoCompleted(
+        traceId,
+        crypto.randomUUID(),
+        'calendar-write-undo'
+      );
 
       // Remove from undo registry
       this.undoRegistry.delete(traceId);
@@ -534,7 +514,12 @@ class AutoWriteCalendarService {
   getRecentUndoableWrites(): Array<{ traceId: string; description: string; timestamp: number }> {
     const traces = decisionTraceService.getRecentUndoable(10);
     return traces
-      .filter(trace => trace.feature === 'calendar' && trace.decision === 'auto-write')
+      .filter(trace =>
+        trace.feature === 'calendar' &&
+        trace.decision === 'auto-write' &&
+        trace.metadata?.executionStatus === 'succeeded' &&
+        this.undoRegistry.has(trace.id)
+      )
       .map(trace => ({
         traceId: trace.id,
         description: trace.action,

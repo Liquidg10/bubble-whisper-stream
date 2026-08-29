@@ -5,7 +5,7 @@
  * with privacy-aware explanations and decision tracing.
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -46,7 +46,11 @@ interface AISchedulingSuggestion {
   tags: string[];
   sourceData: SeasonalSuggestion | HabitPrediction | any;
   privacyLayer: 'surface' | 'context' | 'deep';
+  traceId?: string;
+  presentedAt?: number;
 }
+
+const SUGGESTION_REFRESH_MS = 15 * 60 * 1000;
 
 interface SuggestionCooldown {
   suggestionId: string;
@@ -71,8 +75,31 @@ export function AISchedulingSuggestions({
   const [suggestions, setSuggestions] = useState<AISchedulingSuggestion[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [cooldowns, setCooldowns] = useState<SuggestionCooldown[]>([]);
+  const [pendingSuggestionIds, setPendingSuggestionIds] = useState<Set<string>>(() => new Set());
+  const inFlightSuggestionIds = useRef<Set<string>>(new Set());
   const { addTask } = useTaskStore();
   const { toast } = useToast();
+
+  const beginSuggestionAction = useCallback((suggestionId: string): boolean => {
+    if (inFlightSuggestionIds.current.has(suggestionId)) return false;
+
+    inFlightSuggestionIds.current.add(suggestionId);
+    setPendingSuggestionIds(previous => {
+      const next = new Set(previous);
+      next.add(suggestionId);
+      return next;
+    });
+    return true;
+  }, []);
+
+  const finishSuggestionAction = useCallback((suggestionId: string) => {
+    inFlightSuggestionIds.current.delete(suggestionId);
+    setPendingSuggestionIds(previous => {
+      const next = new Set(previous);
+      next.delete(suggestionId);
+      return next;
+    });
+  }, []);
 
   // Load cooldowns from localStorage
   useEffect(() => {
@@ -90,12 +117,14 @@ export function AISchedulingSuggestions({
   }, []);
 
   // Save cooldowns to localStorage
-  const saveCooldowns = useCallback((newCooldowns: SuggestionCooldown[]) => {
+  const saveCooldowns = useCallback((newCooldowns: SuggestionCooldown[]): boolean => {
     try {
       localStorage.setItem('ai-suggestion-cooldowns', JSON.stringify(newCooldowns));
       setCooldowns(newCooldowns);
+      return true;
     } catch (error) {
       console.warn('Failed to save suggestion cooldowns:', error);
+      return false;
     }
   }, []);
 
@@ -149,9 +178,10 @@ export function AISchedulingSuggestions({
       const stressLevel = behavioralScienceEngine.detectStressLevel();
       const energyContext = behavioralScienceEngine.getNeuromodulatorContext();
       
+      const suggestionBucket = Math.floor(Date.now() / SUGGESTION_REFRESH_MS);
       if (stressLevel < 0.3 && energyContext.recommendedStimuli !== 'reduce') {
         allSuggestions.push({
-          id: `energy-${Date.now()}`,
+          id: `energy-${suggestionBucket}`,
           type: 'energy',
           title: 'Optimal Energy Window',
           description: 'Your current energy levels are ideal for focused work',
@@ -183,7 +213,38 @@ export function AISchedulingSuggestions({
         })
         .slice(0, maxSuggestions);
 
-      setSuggestions(sorted);
+      const presentedAt = Date.now();
+      const tracedSuggestions = sorted.map(suggestion => {
+        const traceId = decisionTraceService.addTrace({
+          feature: 'calendar',
+          signals: [{
+            type: suggestion.type,
+            value: suggestion.title,
+            confidence: suggestion.confidence,
+            source: 'ai-suggestion',
+            privacyLayer: suggestion.privacyLayer
+          }],
+          confidenceThreshold: 0.6,
+          finalConfidence: suggestion.confidence,
+          decision: 'suggest',
+          action: 'schedule_suggestion',
+          becauseText: `Because ${suggestion.reasoning.slice(0, 2).join(' and ')} • ${suggestion.privacyLayer.toUpperCase()}`,
+          privacyWatermark: suggestion.privacyLayer,
+          metadata: {
+            telemetryKind: 'acceptance',
+            suggestionId: suggestion.id,
+            suggestionType: suggestion.type,
+            presentedAt,
+            surface: 'calendar-ai-scheduling',
+            idempotencyKey: `calendar-ai-scheduling:${suggestion.id}:${suggestionBucket}`
+          },
+          undoable: false
+        });
+
+        return { ...suggestion, traceId, presentedAt };
+      });
+
+      setSuggestions(tracedSuggestions);
     } catch (error) {
       console.error('Failed to generate AI suggestions:', error);
       toast({
@@ -204,6 +265,8 @@ export function AISchedulingSuggestions({
   }, [generateSuggestions]);
 
   const handleAcceptSuggestion = useCallback(async (suggestion: AISchedulingSuggestion) => {
+    if (!beginSuggestionAction(suggestion.id)) return;
+
     try {
       // Create task from suggestion
       const newTask: Omit<Task, 'id'> = {
@@ -228,46 +291,25 @@ export function AISchedulingSuggestions({
         }
       };
 
-      await addTask(newTask);
-      const taskWithId = { ...newTask, id: crypto.randomUUID() } as Task;
-
-      // Add decision trace
-      decisionTraceService.addTrace({
-        feature: 'calendar',
-        signals: [
-          {
-            type: suggestion.type,
-            value: suggestion.title,
-            confidence: suggestion.confidence,
-            source: 'ai-suggestion',
-            privacyLayer: suggestion.privacyLayer
-          }
-        ],
-        confidenceThreshold: 0.6,
-        finalConfidence: suggestion.confidence,
-        decision: 'draft',
-        action: 'schedule_suggestion',
-        becauseText: `Because ${suggestion.reasoning.slice(0, 2).join(' and ')} • ${suggestion.privacyLayer.toUpperCase()}`,
-        privacyWatermark: suggestion.privacyLayer,
-        metadata: { suggestionId: suggestion.id, suggestionType: suggestion.type },
-        undoable: true
-      });
+      const taskWithId = await addTask(newTask);
+      if (suggestion.traceId) {
+        decisionTraceService.recordExecution(suggestion.traceId, 'succeeded', {
+          source: 'task-store',
+          reference: taskWithId.id
+        });
+        decisionTraceService.recordUserAction(suggestion.traceId, 'accept', {
+          source: 'calendar-ai-scheduling',
+          artifactId: taskWithId.id,
+          latencyMs: suggestion.presentedAt ? Date.now() - suggestion.presentedAt : undefined
+        });
+      }
 
       // Remove from suggestions
       setSuggestions(prev => prev.filter(s => s.id !== suggestion.id));
 
       toast({
         title: "Task Scheduled",
-        description: `"${suggestion.title}" scheduled as draft`,
-        action: (
-          <Button variant="outline" size="sm" onClick={() => {
-            // Implement undo functionality
-            console.log('Undo scheduling');
-          }}>
-            <RotateCcw className="h-3 w-3 mr-1" />
-            Undo
-          </Button>
-        )
+        description: `"${suggestion.title}" scheduled as draft`
       });
 
       onSuggestionAccepted?.(suggestion, taskWithId);
@@ -278,10 +320,14 @@ export function AISchedulingSuggestions({
         description: "Could not schedule the suggested task",
         variant: "destructive"
       });
+    } finally {
+      finishSuggestionAction(suggestion.id);
     }
-  }, [addTask, toast, onSuggestionAccepted]);
+  }, [addTask, beginSuggestionAction, finishSuggestionAction, toast, onSuggestionAccepted]);
 
   const handleDismissSuggestion = useCallback((suggestion: AISchedulingSuggestion) => {
+    if (!beginSuggestionAction(suggestion.id)) return;
+
     // Add to cooldown list (1 week cooldown)
     const cooldown: SuggestionCooldown = {
       suggestionId: suggestion.id,
@@ -291,10 +337,26 @@ export function AISchedulingSuggestions({
     };
 
     const newCooldowns = [...cooldowns, cooldown];
-    saveCooldowns(newCooldowns);
+    if (!saveCooldowns(newCooldowns)) {
+      toast({
+        title: "Dismissal Failed",
+        description: "Could not save the suggestion cooldown",
+        variant: "destructive"
+      });
+      finishSuggestionAction(suggestion.id);
+      return;
+    }
 
     // Remove from suggestions
     setSuggestions(prev => prev.filter(s => s.id !== suggestion.id));
+
+    if (suggestion.traceId) {
+      decisionTraceService.recordUserAction(suggestion.traceId, 'reject', {
+        source: 'calendar-ai-scheduling',
+        artifactId: suggestion.id,
+        latencyMs: suggestion.presentedAt ? Date.now() - suggestion.presentedAt : undefined
+      });
+    }
 
     toast({
       title: "Suggestion Dismissed",
@@ -302,7 +364,8 @@ export function AISchedulingSuggestions({
     });
 
     onSuggestionDismissed?.(suggestion);
-  }, [cooldowns, saveCooldowns, toast, onSuggestionDismissed]);
+    finishSuggestionAction(suggestion.id);
+  }, [beginSuggestionAction, cooldowns, finishSuggestionAction, saveCooldowns, toast, onSuggestionDismissed]);
 
   const getConfidenceColor = (confidence: number) => {
     if (confidence >= 0.8) return 'text-green-600 dark:text-green-400';
@@ -349,6 +412,7 @@ export function AISchedulingSuggestions({
             size="sm"
             onClick={generateSuggestions}
             disabled={isLoading}
+            aria-label="Refresh AI scheduling suggestions"
             className="h-6 w-6 p-0"
           >
             <RotateCcw className={cn('h-3 w-3', isLoading && 'animate-spin')} />
@@ -438,6 +502,8 @@ export function AISchedulingSuggestions({
                   <Button
                     size="sm"
                     onClick={() => handleAcceptSuggestion(suggestion)}
+                    disabled={pendingSuggestionIds.has(suggestion.id)}
+                    aria-busy={pendingSuggestionIds.has(suggestion.id)}
                     className="flex-1 h-7 text-xs"
                   >
                     <CheckCircle className="h-3 w-3 mr-1" />
@@ -447,6 +513,8 @@ export function AISchedulingSuggestions({
                     variant="outline"
                     size="sm"
                     onClick={() => handleDismissSuggestion(suggestion)}
+                    disabled={pendingSuggestionIds.has(suggestion.id)}
+                    aria-label={`Dismiss ${suggestion.title}`}
                     className="h-7 w-7 p-0"
                   >
                     <X className="h-3 w-3" />

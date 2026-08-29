@@ -6,7 +6,14 @@
  */
 
 import { contextEngineService, ContextInput } from './contextEngineService';
-import { decisionTraceService, DecisionSignal } from './decisionTraceService';
+import {
+  decisionTraceService,
+  getAcceptanceTelemetryFeature,
+  isAcceptanceTelemetryTrace,
+  summarizeDecisionOutcomes,
+  DecisionSignal,
+  type DecisionTrace
+} from './decisionTraceService';
 import { supabase } from '@/integrations/supabase/client';
 
 // Core precision gate interfaces
@@ -251,20 +258,14 @@ class AutoWritePrecisionGateService {
   private async getDynamicTrustScore(input: PrecisionGateInput): Promise<number> {
     try {
       // Check recent confirmations and undos for this feature
-      const traces = decisionTraceService.getTraces({
-        feature: input.feature,
-        limit: 20
-      });
+      const traces = this.getRecentAcceptanceTraces(input.feature, 20);
       
       if (traces.length === 0) return 0.5;
       
-      const autoWriteTraces = traces.filter(t => t.decision === 'auto-write');
-      const undoneTraces = traces.filter(t => t.undoId);
-      
-      if (autoWriteTraces.length === 0) return 0.5;
-      
-      const successRate = 1 - (undoneTraces.length / autoWriteTraces.length);
-      return Math.max(0.1, Math.min(1, successRate));
+      const outcomeSummary = summarizeDecisionOutcomes(traces);
+      if (outcomeSummary.acceptanceRate === null) return 0.5;
+
+      return Math.max(0.1, Math.min(1, outcomeSummary.acceptanceRate));
     } catch (error) {
       console.warn('Error calculating dynamic trust:', error);
       return 0.5;
@@ -276,21 +277,18 @@ class AutoWritePrecisionGateService {
    */
   private async calculateHistoryInfluence(feature: string): Promise<number> {
     try {
-      const recentTraces = decisionTraceService.getTraces({
+      const recentTraces = this.getRecentAcceptanceTraces(
         feature,
-        limit: 10,
-        startDate: Date.now() - (7 * 24 * 60 * 60 * 1000) // Last 7 days
-      });
+        10,
+        Date.now() - (7 * 24 * 60 * 60 * 1000)
+      );
       
       if (recentTraces.length === 0) return 0.5;
       
       // Calculate success pattern
       const confirmationRate = this.calculateConfirmationSuccessRate(recentTraces);
       
-      // Recent activity boost
-      const recentActivityBoost = recentTraces.length >= 5 ? 0.1 : 0;
-      
-      return Math.min(1, confirmationRate + recentActivityBoost);
+      return confirmationRate;
     } catch (error) {
       console.warn('Error calculating history influence:', error);
       return 0.5;
@@ -300,15 +298,23 @@ class AutoWritePrecisionGateService {
   /**
    * Calculate confirmation success rate from traces
    */
-  private calculateConfirmationSuccessRate(traces: any[]): number {
-    const decisionsWithOutcomes = traces.filter(t => 
-      t.decision === 'draft' || t.decision === 'auto-write'
-    );
-    
-    if (decisionsWithOutcomes.length === 0) return 0.5;
-    
-    const successfulActions = decisionsWithOutcomes.filter(t => !t.undoId);
-    return successfulActions.length / decisionsWithOutcomes.length;
+  private calculateConfirmationSuccessRate(traces: DecisionTrace[]): number {
+    const outcomeSummary = summarizeDecisionOutcomes(traces);
+    return outcomeSummary.acceptanceRate ?? 0.5;
+  }
+
+  private getRecentAcceptanceTraces(
+    feature: string,
+    limit: number,
+    startDate?: number
+  ): DecisionTrace[] {
+    return decisionTraceService
+      .getTraces(startDate ? { startDate } : undefined)
+      .filter(trace =>
+        isAcceptanceTelemetryTrace(trace) &&
+        getAcceptanceTelemetryFeature(trace) === feature
+      )
+      .slice(0, limit);
   }
   
   /**
@@ -393,11 +399,11 @@ class AutoWritePrecisionGateService {
    * Check feature-specific fatigue
    */
   private async checkFeatureFatigue(feature: string): Promise<{ fatigued: boolean; penalty: number }> {
-    const recentTraces = decisionTraceService.getTraces({
+    const recentTraces = this.getRecentAcceptanceTraces(
       feature,
-      startDate: Date.now() - (24 * 60 * 60 * 1000), // Last 24 hours
-      limit: 50
-    });
+      50,
+      Date.now() - (24 * 60 * 60 * 1000)
+    );
     
     const autoWriteCount = recentTraces.filter(t => t.decision === 'auto-write').length;
     
@@ -603,6 +609,7 @@ class AutoWritePrecisionGateService {
       action: `Auto-write precision gate for ${input.feature}`,
       becauseText: `Score ${Math.round(result.score * 100)}% from intent, entities, trust, and history`,
       metadata: {
+        telemetryKind: 'acceptance',
         input: {
           feature: input.feature,
           entityCount: Object.keys(input.entities || {}).length,

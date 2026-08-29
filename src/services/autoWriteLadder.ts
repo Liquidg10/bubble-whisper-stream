@@ -1,7 +1,8 @@
 /**
  * Auto-Write Ladder Service
  * Implements confidence-gated actions: Suggest → Draft → Auto-write
- * With enhanced privacy controls and idempotent operations
+ * with enhanced privacy controls. Provider execution fails closed until a
+ * concrete calendar/task adapter is wired; it never simulates success.
  */
 
 import { decisionTraceService } from './decisionTraceService';
@@ -9,17 +10,40 @@ import { privacyEnforcementService, type PrivacyContext } from './privacyEnforce
 
 export interface AutoWriteContext {
   feature: 'calendar' | 'email' | 'finance' | 'task';
-  action: string;
+  action: string | {
+    title?: string;
+    taskId?: string;
+    startTime?: string;
+    recipients?: string[];
+    subject?: string;
+    [key: string]: unknown;
+  };
   confidence: number;
   signals: Array<{
     type: string;
-    value: any;
+    value: unknown;
     confidence: number;
     source: string;
     privacyLayer?: 'surface' | 'context' | 'deep';
   }>;
   userId?: string;
-  metadata?: any;
+  metadata?: {
+    isOwnCalendar?: boolean;
+    daysAhead?: number;
+    hasTime?: boolean;
+    hasLocation?: boolean;
+    hasInvitees?: boolean;
+    [key: string]: unknown;
+  };
+}
+
+export interface StoredAutoWriteDraft {
+  id: string;
+  feature: AutoWriteContext['feature'];
+  action: AutoWriteContext['action'];
+  context: AutoWriteContext;
+  traceId: string;
+  createdAt: number;
 }
 
 export interface AutoWriteResult {
@@ -42,6 +66,7 @@ class AutoWriteLadderService {
       const metadata = context.metadata || {};
       return (
         metadata.isOwnCalendar &&
+        typeof metadata.daysAhead === 'number' &&
         metadata.daysAhead <= 14 &&
         metadata.hasTime &&
         metadata.hasLocation &&
@@ -58,6 +83,7 @@ class AutoWriteLadderService {
    */
   async processAction(context: AutoWriteContext): Promise<AutoWriteResult> {
     const { confidence, feature, action, signals, userId, metadata } = context;
+    const actionLabel = this.describeAction(action);
 
     // Determine required privacy layer
     const requiredLayer = this.getRequiredPrivacyLayer(signals);
@@ -67,7 +93,7 @@ class AutoWriteLadderService {
       requiredLayer,
       connectorType: feature,
       dataTypes: signals.map(s => s.type),
-      purpose: action
+      purpose: actionLabel
     };
 
     if (!privacyEnforcementService.canPerformAction(privacyContext)) {
@@ -77,7 +103,7 @@ class AutoWriteLadderService {
         confidenceThreshold: this.confidenceThresholds.suggest,
         finalConfidence: confidence,
         decision: 'skip',
-        action: `Blocked: ${action}`,
+        action: `Blocked: ${actionLabel}`,
         becauseText: privacyEnforcementService.getBlockedActionExplanation(privacyContext),
         privacyWatermark: requiredLayer,
         castMember: 'Privacy Guard',
@@ -124,12 +150,14 @@ class AutoWriteLadderService {
       confidenceThreshold: this.confidenceThresholds[decision === 'auto-write' ? 'autoWrite' : decision],
       finalConfidence: confidence,
       decision,
-      action,
+      action: actionLabel,
       becauseText,
       privacyWatermark: requiredLayer,
       castMember: 'Auto-Write Ladder',
-      metadata,
-      undoable: decision === 'auto-write' || decision === 'draft'
+      metadata: { telemetryKind: 'acceptance', ...metadata },
+      // Drafts are removable. Direct auto-write attempts are not advertised as
+      // undoable before a concrete side effect and compensation handle exist.
+      undoable: decision === 'draft'
     });
 
     // Execute the action based on decision
@@ -150,25 +178,31 @@ class AutoWriteLadderService {
     };
   }
 
-  /**
-   * Execute auto-write action with idempotent ID
-   */
+  /** Execute through a concrete provider/store adapter or fail closed. */
   private async executeAutoWrite(context: AutoWriteContext, traceId: string): Promise<string> {
-    const idempotentId = this.generateIdempotentId(context);
-    
     try {
+      let reference: string;
       switch (context.feature) {
         case 'calendar':
-          return await this.autoWriteCalendar(context, idempotentId);
+          reference = await this.autoWriteCalendar();
+          break;
         case 'task':
-          return await this.autoWriteTask(context, idempotentId);
+          reference = await this.autoWriteTask();
+          break;
         default:
           throw new Error(`Auto-write not supported for ${context.feature}`);
       }
+      decisionTraceService.recordExecution(traceId, 'succeeded', {
+        source: 'auto-write-ladder',
+        reference
+      });
+      return reference;
     } catch (error) {
       console.error('Auto-write failed:', error);
-      // Mark trace as failed
-      decisionTraceService.markAsUndone(traceId, 'failed');
+      decisionTraceService.recordExecution(traceId, 'failed', {
+        source: 'auto-write-ladder',
+        reference: error instanceof Error ? error.message : 'Unknown error'
+      });
       throw error;
     }
   }
@@ -190,44 +224,27 @@ class AutoWriteLadderService {
       createdAt: Date.now()
     });
     localStorage.setItem('mm-drafts', JSON.stringify(drafts));
+    decisionTraceService.recordExecution(traceId, 'pending', {
+      source: 'auto-write-ladder',
+      reference: draftId
+    });
 
-    console.log(`📝 Draft created: ${context.action}`);
+    console.log(`📝 Draft created: ${this.describeAction(context.action)}`);
     return draftId;
   }
 
-  /**
-   * Auto-write calendar event
-   */
-  private async autoWriteCalendar(context: AutoWriteContext, idempotentId: string): Promise<string> {
-    // Simulate calendar API call with idempotent ID
-    console.log(`📅 Auto-writing calendar event: ${context.action} (${idempotentId})`);
-    
-    // In real implementation, would call calendar API with idempotent ID
-    // and handle 409/412 conflicts
-    
-    return crypto.randomUUID();
+  /** Calendar writes require the provider-backed calendar service. */
+  private async autoWriteCalendar(): Promise<never> {
+    throw new Error(
+      'Calendar execution is unavailable in AutoWriteLadder; no provider-backed write was attempted'
+    );
   }
 
-  /**
-   * Auto-write task
-   */
-  private async autoWriteTask(context: AutoWriteContext, idempotentId: string): Promise<string> {
-    console.log(`✅ Auto-writing task: ${context.action} (${idempotentId})`);
-    return crypto.randomUUID();
-  }
-
-  /**
-   * Generate deterministic idempotent ID
-   */
-  private generateIdempotentId(context: AutoWriteContext): string {
-    const date = new Date().toISOString().split('T')[0].replace(/-/g, '');
-    const hour = new Date().getHours().toString().padStart(2, '0');
-    const minute = Math.floor(new Date().getMinutes() / 15) * 15; // 15-minute windows
-    
-    const userId = context.userId || 'anonymous';
-    const actionHash = btoa(context.action).slice(0, 8);
-    
-    return `${userId}:${context.feature}:${actionHash}:${date}${hour}${minute}`;
+  /** Task writes require a real task-store adapter. */
+  private async autoWriteTask(): Promise<never> {
+    throw new Error(
+      'Task execution is unavailable in AutoWriteLadder; no task-store write was attempted'
+    );
   }
 
   /**
@@ -246,26 +263,54 @@ class AutoWriteLadderService {
   /**
    * Get recent drafts for review
    */
-  getDrafts(feature?: string): any[] {
-    const drafts = JSON.parse(localStorage.getItem('mm-drafts') || '[]');
-    return feature ? drafts.filter((d: any) => d.feature === feature) : drafts;
+  getDrafts(feature?: string): StoredAutoWriteDraft[] {
+    const drafts = this.loadDrafts();
+    return feature ? drafts.filter(draft => draft.feature === feature) : drafts;
   }
 
   /**
    * Execute a draft
    */
   async executeDraft(draftId: string): Promise<void> {
-    const drafts = JSON.parse(localStorage.getItem('mm-drafts') || '[]');
-    const draft = drafts.find((d: any) => d.id === draftId);
+    const drafts = this.loadDrafts();
+    const draft = drafts.find(candidate => candidate.id === draftId);
     
     if (!draft) throw new Error('Draft not found');
     
-    // Execute the draft as auto-write
+    // Execute before removing the draft or recording acceptance. Unsupported
+    // and provider failures reject here, leaving the draft available for review.
     await this.executeAutoWrite(draft.context, draft.traceId);
     
     // Remove from drafts
-    const updatedDrafts = drafts.filter((d: any) => d.id !== draftId);
+    const updatedDrafts = drafts.filter(candidate => candidate.id !== draftId);
     localStorage.setItem('mm-drafts', JSON.stringify(updatedDrafts));
+    decisionTraceService.recordUserAction(draft.traceId, 'accept', {
+      source: 'auto-write-production-center',
+      artifactId: draftId
+    });
+  }
+
+  /** Delete a persisted draft and record the explicit rejection. */
+  deleteDraft(draftId: string): boolean {
+    const drafts = this.loadDrafts();
+    const draft = drafts.find(candidate => candidate.id === draftId);
+    if (!draft) return false;
+
+    const updatedDrafts = drafts.filter(candidate => candidate.id !== draftId);
+    localStorage.setItem('mm-drafts', JSON.stringify(updatedDrafts));
+    decisionTraceService.recordUserAction(draft.traceId, 'reject', {
+      source: 'auto-write-production-center',
+      artifactId: draftId
+    });
+    return true;
+  }
+
+  private loadDrafts(): StoredAutoWriteDraft[] {
+    return JSON.parse(localStorage.getItem('mm-drafts') || '[]') as StoredAutoWriteDraft[];
+  }
+
+  private describeAction(action: AutoWriteContext['action']): string {
+    return typeof action === 'string' ? action : action.title || 'Untitled action';
   }
 }
 

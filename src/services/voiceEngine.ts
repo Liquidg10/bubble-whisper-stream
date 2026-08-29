@@ -281,7 +281,8 @@ export class VoiceEngine {
       action: `Create ${intent.type} bubble`,
       becauseText: `Detected ${intent.type} with ${Math.round(intent.confidence * 100)}% confidence`,
       metadata: { intent, source: this.config?.source },
-      undoable: true
+      // The engine has no durable compensation handle once the bubble is saved.
+      undoable: false
     });
 
     let autoCommitted = false;
@@ -296,7 +297,7 @@ export class VoiceEngine {
     if (shouldAutoCommit) {
       try {
         bubble = voiceRouter.createBubbleFromIntent(transcript, intent);
-        useBubbleStore.getState().addBubble(bubble);
+        await useBubbleStore.getState().addBubble(bubble);
         autoCommitted = true;
         
         devLog(`VoiceEngine: Auto-committed bubble for ${this.config?.source}`, { 
@@ -304,11 +305,17 @@ export class VoiceEngine {
           type: intent.type 
         });
 
-        // Mark decision trace as executed
-        decisionTraceService.markAsUndone(traceId, bubble.id);
+        // Execution is distinct from undo and from explicit user acceptance.
+        decisionTraceService.recordExecution(traceId, 'succeeded', {
+          source: this.config?.source || 'voice_engine',
+          reference: bubble.id
+        });
       } catch (error) {
         devLog('Failed to auto-commit bubble:', error);
-        // Error already tracked in decision trace
+        decisionTraceService.recordExecution(traceId, 'failed', {
+          source: this.config?.source || 'voice_engine',
+          reference: error instanceof Error ? error.message : 'Bubble creation failed'
+        });
       }
     }
 

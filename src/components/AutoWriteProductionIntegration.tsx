@@ -76,16 +76,19 @@ export const AutoWriteProductionIntegration: React.FC = () => {
   const loadPendingDrafts = async () => {
     try {
       const drafts = autoWriteLadderService.getDrafts();
-      const formattedDrafts: PendingDraft[] = drafts.map(draft => ({
-        id: draft.id,
-        type: draft.feature as 'calendar' | 'email',
-        title: draft.context.action.title || 'Untitled',
-        confidence: draft.context.confidence,
-        createdAt: draft.createdAt,
-        taskId: draft.context.action.taskId,
-        preview: generatePreview(draft),
-        traceId: draft.traceId
-      }));
+      const formattedDrafts: PendingDraft[] = drafts.map(draft => {
+        const action = draft.context.action;
+        return {
+          id: draft.id,
+          type: draft.feature as 'calendar' | 'email',
+          title: typeof action === 'string' ? action : action.title || 'Untitled',
+          confidence: draft.context.confidence,
+          createdAt: draft.createdAt,
+          taskId: typeof action === 'string' ? undefined : action.taskId,
+          preview: generatePreview(draft),
+          traceId: draft.traceId
+        };
+      });
       
       setPendingDrafts(formattedDrafts);
     } catch (error) {
@@ -110,8 +113,9 @@ export const AutoWriteProductionIntegration: React.FC = () => {
     }
   };
 
-  const generatePreview = (draft: any): string => {
+  const generatePreview = (draft: ReturnType<typeof autoWriteLadderService.getDrafts>[number]): string => {
     const action = draft.context.action;
+    if (typeof action === 'string') return action;
     if (draft.feature === 'calendar') {
       return `${action.title} - ${new Date(action.startTime).toLocaleString()}`;
     } else if (draft.feature === 'email') {
@@ -140,10 +144,9 @@ export const AutoWriteProductionIntegration: React.FC = () => {
 
   const handleDeleteDraft = async (draftId: string) => {
     try {
-      // Remove draft from storage
-      const drafts = autoWriteLadderService.getDrafts();
-      const filteredDrafts = drafts.filter(d => d.id !== draftId);
-      // Note: This would need proper deletion method in autoWriteLadderService
+      if (!autoWriteLadderService.deleteDraft(draftId)) {
+        throw new Error('Draft not found');
+      }
       toast({
         title: "Draft Deleted",
         description: "Draft has been removed.",

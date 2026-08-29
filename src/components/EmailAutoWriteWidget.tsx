@@ -14,8 +14,8 @@ import {
   ExternalLink
 } from 'lucide-react';
 import { gmailDraftSendService } from '@/services/gmailDraftSendService';
-import { usePrecisionGateUndo } from '@/hooks/usePrecisionGateUndo';
 import { toast } from '@/hooks/use-toast';
+import { decisionTraceService } from '@/services/decisionTraceService';
 import { GmailEmbed } from '@/components/EmbedPreview';
 import { InlineActionBar } from '@/components/InlineActionBar';
 
@@ -31,6 +31,7 @@ interface EmailDraft {
   threadId?: string;
   taskId?: string;
   taskTitle?: string;
+  traceId?: string;
 }
 
 interface EmailAutoWriteWidgetProps {
@@ -40,7 +41,6 @@ interface EmailAutoWriteWidgetProps {
 export function EmailAutoWriteWidget({ className }: EmailAutoWriteWidgetProps) {
   const [drafts, setDrafts] = useState<EmailDraft[]>([]);
   const [loading, setLoading] = useState(false);
-  const { createEmailUndo, showUndoToast } = usePrecisionGateUndo();
 
   useEffect(() => {
     loadDrafts();
@@ -60,15 +60,17 @@ export function EmailAutoWriteWidget({ className }: EmailAutoWriteWidgetProps) {
       const result = await gmailDraftSendService.sendDraft(draft.account_id, draft.id);
       
       if (result.success) {
-        // Show undo toast for sent emails
-        const undoAction = createEmailUndo({
-          traceId: `email-${Date.now()}`,
-          messageId: result.messageId,
-          draftId: draft.id,
-          subject: draft.subject,
-          isDraft: false
-        });
-        showUndoToast(undoAction);
+        const traceId = draft.traceId || result.traceId;
+        if (traceId) {
+          decisionTraceService.recordExecution(traceId, 'succeeded', {
+            source: 'gmail-send-draft',
+            reference: result.messageId || draft.id
+          });
+          decisionTraceService.recordUserAction(traceId, 'accept', {
+            source: 'email-draft-widget',
+            artifactId: result.messageId || draft.id
+          });
+        }
         
         // Remove from drafts
         const updatedDrafts = drafts.filter(d => d.id !== draft.id);
@@ -76,7 +78,7 @@ export function EmailAutoWriteWidget({ className }: EmailAutoWriteWidgetProps) {
         localStorage.setItem('email_drafts', JSON.stringify(updatedDrafts));
         
         toast({
-          title: "Sent • Undo",
+          title: "Email Sent",
           description: `Email sent to ${draft.to.join(', ')}`,
         });
       } else {
@@ -102,10 +104,17 @@ export function EmailAutoWriteWidget({ className }: EmailAutoWriteWidgetProps) {
     });
   };
 
-  const handleDeleteDraft = (draftId: string) => {
-    const updatedDrafts = drafts.filter(d => d.id !== draftId);
+  const handleDeleteDraft = (draft: EmailDraft) => {
+    const updatedDrafts = drafts.filter(candidate => candidate.id !== draft.id);
     setDrafts(updatedDrafts);
     localStorage.setItem('email_drafts', JSON.stringify(updatedDrafts));
+
+    if (draft.traceId) {
+      decisionTraceService.recordUserAction(draft.traceId, 'reject', {
+        source: 'email-draft-widget',
+        artifactId: draft.id
+      });
+    }
     
     toast({
       title: "Draft Deleted",
@@ -167,7 +176,7 @@ export function EmailAutoWriteWidget({ className }: EmailAutoWriteWidgetProps) {
               autoWriteEligible={draft.autoSendEligible}
               onConfirm={() => handleSendDraft(draft)}
               onEdit={() => handleEditDraft(draft)}
-              onReject={() => handleDeleteDraft(draft.id)}
+              onReject={() => handleDeleteDraft(draft)}
               onOpenExternal={draft.threadId ? () => {
                 const gmailUrl = `https://mail.google.com/mail/u/0/#inbox/${draft.threadId}`;
                 window.open(gmailUrl, '_blank');

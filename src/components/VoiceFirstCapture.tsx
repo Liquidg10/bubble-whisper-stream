@@ -60,6 +60,7 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
   // Confirmation states for medium confidence
   const [awaitingConfirmation, setAwaitingConfirmation] = useState(false);
   const [pendingBubble, setPendingBubble] = useState<any>(null);
+  const [confirmationInFlight, setConfirmationInFlight] = useState(false);
   
   // Bubble creation feedback
   const [recentlyCreatedBubble, setRecentlyCreatedBubble] = useState<any>(null);
@@ -74,6 +75,7 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
   const processingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const sessionIdRef = useRef<string>('');
   const finalResultProcessedRef = useRef(false);
+  const confirmationInFlightRef = useRef(false);
 
   // Voice Activity Detection for near-instant processing
   const startVADProcessing = useCallback(async () => {
@@ -349,8 +351,16 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
                  intent.confidenceGate === 'medium' ? 'draft' : 'suggest',
         action: `Create ${intent.type} bubble: "${finalText.substring(0, 50)}..."`,
         becauseText: `Because ${intent.confidenceGate} confidence voice intent detected`,
-        metadata: { intent, text: finalText },
-        undoable: true
+        metadata: {
+          telemetryKind: 'acceptance',
+          intent,
+          text: finalText,
+          surface: 'voice-first-capture',
+          presentedAt: intent.confidenceGate === 'medium' ? Date.now() : undefined
+        },
+        // Confirmation/rejection is handled here, but post-create compensation
+        // is not retained by this surface.
+        undoable: false
       });
       
       // Handle based on confidence gate
@@ -397,10 +407,38 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
     }
   };
 
-  const createBubbleFromIntent = async (text: string, intent: IntentResult, traceId?: string) => {
+  const createBubbleFromIntent = async (
+    text: string,
+    intent: IntentResult,
+    traceId?: string,
+    userConfirmed = false
+  ) => {
     const bubble = voiceRouter.createBubbleFromIntent(text, intent);
-    
-    addBubble(bubble);
+
+    try {
+      await addBubble(bubble);
+    } catch (error) {
+      if (traceId) {
+        decisionTraceService.recordExecution(traceId, 'failed', {
+          source: 'voice-first-capture',
+          reference: error instanceof Error ? error.message : 'Bubble creation failed'
+        });
+      }
+      throw error;
+    }
+
+    if (traceId) {
+      decisionTraceService.recordExecution(traceId, 'succeeded', {
+        source: 'voice-first-capture',
+        reference: bubble.id
+      });
+      if (userConfirmed) {
+        decisionTraceService.recordUserAction(traceId, 'accept', {
+          source: 'voice-first-confirmation',
+          artifactId: bubble.id
+        });
+      }
+    }
     onBubbleCreated?.(bubble);
     
     // Show creation success feedback
@@ -430,21 +468,33 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
   };
 
   const handleConfirmation = async (confirmed: boolean) => {
-    if (!pendingBubble) return;
-    
-    if (confirmed) {
-      await createBubbleFromIntent(
-        pendingBubble.text, 
-        pendingBubble.intent, 
-        pendingBubble.traceId
-      );
-    } else {
-      toast.info('Voice input cancelled');
-      decisionTraceService.markAsUndone(pendingBubble.traceId, 'user-rejected');
+    if (!pendingBubble || confirmationInFlightRef.current) return;
+
+    confirmationInFlightRef.current = true;
+    setConfirmationInFlight(true);
+    try {
+      if (confirmed) {
+        await createBubbleFromIntent(
+          pendingBubble.text,
+          pendingBubble.intent,
+          pendingBubble.traceId,
+          true
+        );
+      } else {
+        toast.info('Voice input cancelled');
+        decisionTraceService.recordUserAction(pendingBubble.traceId, 'reject', {
+          source: 'voice-confirmation'
+        });
+      }
+
+      setAwaitingConfirmation(false);
+      setPendingBubble(null);
+    } catch (error) {
+      toast.error('Failed to save voice item. You can try again.');
+    } finally {
+      confirmationInFlightRef.current = false;
+      setConfirmationInFlight(false);
     }
-    
-    setAwaitingConfirmation(false);
-    setPendingBubble(null);
   };
 
   const getStatusText = () => {
@@ -648,6 +698,8 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
                     variant="default"
                     className="flex-1"
                     onClick={() => handleConfirmation(true)}
+                    disabled={confirmationInFlight}
+                    aria-busy={confirmationInFlight}
                   >
                     <Check className="h-4 w-4 mr-1" />
                     Yes
@@ -657,6 +709,7 @@ export const VoiceFirstCapture: React.FC<VoiceFirstCaptureProps> = ({
                     variant="outline"
                     className="flex-1"
                     onClick={() => handleConfirmation(false)}
+                    disabled={confirmationInFlight}
                   >
                     <X className="h-4 w-4 mr-1" />
                     No

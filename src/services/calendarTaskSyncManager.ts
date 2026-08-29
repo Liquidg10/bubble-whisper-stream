@@ -308,17 +308,17 @@ class CalendarTaskSyncManager {
     // Create mapping
     const mapping: CalendarTaskMapping = {
       taskId: task.id,
-      eventId: result.data.id,
+      eventId: result.eventId!,
       calendarAccountId: calendarAccount.id,
       lastSyncedAt: Date.now(),
       syncDirection: 'task-to-calendar',
       conflictStatus: 'none'
     };
 
-    this.mappings.set(`${task.id}-${result.data.id}`, mapping);
+    this.mappings.set(`${task.id}-${result.eventId}`, mapping);
     this.saveMappings();
 
-    return { success: true, eventId: result.data.id };
+    return { success: true, eventId: result.eventId };
   }
 
   private async updateCalendarEvent(task: Task, mapping: CalendarTaskMapping): Promise<{ success: boolean; eventId?: string; conflictId?: string }> {

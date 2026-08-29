@@ -77,6 +77,7 @@ describe('AutoWriteCalendarService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    autoWriteCalendarService['undoRegistry'].clear();
 
     // Functional localStorage mock: updateAutoWriteSettings() persists via
     // setItem and getAutoWriteSettings() re-reads via getItem on every call,
@@ -185,7 +186,12 @@ describe('AutoWriteCalendarService', () => {
       expect(result.becauseText).toContain('Auto-wrote because');
       expect(result.confidence).toBe(0.9);
       expect(result.undoInfo).toBeDefined();
-      expect(mockDecisionTraceService.addTrace).toHaveBeenCalledTimes(2); // Initial trace + success trace
+      expect(mockDecisionTraceService.addTrace).toHaveBeenCalledTimes(1);
+      expect(mockDecisionTraceService.recordExecution).toHaveBeenCalledWith(
+        'trace-123',
+        'succeeded',
+        expect.objectContaining({ source: 'calendar-api', reference: 'event-123' })
+      );
     });
 
     it('should create draft for medium confidence scores', async () => {
@@ -378,14 +384,18 @@ describe('AutoWriteCalendarService', () => {
       };
       mockGetState.mockReturnValue(mockBubbleStore);
 
-      mockDecisionTraceService.markAsUndone.mockReturnValue(true);
+      mockDecisionTraceService.recordUndoCompleted.mockReturnValue(true);
 
       // Act
       const result = await service.undoCalendarWrite(traceId);
 
       // Assert
       expect(result).toBe(true);
-      expect(mockDecisionTraceService.markAsUndone).toHaveBeenCalledWith(traceId, expect.any(String));
+      expect(mockDecisionTraceService.recordUndoCompleted).toHaveBeenCalledWith(
+        traceId,
+        expect.any(String),
+        'calendar-write-undo'
+      );
       expect(mockBubbleStore.updateReminder).toHaveBeenCalledTimes(2);
       expect(mockBubbleStore.updateBubble).toHaveBeenCalledWith({
         id: 'bubble-1',
@@ -404,6 +414,90 @@ describe('AutoWriteCalendarService', () => {
 
       // Assert
       expect(result).toBe(false);
+    });
+
+    it('does not record an undo when provider deletion fails', async () => {
+      const service = autoWriteCalendarService;
+      const traceId = 'trace-delete-failed';
+      service['undoRegistry'].set(traceId, {
+        eventId: 'event-delete-failed',
+        linkedReminders: ['reminder-1']
+      });
+
+      mockSupabase.from.mockReturnValue(accountChain([{ id: 'account-123' }]));
+      mockSupabase.functions.invoke.mockResolvedValue({
+        data: null,
+        error: { message: 'provider denied deletion' }
+      });
+      const mockBubbleStore = {
+        reminders: [{ id: 'reminder-1' }],
+        bubbles: [],
+        updateReminder: vi.fn(),
+        updateBubble: vi.fn()
+      };
+      mockGetState.mockReturnValue(mockBubbleStore);
+
+      const result = await service.undoCalendarWrite(traceId);
+
+      expect(result).toBe(false);
+      expect(mockDecisionTraceService.recordUndoCompleted).not.toHaveBeenCalled();
+      expect(mockBubbleStore.updateReminder).not.toHaveBeenCalled();
+      expect(service['undoRegistry'].has(traceId)).toBe(true);
+    });
+  });
+
+  describe('getRecentUndoableWrites', () => {
+    const makeTrace = (
+      id: string,
+      executionStatus: 'succeeded' | 'failed'
+    ): ReturnType<typeof decisionTraceService.getRecentUndoable>[number] => ({
+      id,
+      timestamp: 1_700_000_000_000,
+      feature: 'calendar',
+      signals: [],
+      confidenceThreshold: THRESHOLD_LEVELS.HIGH,
+      finalConfidence: 0.95,
+      decision: 'auto-write',
+      action: `Create calendar event ${id}`,
+      becauseText: 'High-confidence calendar intent',
+      metadata: { executionStatus },
+      undoable: true
+    });
+
+    it('returns a successful calendar write while its compensation data is live', () => {
+      const trace = makeTrace('trace-live-success', 'succeeded');
+      mockDecisionTraceService.getRecentUndoable.mockReturnValue([trace]);
+      autoWriteCalendarService['undoRegistry'].set(trace.id, {
+        eventId: 'event-live-success',
+        linkedReminders: []
+      });
+
+      expect(autoWriteCalendarService.getRecentUndoableWrites()).toEqual([{
+        traceId: trace.id,
+        description: trace.action,
+        timestamp: trace.timestamp
+      }]);
+    });
+
+    it('does not advertise a failed execution even if compensation data remains', () => {
+      const trace = makeTrace('trace-failed', 'failed');
+      mockDecisionTraceService.getRecentUndoable.mockReturnValue([trace]);
+      autoWriteCalendarService['undoRegistry'].set(trace.id, {
+        eventId: 'event-failed',
+        linkedReminders: []
+      });
+
+      expect(autoWriteCalendarService.getRecentUndoableWrites()).toEqual([]);
+    });
+
+    it('does not advertise a persisted successful trace after reload loses its in-memory compensation data', () => {
+      const persistedTrace = makeTrace('trace-persisted-success', 'succeeded');
+      mockDecisionTraceService.getRecentUndoable.mockReturnValue([persistedTrace]);
+
+      // Decision traces survive reload in localStorage; undoRegistry does not.
+      autoWriteCalendarService['undoRegistry'].clear();
+
+      expect(autoWriteCalendarService.getRecentUndoableWrites()).toEqual([]);
     });
   });
 

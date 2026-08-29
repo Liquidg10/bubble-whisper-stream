@@ -36,6 +36,9 @@ verify_jwt = true
 [functions.calendar-sync]
 verify_jwt = true
 
+[functions.gmail-compose]
+verify_jwt = true
+
 [functions.watch-renewal-cron]
 verify_jwt = true
 

@@ -84,7 +84,10 @@ class DomainCommandBus {
         action: `Execute ${command.type}`,
         becauseText: this.generateBecauseText(command),
         privacyWatermark: 'surface',
-        metadata: command.payload,
+        metadata: {
+          ...command.payload,
+          telemetryKind: 'operational'
+        },
         undoable: true
       });
 
@@ -195,7 +198,11 @@ class DomainCommandBus {
       const success = await handler.undo(undoId);
       if (success) {
         this.undoHistory.delete(undoId);
-        decisionTraceService.markAsUndone(undoId, `undo_${undoId}`);
+        decisionTraceService.recordUndoCompleted(
+          undoId,
+          `undo_${undoId}`,
+          'command-bus'
+        );
       }
 
       return success;
