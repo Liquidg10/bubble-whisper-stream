@@ -156,8 +156,8 @@ export function CBTOnboardingBanner({ className = '' }: CBTOnboardingBannerProps
           onClick={(e) => e.stopPropagation()}
           role="dialog"
           aria-modal="true"
-          aria-labelledby="cbt-onboarding-title"
-          aria-describedby="cbt-onboarding-description"
+          aria-labelledby="thought-support-onboarding-title"
+          aria-describedby="thought-support-onboarding-description"
         >
         <Card className="border border-primary/20 bg-gradient-to-r from-background to-muted/30">
           <CardContent className="p-6">
@@ -168,10 +168,10 @@ export function CBTOnboardingBanner({ className = '' }: CBTOnboardingBannerProps
                   <Shield className="h-5 w-5 text-primary" />
                 </div>
                 <div>
-                  <h3 id="cbt-onboarding-title" className="text-lg font-semibold text-foreground">
+                  <h3 id="thought-support-onboarding-title" className="text-lg font-semibold text-foreground">
                     Would you like gentle check-ins?
                   </h3>
-                  <p id="cbt-onboarding-description" className="text-sm text-muted-foreground mt-1">
+                  <p id="thought-support-onboarding-description" className="text-sm text-muted-foreground mt-1">
                     I've noticed some patterns and would love to offer optional support
                   </p>
                 </div>
