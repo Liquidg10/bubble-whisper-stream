@@ -6,8 +6,14 @@
   "sourcePublicConfigStored": true,
   "sourceSecretValuesRecorded": false,
   "sourceReceiptSha256": "replace-before-cutover",
+  "sourceRevalidationReceiptSha256": "replace-before-cutover",
+  "sourceFreezeReceiptSha256": "replace-before-cutover",
+  "packageManifestSha256": "replace-before-cutover",
+  "authDecisionSha256": "replace-before-cutover",
   "importReceiptSha256": "replace-before-cutover",
   "storageReceiptSha256": "replace-before-cutover",
+  "storageRevalidationReceiptSha256": "replace-before-cutover",
+  "oauthResetReceiptSha256": "replace-before-cutover",
   "quarantineReceiptSha256": "replace-before-cutover",
   "targetCanaryReceiptSha256": "replace-before-cutover",
   "externalBindingsManifestSha256": "replace-before-cutover",
@@ -17,6 +23,6 @@
     "Restore the prior Supabase URL and publishable key from the operator secret store.",
     "Publish the prior application configuration.",
     "Disable target provider callbacks and restore source callbacks if they were moved.",
-    "Verify signed-in read-only Calendar, Gmail, profile, and sync surfaces on the source."
+    "Verify signed-in read-only Calendar, Gmail, profile, and storage surfaces plus the fail-closed sync boundary on the source."
   ]
 }

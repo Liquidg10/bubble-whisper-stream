@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "status": "verified",
+  "evidenceType": "syncDeferredBoundary",
+  "capturedAt": "YYYY-MM-DDTHH:MM:SSZ",
+  "targetProjectRef": "replace-with-created-target-ref",
+  "sourceReceiptSha256": "replace-with-source-receipt-sha256",
+  "importReceiptSha256": "replace-with-import-receipt-sha256",
+  "storageReceiptSha256": "replace-with-storage-receipt-sha256",
+  "oauthResetReceiptSha256": "replace-with-oauth-reset-receipt-sha256",
+  "quarantineReceiptSha256": "replace-with-quarantine-receipt-sha256",
+  "deferredRelations": [
+    "sync_conflicts",
+    "sync_data",
+    "sync_devices"
+  ],
+  "anonPrivilegesDenied": true,
+  "authenticatedPrivilegesDenied": true,
+  "realtimePublicationAbsent": true,
+  "syncServiceFailClosed": true,
+  "syncDeferralMigrationSha256": "replace-with-sha256",
+  "syncServiceSha256": "replace-with-sha256",
+  "dataScopesManifestSha256": "replace-with-sha256",
+  "secretValuesIncluded": false,
+  "rowIdsIncluded": false
+}

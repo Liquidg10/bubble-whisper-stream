@@ -6,18 +6,20 @@
   "sourceReceiptSha256": "replace-with-source-receipt-sha256",
   "importReceiptSha256": "replace-with-import-receipt-sha256",
   "storageReceiptSha256": "replace-with-storage-receipt-sha256",
+  "oauthResetReceiptSha256": "replace-with-oauth-reset-receipt-sha256",
   "quarantineReceiptSha256": "replace-with-quarantine-receipt-sha256",
   "checks": {
     "freshPasswordSignIn": true,
     "profileRead": true,
     "privatePhotoRead": true,
+    "calendarOAuthReauthorization": true,
     "calendarReadAndBoundedSync": true,
     "calendarWatchAuthenticatedDelivery": true,
     "gmailOAuthAndScope": true,
     "gmailWatchSignedPubsubDelivery": true,
     "gmailHistoryAdvanceAndReplayIdempotency": true,
     "gmailComposeAcceptance": true,
-    "syncReadWrite": true,
+    "syncDeferredBoundary": true,
     "appBuildAndTestGates": true
   },
   "plaidDisposition": "empty",
@@ -26,12 +28,25 @@
   "evidenceReceiptSha256": {
     "authAndProfile": "replace-with-sha256",
     "privateStorage": "replace-with-sha256",
+    "calendarOAuthReauthorization": "replace-with-sha256",
     "calendarSync": "replace-with-sha256",
     "calendarWatch": "replace-with-sha256",
     "gmailOAuthSync": "replace-with-sha256",
     "gmailPubsub": "replace-with-sha256",
     "gmailCompose": "replace-with-sha256",
-    "syncReadWrite": "replace-with-sha256",
+    "syncDeferredBoundary": "replace-with-sha256",
     "securityAndBuild": "replace-with-sha256"
+  },
+  "evidenceReceiptPaths": {
+    "authAndProfile": "/absolute/private/path/auth-and-profile.json",
+    "privateStorage": "/absolute/private/path/private-storage.json",
+    "calendarOAuthReauthorization": "/absolute/private/path/calendar-oauth-reauthorization.json",
+    "calendarSync": "/absolute/private/path/calendar-sync.json",
+    "calendarWatch": "/absolute/private/path/calendar-watch.json",
+    "gmailOAuthSync": "/absolute/private/path/gmail-oauth-sync.json",
+    "gmailPubsub": "/absolute/private/path/gmail-pubsub.json",
+    "gmailCompose": "/absolute/private/path/gmail-compose.json",
+    "syncDeferredBoundary": "/absolute/private/path/sync-deferred-boundary.json",
+    "securityAndBuild": "/absolute/private/path/security-and-build.json"
   }
 }

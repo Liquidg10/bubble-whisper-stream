@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "status": "source_write_freeze_confirmed_for_cutover",
+  "sourceProjectRef": "ekekeywoxvdbfbmqyhjy",
+  "targetProjectRef": "replace-with-created-target-ref",
+  "confirmedBy": "owner",
+  "confirmedAt": "YYYY-MM-DDTHH:MM:SSZ",
+  "sourceWriteFreezeStillActive": true,
+  "sourceReceiptSha256": "replace-with-packaged-source-receipt-sha256",
+  "sourceRevalidationReceiptSha256": "replace-with-action-time-source-revalidation-sha256",
+  "importReceiptSha256": "replace-with-import-receipt-sha256",
+  "sourceMutated": false
+}
