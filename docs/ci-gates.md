@@ -6,7 +6,8 @@ application can prove locally:
 - TypeScript compilation of the application project and production build.
 - No increase in inherited ESLint or assistant-cohesion findings.
 - A bounded Vitest unit/integration surface covering services, task and voice
-  controls, sync-conflict UI, and calendar-watch authorization helpers.
+  controls, the fail-closed cross-device boundary, and provider authorization
+  helpers.
 - Automated WCAG checks for onboarding plus the current Canvas, List, Kanban,
   and Matrix surfaces in light and dark modes.
 - Current-route rendering, keyboard-help operation, reduced-motion operation,
