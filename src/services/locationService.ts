@@ -82,7 +82,8 @@ class LocationService {
 
       const script = document.createElement('script');
       script.dataset.bubbleGoogleMaps = 'true';
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places`;
+      script.referrerPolicy = 'strict-origin';
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places&auth_referrer_policy=origin`;
       script.async = true;
       script.defer = true;
       script.onload = () => resolve();

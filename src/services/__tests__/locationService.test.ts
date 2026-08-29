@@ -64,7 +64,13 @@ describe('locationService Google Maps loading', () => {
 
     expect(appendChild).toHaveBeenCalledOnce();
     const script = appendChild.mock.calls[0][0] as HTMLScriptElement;
-    expect(script.src).toContain('key=configured-test-key');
+    const scriptUrl = new URL(script.src);
+    expect(scriptUrl.origin).toBe('https://maps.googleapis.com');
+    expect(scriptUrl.pathname).toBe('/maps/api/js');
+    expect(scriptUrl.searchParams.get('key')).toBe('configured-test-key');
+    expect(scriptUrl.searchParams.get('libraries')).toBe('places');
+    expect(scriptUrl.searchParams.get('auth_referrer_policy')).toBe('origin');
+    expect(script.referrerPolicy).toBe('strict-origin');
     expect(nearbySearch).toHaveBeenCalledOnce();
   });
 });
