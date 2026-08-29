@@ -23,12 +23,21 @@ const { mockCBTService } = vi.hoisted(() => ({
       'Consider that there might be middle ground here.',
       'What evidence supports a more balanced view?',
     ]),
+    createEntry: vi.fn(async (entry) => ({
+      id: 'cbt-entry-1',
+      createdAt: Date.now(),
+      ...entry,
+    })),
   },
 }));
 
-vi.mock('@/services/cbtService', () => ({
-  cbtService: mockCBTService,
-}));
+vi.mock('@/services/cbtService', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/services/cbtService')>();
+  return {
+    ...actual,
+    cbtService: mockCBTService,
+  };
+});
 
 describe('CBTThoughtCheck', () => {
   const mockOnSave = vi.fn();
@@ -73,12 +82,12 @@ describe('CBTThoughtCheck', () => {
     );
 
     // Start with thought input
-    const nextButton = screen.getByText('Next');
+    const nextButton = screen.getByText('Continue');
     fireEvent.click(nextButton);
 
     // Should show distortion selection
     await waitFor(() => {
-      expect(screen.getByText('Notice any thinking patterns?')).toBeInTheDocument();
+      expect(screen.getByText('Notice any patterns?')).toBeInTheDocument();
     });
 
     // Select a distortion
@@ -86,10 +95,10 @@ describe('CBTThoughtCheck', () => {
     fireEvent.click(allOrNothingButton);
 
     // Continue to evidence
-    fireEvent.click(screen.getByText('Next'));
+    fireEvent.click(screen.getByText('Continue'));
 
     await waitFor(() => {
-      expect(screen.getByText('What supports this thought?')).toBeInTheDocument();
+      expect(screen.getByText("Let's explore this together")).toBeInTheDocument();
     });
   });
 
@@ -103,7 +112,9 @@ describe('CBTThoughtCheck', () => {
     );
 
     // Go to distortion step
-    fireEvent.click(screen.getByText('Next'));
+    fireEvent.click(screen.getByText('Continue'));
+
+    fireEvent.click(screen.getByText('Suggest'));
 
     await waitFor(() => {
       expect(mockCBTService.suggestDistortions).toHaveBeenCalledWith('I never do anything right');
@@ -120,15 +131,14 @@ describe('CBTThoughtCheck', () => {
     );
 
     // Complete the flow quickly
-    fireEvent.click(screen.getByText('Next')); // Go to distortions
+    fireEvent.click(screen.getByText('Continue')); // Go to distortions
     
     await waitFor(() => {
       fireEvent.click(screen.getByText('All-or-Nothing')); // Select distortion
     });
     
-    fireEvent.click(screen.getByText('Next')); // Go to evidence
-    fireEvent.click(screen.getByText('Next')); // Go to challenging
-    fireEvent.click(screen.getByText('Next')); // Go to reframe
+    fireEvent.click(screen.getByText('Continue')); // Go to evidence
+    fireEvent.click(screen.getByText('Continue')); // Go to reframe
     
     // Fill reframe
     const reframeInput = screen.getByRole('textbox');
@@ -136,7 +146,8 @@ describe('CBTThoughtCheck', () => {
       target: { value: 'Some things are challenging, but I can learn and improve.' } 
     });
     
-    fireEvent.click(screen.getByText('Save Thought Check'));
+    fireEvent.click(screen.getByText('Continue')); // Go to complete
+    fireEvent.click(screen.getByText('Save reflection'));
 
     await waitFor(() => {
       expect(mockOnSave).toHaveBeenCalledWith(

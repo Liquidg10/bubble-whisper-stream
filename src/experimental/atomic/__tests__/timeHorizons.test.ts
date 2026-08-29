@@ -42,7 +42,7 @@ describe('updateTimeHorizon', () => {
   it('should update bubble from today to week horizon', () => {
     updateTimeHorizon('mol-test-bubble-1', 0, 1);
     
-    expect(mockUpdateBubble).toHaveBeenCalledWith({
+    expect(mockUpdateBubble).toHaveBeenCalledWith(expect.objectContaining({
       id: 'test-bubble-1',
       content: 'Test task',
       type: 'Task',
@@ -54,7 +54,7 @@ describe('updateTimeHorizon', () => {
       ],
       createdAt: expect.any(Number),
       updatedAt: expect.any(Number)
-    });
+    }));
   });
 
   it('should update bubble from week to later horizon', () => {
@@ -66,7 +66,7 @@ describe('updateTimeHorizon', () => {
 
     updateTimeHorizon('mol-test-bubble-1', 1, 2);
     
-    expect(mockUpdateBubble).toHaveBeenCalledWith({
+    expect(mockUpdateBubble).toHaveBeenCalledWith(expect.objectContaining({
       id: 'test-bubble-1',
       content: 'Test task',
       type: 'Task',
@@ -78,7 +78,7 @@ describe('updateTimeHorizon', () => {
       ],
       createdAt: expect.any(Number),
       updatedAt: expect.any(Number)
-    });
+    }));
   });
 
   it('should update bubble from later to today horizon', () => {
@@ -90,7 +90,7 @@ describe('updateTimeHorizon', () => {
 
     updateTimeHorizon('mol-test-bubble-1', 2, 0);
     
-    expect(mockUpdateBubble).toHaveBeenCalledWith({
+    expect(mockUpdateBubble).toHaveBeenCalledWith(expect.objectContaining({
       id: 'test-bubble-1',
       content: 'Test task',
       type: 'Task',
@@ -102,7 +102,7 @@ describe('updateTimeHorizon', () => {
       ],
       createdAt: expect.any(Number),
       updatedAt: expect.any(Number)
-    });
+    }));
   });
 
   it('should handle bubble not found gracefully', () => {

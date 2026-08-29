@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { KanbanColumn } from '@/components/KanbanColumn';
@@ -29,6 +29,24 @@ vi.mock('@/components/IntelligentTaskIntegration', () => ({
       onClick={() => void onTaskUpdate?.({ ...task, description: 'AI-assisted framing' })}
     >
       Apply intelligence
+    </button>
+  ),
+}));
+
+// These tests exercise TaskCard's serialized write coordinator, not Radix's
+// portal/focus machinery. Render the menu primitives directly so an unresolved
+// persistence promise cannot hold the menu interaction open inside React act().
+vi.mock('@/components/ui/dropdown-menu', () => ({
+  DropdownMenu: ({ children }: React.PropsWithChildren) => <>{children}</>,
+  DropdownMenuTrigger: ({ children }: React.PropsWithChildren) => <>{children}</>,
+  DropdownMenuContent: ({ children }: React.PropsWithChildren) => <div role="menu">{children}</div>,
+  DropdownMenuItem: ({
+    children,
+    onClick,
+    disabled,
+  }: React.PropsWithChildren<{ onClick?: () => void; disabled?: boolean }>) => (
+    <button type="button" role="menuitem" onClick={onClick} disabled={disabled}>
+      {children}
     </button>
   ),
 }));
@@ -166,7 +184,6 @@ describe('KanbanColumn completion plumbing', () => {
   });
 
   it('preserves a queued priority update when completion follows immediately', async () => {
-    const user = userEvent.setup();
     const priorityWrite = deferred<void>();
     const completionWrite = deferred<void>();
     const writeGates = [priorityWrite, completionWrite];
@@ -187,13 +204,12 @@ describe('KanbanColumn completion plumbing', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: 'Task options' }));
-    await user.click(screen.getByRole('menuitem', { name: 'Increase priority' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Increase priority' }));
     await waitFor(() => expect(onTaskUpdate).toHaveBeenCalledTimes(1));
     expect(onTaskUpdate.mock.calls[0][0]).toMatchObject({ priority: 95, completed: false });
 
     const checkbox = screen.getByRole('checkbox', { name: 'Mark task complete' });
-    await user.click(checkbox);
+    fireEvent.click(checkbox);
     expect(onTaskUpdate).toHaveBeenCalledTimes(1);
 
     priorityWrite.resolve();

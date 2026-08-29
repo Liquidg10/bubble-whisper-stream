@@ -871,7 +871,7 @@ export function TaskCard({
                 </DropdownMenuItem>
                 <DropdownMenuItem 
                   className="gap-2 text-xs"
-                  onClick={() => handlePriorityChange(Math.min(100, task.priority + 25))}
+                  onClick={() => void handlePriorityChange(Math.min(100, task.priority + 25))}
                 >
                   <Flag className="w-3 h-3" />
                   Increase priority
