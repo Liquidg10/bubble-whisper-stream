@@ -140,6 +140,7 @@ PGPASSWORD="$db_pass" pg_dump "${connection_args[@]}" --role postgres \
   printf '\n%s\n' '-- Constraints, indexes, triggers, policies, and grants.'
   sed '/^\\restrict /d; /^\\unrestrict /d' "$work_dir/post.sql"
   printf '\n%s\n' '-- Isolation hardening and non-public-schema objects.'
+  printf '%s\n' 'SET row_security = on;'
   sed '/^CREATE EXTENSION IF NOT EXISTS/d' "$hardening_sql"
 } > "$output_path"
 
