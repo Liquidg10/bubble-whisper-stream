@@ -45,6 +45,9 @@ jobs:
       - name: Verify owned Calendar imports and reviewed saved-link recovery
         run: npm run test:isolation:calendar-sync
 
+      - name: Verify exact recorded Calendar recovery and UI ownership
+        run: npm run test:calendar:recorded
+
       - name: Build
         run: npm run build
 
