@@ -17,6 +17,7 @@ import {
   compareReceipts,
   dataInventorySql,
   scopeInventoryBlockers,
+  secretManifestFingerprints,
   storageInventorySql,
   summarizeStorageInventory,
 } from "../supabase-isolation-preflight.mjs";
@@ -139,7 +140,7 @@ function inventories(subjectScope = scope, kind = "source") {
     status: "ready",
     blockers,
     subjectScope: subjectScopeBinding(subjectScope),
-    manifests: { fixture: "exact" },
+    manifests: { fixture: "exact", ...secretManifestFingerprints() },
     catalog: { relations: [], functions: [], migrationGuard: expectedMigrationGuardContract() },
     auth,
     publicData,
@@ -435,6 +436,7 @@ describe("subject-scoped source/export — real disposable PostgreSQL", {
     );
     const blockers = [];
     compareReceipts({ ...approved, kind: "target" }, old, blockers);
+    assert.equal(blockers.length, 1);
     assert.match(blockers.join("\n"), /subject scope/u);
   });
 
@@ -445,7 +447,27 @@ describe("subject-scoped source/export — real disposable PostgreSQL", {
       assert.throws(() => validateSourceReceipt(changed), /guard catalog/u);
       const blockers = [];
       compareReceipts({ ...changed, kind: "target" }, changed, blockers);
-      assert.match(blockers.join("\n"), /guard catalog/u);
+      assert.deepEqual(blockers, [
+        "migration guard catalog binding is missing, stale or unreviewed",
+        "migration guard catalog binding is missing, stale or unreviewed",
+      ]);
+    }
+  });
+
+  it("binds configuration manifests independently of valid selected data and guard catalogs", () => {
+    const approved = inventories();
+    const target = { ...approved, kind: "target" };
+    const matchingBlockers = [];
+    compareReceipts(target, approved, matchingBlockers);
+    assert.deepEqual(matchingBlockers, []);
+    for (const field of ["secretsSha256", "optionalConfigSha256"]) {
+      const changed = {
+        ...target,
+        manifests: { ...target.manifests, [field]: "0".repeat(64) },
+      };
+      const blockers = [];
+      compareReceipts(changed, approved, blockers);
+      assert.deepEqual(blockers, [`configuration manifest binding mismatch: ${field}`]);
     }
   });
 

@@ -78,7 +78,86 @@ function sqlArray(values) {
   return `ARRAY[${values.map(quoteLiteral).join(",")}]::text[]`;
 }
 
-function loadManifests() {
+export function validateSecretNameManifests(requiredNames, optionalNames) {
+  for (const [label, names] of [
+    ["required secret", requiredNames],
+    ["optional configuration", optionalNames],
+  ]) {
+    if (!Array.isArray(names) || names.length === 0) {
+      throw new Error(`empty or invalid ${label} manifest`);
+    }
+    const seen = new Set();
+    for (const name of names) {
+      if (typeof name !== "string" || name.trim() !== name ||
+        !/^[A-Z][A-Z0-9_]*$/u.test(name)) {
+        // Do not echo an invalid line: it may accidentally contain a value.
+        throw new Error(`invalid ${label} manifest entry`);
+      }
+      if (seen.has(name)) throw new Error(`duplicate ${label} manifest entry`);
+      if (PLATFORM_MANAGED_SECRETS.has(name)) {
+        throw new Error(`platform-managed name in ${label} manifest`);
+      }
+      seen.add(name);
+    }
+  }
+  const requiredSet = new Set(requiredNames);
+  if (optionalNames.some((name) => requiredSet.has(name))) {
+    throw new Error("required secret and optional configuration manifests overlap");
+  }
+}
+
+// Presence is the only fact available from the names-only provider inventory.
+// In particular, an optional flag's presence is never proof it is enabled.
+export function evaluateSecretNameInventory({
+  requiredNames,
+  optionalNames,
+  liveNames,
+  kind,
+}) {
+  validateSecretNameManifests(requiredNames, optionalNames);
+  if (!new Set(["source", "target"]).has(kind)) throw new Error("invalid inventory kind");
+  if (!Array.isArray(liveNames) || liveNames.some((name) =>
+    typeof name !== "string" || name.trim() !== name ||
+    !/^[A-Z][A-Z0-9_]*$/u.test(name))) {
+    throw new Error("invalid provider secret-name inventory");
+  }
+  const liveSet = new Set(liveNames);
+  const allowedSet = new Set([...requiredNames, ...optionalNames]);
+  const expected = requiredNames.map((name) => ({ name, present: liveSet.has(name) }));
+  const optional = optionalNames.map((name) => ({ name, present: liveSet.has(name) }));
+  const extraUserManagedNames = [...liveSet].filter((name) =>
+    !PLATFORM_MANAGED_SECRETS.has(name) && !allowedSet.has(name)).sort();
+  const blockers = expected.filter(({ present }) => !present)
+    .map(({ name }) => `missing user-managed secret: ${name}`);
+  if (kind === "target" && extraUserManagedNames.length > 0) {
+    blockers.push(
+      `target has user-managed secrets outside the allowlist: ${extraUserManagedNames.join(", ")}`,
+    );
+  }
+  return {
+    secrets: {
+      expected,
+      optional,
+      extraUserManagedNames,
+      valuesIncluded: false,
+      activationVerified: false,
+    },
+    blockers,
+  };
+}
+
+export function secretManifestFingerprints() {
+  return {
+    secretsSha256: sha256File(
+      resolve(repoRoot, "supabase/isolation/mind-manual-secrets.txt"),
+    ),
+    optionalConfigSha256: sha256File(
+      resolve(repoRoot, "supabase/isolation/mind-manual-optional-config.txt"),
+    ),
+  };
+}
+
+export function loadManifests() {
   const relationNames = readManifestLines(
     "supabase/isolation/mind-manual-tables.txt",
   );
@@ -91,6 +170,10 @@ function loadManifests() {
   const secretNames = readManifestLines(
     "supabase/isolation/mind-manual-secrets.txt",
   );
+  const optionalConfigNames = readManifestLines(
+    "supabase/isolation/mind-manual-optional-config.txt",
+  );
+  validateSecretNameManifests(secretNames, optionalConfigNames);
   const scopes = readTsvManifest(
     "supabase/isolation/mind-manual-data-scopes.tsv",
     3,
@@ -130,12 +213,6 @@ function loadManifests() {
   for (const name of functionNames) {
     assertIdentifier(name, "function manifest entry");
   }
-  for (const name of secretNames) {
-    if (!/^[A-Z][A-Z0-9_]*$/u.test(name)) {
-      throw new Error(`invalid secret manifest entry: ${name}`);
-    }
-  }
-
   const physicalRelations = relationNames.filter((name) =>
     name !== "plaid_items_safe"
   );
@@ -170,6 +247,7 @@ function loadManifests() {
     functionNames,
     buckets,
     secretNames,
+    optionalConfigNames,
     scopes,
     edgeFunctions,
     externalBindings,
@@ -697,6 +775,17 @@ export function compareReceipts(receipt, source, blockers) {
   if (source.status !== "ready") {
     blockers.push("comparison source receipt is not ready");
   }
+  for (const field of ["secretsSha256", "optionalConfigSha256"]) {
+    if (!Object.hasOwn(source.manifests ?? {}, field) ||
+      !Object.hasOwn(receipt.manifests ?? {}, field) ||
+      typeof source.manifests[field] !== "string" ||
+      typeof receipt.manifests[field] !== "string" ||
+      !/^[a-f0-9]{64}$/u.test(source.manifests[field]) ||
+      !/^[a-f0-9]{64}$/u.test(receipt.manifests[field]) ||
+      source.manifests[field] !== receipt.manifests[field]) {
+      blockers.push(`configuration manifest binding mismatch: ${field}`);
+    }
+  }
   for (const candidate of [source, receipt]) {
     try {
       validateMigrationGuardCatalogBinding(candidate.catalog?.migrationGuard);
@@ -881,18 +970,12 @@ async function main() {
     ["secrets", "list", "--project-ref", projectRef],
     "Supabase secret-name inventory",
   );
-  const liveSecretNames = new Set(liveSecrets.map(({ name }) => name));
-  const secrets = manifests.secretNames.map((name) => ({
-    name,
-    present: liveSecretNames.has(name),
-  }));
-  const extraUserManagedSecretNames = [...liveSecretNames]
-    .filter(
-      (name) =>
-        !PLATFORM_MANAGED_SECRETS.has(name) &&
-        !manifests.secretNames.includes(name),
-    )
-    .sort();
+  const secretInventory = evaluateSecretNameInventory({
+    requiredNames: manifests.secretNames,
+    optionalNames: manifests.optionalConfigNames,
+    liveNames: liveSecrets.map(({ name }) => name),
+    kind: args.kind,
+  });
 
   const liveFunctions = runSupabaseJson(
     ["functions", "list", "--project-ref", projectRef],
@@ -912,6 +995,7 @@ async function main() {
   });
 
   const blockers = [
+    ...secretInventory.blockers,
     ...storage.blockers,
     ...scopeInventoryBlockers(args.kind, scopeBinding, rawAuth, rawPublicData),
     ...(migrationGuardBlocker ? [migrationGuardBlocker] : []),
@@ -1010,11 +1094,6 @@ async function main() {
       }
     }
   }
-  for (const secret of secrets) {
-    if (!secret.present) {
-      blockers.push(`missing user-managed secret: ${secret.name}`);
-    }
-  }
   for (const edgeFunction of edgeFunctions) {
     if (!edgeFunction.present) {
       blockers.push(`missing Edge Function: ${edgeFunction.name}`);
@@ -1058,13 +1137,6 @@ async function main() {
       }`,
     );
   }
-  if (args.kind === "target" && extraUserManagedSecretNames.length > 0) {
-    blockers.push(
-      `target has user-managed secrets outside the allowlist: ${
-        extraUserManagedSecretNames.join(", ")
-      }`,
-    );
-  }
   if (args.kind === "target") {
     for (const forbidden of FORBIDDEN_COMMERCE_RELATIONS) {
       if (catalog.allPublicRelations.includes(forbidden)) {
@@ -1097,9 +1169,7 @@ async function main() {
       bucketsSha256: sha256File(
         resolve(repoRoot, "supabase/isolation/mind-manual-buckets.txt"),
       ),
-      secretsSha256: sha256File(
-        resolve(repoRoot, "supabase/isolation/mind-manual-secrets.txt"),
-      ),
+      ...secretManifestFingerprints(),
       edgeFunctionsSha256: sha256File(
         resolve(repoRoot, "supabase/isolation/mind-manual-edge-functions.tsv"),
       ),
@@ -1115,11 +1185,7 @@ async function main() {
     excludedDataInventory,
     auth,
     storage,
-    secrets: {
-      expected: secrets,
-      extraUserManagedNames: extraUserManagedSecretNames,
-      valuesIncluded: false,
-    },
+    secrets: secretInventory.secrets,
     edgeFunctions,
     externalBindings: manifests.externalBindings.map(({ name, owner }) => ({
       name,

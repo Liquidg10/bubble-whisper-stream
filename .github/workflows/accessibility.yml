@@ -36,8 +36,14 @@ jobs:
       - name: TypeScript
         run: npm run typecheck
 
+      - name: Check names-only optional configuration contract
+        run: npm run test:isolation:config
+
       - name: Run bounded unit and integration gate
         run: npm run test:unit:ci
+
+      - name: Verify owned Calendar imports and reviewed saved-link recovery
+        run: npm run test:isolation:calendar-sync
 
       - name: Build
         run: npm run build

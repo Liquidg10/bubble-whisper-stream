@@ -82,7 +82,7 @@ export function parseReviewedCalendarProviderEvent(value: unknown, eventId: stri
   return { etag: value.etag, fields };
 }
 
-async function boundedJson(response: Response): Promise<unknown> {
+export async function readBoundedCalendarProviderJson(response: Response): Promise<unknown> {
   const length = response.headers.get('content-length');
   if (length !== null && (!/^\d+$/.test(length) || Number(length) > MAX_PROVIDER_BYTES)) throw new Error('Provider response unavailable');
   if (!response.body) throw new Error('Provider response unavailable');
@@ -195,7 +195,7 @@ export async function handleReviewedCalendarUpdate(raw: unknown, dependencies: R
           void result.body?.cancel().catch(() => undefined);
           return { status: result.status, body: null };
         }
-        return { status: result.status, body: await boundedJson(result) };
+        return { status: result.status, body: await readBoundedCalendarProviderJson(result) };
       })();
       try { return await Promise.race([operation, deadline]); }
       finally { if (timer !== undefined) clearTimeout(timer); }

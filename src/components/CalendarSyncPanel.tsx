@@ -13,6 +13,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
 import { CalendarImportRecoveryPanel } from '@/components/CalendarImportRecoveryPanel';
 import { CalendarOutboundReviewPanel } from '@/components/CalendarOutboundReviewPanel';
+import { CalendarOutboundOutcomePanel } from '@/components/CalendarOutboundOutcomePanel';
 
 type SyncResult = Awaited<ReturnType<typeof calendarTaskSyncManager.performFullSync>>;
 type SyncView = {
@@ -158,12 +159,13 @@ export function CalendarSyncPanel() {
         <Alert><AlertDescription>Calendar imports update owned local tasks only. Outbound calendar changes are sent only after explicit review and confirmation in Updates.</AlertDescription></Alert>
         {visible.status === 'error' ? <Alert variant="destructive"><AlertDescription>Sync data is not confirmed. Refresh or review this account.</AlertDescription></Alert> : null}
         <Tabs defaultValue="overview" className="mt-4 w-full">
-          <TabsList className="grid h-auto w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+          <TabsList className="grid h-auto w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-7">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="conflicts">Conflicts ({conflicts.length})</TabsTrigger>
             <TabsTrigger value="mappings">Mappings</TabsTrigger>
             <TabsTrigger value="recovery">Recovery</TabsTrigger>
             <TabsTrigger value="updates">Updates</TabsTrigger>
+            <TabsTrigger value="outcomes">Outcomes</TabsTrigger>
             <TabsTrigger value="settings">Settings</TabsTrigger>
           </TabsList>
           <TabsContent value="overview" className="space-y-4">
@@ -208,6 +210,7 @@ export function CalendarSyncPanel() {
           </TabsContent>
           <TabsContent value="recovery"><CalendarImportRecoveryPanel readyOwner={readyOwner} onRecovered={loadSyncData} /></TabsContent>
           <TabsContent value="updates"><CalendarOutboundReviewPanel readyOwner={readyOwner} /></TabsContent>
+          <TabsContent value="outcomes"><CalendarOutboundOutcomePanel readyOwner={readyOwner} /></TabsContent>
           <TabsContent value="settings"><p>Automatic checks only review the signed-in account. Full Sync explicitly imports calendar data into owned local tasks. This panel does not change the schedule or enable outbound calendar writes.</p></TabsContent>
         </Tabs>
       </CardContent>
