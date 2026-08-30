@@ -52,6 +52,13 @@ describe('CalendarSyncPanel owner and truthful outcome lifecycle', () => {
   afterEach(() => { cleanup(); vi.restoreAllMocks(); });
   const switchTab = (name: string) => fireEvent.mouseDown(screen.getByRole('tab', { name }), { button: 0, ctrlKey: false });
 
+  it('exposes the read-only saved-outcome inventory through a reachable tab without fetching on mount', () => {
+    render(<CalendarSyncPanel />); switchTab('Outcomes');
+    expect(screen.getByRole('heading', { name: 'Saved Calendar update holds' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Refresh saved update holds' })).toBeEnabled();
+    expect(screen.getByText(/No verified hold inventory is currently shown/)).toBeInTheDocument();
+  });
+
   it('requires matching ready auth/manager ownership and never reads mappings for foreign or unowned tasks', () => {
     const view = render(<CalendarSyncPanel />);
     expect(mock.mappings.mock.calls.map(([id]) => id)).toEqual(['owned']);
