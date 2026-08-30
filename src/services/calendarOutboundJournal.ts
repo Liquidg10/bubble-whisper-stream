@@ -14,6 +14,7 @@ export interface CalendarOutboundJournal {
   ownerUserId: string;
   receipts: CalendarOutboundReceipt[];
 }
+export type CalendarOutboundHold = CalendarOutboundReceipt & { outcome: 'pending' | 'provider_written' | 'uncertain' };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:@-]{0,255}$/;
 const OUTCOMES = new Set(['pending', 'written', 'not_written', 'provider_written', 'uncertain']);
@@ -68,4 +69,19 @@ export function writeOutboundJournal(owner: string, journal: CalendarOutboundJou
 export function outboundHeld(journal: CalendarOutboundJournal, accountId: string, eventId: string): boolean {
   return journal.receipts.some(receipt => receipt.calendarAccountId === accountId && receipt.eventId === eventId
     && receipt.outcome !== 'written' && receipt.outcome !== 'not_written');
+}
+
+/** Includes orphaned task/event locators; no task or mapping join may hide a hold. */
+export function outboundHolds(journal: CalendarOutboundJournal): CalendarOutboundHold[] {
+  return journal.receipts.filter((receipt): receipt is CalendarOutboundHold =>
+    receipt.outcome === 'pending' || receipt.outcome === 'provider_written' || receipt.outcome === 'uncertain').map(receipt => ({ ...receipt }));
+}
+
+/** Validate the UI boundary without accessing storage or accepting terminal rows. */
+export function parseOutboundHoldInventory(value: unknown, owner: string): CalendarOutboundHold[] | null {
+  try {
+    const journal = validate({ version: 1, ownerUserId: owner, receipts: value }, owner);
+    const holds = outboundHolds(journal);
+    return holds.length === journal.receipts.length ? holds : null;
+  } catch { return null; }
 }

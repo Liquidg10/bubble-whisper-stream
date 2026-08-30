@@ -50,6 +50,23 @@ for (const outcome of ['written', 'lost', 'disabled'] as const) {
     expect(saved.envelope).toEqual(fixture.envelope);
     if (outcome === 'disabled') expect(saved.journal).toBeNull();
     else expect(saved.journal.receipts[0].outcome).toBe(outcome === 'written' ? 'written' : 'pending');
+    if (outcome === 'lost') {
+      await page.getByRole('tab', { name: 'Outcomes', exact: true }).click();
+      expect(fixture.calls).toHaveLength(2);
+      await page.getByRole('button', { name: 'Refresh saved update holds', exact: true }).click();
+      await expect(page.getByText('Saved holds in this browser journal: 1', { exact: true })).toBeVisible();
+      expect(fixture.calls).toHaveLength(2);
+      await page.getByRole('button', { name: 'Inspect current Google event for saved hold 1', exact: true }).click();
+      await expect(page.getByRole('heading', { name: 'Current Google event — observation only', exact: true })).toBeVisible();
+      await expect(page.getByLabel('Title observed', { exact: true })).toHaveText(fixture.bubble.content);
+      await expect(page.getByText('The original update outcome is not established by these values. Its saved hold remains unchanged.', { exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: /confirm|reset|retry|clear|restore/i })).toHaveCount(0);
+      expect(fixture.calls).toHaveLength(3);
+      expect(fixture.calls[2]).toEqual({ version: 1, action: 'inspect_reviewed_outcome', operationId: saved.journal.receipts[0].operationId,
+        calendarAccountId: saved.journal.receipts[0].calendarAccountId, eventId: saved.journal.receipts[0].eventId });
+      expect(await readOutboundFixture(page, fixture.owner, fixture.taskId)).toEqual(saved);
+      await page.screenshot({ path: testInfo.outputPath('calendar-legacy-outcome-held.png'), fullPage: true });
+    }
     expect(fixture.errors).toEqual([]);
   });
 }

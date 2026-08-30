@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.56.0";
-import { handleReviewedCalendarUpdate } from './reviewedCalendarUpdate.ts';
+import { handleReviewedCalendarUpdate, type ReviewedCalendarUpdateDependencies } from './reviewedCalendarUpdate.ts';
+import { handleCalendarOutcomeInspection } from './inspectCalendarOutcome.ts';
 import {
   decryptOAuthToken,
   encryptOAuthToken,
@@ -453,13 +454,13 @@ const handler = async (req: Request): Promise<Response> => {
 
     const requestBody = await req.json();
 
-    if (requestBody?.action === 'prepare_reviewed_update' || requestBody?.action === 'confirm_reviewed_update') {
+    if (requestBody?.action === 'prepare_reviewed_update' || requestBody?.action === 'confirm_reviewed_update' || requestBody?.action === 'inspect_reviewed_outcome') {
       if (req.method !== 'POST') return new Response(JSON.stringify({ error: 'invalid_request' }), {
         status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
       });
       // This independent path cannot fall through to legacy create/delete or
       // refresh-token behavior. It remains OFF until separately activated.
-      return await handleReviewedCalendarUpdate(requestBody, {
+      const reviewedDependencies: ReviewedCalendarUpdateDependencies = {
         enabled: Deno.env.get('CALENDAR_REVIEWED_UPDATES_ENABLED'), callerUserId, isInternalCaller,
         loadAccount: async (accountId, owner) => {
           const { data, error } = await supabase.from('calendar_accounts')
@@ -497,7 +498,10 @@ const handler = async (req: Request): Promise<Response> => {
           if (error) throw new Error('Calendar cache outcome unavailable');
           return data;
         },
-      });
+      };
+      return requestBody.action === 'inspect_reviewed_outcome'
+        ? await handleCalendarOutcomeInspection(requestBody, reviewedDependencies)
+        : await handleReviewedCalendarUpdate(requestBody, reviewedDependencies);
     }
     
     // Handle write operations (create, update, delete events)

@@ -39,6 +39,13 @@ export async function prepareOutboundFixture(page: Page, outcome: 'written' | 'l
         if (outcome === 'lost') return route.abort();
         return route.fulfill({ json: { ...base, outcome: 'written', etag: '"new"', fields: body.after, cacheUpdated: true } });
       }
+      if (body.action === 'inspect_reviewed_outcome') {
+        // Deliberately match the reviewed outgoing fields: observing a match
+        // still must not resolve or replay the earlier lost outcome.
+        const submitted = calls.find(call => call.action === 'confirm_reviewed_update');
+        return route.fulfill({ json: { ...base, outcome: 'observed', observationOnly: true,
+          etag: '"observed"', fields: submitted?.after ?? fields, observedAt: Date.now() } });
+      }
     }
     if (url.pathname.startsWith('/rest/v1/') && request.method() === 'GET') {
       return route.fulfill({ json: request.headers().accept?.includes('vnd.pgrst.object') ? null : [] });

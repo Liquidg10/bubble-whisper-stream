@@ -10,7 +10,9 @@ import { storageService } from '@/services/storage';
 import { withCalendarSyncLock } from '@/services/calendarSyncCoordinator';
 import { findRecoveryCandidate } from '@/services/calendarImportRecoveryEvidence';
 import { findOutboundTaskCandidate } from '@/services/calendarOutboundTaskEvidence';
-import { readOutboundJournal, writeOutboundJournal, outboundHeld, type CalendarOutboundReceipt } from '@/services/calendarOutboundJournal';
+import { readOutboundJournal, writeOutboundJournal, outboundHeld, outboundHolds, type CalendarOutboundReceipt, type CalendarOutboundHold } from '@/services/calendarOutboundJournal';
+import { parseCalendarOutcomeInspectionResponse, type CalendarOutcomeInspectionCode,
+  type CalendarOutcomeInspectionResponse } from '../../supabase/functions/_shared/calendarOutcomeInspectionContract';
 import { parseCalendarReviewedUpdateResponse, isCalendarReviewedUpdateFields, equalCalendarReviewedUpdateFields,
   type CalendarReviewedUpdateFields, type CalendarReviewedUpdateResponse } from '../../supabase/functions/_shared/calendarReviewedUpdateContract';
 
@@ -70,6 +72,10 @@ export interface CalendarOutboundInspection {
 export interface CalendarOutboundResult {
   status: 'written' | 'not_written' | 'uncertain' | 'provider_written'; message: string; taskId?: string;
 }
+export type CalendarOutboundOutcomeInspection = {
+  status: 'observed'; operationId: string; calendarAccountId: string; eventId: string;
+  observationOnly: true; etag: string; fields: CalendarReviewedUpdateFields; observedAt: number; message: string;
+} | { status: 'blocked'; message: string; code?: CalendarOutcomeInspectionCode };
 
 interface OwnerState {
   mappings: Map<string, CalendarTaskMapping>;
@@ -245,6 +251,46 @@ export class CalendarTaskSyncManager {
     if (mapping && mapping.taskId !== candidate.taskId) return null;
     if ([...state.mappings.entries()].some(([otherKey, value]) => otherKey !== key && value.taskId === candidate.taskId)) return null;
     return { candidate, event, storageSnapshot, fingerprint: JSON.stringify([storageSnapshot, event, candidate.fingerprint]) };
+  }
+
+  refreshOutboundHolds(): Promise<{ success: boolean; items: CalendarOutboundHold[]; message: string }> {
+    const context = this.context();
+    const blocked = () => ({ success: false, items: [], message: 'Saved update holds could not be verified. This is not an empty inventory; all holds remain unchanged.' });
+    if (!context) return Promise.resolve(blocked());
+    return this.admit(context, 'outbound-hold-inventory', async () => {
+      await this.requireOutcomeOwner(context);
+      const { journal, snapshot } = readOutboundJournal(context.ownerUserId);
+      await this.requireOutcomeOwner(context);
+      if (readOutboundJournal(context.ownerUserId).snapshot !== snapshot) return blocked();
+      return { success: true, items: outboundHolds(journal), message: 'All saved holds in this account’s current browser journal. Other browsers, devices and server work are not inventoried here.' };
+    }, blocked);
+  }
+
+  inspectOutboundHold(operationId: string): Promise<CalendarOutboundOutcomeInspection> {
+    const context = this.context();
+    const blocked = (code?: CalendarOutcomeInspectionCode): CalendarOutboundOutcomeInspection => ({ status: 'blocked',
+      message: 'The current Google event could not be inspected. The original outcome is not established by this inspection; its saved hold remains unchanged.', ...(code ? { code } : {}) });
+    if (!context || !uuid(operationId)) return Promise.resolve(blocked());
+    return this.admit(context, `outbound-hold-inspection:${operationId}`, async () => {
+      await this.requireOutcomeOwner(context);
+      const { journal, snapshot } = readOutboundJournal(context.ownerUserId);
+      const held = outboundHolds(journal).find(receipt => receipt.operationId === operationId);
+      if (!held) return blocked();
+      const { data, error } = await supabase.functions.invoke('calendar-sync', { body: { version: 1, action: 'inspect_reviewed_outcome',
+        operationId, calendarAccountId: held.calendarAccountId, eventId: held.eventId } });
+      let result: CalendarOutcomeInspectionResponse | null = null;
+      if (!error) result = parseCalendarOutcomeInspectionResponse(data);
+      else if (error.context instanceof Response) {
+        try { result = parseCalendarOutcomeInspectionResponse(await error.context.json()); } catch { /* observation unavailable */ }
+      }
+      await this.requireOutcomeOwner(context);
+      if (readOutboundJournal(context.ownerUserId).snapshot !== snapshot || !result || result.operationId !== operationId
+        || result.calendarAccountId !== held.calendarAccountId || result.eventId !== held.eventId) return blocked();
+      if (result.outcome === 'inspection_unavailable') return blocked(result.code);
+      return { status: 'observed', operationId, calendarAccountId: held.calendarAccountId, eventId: held.eventId,
+        observationOnly: true, etag: result.etag, fields: { ...result.fields }, observedAt: result.observedAt,
+        message: 'Current Google event observed only. These values do not prove the original update completed or stopped. The saved hold remains; do not retry the update.' };
+    }, blocked);
   }
 
   refreshOutboundTasks(): Promise<{ success: boolean; items: { taskId: string; taskTitle: string; held: boolean }[]; message: string }> {
@@ -520,6 +566,13 @@ export class CalendarTaskSyncManager {
     const { data, error } = await supabase.auth.getUser();
     this.state(context);
     if (error || data.user?.id !== context.ownerUserId) throw new Error(STOPPED_MESSAGE);
+  }
+
+  /** Outcome inspection must remain available when unrelated task/mapping state is damaged. */
+  private async requireOutcomeOwner(context: SyncContext): Promise<void> {
+    if (!this.isCurrent(context)) throw new Error(STOPPED_MESSAGE);
+    const { data, error } = await supabase.auth.getUser();
+    if (!this.isCurrent(context) || error || data.user?.id !== context.ownerUserId) throw new Error(STOPPED_MESSAGE);
   }
 
   private async synchronize(context: SyncContext): Promise<CalendarFullSyncResult> {
