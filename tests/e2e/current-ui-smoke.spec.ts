@@ -594,6 +594,28 @@ test.describe('current UI smoke gate', () => {
     }).getByRole('button')).toHaveCount(5);
   });
 
+  test('signed-out calendar sync is visible but cannot start work', async ({ page }, testInfo) => {
+    // Isolated unauthenticated UI proof; do not contact hosted services.
+    await page.route('**/*', route => {
+      const url = new URL(route.request().url());
+      return ['localhost', '127.0.0.1'].includes(url.hostname) ? route.continue() : route.abort();
+    });
+    const errors: string[] = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto('/calendar');
+    await closeOnboardingIfPresent(page);
+    await expect(page.getByRole('heading', { name: 'Local Calendar Status', exact: true })).toBeVisible();
+    await expect(page.getByText('Google writes', { exact: true })).toBeVisible();
+    await expect(page.getByText('Not verified', { exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Calendar Sync Manager', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Full Sync', exact: true })).toBeDisabled();
+    await expect(page.getByText('Sign in and wait for the calendar manager to be ready for your account.')).toBeVisible();
+    await expect(page.getByText('Calendar imports update owned local tasks only. Outbound calendar changes require review and are not sent by this manager.')).toBeVisible();
+    await page.getByRole('heading', { name: 'Calendar Sync Manager', exact: true }).scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath('calendar-sync-signed-out.png'), fullPage: true });
+    expect(errors).toEqual([]);
+  });
+
   test('unknown routes report an honest not-found state', async ({ page }) => {
     await page.goto('/route-that-does-not-exist');
     await closeOnboardingIfPresent(page);

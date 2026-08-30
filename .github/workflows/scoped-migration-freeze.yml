@@ -39,6 +39,8 @@ jobs:
         run: npm run test:isolation:sync-deferred
       - name: Test browser background writer lifecycle contracts
         run: npm run test:isolation:schedulers
+      - name: Test authenticated calendar task sync and local commit contracts
+        run: npm run test:isolation:calendar-sync
       - name: Test guarded storage ingress and exact guard catalogs
         run: npm run test:isolation:ingress
         env:

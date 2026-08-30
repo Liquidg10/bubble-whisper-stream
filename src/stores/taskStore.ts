@@ -14,6 +14,42 @@ import { useBubbleStore } from './bubbleStore';
 import { bubbleToTask, mergeTaskIntoBubble, taskToBubble } from '@/adapters/taskAdapter';
 import { logger } from '@/utils/logger';
 
+export interface TaskMutationOptions {
+  origin: 'calendar-import';
+  ownerUserId: string;
+  isCurrent: () => boolean;
+}
+
+function calendarImportOptions(options?: TaskMutationOptions): TaskMutationOptions | undefined {
+  if (options === undefined) return undefined;
+  if (
+    !options || options.origin !== 'calendar-import' ||
+    typeof options.ownerUserId !== 'string' || !options.ownerUserId.trim() ||
+    typeof options.isCurrent !== 'function'
+  ) throw new Error('Invalid calendar import options');
+  // Capture the owner and guard at admission; callers cannot retarget an
+  // already-admitted operation by mutating the options object while it waits.
+  return { ...options };
+}
+
+function isCurrentImport(options: TaskMutationOptions): boolean {
+  try {
+    return options.isCurrent() === true;
+  } catch {
+    return false;
+  }
+}
+
+function assertCurrentImport(options?: TaskMutationOptions): void {
+  if (options && !isCurrentImport(options)) throw new Error('Calendar import is no longer current');
+}
+
+function assertImportOwner(metadata: Task['metadata'], options?: TaskMutationOptions): void {
+  if (options && metadata?.userId !== options.ownerUserId) {
+    throw new Error('Calendar import task owner does not match the active owner');
+  }
+}
+
 interface TaskStoreState {
   // Computed state (derived from BubbleStore)
   tasks: Task[];
@@ -23,8 +59,8 @@ interface TaskStoreState {
   // Actions
   getTasks: () => Task[];
   getTask: (id: TaskId) => Task | undefined;
-  addTask: (task: Omit<Task, 'id'>) => Promise<Task>;
-  updateTask: (id: TaskId, updates: Partial<Task>) => Promise<void>;
+  addTask: (task: Omit<Task, 'id'>, options?: TaskMutationOptions) => Promise<Task>;
+  updateTask: (id: TaskId, updates: Partial<Task>, options?: TaskMutationOptions) => Promise<void>;
   deleteTask: (id: TaskId) => Promise<void>;
   toggleTaskCompletion: (id: TaskId) => Promise<void>;
   moveTaskToHorizon: (id: TaskId, horizon: TimeHorizon) => Promise<void>;
@@ -75,7 +111,10 @@ export const useTaskStore = create<TaskStoreState>()(
       }
     },
 
-    addTask: async (taskData: Omit<Task, 'id'>) => {
+    addTask: async (taskData: Omit<Task, 'id'>, options?: TaskMutationOptions) => {
+      const importOptions = calendarImportOptions(options);
+      assertCurrentImport(importOptions);
+      assertImportOwner(taskData.metadata, importOptions);
       try {
         set({ isLoading: true });
         
@@ -85,25 +124,38 @@ export const useTaskStore = create<TaskStoreState>()(
           id: crypto.randomUUID(),
           updatedAt: Date.now()
         };
+        if (importOptions && tempTask.metadata) tempTask.metadata = { ...tempTask.metadata };
         const bubble = taskToBubble(tempTask);
+        assertImportOwner(bubble.metadata, importOptions);
+        if (importOptions && bubble.imageUri) {
+          throw new Error('Calendar import cannot create image-backed tasks');
+        }
         
         const bubbleStore = useBubbleStore.getState();
+        assertCurrentImport(importOptions);
         await bubbleStore.addBubble(bubble);
+        // BubbleStore owns its already-admitted persistence and global store
+        // publication. This guard prevents only the facade's follow-on work;
+        // it cannot roll that publication back or imply a global drain.
+        assertCurrentImport(importOptions);
         
         // Refresh task list
         get().refreshFromBubbleStore();
+        assertCurrentImport(importOptions);
         
         logger.debug('Added task via BubbleStore', { taskId: tempTask.id });
         return tempTask;
       } catch (error) {
-        logger.error('Failed to add task', error);
+        if (!importOptions || isCurrentImport(importOptions)) logger.error('Failed to add task', error);
         throw error;
       } finally {
         set({ isLoading: false });
       }
     },
 
-    updateTask: async (id: TaskId, updates: Partial<Task>) => {
+    updateTask: async (id: TaskId, updates: Partial<Task>, options?: TaskMutationOptions) => {
+      const importOptions = calendarImportOptions(options);
+      assertCurrentImport(importOptions);
       try {
         set({ isLoading: true });
         
@@ -111,9 +163,7 @@ export const useTaskStore = create<TaskStoreState>()(
         if (!currentTask) {
           throw new Error(`Task ${id} not found`);
         }
-        
-        // Store previous task for change detection
-        const previousTask = { ...currentTask };
+        assertImportOwner(currentTask.metadata, importOptions);
         
         // Merge updates and convert to bubble
         const updatedTask: Task = { 
@@ -122,30 +172,38 @@ export const useTaskStore = create<TaskStoreState>()(
           id, // Ensure ID doesn't change
           updatedAt: Date.now()
         };
+        if (importOptions && updatedTask.metadata) updatedTask.metadata = { ...updatedTask.metadata };
+        assertImportOwner(updatedTask.metadata, importOptions);
         const bubbleStore = useBubbleStore.getState();
         const currentBubble = bubbleStore.bubbles.find(bubble => bubble.id === id);
         if (!currentBubble) {
           throw new Error(`Bubble ${id} not found`);
         }
         const bubble = mergeTaskIntoBubble(currentBubble, updatedTask);
+        assertImportOwner(bubble.metadata, importOptions);
+        assertCurrentImport(importOptions);
         await bubbleStore.updateBubbleStrict(bubble);
+        assertCurrentImport(importOptions);
         
         // Refresh task list
         get().refreshFromBubbleStore();
+        assertCurrentImport(importOptions);
         
-        // Trigger auto-write evaluation if calendar data changed
-        // Import dynamically to avoid circular dependencies
-        if (typeof window !== 'undefined') {
-          import('../services/taskAwareAutoWriteService').then(({ taskAwareAutoWriteService }) => {
-            taskAwareAutoWriteService.evaluateTask(updatedTask).catch(error => {
-              logger.error('Auto-write evaluation failed', error, { taskId: id });
-            });
-          });
+        // Imported provider events must not echo back through automatic writes.
+        // Ordinary edits retain evaluation, but the returned promise now tracks
+        // the induced work and handles both module-load and evaluation errors.
+        if (!importOptions && typeof window !== 'undefined') {
+          try {
+            const { taskAwareAutoWriteService } = await import('../services/taskAwareAutoWriteService');
+            await taskAwareAutoWriteService.evaluateTask(updatedTask);
+          } catch (error) {
+            logger.error('Auto-write evaluation failed', error, { taskId: id });
+          }
         }
         
-        logger.debug('Updated task via BubbleStore', { taskId: id, updates });
+        logger.debug('Updated task via BubbleStore', importOptions ? { taskId: id } : { taskId: id, updates });
       } catch (error) {
-        logger.error('Failed to update task', error, { taskId: id });
+        if (!importOptions || isCurrentImport(importOptions)) logger.error('Failed to update task', error, { taskId: id });
         throw error;
       } finally {
         set({ isLoading: false });

@@ -105,9 +105,11 @@ provider reconciliation, deployed behavior, or permission to clear durable lease
 
 ## Remaining reachable writers and rollout gates
 
-The separate `calendarTaskSyncManager` constructor still starts a 15-minute
-timer without a stop method; its Calendar route caller can reach calendar writes.
-That writer is **not fixed or retired by this tranche**. Deferred audio-queue
+At the inventory base, the separate `calendarTaskSyncManager` constructor started
+a 15-minute timer without a stop method and its Calendar route caller could reach
+calendar writes. The subsequent [owner-bound sync follow-up](calendar-task-sync-owner-boundary.md)
+removes that automatic writer, retains explicit owned local imports, and labels
+outbound updates unavailable. It does not establish live retirement. Deferred audio-queue
 retries can invoke TTS provider work. Calendar callbacks, Gmail Pub/Sub history,
 Plaid webhooks, manual watch rotation, other clients and privileged Storage
 writers remain independent. Do not turn this partial roster into a global stop.
