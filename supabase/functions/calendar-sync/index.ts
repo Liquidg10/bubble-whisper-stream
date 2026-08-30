@@ -1,6 +1,7 @@
 import { wrapMindManualHandler } from "../_shared/migrationWriteFence.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.56.0";
+import { handleReviewedCalendarUpdate } from './reviewedCalendarUpdate.ts';
 import {
   decryptOAuthToken,
   encryptOAuthToken,
@@ -452,6 +453,53 @@ const handler = async (req: Request): Promise<Response> => {
     // ---- end AUTHZ ------------------------------------------------------
 
     const requestBody = await req.json();
+
+    if (requestBody?.action === 'prepare_reviewed_update' || requestBody?.action === 'confirm_reviewed_update') {
+      if (req.method !== 'POST') return new Response(JSON.stringify({ error: 'invalid_request' }), {
+        status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+      });
+      // This independent path cannot fall through to legacy create/delete or
+      // refresh-token behavior. It remains OFF until separately activated.
+      return await handleReviewedCalendarUpdate(requestBody, {
+        enabled: Deno.env.get('CALENDAR_REVIEWED_UPDATES_ENABLED'), callerUserId, isInternalCaller,
+        loadAccount: async (accountId, owner) => {
+          const { data, error } = await supabase.from('calendar_accounts')
+            .select('id,user_id,provider,calendar_id,oauth_token_id,sync_enabled')
+            .eq('id', accountId).eq('user_id', owner).eq('sync_enabled', true).single();
+          if (error) throw new Error('Calendar account unavailable');
+          return data;
+        },
+        loadToken: async (tokenId, owner) => {
+          const { data, error } = await supabase.from('oauth_tokens')
+            .select('id,user_id,provider,service_type,scope,access_token,token_expires_at')
+            .eq('id', tokenId).eq('user_id', owner).eq('provider', 'google').eq('service_type', 'calendar').single();
+          if (error) throw new Error('Calendar authorization unavailable');
+          return data;
+        },
+        loadEvent: async (accountId, eventId, owner) => {
+          const { data, error } = await supabase.from('calendar_events')
+            .select('id,user_id,calendar_account_id,external_event_id,etag')
+            .eq('user_id', owner).eq('calendar_account_id', accountId).eq('external_event_id', eventId).single();
+          if (error) throw new Error('Calendar event unavailable');
+          return data;
+        },
+        decryptAccessToken: async (encrypted) => decryptOAuthToken(encrypted, await loadOAuthTokenEncryptionKey()),
+        updateCache: async (write) => {
+          const fields = write.fields;
+          let update = supabase.from('calendar_events').update({
+            etag: write.etag, title: fields.title, description: fields.description || null, location: fields.location || null,
+            start_time: fields.startTime, end_time: fields.endTime, start_tz: fields.startTz, end_tz: fields.endTz,
+            last_synced_at: new Date().toISOString(),
+          }).eq('id', write.cacheId).eq('user_id', write.ownerUserId)
+            .eq('calendar_account_id', write.calendarAccountId).eq('external_event_id', write.eventId);
+          update = write.expectedCacheEtag === null ? update.is('etag', null) : update.eq('etag', write.expectedCacheEtag);
+          const { data, error } = await update
+            .select('id,user_id,calendar_account_id,external_event_id,etag,title,description,location,start_time,end_time,start_tz,end_tz').single();
+          if (error) throw new Error('Calendar cache outcome unavailable');
+          return data;
+        },
+      });
+    }
     
     // Handle write operations (create, update, delete events)
     if ('action' in requestBody) {

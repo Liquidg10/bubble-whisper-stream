@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { prepareOutboundFixture, readOutboundFixture } from '../helpers/calendar-outbound-fixture';
 
 const CURRENT_ROUTES = [
   { path: '/', heading: 'Mind Manual' },
@@ -6,6 +7,52 @@ const CURRENT_ROUTES = [
   { path: '/kanban', heading: 'Kanban Board' },
   { path: '/matrix', heading: 'Eisenhower Matrix' },
 ] as const;
+
+for (const outcome of ['written', 'lost', 'disabled'] as const) {
+  test(`synthetic reviewed Calendar update: ${outcome}`, async ({ page }, testInfo) => {
+    const fixture = await prepareOutboundFixture(page, outcome);
+    await closeOnboardingIfPresent(page);
+    await page.getByRole('tab', { name: 'Updates', exact: true }).click();
+    expect(fixture.calls).toEqual([]);
+    await page.getByRole('button', { name: 'Refresh linked tasks', exact: true }).click();
+    await expect(page.getByText('Linked tasks in this list: 1', { exact: true })).toBeVisible();
+    expect(fixture.calls).toEqual([]);
+    await page.getByRole('button', { name: 'Review calendar update for linked task 1', exact: true }).click();
+    if (outcome === 'disabled') {
+      await expect(page.getByText('Reviewed Google updates are not enabled on this server. No update was sent.', { exact: true })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Confirm Google Calendar update', exact: true })).toHaveCount(0);
+      expect(fixture.calls).toHaveLength(1);
+    } else {
+      await expect(page.getByRole('cell', { name: 'Title before', exact: true })).toHaveText('Synthetic provider title');
+      await expect(page.getByRole('cell', { name: 'Title after', exact: true })).toHaveText(fixture.bubble.content);
+      await page.setViewportSize({ width: 1280, height: 1200 });
+      await page.getByRole('heading', { name: 'Review all calendar fields', exact: true }).scrollIntoViewIfNeeded();
+      await page.getByRole('button', { name: 'Confirm Google Calendar update', exact: true }).scrollIntoViewIfNeeded();
+      await page.screenshot({ path: testInfo.outputPath(`calendar-outbound-${outcome}-review.png`), fullPage: true });
+      await page.getByRole('button', { name: 'Confirm Google Calendar update', exact: true }).click();
+      if (outcome === 'written') {
+        await expect(page.getByText('Google Calendar update confirmed. Saved task contents remain unchanged. Refresh linked tasks to inspect the current state.', { exact: true })).toBeVisible();
+      } else {
+        await expect(page.getByText('The Google Calendar outcome is unconfirmed and may have changed. This task needs outcome review; do not retry the update.', { exact: true })).toBeVisible();
+        await page.reload();
+        await closeOnboardingIfPresent(page);
+        await page.getByRole('tab', { name: 'Updates', exact: true }).click();
+        await page.getByRole('button', { name: 'Refresh linked tasks', exact: true }).click();
+        await expect(page.getByText('This task needs outcome review. Do not retry the update.', { exact: true })).toBeVisible();
+        await expect(page.getByRole('button', { name: 'Review calendar update for linked task 1', exact: true })).toBeDisabled();
+      }
+      expect(fixture.calls).toHaveLength(2);
+      expect(fixture.calls[1].action).toBe('confirm_reviewed_update');
+      expect(fixture.calls[1].operationId).toBe(fixture.calls[0].operationId);
+    }
+    const saved = await readOutboundFixture(page, fixture.owner, fixture.taskId);
+    expect(saved.row).toEqual(fixture.bubble);
+    expect(saved.envelope).toEqual(fixture.envelope);
+    if (outcome === 'disabled') expect(saved.journal).toBeNull();
+    else expect(saved.journal.receipts[0].outcome).toBe(outcome === 'written' ? 'written' : 'pending');
+    expect(fixture.errors).toEqual([]);
+  });
+}
 
 async function closeOnboardingIfPresent(page: import('@playwright/test').Page) {
   const dialog = page.getByRole('dialog', { name: 'Welcome' });
@@ -610,7 +657,9 @@ test.describe('current UI smoke gate', () => {
     await expect(page.getByRole('heading', { name: 'Calendar Sync Manager', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Full Sync', exact: true })).toBeDisabled();
     await expect(page.getByText('Sign in and wait for the calendar manager to be ready for your account.')).toBeVisible();
-    await expect(page.getByText('Calendar imports update owned local tasks only. Outbound calendar changes require review and are not sent by this manager.')).toBeVisible();
+    await expect(page.getByText('Calendar imports update owned local tasks only. Outbound calendar changes are sent only after explicit review and confirmation in Updates.')).toBeVisible();
+    await page.getByRole('tab', { name: 'Updates', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Refresh linked tasks', exact: true })).toBeDisabled();
     await page.getByRole('heading', { name: 'Calendar Sync Manager', exact: true }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: testInfo.outputPath('calendar-sync-signed-out.png'), fullPage: true });
     expect(errors).toEqual([]);

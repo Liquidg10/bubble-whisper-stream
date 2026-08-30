@@ -5,6 +5,10 @@ Continuation base: `31a79a6ffb308b6e30e737205f5d4837b53d736f`.
 Canonical main: `ed73e9bfba8a8b0116343cdfe40e330ff6a6b7fe`.
 Branch: `codex/scoped-migration-freeze`; [PR #35](https://github.com/Liquidg10/bubble-whisper-stream/pull/35).
 
+The subsequent [reviewed outbound update contract](calendar-reviewed-outbound-contract.md)
+adds a separate default-off manual update flow. It does not change this recovery
+action's mapping-only behavior or activate any Google permission.
+
 ## What the reachable flow does
 
 Calendar → Sync Management → Recovery offers three explicit steps:

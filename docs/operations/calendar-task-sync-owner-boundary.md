@@ -9,6 +9,9 @@ This is the base-tranche receipt. The subsequent
 [reviewed association recovery](calendar-import-recovery-contract.md) adds a
 mapping-only recovery UI and coordination between updated same-origin managers;
 its explicit limits replace the corresponding remaining-work items below.
+The later [outbound review contract](calendar-reviewed-outbound-contract.md) adds
+a separately gated existing-event update flow, without enabling automatic writes.
+Historical unavailability statements below refer to the original sync APIs.
 
 ## Behavior and intentional limits
 
