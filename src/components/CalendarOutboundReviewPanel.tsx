@@ -11,7 +11,7 @@ interface CalendarFields {
   startTz: string | null; endTz: string | null;
 }
 interface ReviewedUpdate {
-  reviewToken: string; taskId: string; calendarAccountId: string; eventId: string;
+  reviewToken: string; taskId: string; calendarAccountId: string; eventId: string; googleCalendarId: string;
   before: CalendarFields; after: CalendarFields;
 }
 interface OutboundView {
@@ -163,9 +163,10 @@ export function CalendarOutboundReviewPanel({ readyOwner }: CalendarOutboundRevi
         || !owns(result, 'taskId') || result.taskId !== entry.taskId
         || !owns(result, 'calendarAccountId') || !identifier(result.calendarAccountId)
         || !owns(result, 'eventId') || !identifier(result.eventId)
+        || !owns(result, 'googleCalendarId') || !identifier(result.googleCalendarId, 1024)
         || !owns(result, 'before') || !owns(result, 'after')) throw new Error('Unconfirmed review');
       const reviewed = { reviewToken: result.reviewToken, taskId: entry.taskId,
-        calendarAccountId: result.calendarAccountId, eventId: result.eventId,
+        calendarAccountId: result.calendarAccountId, eventId: result.eventId, googleCalendarId: result.googleCalendarId,
         before: validateFields(result.before), after: validateFields(result.after) };
       setView(value => ({ ...value, review: reviewed }));
     } catch {
@@ -239,6 +240,7 @@ export function CalendarOutboundReviewPanel({ readyOwner }: CalendarOutboundRevi
         <h4 className="font-medium">Review all calendar fields</h4>
         <div className="space-y-1 text-sm">
           <p className="break-words">Calendar account reference: {visible.review.calendarAccountId}</p>
+          <p className="break-words">Google calendar destination: {visible.review.googleCalendarId}</p>
           <p className="break-words">Google event reference: {visible.review.eventId}</p>
           <p className="break-words">Saved task reference: {visible.review.taskId}</p>
         </div>

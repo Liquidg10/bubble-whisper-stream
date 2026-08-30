@@ -19,7 +19,7 @@ const fields = () => ({ title: 'Calendar planning', description: 'An existing de
   startTime: '2026-09-01T10:00:00-10:00', endTime: '2026-09-01T11:00:00-10:00', startTz: 'Pacific/Honolulu', endTz: null as string | null });
 const list = () => ({ success: true, items: [{ ...TASK }], message: 'Linked tasks loaded.' });
 const review = () => ({ status: 'reviewable', message: 'An owned event update is available.', taskId: TASK.taskId,
-  calendarAccountId: ACCOUNT, eventId: EVENT,
+  calendarAccountId: ACCOUNT, eventId: EVENT, googleCalendarId: 'synthetic@example.test',
   reviewToken: 'single-use-review-token', before: fields(), after: { ...fields(), title: 'Updated planning', description: 'Updated description', location: 'Updated location' } });
 const confirmed = () => ({ status: 'written', taskId: TASK.taskId, message: 'Provider and local confirmation completed.' });
 function deferred() {
@@ -84,6 +84,7 @@ describe('CalendarOutboundReviewPanel explicit owner-bound calendar updates', ()
     await waitFor(() => expect(confirmButton()).toBeEnabled());
     expect(mock.inspect).toHaveBeenCalledExactlyOnceWith(TASK.taskId);
     expect(screen.getByText(`Calendar account reference: ${ACCOUNT}`)).toBeInTheDocument();
+    expect(screen.getByText('Google calendar destination: synthetic@example.test')).toBeInTheDocument();
     expect(screen.getByText(`Google event reference: ${EVENT}`)).toBeInTheDocument();
     expect(screen.getByText(`Saved task reference: ${TASK.taskId}`)).toBeInTheDocument();
     expect(screen.getByLabelText('Title before').textContent).toBe('Calendar planning');

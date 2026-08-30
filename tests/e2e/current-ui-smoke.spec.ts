@@ -8,7 +8,7 @@ const CURRENT_ROUTES = [
   { path: '/matrix', heading: 'Eisenhower Matrix' },
 ] as const;
 
-for (const outcome of ['written', 'lost', 'disabled'] as const) {
+for (const outcome of ['written', 'lost', 'disabled', 'recover'] as const) {
   test(`synthetic reviewed Calendar update: ${outcome}`, async ({ page }, testInfo) => {
     const fixture = await prepareOutboundFixture(page, outcome);
     await closeOnboardingIfPresent(page);
@@ -25,6 +25,7 @@ for (const outcome of ['written', 'lost', 'disabled'] as const) {
     } else {
       await expect(page.getByRole('cell', { name: 'Title before', exact: true })).toHaveText('Synthetic provider title');
       await expect(page.getByRole('cell', { name: 'Title after', exact: true })).toHaveText(fixture.bubble.content);
+      await expect(page.getByText('Google calendar destination: synthetic@example.test', { exact: true })).toBeVisible();
       await page.setViewportSize({ width: 1280, height: 1200 });
       await page.getByRole('heading', { name: 'Review all calendar fields', exact: true }).scrollIntoViewIfNeeded();
       await page.getByRole('button', { name: 'Confirm Google Calendar update', exact: true }).scrollIntoViewIfNeeded();
@@ -44,6 +45,8 @@ for (const outcome of ['written', 'lost', 'disabled'] as const) {
       expect(fixture.calls).toHaveLength(2);
       expect(fixture.calls[1].action).toBe('confirm_reviewed_update');
       expect(fixture.calls[1].operationId).toBe(fixture.calls[0].operationId);
+      expect(fixture.calls[0].version).toBe(2);
+      expect(fixture.calls[1].version).toBe(2);
     }
     const saved = await readOutboundFixture(page, fixture.owner, fixture.taskId);
     expect(saved.row).toEqual(fixture.bubble);
@@ -65,11 +68,73 @@ for (const outcome of ['written', 'lost', 'disabled'] as const) {
       expect(fixture.calls[2]).toEqual({ version: 1, action: 'inspect_reviewed_outcome', operationId: saved.journal.receipts[0].operationId,
         calendarAccountId: saved.journal.receipts[0].calendarAccountId, eventId: saved.journal.receipts[0].eventId });
       expect(await readOutboundFixture(page, fixture.owner, fixture.taskId)).toEqual(saved);
-      await page.screenshot({ path: testInfo.outputPath('calendar-legacy-outcome-held.png'), fullPage: true });
+      await page.getByRole('button', { name: 'Review saved server receipt for hold 1', exact: true }).click();
+      await expect(page.getByText(/No exact completed server receipt was verified/)).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Save verified completion', exact: true })).toHaveCount(0);
+      expect(fixture.calls).toHaveLength(4);
+      expect(fixture.calls[3].action).toBe('read_reviewed_update_receipt');
+      expect(await readOutboundFixture(page, fixture.owner, fixture.taskId)).toEqual(saved);
+      await page.screenshot({ path: testInfo.outputPath('calendar-unknown-outcome-held.png'), fullPage: true });
+    }
+    if (outcome === 'recover') {
+      const pending = saved.journal.receipts[0];
+      expect(pending.intent).toMatchObject({ version: 2, googleCalendarId: 'synthetic@example.test', expectedEtag: '"old"' });
+      await page.getByRole('tab', { name: 'Outcomes', exact: true }).click();
+      await page.getByRole('button', { name: 'Refresh saved update holds', exact: true }).click();
+      await expect(page.getByText('Saved holds in this browser journal: 1', { exact: true })).toBeVisible();
+      expect(fixture.calls).toHaveLength(2);
+      await page.getByRole('button', { name: 'Review saved server receipt for hold 1', exact: true }).click();
+      await expect(page.getByRole('heading', { name: 'Review the saved server completion', exact: true })).toBeVisible();
+      expect(fixture.calls).toHaveLength(3);
+      expect(await readOutboundFixture(page, fixture.owner, fixture.taskId)).toEqual(saved);
+      await page.getByRole('button', { name: 'Save verified completion', exact: true }).scrollIntoViewIfNeeded();
+      await page.screenshot({ path: testInfo.outputPath('calendar-recorded-completion-review.png'), fullPage: true });
+      await page.getByRole('button', { name: 'Save verified completion', exact: true }).click();
+      await expect(page.getByText('Saved holds in this browser journal: 0', { exact: true })).toBeVisible();
+      await expect(page.getByText(/Verified server completion saved in this browser/)).toBeVisible();
+      expect(fixture.calls).toHaveLength(4);
+      const lookup = { version: 2, action: 'read_reviewed_update_receipt', operationId: pending.operationId,
+        taskId: pending.taskId, calendarAccountId: pending.calendarAccountId, eventId: pending.eventId,
+        googleCalendarId: pending.intent.googleCalendarId, expectedEtag: pending.intent.expectedEtag,
+        requestDigest: pending.intent.requestDigest, afterDigest: pending.intent.afterDigest };
+      expect(fixture.calls.slice(2)).toEqual([lookup, lookup]);
+      const completed = await readOutboundFixture(page, fixture.owner, fixture.taskId);
+      expect(completed.row).toEqual(fixture.bubble); expect(completed.envelope).toEqual(fixture.envelope);
+      expect(completed.journal.receipts).toEqual([{ ...pending, outcome: 'written', etag: '"new"', completedAt: expect.any(Number) }]);
+      await page.reload(); await closeOnboardingIfPresent(page);
+      await page.getByRole('tab', { name: 'Outcomes', exact: true }).click();
+      await page.getByRole('button', { name: 'Refresh saved update holds', exact: true }).click();
+      await expect(page.getByText('Saved holds in this browser journal: 0', { exact: true })).toBeVisible();
+      expect(fixture.calls).toHaveLength(4);
     }
     expect(fixture.errors).toEqual([]);
   });
 }
+
+test('synthetic legacy Calendar hold stays immutable and has no recorded recovery action', async ({ page }, testInfo) => {
+  const fixture = await prepareOutboundFixture(page, 'lost');
+  const legacy = { operationId: '55555555-5555-4555-8555-555555555555', taskId: 'missing-legacy-task',
+    calendarAccountId: fixture.envelope.mappings[0].calendarAccountId, eventId: fixture.envelope.mappings[0].eventId,
+    createdAt: 1000, outcome: 'pending' };
+  await page.evaluate(({ owner, legacy }) => {
+    localStorage.setItem(`calendar-task-outbound:v1:${owner}`, JSON.stringify({ version: 1, ownerUserId: owner, receipts: [legacy] }));
+  }, { owner: fixture.owner, legacy });
+  await closeOnboardingIfPresent(page);
+  await page.getByRole('tab', { name: 'Outcomes', exact: true }).click();
+  await page.getByRole('button', { name: 'Refresh saved update holds', exact: true }).click();
+  await expect(page.getByText('Saved holds in this browser journal: 1', { exact: true })).toBeVisible();
+  await expect(page.getByText(/Legacy hold: no operation-bound intent/)).toBeVisible();
+  await expect(page.getByRole('button', { name: /Review saved server receipt|Save verified completion/ })).toHaveCount(0);
+  const saved = await readOutboundFixture(page, fixture.owner, fixture.taskId);
+  expect(fixture.calls).toHaveLength(0);
+  await page.getByRole('button', { name: 'Inspect current Google event for saved hold 1', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Current Google event — observation only', exact: true })).toBeVisible();
+  expect(fixture.calls).toHaveLength(1); expect(fixture.calls[0].action).toBe('inspect_reviewed_outcome');
+  expect(await readOutboundFixture(page, fixture.owner, fixture.taskId)).toEqual(saved);
+  expect(saved.journal.receipts).toEqual([legacy]);
+  await page.screenshot({ path: testInfo.outputPath('calendar-legacy-outcome-held.png'), fullPage: true });
+  expect(fixture.errors).toEqual([]);
+});
 
 async function closeOnboardingIfPresent(page: import('@playwright/test').Page) {
   const dialog = page.getByRole('dialog', { name: 'Welcome' });

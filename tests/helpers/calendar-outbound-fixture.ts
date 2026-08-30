@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 
 /** Real local app/storage; only synthetic auth and function responses. */
-export async function prepareOutboundFixture(page: Page, outcome: 'written' | 'lost' | 'disabled') {
+export async function prepareOutboundFixture(page: Page, outcome: 'written' | 'lost' | 'disabled' | 'recover') {
   const owner = '11111111-1111-4111-8111-111111111111';
   const account = '33333333-3333-4333-8333-333333333333';
   const eventId = 'synthetic-outbound-event';
@@ -21,6 +21,7 @@ export async function prepareOutboundFixture(page: Page, outcome: 'written' | 'l
   const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
   const token = `${encode({ alg: 'HS256', typ: 'JWT' })}.${encode({ sub: owner, role: 'authenticated', exp: expiry })}.synthetic-invalid-signature`;
   const calls: Record<string, unknown>[] = [];
+  let recorded: Record<string, unknown> | null = null;
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.route('**/*', async route => {
@@ -31,19 +32,27 @@ export async function prepareOutboundFixture(page: Page, outcome: 'written' | 'l
     if (url.pathname === '/auth/v1/user' && request.method() === 'GET') return route.fulfill({ json: user });
     if (url.pathname === '/functions/v1/calendar-sync' && request.method() === 'POST') {
       const body = request.postDataJSON(); calls.push(body);
-      const base = { version: 1, operationId: body.operationId, calendarAccountId: account, eventId };
-      if (body.action === 'prepare_reviewed_update') return route.fulfill({ json: outcome === 'disabled'
-        ? { ...base, outcome: 'not_written', code: 'disabled' }
-        : { ...base, outcome: 'ready', expectedEtag: '"old"', before: fields } });
-      if (body.action === 'confirm_reviewed_update') {
-        if (outcome === 'lost') return route.abort();
-        return route.fulfill({ json: { ...base, outcome: 'written', etag: '"new"', fields: body.after, cacheUpdated: true } });
+      const base = { version: 2, operationId: body.operationId, taskId, calendarAccountId: account, eventId };
+      if (body.version === 2 && body.action === 'prepare_reviewed_update') return route.fulfill({ json: outcome === 'disabled'
+        ? { ...base, outcome: 'unavailable', code: 'disabled' }
+        : { ...base, outcome: 'ready', googleCalendarId: 'synthetic@example.test', expectedEtag: '"old"', before: fields } });
+      if (body.version === 2 && body.action === 'confirm_reviewed_update') {
+        recorded = { ...base, googleCalendarId: body.googleCalendarId, expectedEtag: body.expectedEtag,
+          requestDigest: body.requestDigest, afterDigest: body.afterDigest, outcome: 'recorded', completedAt: Date.now(),
+          result: { outcome: 'written', etag: '"new"', cacheUpdated: true } };
+        if (outcome === 'lost' || outcome === 'recover') return route.abort();
+        return route.fulfill({ json: recorded });
       }
-      if (body.action === 'inspect_reviewed_outcome') {
+      if (body.version === 2 && body.action === 'read_reviewed_update_receipt') {
+        return route.fulfill({ json: outcome === 'recover' && recorded ? recorded
+          : { ...base, googleCalendarId: body.googleCalendarId, expectedEtag: body.expectedEtag,
+            requestDigest: body.requestDigest, afterDigest: body.afterDigest, outcome: 'held', code: 'outcome_unknown' } });
+      }
+      if (body.version === 1 && body.action === 'inspect_reviewed_outcome') {
         // Deliberately match the reviewed outgoing fields: observing a match
         // still must not resolve or replay the earlier lost outcome.
         const submitted = calls.find(call => call.action === 'confirm_reviewed_update');
-        return route.fulfill({ json: { ...base, outcome: 'observed', observationOnly: true,
+        return route.fulfill({ json: { version: 1, operationId: body.operationId, calendarAccountId: account, eventId, outcome: 'observed', observationOnly: true,
           etag: '"observed"', fields: submitted?.after ?? fields, observedAt: Date.now() } });
       }
     }
