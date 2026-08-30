@@ -1,7 +1,9 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.56.0";
-import { handleReviewedCalendarUpdate, type ReviewedCalendarUpdateDependencies } from './reviewedCalendarUpdate.ts';
+import { type ReviewedCalendarUpdateDependencies } from './reviewedCalendarUpdate.ts';
 import { handleCalendarOutcomeInspection } from './inspectCalendarOutcome.ts';
+import { handleCalendarOperationReceiptRead, handleCalendarOperationUpdate } from './calendarOperationReceipt.ts';
+import { createCalendarOperationRegistry } from './calendarOperationRegistry.ts';
 import {
   decryptOAuthToken,
   encryptOAuthToken,
@@ -454,10 +456,28 @@ const handler = async (req: Request): Promise<Response> => {
 
     const requestBody = await req.json();
 
-    if (requestBody?.action === 'prepare_reviewed_update' || requestBody?.action === 'confirm_reviewed_update' || requestBody?.action === 'inspect_reviewed_outcome') {
+    if (requestBody?.action === 'prepare_reviewed_update' || requestBody?.action === 'confirm_reviewed_update' || requestBody?.action === 'inspect_reviewed_outcome' || requestBody?.action === 'read_reviewed_update_receipt') {
       if (req.method !== 'POST') return new Response(JSON.stringify({ error: 'invalid_request' }), {
         status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
       });
+      // Old clients must not bypass durable admission or create new v1 holds
+      // after a preview. This neutral rejection is never a no-write receipt.
+      if ((requestBody.action === 'prepare_reviewed_update' || requestBody.action === 'confirm_reviewed_update') && requestBody.version !== 2) {
+        return new Response(JSON.stringify({ error: 'unsupported_reviewed_update_version' }), {
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+        });
+      }
+      const operationRegistry = createCalendarOperationRegistry(async (name, args) => {
+        const { data, error } = await supabase.rpc(name, args);
+        return { data, error };
+      });
+      if (requestBody.action === 'read_reviewed_update_receipt') {
+        // No activation flag, account/token lookup, cache mutation or provider
+        // port is given to recovery. Disconnection cannot erase saved evidence.
+        return await handleCalendarOperationReceiptRead(requestBody, {
+          callerUserId, isInternalCaller, readOperation: operationRegistry.readOperation,
+        });
+      }
       // This independent path cannot fall through to legacy create/delete or
       // refresh-token behavior. It remains OFF until separately activated.
       const reviewedDependencies: ReviewedCalendarUpdateDependencies = {
@@ -501,7 +521,7 @@ const handler = async (req: Request): Promise<Response> => {
       };
       return requestBody.action === 'inspect_reviewed_outcome'
         ? await handleCalendarOutcomeInspection(requestBody, reviewedDependencies)
-        : await handleReviewedCalendarUpdate(requestBody, reviewedDependencies);
+        : await handleCalendarOperationUpdate(requestBody, { ...reviewedDependencies, ...operationRegistry });
     }
     
     // Handle write operations (create, update, delete events)
