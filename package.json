@@ -15,6 +15,7 @@
     "test:unit:ci": "vitest run src/services src/security/__tests__ src/components/__tests__/TaskCard.test.tsx src/components/__tests__/VoiceIntentCapture.accessibility.test.tsx src/integrations/supabase/__tests__/config.test.ts src/integrations/supabase/__tests__/client.routeDetection.test.ts src/plugins/__tests__/CalendarIntegrationPlugin.oauth.test.tsx src/pages/__tests__/AuthCallback.calendarOAuth.test.tsx src/pages/__tests__/Settings.integrationsRoute.test.tsx --pool=forks --maxWorkers=1 --no-file-parallelism --silent=passed-only",
     "test:vitest:ci": "vitest run --pool=forks --maxWorkers=1 --no-file-parallelism --silent=passed-only",
     "calendar-watch:rotate": "node scripts/rotate-calendar-watch-channels.mjs",
+    "test:isolation:schedulers": "vitest run src/services/__tests__/proactiveTokenRefresh.lifecycle.test.ts src/services/__tests__/oauthService.backgroundLifecycle.test.ts src/services/__tests__/watchRenewalService.lifecycle.test.ts src/services/__tests__/watchHealthProductionService.lifecycle.test.ts src/services/__tests__/watchRenewal.integrationLifecycle.test.ts --pool=forks --maxWorkers=1 --no-file-parallelism",
     "supabase-oauth:reset": "node scripts/reset-isolated-supabase-oauth-credentials.mjs",
     "test:isolation:sync-deferred": "node --test scripts/__tests__/sync-deferred-boundary-receipt.test.mjs && vitest run src/services/__tests__/crossDeviceSyncService.deferred.test.ts --pool=forks --maxWorkers=1 --no-file-parallelism",
     "preview": "vite preview",

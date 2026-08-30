@@ -296,7 +296,35 @@ export function readPendingGoogleOAuth(
   }
 }
 
-class OAuthService {
+interface OAuthBackgroundServices {
+  proactiveTokenRefreshService: typeof import('./proactiveTokenRefresh')['proactiveTokenRefreshService'];
+  watchRenewalService: typeof import('./watchRenewalService')['watchRenewalService'];
+}
+
+export class OAuthService {
+  private backgroundGeneration = 0;
+  private backgroundRunning = false;
+  private backgroundStart?: Promise<void>;
+  private backgroundLoad?: Promise<OAuthBackgroundServices>;
+  private backgroundServices?: OAuthBackgroundServices;
+
+  private loadBackgroundServices(): Promise<OAuthBackgroundServices> {
+    if (!this.backgroundLoad) {
+      this.backgroundLoad = Promise.all([
+        import('./proactiveTokenRefresh'), import('./watchRenewalService'),
+      ]).then(([refresh, watches]) => {
+        this.backgroundServices = {
+          proactiveTokenRefreshService: refresh.proactiveTokenRefreshService,
+          watchRenewalService: watches.watchRenewalService,
+        };
+        return this.backgroundServices;
+      }).catch((error) => {
+        this.backgroundLoad = undefined;
+        throw error;
+      });
+    }
+    return this.backgroundLoad;
+  }
   private async requireAuthenticatedSession(): Promise<AuthenticatedSession> {
     const { data, error } = await supabase.auth.getSession();
     const session = data.session;
@@ -891,18 +919,30 @@ class OAuthService {
   /**
    * Start automated background services
    */
-  async startBackgroundServices(): Promise<void> {
-    console.log('Starting OAuth background services...');
-    
-    // Import and start services dynamically to avoid circular dependencies
+  startBackgroundServices(): Promise<void> {
+    if (this.backgroundRunning) return this.backgroundStart ?? Promise.resolve();
+    this.backgroundRunning = true;
+    const generation = ++this.backgroundGeneration;
+    const start = this.startBackgroundGeneration(generation).finally(() => {
+      if (this.backgroundStart === start) this.backgroundStart = undefined;
+    });
+    this.backgroundStart = start;
+    return start;
+  }
+
+  private async startBackgroundGeneration(generation: number): Promise<void> {
     try {
-      const { proactiveTokenRefreshService } = await import('./proactiveTokenRefresh');
-      const { watchRenewalService } = await import('./watchRenewalService');
-      
+      const { proactiveTokenRefreshService, watchRenewalService } = await this.loadBackgroundServices();
+      if (!this.backgroundRunning || generation !== this.backgroundGeneration) return;
       proactiveTokenRefreshService.startProactiveRefresh();
       await watchRenewalService.startWatchRenewal();
-    } catch (error) {
-      console.error('Failed to start background services:', error);
+    } catch {
+      if (generation === this.backgroundGeneration) {
+        this.backgroundRunning = false;
+        this.backgroundServices?.proactiveTokenRefreshService.stopProactiveRefresh();
+        this.backgroundServices?.watchRenewalService.stopWatchRenewal();
+        console.error('Failed to start OAuth background services');
+      }
     }
   }
 
@@ -910,16 +950,22 @@ class OAuthService {
    * Stop automated background services
    */
   async stopBackgroundServices(): Promise<void> {
-    console.log('Stopping OAuth background services...');
-    
+    this.backgroundRunning = false;
+    const generation = ++this.backgroundGeneration;
+    // Stop cached services synchronously, before another start or auth change
+    // can race the dynamic imports. Never let an older stop cancel a restart.
+    if (this.backgroundServices) {
+      this.backgroundServices.proactiveTokenRefreshService.stopProactiveRefresh();
+      this.backgroundServices.watchRenewalService.stopWatchRenewal();
+      return;
+    }
     try {
-      const { proactiveTokenRefreshService } = await import('./proactiveTokenRefresh');
-      const { watchRenewalService } = await import('./watchRenewalService');
-      
+      const { proactiveTokenRefreshService, watchRenewalService } = await this.loadBackgroundServices();
+      if (this.backgroundRunning || generation !== this.backgroundGeneration) return;
       proactiveTokenRefreshService.stopProactiveRefresh();
       watchRenewalService.stopWatchRenewal();
-    } catch (error) {
-      console.error('Failed to stop background services:', error);
+    } catch {
+      console.error('Unable to load OAuth background services during shutdown');
     }
   }
 }
