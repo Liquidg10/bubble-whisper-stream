@@ -44,7 +44,8 @@ export default function Calendar() {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [conflicts, setConflicts] = useState<any[]>([]);
   
-  const { addTask } = useTaskStore();
+  const { addTask, tasks } = useTaskStore();
+  const localScheduledTasks = tasks.filter(task => task.view?.calendar?.startTime || task.due).length;
   const { toast } = useToast();
   
   // Mobile performance integration
@@ -165,7 +166,7 @@ export default function Calendar() {
             Calendar
           </h1>
           <p className="text-muted-foreground">
-            Unified calendar view with task integration and auto-write capabilities
+            Local tasks, calendar imports, and changes that require review
           </p>
         </div>
         
@@ -261,24 +262,20 @@ export default function Calendar() {
           {/* Quick Stats */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm">Quick Stats</CardTitle>
+              <CardTitle className="text-sm">Local Calendar Status</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">Calendar Events</span>
-                <Badge variant="outline">12</Badge>
+                <span className="text-xs text-muted-foreground">Local scheduled tasks</span>
+                <Badge variant="outline">{localScheduledTasks}</Badge>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">Auto-written</span>
-                <Badge variant="secondary">3</Badge>
+                <span className="text-xs text-muted-foreground">Google writes</span>
+                <Badge variant="secondary">Not verified</Badge>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">AI Suggestions</span>
-                <Badge variant="default">2</Badge>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">Sync Conflicts</span>
-                <Badge variant="destructive">1</Badge>
+                <span className="text-xs text-muted-foreground">Local sync conflicts</span>
+                <Badge variant={conflicts.length ? 'destructive' : 'outline'}>{conflicts.length}</Badge>
               </div>
             </CardContent>
           </Card>

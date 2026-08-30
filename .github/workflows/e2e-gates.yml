@@ -35,6 +35,9 @@ jobs:
         env:
           CI: true
 
+      - name: Verify real browser local save commits and aborts
+        run: npm run test:storage-browser
+
       - name: Upload smoke evidence
         uses: actions/upload-artifact@v7
         if: always()
