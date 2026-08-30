@@ -4,6 +4,10 @@ Base: `e3a6eaf15098e1e64cafaec96541f09ad0cf9403`.
 Branch: `codex/calendar-outcome-inventory`.
 Status: source implementation only; no deployment, activation or provider canary.
 
+This source-branch receipt is integrated into the standalone release without the
+draft migration wrapper. For the exact extracted main-based release counts and
+deployment boundaries, see `calendar-reviewed-update-release-receipt.md`.
+
 ## Reachable behavior
 
 Calendar → Sync Management → Outcomes has two explicit actions:
