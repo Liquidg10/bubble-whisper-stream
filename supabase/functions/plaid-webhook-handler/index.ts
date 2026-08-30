@@ -1,3 +1,5 @@
+import { wrapMindManualHandler } from "../_shared/migrationWriteFence.ts";
+import { dispatchAndDrain } from "./dispatch.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.56.0';
 
@@ -85,8 +87,8 @@ const handler = async (req: Request): Promise<Response> => {
           // Trigger background sync for new/updated transactions
           console.log(`New transactions available for item ${item_id}: ${new_transactions} new, ${removed_transactions} removed`);
           
-          // Call plaid-get-transactions function asynchronously
-          fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/plaid-get-transactions`, {
+          // Await the child request and its body before releasing our lease.
+          await dispatchAndDrain(`${Deno.env.get('SUPABASE_URL')}/functions/v1/plaid-get-transactions`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -97,8 +99,6 @@ const handler = async (req: Request): Promise<Response> => {
               // Sync last 7 days to catch any updates
               start_date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
             })
-          }).catch(error => {
-            console.error('Failed to trigger transaction sync:', error);
           });
         }
         break;
@@ -128,8 +128,8 @@ const handler = async (req: Request): Promise<Response> => {
           // Account information has been updated
           console.log(`Account update available for item ${item_id}`);
           
-          // Call plaid-get-accounts function asynchronously
-          fetch(`${Deno.env.get('SUPABASE_URL')}/functions/v1/plaid-get-accounts`, {
+          // A draining child returns a failure, not a false processed receipt.
+          await dispatchAndDrain(`${Deno.env.get('SUPABASE_URL')}/functions/v1/plaid-get-accounts`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -138,8 +138,6 @@ const handler = async (req: Request): Promise<Response> => {
             body: JSON.stringify({
               item_id: item_id
             })
-          }).catch(error => {
-            console.error('Failed to trigger account sync:', error);
           });
         }
         break;
@@ -185,4 +183,4 @@ const handler = async (req: Request): Promise<Response> => {
   }
 };
 
-serve(handler);
+serve(wrapMindManualHandler("plaid-webhook-handler", handler));

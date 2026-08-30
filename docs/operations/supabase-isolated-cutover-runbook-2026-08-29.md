@@ -1,7 +1,10 @@
 # Mind Manual isolated Supabase cutover runbook
 
-Status: tooling complete; source remains authoritative; no target has been
-provisioned and no data has been copied by this work.
+Status: migration activation is blocked. Source remains authoritative. A ready
+preflight is not proof of a write freeze. The new [scoped fence implementation](source-write-fence-implementation.md)
+is local-only and must not be deployed, activated, or treated as a migration
+receipt until its documented blockers are resolved. Provisioning/data-copy state
+belongs in fresh private operator receipts, not this versioned recipe.
 
 This is the fail-closed path for extracting Mind Manual from the shared
 `Marks Mental Manual` Supabase project. It copies only the reviewed Mind Manual
@@ -308,6 +311,14 @@ Deploy all functions with the JWT modes in the manifest. Do not start schedulers
 or move provider callbacks yet.
 
 ### 6. Freeze and package identity/data
+
+**STOP:** current exporter/preflight Auth scope is all source users. The scoped
+fence does not make this an owner-subject export. Do not create an Auth-decision
+receipt, assert a freeze, or run this section using local guard test results.
+Run `npm run supabase-freeze:readiness`: exit 2 is the expected blocked state,
+not a test failure to override. Complete the subject-scoped exporter, storage
+ingress, exact guard catalog parity, runtime/scheduler drain and live denial
+evidence described in the fence implementation document first.
 
 Enter the short write freeze, prepare the owner Auth decision from the ready
 source receipt, and run the exporter. The output directory must not exist and

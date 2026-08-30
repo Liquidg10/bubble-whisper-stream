@@ -1,3 +1,4 @@
+import { wrapMindManualHandler } from "../_shared/migrationWriteFence.ts";
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
@@ -14,7 +15,7 @@ function stripPII(text: string): string {
     .replace(/\b[A-Z][a-z]+ [A-Z][a-z]+\b/g, '[NAME]');
 }
 
-serve(async (req) => {
+serve(wrapMindManualHandler("ai-embeddings", async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -129,7 +130,7 @@ serve(async (req) => {
       status: 200,
     });
   }
-});
+}));
 
 function cosineSimilarity(a: number[], b: number[]): number {
   const dotProduct = a.reduce((sum, val, i) => sum + val * b[i], 0);

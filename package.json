@@ -16,6 +16,8 @@
     "test:vitest:ci": "vitest run --pool=forks --maxWorkers=1 --no-file-parallelism --silent=passed-only",
     "calendar-watch:rotate": "node scripts/rotate-calendar-watch-channels.mjs",
     "supabase-oauth:reset": "node scripts/reset-isolated-supabase-oauth-credentials.mjs",
+    "supabase-freeze:readiness": "node scripts/check-source-write-fence-readiness.mjs",
+    "test:isolation:freeze": "node --test scripts/__tests__/source-write-fence.integration.test.mjs && vitest run src/security/__tests__/migrationWriteFence.test.ts src/security/__tests__/migrationFenceEntrypoints.test.ts --pool=forks --maxWorkers=1 --no-file-parallelism",
     "test:isolation:sync-deferred": "node --test scripts/__tests__/sync-deferred-boundary-receipt.test.mjs && vitest run src/services/__tests__/crossDeviceSyncService.deferred.test.ts --pool=forks --maxWorkers=1 --no-file-parallelism",
     "preview": "vite preview",
     "test:a11y": "playwright test tests/a11y/",

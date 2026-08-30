@@ -1,3 +1,4 @@
+import { wrapMindManualHandler } from "../_shared/migrationWriteFence.ts";
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
@@ -36,7 +37,7 @@ function processBase64Chunks(base64String: string, chunkSize = 32768) {
   return result;
 }
 
-serve(async (req) => {
+serve(wrapMindManualHandler("ai-voice-transcribe", async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
@@ -109,4 +110,4 @@ serve(async (req) => {
       }
     );
   }
-});
+}));
