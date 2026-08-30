@@ -1,0 +1,4 @@
+# Optional user-managed configuration names only; absence must remain safe.
+# Presence does not establish the value, activation, or permission to enable it.
+# The reviewed Calendar route defaults OFF and accepts only exact "true".
+CALENDAR_REVIEWED_UPDATES_ENABLED
