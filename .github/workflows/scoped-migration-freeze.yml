@@ -31,6 +31,12 @@ jobs:
         run: npm run test:isolation:freeze
         env:
           MIND_MANUAL_TEST_PG_BIN: /usr/lib/postgresql/16/bin
+      - name: Test subject scope and private migration receipt chain
+        run: npm run test:isolation:subjects
+        env:
+          MIND_MANUAL_TEST_PG_BIN: /usr/lib/postgresql/16/bin
+      - name: Test preserved sync row parity and denied-write evidence
+        run: npm run test:isolation:sync-deferred
       - name: Confirm activation remains blocked
         shell: bash
         run: |

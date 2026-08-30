@@ -3,6 +3,16 @@
   "status": "prepared_not_executed",
   "sourceProjectRef": "ekekeywoxvdbfbmqyhjy",
   "targetProjectRef": "replace-with-created-target-ref",
+  "subjectScope": {
+    "version": 1,
+    "sourceProjectRef": "ekekeywoxvdbfbmqyhjy",
+    "targetProjectRef": "replace-with-created-target-ref",
+    "scopeSha256": "replace-from-owner-approved-subject-scope-binding",
+    "subjectIdsSha256": "replace-from-owner-approved-subject-scope-binding",
+    "subjectCount": 1,
+    "legacyAssignmentsSha256": "replace-from-owner-approved-subject-scope-binding",
+    "rawSubjectIdsIncluded": false
+  },
   "sourcePublicConfigStored": true,
   "sourceSecretValuesRecorded": false,
   "sourceReceiptSha256": "replace-before-cutover",

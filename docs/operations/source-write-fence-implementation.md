@@ -53,6 +53,28 @@ a separate operator decision; there is no automatic timeout cleanup.
 Plaid webhook child dispatches now await and consume their responses before
 the webhook is marked processed, rather than escaping the parent lifetime.
 
+### Subject-scoped migration contract
+
+The preflight/export/storage/rollback tools now require one private
+`--subject-scope` manifest. The importer takes the same scope from the
+hash-verified `subject-scope.json` embedded in its private package. No tool
+chooses users from the live Auth population or infers a legacy file owner from
+there being only one user. See the [cutover runbook](supabase-isolated-cutover-runbook-2026-08-29.md#private-subject-scope-contract)
+for the exact envelope and receipt binding.
+
+Source row/Auth/storage fingerprints describe selected users only; unrelated
+user/sign-up counts remain separate from compared evidence. Target inventories
+still inspect all rows/users and reject unapproved contents. Source durable
+rows with null or unknown owners require disposition. Exact catalog comparison
+is unchanged: there are no trigger/RPC exclusions to bypass the guard rollout
+blocker.
+
+Exports recheck selected Auth/public row counts and content hashes inside the
+same repeatable-read transaction as every binary COPY. They also reject
+selected MFA state that appeared after preflight. Copy command tags are
+explicitly enabled despite the normal quiet database client setting. These
+are local correctness checks, not a source-write-freeze implementation.
+
 ## Rollout dependency: do not deploy this candidate alone
 
 The Edge wrapper is intentionally always enforced: there is no environment
@@ -71,10 +93,11 @@ no execute, force, confirmation or owner-assertion flags and cannot mint a
 freeze or CUTOVER receipt. Resolve all of the following in a later reviewed
 tranche before it can become a live activation verifier:
 
-- **One explicit subject scope throughout migration.** Current source preflight
-  and exporter select all `auth.users`/`auth.identities`; public ownership follows
-  all source users. The scope must bind export, storage copy, import and rollback
-  evidence without including newly signed-up unrelated users.
+- **One approved live subject scope throughout migration.** The scoped code is
+  implemented, but the actual private owner-approved list, legacy ownership
+  assignments, exact live guard membership and fresh linked receipts are still
+  required. A checked-in synthetic example is not an approval. An unrelated
+  signup must not expand selected subjects or invalidate selected-data parity.
 - **Shared-identity/dependency disposition.** Selected Auth rows cannot keep
   changing login metadata while remaining byte-identical for migration. A user
   who also uses commerce needs an explicit disposition. Inventory cross-product
@@ -117,6 +140,7 @@ tranche before it can become a live activation verifier:
 ```sh
 npm ci
 npm run test:isolation:freeze
+npm run test:isolation:subjects
 npm run typecheck
 npm run test:unit:ci
 npm run test:vitest:ci
@@ -132,10 +156,14 @@ unselected users plus unrelated commerce, not source data. The readiness
 command's exit 2 is expected while the activation blockers remain.
 
 `.github/workflows/scoped-migration-freeze.yml` runs the same disposable
-PostgreSQL and Edge lifecycle tests on an isolated CI runner. It uses no
+PostgreSQL, Edge lifecycle, subject-scope and migration-chain tests on an isolated CI runner. It uses no
 Supabase/provider credentials and never installs the guard on a live database.
 
 ## Implementation verification receipt — 2026-08-29
+
+The counts below are the initial fence-foundation receipt, not a claimed result
+for the later subject-scope suite. Re-run `test:isolation:subjects` and the full
+release gates after integration; keep their fresh results separately.
 
 Base: `ed73e9bfba8a8b0116343cdfe40e330ff6a6b7fe`.
 Branch: `codex/scoped-migration-freeze`.
@@ -157,3 +185,32 @@ Branch: `codex/scoped-migration-freeze`.
 These are local implementation results. Hosted CI, live GoTrue/Storage/provider
 canaries, source installation and activation are separate receipts. No production
 mutation, export, import, freeze assertion or CUTOVER occurred.
+
+## Subject-scope follow-up verification — 2026-08-29
+
+Continuation base: `ef59e776cc19e18017b7f034c026b82dea4f2d1c` on the same
+`codex/scoped-migration-freeze` draft. Canonical base remains
+`ed73e9bfba8a8b0116343cdfe40e330ff6a6b7fe`.
+
+- All Node migration tests: **137/137 passed, zero skipped**. This includes
+  118 subject/package/export/storage/import/reset/quarantine/rollback tests,
+  the existing 16 database-fence tests and 3 deferred-sync receipt tests.
+- Real disposable PostgreSQL exercises actual binary COPY, every allowlisted
+  table, wrong-owner data, same-count content substitutions, late writers,
+  pre-commit rollback, and matching forged digests that still violate scope.
+- Offline storage transport verifies selected-only byte operations, explicit
+  legacy remapping, unchanged outside-user churn, exact target Auth/buckets,
+  no overwrite or redirects, and late-target-state rejection.
+- Focused Edge fence tests: **49/49 passed**. Full application Vitest:
+  **941 passed, 52 skipped**. Actual app TypeScript and production build passed;
+  inherited build warnings remain. ESLint/cohesion ratchets passed with no
+  additional debt; those ratchets do not claim a debt-free repository.
+- OAuth reset, storage and sync-boundary self-tests passed. Independent review
+  found and closed the quiet-COPY receipt defect, stale-file/hash binding,
+  missing-storage pre-import exception and target-wide bucket inventory gap.
+- Readiness still returns **BLOCKED / exit 2** with nine activation gates.
+
+No live user identifiers or storage paths were selected, no provider APIs or
+production databases were contacted, and no actual freeze/export/import/reset,
+deployment or runtime cutover occurred. GitHub draft review/CI is a separate
+verification surface, not authorization to activate the fence.

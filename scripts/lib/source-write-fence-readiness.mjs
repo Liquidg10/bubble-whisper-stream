@@ -6,7 +6,7 @@ import ts from 'typescript';
 // These are missing implementation/evidence gates, not operator checkboxes.
 // Do not add --force/--confirmed or turn a local test into an activation token.
 export const ACTIVATION_BLOCKERS = Object.freeze([
-  ['subject_scope', 'Export, source preflight, storage copy and rollback receipts still need one explicit owner-approved subject scope; current Auth export selects all users.'],
+  ['subject_scope', 'Subject-scoped export, preflight, storage and receipt binding are locally implemented, but require the actual owner-approved private subject list, reviewed legacy assignments, exact live guard membership and fresh scoped receipts. Synthetic tests do not approve any live subject.'],
   ['shared_identity', 'Selected identities and cross-product FK/trigger dependencies need an explicit disposition; fencing an Auth user also blocks that user\'s login metadata updates and can abort a commerce transaction that cascades into a selected row.'],
   ['storage_ingress', 'Direct browser, signed/resumable/S3 and privileged storage writers must be stopped and drained at the byte ingress boundary. A database trigger is not proof.'],
   ['runtime_generation', 'Verify the 33 endpoints are exclusive to Mind Manual, every deployed version, and retirement of pre-instrumentation requests/WebSockets; zero new leases does not prove old workers retired.'],

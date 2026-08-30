@@ -2,6 +2,15 @@
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import {
+  assertScopeBinding,
+  validateSubjectScopeBinding,
+} from "./lib/migration-subject-scope.mjs";
+import {
+  guardTargetMutationSql,
+  targetSubjectScopeGuardSql,
+} from "./reset-isolated-supabase-oauth-credentials.mjs";
 import {
   assertAbsolutePath,
   assertPrivateFile,
@@ -13,16 +22,18 @@ import {
   repoRoot,
   runPsql,
   runPsqlJson,
+  sha256,
   sha256File,
   writePrivateJson,
 } from "./lib/supabase-isolation.mjs";
 
 const SOURCE_PROJECT_REF = "ekekeywoxvdbfbmqyhjy";
 
-function inventorySql() {
+export function inventorySql(subjectScope) {
   return `
-BEGIN READ ONLY;
+BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
 SET ROLE postgres;
+${targetSubjectScopeGuardSql(subjectScope)}
 SELECT json_build_object(
   'calendarAccountsWithProviderState', (
     SELECT count(*) FROM public.calendar_accounts
@@ -50,6 +61,46 @@ COMMIT;
 `;
 }
 
+export function validateQuarantineInputs(
+  importReceipt,
+  oauthResetReceipt,
+  importReceiptSha256,
+  targetRef,
+) {
+  const subjectScope = validateSubjectScopeBinding(importReceipt.subjectScope);
+  assertScopeBinding(
+    oauthResetReceipt.subjectScope,
+    subjectScope,
+    "OAuth-reset subject scope",
+  );
+  if (
+    importReceipt.version !== 1 ||
+    importReceipt.status !== "verified_pending_storage_and_provider_rebind" ||
+    importReceipt.sourceProjectRef !== SOURCE_PROJECT_REF ||
+    importReceipt.targetProjectRef !== targetRef ||
+    importReceipt.sourceMutated !== false ||
+    !/^[a-f0-9]{64}$/u.test(importReceipt.sourceReceiptSha256 ?? "") ||
+    subjectScope.sourceProjectRef !== SOURCE_PROJECT_REF ||
+    subjectScope.targetProjectRef !== targetRef ||
+    oauthResetReceipt.version !== 1 ||
+    oauthResetReceipt.status !==
+      "oauth_credentials_reset_pending_google_reauthorization" ||
+    oauthResetReceipt.sourceProjectRef !== SOURCE_PROJECT_REF ||
+    oauthResetReceipt.targetProjectRef !== targetRef ||
+    oauthResetReceipt.sourceReceiptSha256 !==
+      importReceipt.sourceReceiptSha256 ||
+    oauthResetReceipt.importReceiptSha256 !== importReceiptSha256 ||
+    oauthResetReceipt.secretValuesIncluded !== false ||
+    oauthResetReceipt.rowIdsIncluded !== false ||
+    oauthResetReceipt.sourceMutated !== false
+  ) {
+    throw new Error(
+      "provider quarantine requires one verified scoped target import and OAuth-reset receipt chain",
+    );
+  }
+  return subjectScope;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2), {
     "target-ref": { required: true },
@@ -61,7 +112,6 @@ async function main() {
     overwrite: { type: "boolean" },
   });
   const targetRef = assertProjectRef(args["target-ref"], "target project ref");
-  const targetDatabasePassword = consumeTargetDatabasePassword();
   if (targetRef === SOURCE_PROJECT_REF) {
     throw new Error(
       "refusing to quarantine provider state on the source project",
@@ -72,37 +122,37 @@ async function main() {
     "import receipt",
   );
   assertPrivateFile(importReceiptPath, "import receipt");
-  const importReceipt = JSON.parse(readFileSync(importReceiptPath, "utf8"));
+  const importReceiptBytes = readFileSync(importReceiptPath);
+  let importReceipt;
+  try {
+    importReceipt = JSON.parse(importReceiptBytes.toString("utf8"));
+  } catch {
+    throw new Error("import receipt is not valid JSON");
+  }
   const oauthResetReceiptPath = assertAbsolutePath(
     args["oauth-reset-receipt"],
     "OAuth-reset receipt",
   );
   assertPrivateFile(oauthResetReceiptPath, "OAuth-reset receipt");
-  const oauthResetReceipt = JSON.parse(
-    readFileSync(oauthResetReceiptPath, "utf8"),
-  );
-  const importReceiptSha256 = sha256File(importReceiptPath);
-  const oauthResetReceiptSha256 = sha256File(oauthResetReceiptPath);
-  if (
-    importReceipt.version !== 1 ||
-    importReceipt.status !== "verified_pending_storage_and_provider_rebind" ||
-    importReceipt.sourceProjectRef !== SOURCE_PROJECT_REF ||
-    importReceipt.targetProjectRef !== targetRef ||
-    oauthResetReceipt.version !== 1 ||
-    oauthResetReceipt.status !==
-      "oauth_credentials_reset_pending_google_reauthorization" ||
-    oauthResetReceipt.sourceProjectRef !== SOURCE_PROJECT_REF ||
-    oauthResetReceipt.targetProjectRef !== targetRef ||
-    oauthResetReceipt.importReceiptSha256 !== importReceiptSha256 ||
-    oauthResetReceipt.sourceMutated !== false
-  ) {
-    throw new Error(
-      "provider quarantine requires the verified target import and OAuth-reset receipts",
-    );
+  const oauthResetReceiptBytes = readFileSync(oauthResetReceiptPath);
+  let oauthResetReceipt;
+  try {
+    oauthResetReceipt = JSON.parse(oauthResetReceiptBytes.toString("utf8"));
+  } catch {
+    throw new Error("OAuth-reset receipt is not valid JSON");
   }
+  const importReceiptSha256 = sha256(importReceiptBytes);
+  const oauthResetReceiptSha256 = sha256(oauthResetReceiptBytes);
+  const subjectScope = validateQuarantineInputs(
+    importReceipt,
+    oauthResetReceipt,
+    importReceiptSha256,
+    targetRef,
+  );
+  const targetDatabasePassword = consumeTargetDatabasePassword();
 
   const readOnlyDatabase = getLinkedDatabaseConfig(targetRef);
-  const before = runPsqlJson(readOnlyDatabase, inventorySql());
+  const before = runPsqlJson(readOnlyDatabase, inventorySql(subjectScope));
   const confirmation = `QUARANTINE:${targetRef}:${
     oauthResetReceiptSha256.slice(0, 12)
   }`;
@@ -124,8 +174,9 @@ async function main() {
     repoRoot,
     "supabase/isolation/post-import-provider-quarantine.sql",
   );
-  runPsql(database, readFileSync(sqlPath, "utf8"));
-  const after = runPsqlJson(database, inventorySql());
+  const template = readFileSync(sqlPath, "utf8");
+  runPsql(database, guardTargetMutationSql(template, subjectScope));
+  const after = runPsqlJson(database, inventorySql(subjectScope));
   if (Object.values(after).some((value) => value !== 0)) {
     throw new Error(
       "provider quarantine verification failed; do not deploy callbacks",
@@ -139,9 +190,10 @@ async function main() {
       quarantinedAt: new Date().toISOString(),
       sourceProjectRef: SOURCE_PROJECT_REF,
       targetProjectRef: targetRef,
+      subjectScope,
       importReceiptSha256,
       oauthResetReceiptSha256,
-      quarantineSqlSha256: sha256File(sqlPath),
+      quarantineSqlSha256: sha256(template),
       before,
       after,
       secretValuesIncluded: false,
@@ -154,7 +206,12 @@ async function main() {
   console.log(`receipt sha256: ${sha256File(args.receipt)}`);
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
+) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}

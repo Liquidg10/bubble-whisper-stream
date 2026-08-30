@@ -1,11 +1,20 @@
 #!/usr/bin/env node
 
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { privateSnapshot } from "./lib/import-subject-package.mjs";
+import {
+  assertScopeBinding,
+  classifyStorageObject,
+  loadSubjectScope,
+  scopeSqlPredicate,
+  subjectScopeBinding,
+  validateSubjectScopeBinding,
+} from "./lib/migration-subject-scope.mjs";
 import {
   assertAbsolutePath,
   assertIdentifier,
-  assertPrivateFile,
   assertProjectRef,
   canonicalJson,
   getLinkedDatabaseConfig,
@@ -15,7 +24,7 @@ import {
   readManifestLines,
   readTsvManifest,
   repoRoot,
-  runPsqlJson,
+  runPsqlJson as runPsqlJsonRaw,
   runSupabaseJson,
   sha256,
   sha256File,
@@ -42,10 +51,20 @@ const PLATFORM_MANAGED_SECRETS = new Set([
   "SUPABASE_URL",
 ]);
 
+function runPsqlJson(database, statement) {
+  try {
+    return runPsqlJsonRaw(database, statement);
+  } catch {
+    throw new Error(
+      "read-only isolation inventory failed; raw database output suppressed",
+    );
+  }
+}
+
 function usage() {
   console.log(
     "usage: node scripts/supabase-isolation-preflight.mjs " +
-      "--kind source|target --project-ref <ref> --receipt /absolute/path.json " +
+      "--kind source|target --project-ref <ref> --subject-scope /absolute/private/scope.json --receipt /absolute/path.json " +
       "[--compare-receipt /absolute/source-receipt.json] [--overwrite]",
   );
 }
@@ -272,7 +291,12 @@ function rowDigestExpression(valueExpression, filterExpression = null) {
   return `encode(extensions.digest(convert_to(COALESCE(string_agg(${valueExpression}, E'\\n' ORDER BY ${valueExpression})${filter}, ''), 'UTF8'), 'sha256'), 'hex')`;
 }
 
-function dataInventorySql(scopes, relationMap) {
+export function dataInventorySql(
+  scopes,
+  relationMap,
+  subjectScope,
+  kind = "source",
+) {
   const selects = [];
   for (const scope of scopes) {
     const relation = relationMap.get(scope.relation);
@@ -281,17 +305,26 @@ function dataInventorySql(scopes, relationMap) {
     if (!columns.has(scope.ownerColumn)) continue;
     const relationName = quoteIdentifier(scope.relation);
     const ownerColumn = quoteIdentifier(scope.ownerColumn);
+    const approved = scopeSqlPredicate(
+      subjectScope,
+      `rows.${scope.ownerColumn}`,
+    );
+    const inventoried = kind === "source" ? approved : "true";
+    const owned = `(${ownerColumn} IN (SELECT id FROM auth.users))`;
     const selected = scope.copyMode === "copy"
-      ? `(${ownerColumn} IN (SELECT id FROM auth.users))`
+      ? `(${inventoried} AND ${owned})`
       : "false";
     selects.push(`
       SELECT
         ${quoteLiteral(scope.relation)}::text AS relation,
         ${quoteLiteral(scope.copyMode)}::text AS copy_mode,
-        count(*)::bigint AS total_count,
+        count(*) FILTER (WHERE ${inventoried})::bigint AS total_count,
         count(*) FILTER (WHERE ${selected})::bigint AS copy_count,
-        ${rowDigestExpression("row_json")} AS total_sha256,
-        ${rowDigestExpression("row_json", selected)} AS copy_sha256
+        ${rowDigestExpression("row_json", inventoried)} AS total_sha256,
+        ${rowDigestExpression("row_json", selected)} AS copy_sha256,
+        count(*) FILTER (WHERE NOT ${approved} AND ${owned})::bigint AS excluded_owned_count,
+        count(*) FILTER (WHERE ${ownerColumn} IS NULL OR NOT ${owned})::bigint AS unowned_count,
+        count(*) FILTER (WHERE ${ownerColumn} IS NULL OR NOT ${approved})::bigint AS unapproved_count
       FROM (
         SELECT to_jsonb(source_row)::text AS row_json, source_row.*
         FROM public.${relationName} AS source_row
@@ -308,47 +341,84 @@ SELECT COALESCE(json_agg(json_build_object(
   'totalRowCount', total_count,
   'copyRowCount', copy_count,
   'totalRowsSha256', total_sha256,
-  'copyRowsSha256', copy_sha256
+  'copyRowsSha256', copy_sha256,
+  'excludedOwnedRowCount', excluded_owned_count,
+  'unownedRowCount', unowned_count,
+  'unapprovedRowCount', unapproved_count
 ) ORDER BY relation), '[]'::json)::text
 FROM (${selects.join("\nUNION ALL\n")}) inventory;
 COMMIT;
 `;
 }
 
-function authInventorySql() {
+export function authInventorySql(subjectScope, kind = "source") {
+  const selected = (column) =>
+    kind === "source" ? scopeSqlPredicate(subjectScope, column) : "true";
+  const refreshPredicate = kind === "source"
+    ? `user_id IN (SELECT id::text FROM auth.users WHERE ${selected("id")})`
+    : "true";
   return `
 BEGIN READ ONLY;
 SET ROLE postgres;
 SELECT json_build_object(
-  'userCount', (SELECT count(*) FROM auth.users),
-  'identityCount', (SELECT count(*) FROM auth.identities),
+  'userCount', (SELECT count(*) FROM auth.users WHERE ${selected("id")}),
+  'identityCount', (SELECT count(*) FROM auth.identities WHERE ${
+    selected("user_id")
+  }),
   'subjectIdsSha256', (
     SELECT ${rowDigestExpression("id::text")}
-    FROM auth.users
+    FROM auth.users WHERE ${selected("id")}
   ),
   'usersSha256', (
     SELECT ${rowDigestExpression("to_jsonb(auth_user)::text")}
-    FROM auth.users auth_user
+    FROM auth.users auth_user WHERE ${selected("auth_user.id")}
   ),
   'identitiesSha256', (
     SELECT ${rowDigestExpression("to_jsonb(auth_identity)::text")}
-    FROM auth.identities auth_identity
+    FROM auth.identities auth_identity WHERE ${
+    selected("auth_identity.user_id")
+  }
   ),
   'providerCounts', COALESCE((
     SELECT json_object_agg(provider, provider_count ORDER BY provider)
     FROM (
       SELECT provider, count(*) AS provider_count
       FROM auth.identities
+      WHERE ${selected("user_id")}
       GROUP BY provider
     ) providers
   ), '{}'::json),
-  'sessionCountExcluded', (SELECT count(*) FROM auth.sessions),
-  'refreshTokenCountExcluded', (SELECT count(*) FROM auth.refresh_tokens),
-  'mfaFactorCount', (SELECT count(*) FROM auth.mfa_factors),
-  'ssoProviderCount', (SELECT count(*) FROM auth.sso_providers),
+  'sessionCountExcluded', (SELECT count(*) FROM auth.sessions WHERE ${
+    selected("user_id")
+  }),
+  'refreshTokenCountExcluded', (SELECT count(*) FROM auth.refresh_tokens WHERE ${refreshPredicate}),
+  'mfaFactorCount', (SELECT count(*) FROM auth.mfa_factors WHERE ${
+    selected("user_id")
+  }),
+  'ssoProviderCount', (${
+    kind === "source"
+      ? `SELECT count(DISTINCT provider) FROM auth.identities WHERE ${
+        selected("user_id")
+      } AND (provider = 'sso' OR provider LIKE 'sso:%')`
+      : "SELECT count(*) FROM auth.sso_providers"
+  }),
+  'excludedUserCount', (SELECT count(*) FROM auth.users WHERE NOT ${
+    scopeSqlPredicate(subjectScope, "id")
+  }),
+  'unapprovedIdentityCount', (SELECT count(*) FROM auth.identities WHERE user_id IS NULL OR NOT ${
+    scopeSqlPredicate(subjectScope, "user_id")
+  }),
+  'unapprovedSessionCount', (SELECT count(*) FROM auth.sessions WHERE user_id IS NULL OR NOT ${
+    scopeSqlPredicate(subjectScope, "user_id")
+  }),
+  'unapprovedRefreshTokenCount', (SELECT count(*) FROM auth.refresh_tokens WHERE user_id IS NULL OR user_id NOT IN (SELECT id::text FROM auth.users WHERE ${
+    scopeSqlPredicate(subjectScope, "id")
+  })),
   'nonDefaultInstanceCount', (
     SELECT count(*) FROM auth.users
-    WHERE instance_id <> '00000000-0000-0000-0000-000000000000'::uuid
+    WHERE ${
+    selected("id")
+  } AND instance_id <> '00000000-0000-0000-0000-000000000000'::uuid
   ),
   'userColumns', (
     SELECT json_agg(json_build_object(
@@ -387,7 +457,7 @@ COMMIT;
 `;
 }
 
-function storageInventorySql(buckets) {
+export function storageInventorySql(buckets, kind = "source") {
   const bucketArray = sqlArray(buckets);
   return `
 BEGIN READ ONLY;
@@ -401,50 +471,178 @@ SELECT json_build_object(
       'allowedMimeTypes', b.allowed_mime_types
     ) ORDER BY b.id)
     FROM storage.buckets b
-    WHERE b.id = ANY(${bucketArray})
+    WHERE ${kind === "target" ? "true" : `b.id = ANY(${bucketArray})`}
   ), '[]'::json),
   'objects', COALESCE((
     SELECT json_agg(json_build_object(
-      'bucket', inventory.bucket_id,
-      'objectCount', inventory.object_count,
-      'totalBytes', inventory.total_bytes,
-      'pathManifestSha256', inventory.path_sha256,
-      'metadataManifestSha256', inventory.metadata_sha256,
-      'missingOwnerCount', inventory.missing_owner_count,
-      'ownerFolderMismatchCount', inventory.owner_folder_mismatch_count,
-      'authFolderMismatchCount', inventory.auth_folder_mismatch_count,
-      'flatPathCount', inventory.flat_path_count
-    ) ORDER BY inventory.bucket_id)
-    FROM (
-      SELECT
-        o.bucket_id,
-        count(*) AS object_count,
-        COALESCE(sum(COALESCE((o.metadata->>'size')::bigint, 0)), 0) AS total_bytes,
-        ${rowDigestExpression("o.name")} AS path_sha256,
-        ${
-    rowDigestExpression(
-      "concat_ws(E'\\t', o.name, COALESCE(o.metadata::text, ''), COALESCE(o.owner_id::text, ''))",
-    )
-  } AS metadata_sha256,
-        count(*) FILTER (WHERE o.owner_id IS NULL) AS missing_owner_count,
-        count(*) FILTER (
-          WHERE o.owner_id IS NOT NULL AND split_part(o.name, '/', 1) <> o.owner_id::text
-        ) AS owner_folder_mismatch_count,
-        count(*) FILTER (
-          WHERE NOT EXISTS (
-            SELECT 1 FROM auth.users u
-            WHERE u.id::text = split_part(o.name, '/', 1)
-          )
-        ) AS auth_folder_mismatch_count,
-        count(*) FILTER (WHERE position('/' in o.name) = 0) AS flat_path_count
-      FROM storage.objects o
-      WHERE o.bucket_id = ANY(${bucketArray})
-      GROUP BY o.bucket_id
-    ) inventory
+      'bucket', o.bucket_id,
+      'path', o.name,
+      'ownerId', o.owner_id,
+      'metadataText', COALESCE(o.metadata::text, ''),
+      'bytes', COALESCE((o.metadata->>'size')::bigint, 0)
+    ) ORDER BY o.bucket_id, o.name)
+    FROM storage.objects o
+    WHERE o.bucket_id = ANY(${bucketArray})
   ), '[]'::json)
 )::text;
 COMMIT;
 `;
+}
+
+// Raw object paths/owners stay in memory. Receipts expose selected aggregates only.
+export function summarizeStorageInventory(raw, subjectScope, kind = "source") {
+  const assignments = new Map(
+    subjectScope.legacyStorageAssignments.map((
+      entry,
+    ) => [`${entry.bucket}:${entry.pathSha256}`, entry]),
+  );
+  const usedAssignments = new Set();
+  const selectedByBucket = new Map();
+  const excludedByBucket = new Map();
+  const blockers = [];
+  if (kind === "target") {
+    const expected = new Set(["photos", "voice-samples"]);
+    const present = new Set(raw.buckets.map((bucket) => bucket.name));
+    if ([...present].some((name) => !expected.has(name))) {
+      blockers.push("target has storage buckets outside the allowlist");
+    }
+    for (const bucket of expected) {
+      if (!present.has(bucket)) {
+        blockers.push(`missing private storage bucket: ${bucket}`);
+      }
+    }
+  }
+  const targets = new Set();
+  for (const object of raw.objects) {
+    if (!Number.isSafeInteger(object.bytes) || object.bytes < 0) {
+      throw new Error("invalid storage object size inventory");
+    }
+    const assignmentKey = `${object.bucket}:${sha256(object.path)}`;
+    if (assignments.has(assignmentKey)) {
+      if (usedAssignments.has(assignmentKey)) {
+        throw new Error("duplicate storage object for legacy assignment");
+      }
+      usedAssignments.add(assignmentKey);
+    }
+    const classification = classifyStorageObject(subjectScope, object);
+    if (!classification.selected) {
+      excludedByBucket.set(
+        object.bucket,
+        (excludedByBucket.get(object.bucket) ?? 0) + 1,
+      );
+      if (kind === "target") {
+        blockers.push(
+          `target storage contains unapproved objects: ${object.bucket}`,
+        );
+      }
+      if (kind === "source") continue;
+    }
+    const targetPath = classification.targetPath ?? object.path;
+    if (kind === "target" && targetPath !== object.path) {
+      blockers.push(
+        `target storage still requires legacy remapping: ${object.bucket}`,
+      );
+    }
+    const targetKey = `${object.bucket}:${targetPath}`;
+    if (targets.has(targetKey)) {
+      throw new Error("scoped storage objects collide at the target path");
+    }
+    targets.add(targetKey);
+    const entries = selectedByBucket.get(object.bucket) ?? [];
+    entries.push({ ...object, targetPath });
+    selectedByBucket.set(object.bucket, entries);
+  }
+  // Target paths are remapped. Selected legacy assignments must still resolve on
+  // source; exclusion tombstones stay valid when an unrelated owner deletes a file.
+  const subjects = new Set(subjectScope.subjectIds);
+  if (
+    kind === "source" &&
+    [...assignments.entries()].some(([key, assignment]) =>
+      subjects.has(assignment.ownerSubjectId) && !usedAssignments.has(key)
+    )
+  ) {
+    throw new Error("subject scope contains unused legacy storage assignments");
+  }
+  const digest = (values) => sha256(values.sort().join("\n"));
+  return {
+    buckets: raw.buckets,
+    objects: [...selectedByBucket.entries()].sort(([a], [b]) =>
+      a.localeCompare(b)
+    ).map(([bucket, objects]) => ({
+      bucket,
+      objectCount: objects.length,
+      totalBytes: objects.reduce(
+        (total, object) => total + Number(object.bytes),
+        0,
+      ),
+      pathManifestSha256: digest(objects.map((object) => object.path)),
+      targetPathManifestSha256: digest(
+        objects.map((object) => object.targetPath),
+      ),
+      metadataManifestSha256: digest(
+        objects.map((object) =>
+          [object.path, object.metadataText, object.ownerId ?? ""].join("\t")
+        ),
+      ),
+      missingOwnerCount: objects.filter((object) => !object.ownerId).length,
+      ownerFolderMismatchCount: 0,
+      authFolderMismatchCount: 0,
+      flatPathCount:
+        objects.filter((object) => !object.path.includes("/")).length,
+      pathPolicy: objects.some((object) => object.path !== object.targetPath)
+        ? "explicit_legacy_remap_required"
+        : "owner_prefixed",
+    })),
+    excludedObjects: [...excludedByBucket.entries()].sort(([a], [b]) =>
+      a.localeCompare(b)
+    )
+      .map(([bucket, objectCount]) => ({ bucket, objectCount })),
+    blockers: [...new Set(blockers)],
+  };
+}
+
+export function scopeInventoryBlockers(kind, binding, auth, publicData) {
+  validateSubjectScopeBinding(binding, "preflight subject scope");
+  const blockers = [];
+  if (
+    kind === "source" &&
+    (auth.userCount !== binding.subjectCount ||
+      auth.subjectIdsSha256 !== binding.subjectIdsSha256)
+  ) {
+    blockers.push(
+      "approved Auth subjects are missing or differ from the private subject scope",
+    );
+  }
+  if (
+    kind === "target" &&
+    (auth.excludedUserCount > 0 || auth.unapprovedIdentityCount > 0 ||
+      auth.unapprovedSessionCount > 0 || auth.unapprovedRefreshTokenCount > 0)
+  ) {
+    blockers.push(
+      "target Auth contains users, identities, or sessions outside the approved subject scope",
+    );
+  }
+  if (
+    auth.mfaFactorCount > 0 || auth.ssoProviderCount > 0 ||
+    auth.nonDefaultInstanceCount > 0
+  ) {
+    blockers.push(
+      "inventoried Auth includes unsupported MFA, SSO, or non-default instance state",
+    );
+  }
+  for (const row of publicData) {
+    if (row.copyMode === "copy" && row.unownedRowCount > 0) {
+      blockers.push(
+        `${row.relation} has ${row.unownedRowCount} non-owned rows without a disposition`,
+      );
+    }
+    if (kind === "target" && row.unapprovedRowCount > 0) {
+      blockers.push(
+        `${row.relation} has rows outside the approved target subject scope`,
+      );
+    }
+  }
+  return blockers;
 }
 
 function fingerprintCatalog(rawCatalog) {
@@ -484,7 +682,7 @@ function fingerprintCatalog(rawCatalog) {
   };
 }
 
-function compareReceipts(receipt, source, blockers) {
+export function compareReceipts(receipt, source, blockers) {
   if (source.version !== 1 || source.kind !== "source") {
     blockers.push(
       "comparison receipt is not a version-1 source preflight receipt",
@@ -493,6 +691,16 @@ function compareReceipts(receipt, source, blockers) {
   }
   if (source.status !== "ready") {
     blockers.push("comparison source receipt is not ready");
+  }
+  try {
+    assertScopeBinding(
+      receipt.subjectScope,
+      source.subjectScope,
+      "comparison subject scope",
+    );
+  } catch (error) {
+    blockers.push(error.message);
+    return;
   }
 
   const compareNamed = (label, targetRows, sourceRows, fields) => {
@@ -549,8 +757,8 @@ function compareReceipts(receipt, source, blockers) {
       }
     }
     if (
-      sourceStorage.pathPolicy !== "legacy_flat_remap_required" &&
-      targetStorage.pathManifestSha256 !== sourceStorage.pathManifestSha256
+      targetStorage.pathManifestSha256 !==
+        sourceStorage.targetPathManifestSha256
     ) {
       blockers.push(
         `storage mismatch for ${sourceStorage.bucket}: pathManifestSha256`,
@@ -584,6 +792,7 @@ async function main() {
   const args = parseArgs(process.argv.slice(2), {
     kind: { required: true },
     "project-ref": { required: true },
+    "subject-scope": { required: true },
     receipt: { required: true },
     "compare-receipt": {},
     overwrite: { type: "boolean" },
@@ -601,6 +810,11 @@ async function main() {
       "target project ref must differ from the source project ref",
     );
   }
+  const subjectScope = loadSubjectScope(args["subject-scope"], {
+    ...(args.kind === "target" ? { targetProjectRef: projectRef } : {}),
+  });
+  const scopeBinding = subjectScopeBinding(subjectScope);
+  validateSubjectScopeBinding(scopeBinding, "preflight subject scope");
 
   const manifests = loadManifests();
   const database = getLinkedDatabaseConfig(projectRef);
@@ -609,11 +823,17 @@ async function main() {
   const relationMap = new Map(
     rawCatalog.relations.map((row) => [row.name, row]),
   );
-  const publicData = runPsqlJson(
+  const rawPublicData = runPsqlJson(
     database,
-    dataInventorySql(manifests.scopes, relationMap),
+    dataInventorySql(manifests.scopes, relationMap, subjectScope, args.kind),
   );
-  const rawAuth = runPsqlJson(database, authInventorySql());
+  const publicData = rawPublicData.map((
+    { excludedOwnedRowCount, unapprovedRowCount, ...scoped },
+  ) => scoped);
+  const rawAuth = runPsqlJson(
+    database,
+    authInventorySql(subjectScope, args.kind),
+  );
   const auth = {
     ...rawAuth,
     userColumnNames: rawAuth.userColumns.map(({ name }) => name),
@@ -625,17 +845,15 @@ async function main() {
   };
   delete auth.userColumns;
   delete auth.identityColumns;
-  const storage = runPsqlJson(database, storageInventorySql(manifests.buckets));
-  storage.objects = storage.objects.map((row) => ({
-    ...row,
-    pathPolicy: args.kind === "source" &&
-        row.bucket === "photos" &&
-        rawAuth.userCount === 1 &&
-        row.authFolderMismatchCount > 0 &&
-        row.authFolderMismatchCount === row.flatPathCount
-      ? "legacy_flat_remap_required"
-      : "owner_prefixed",
-  }));
+  delete auth.excludedUserCount;
+  delete auth.unapprovedIdentityCount;
+  delete auth.unapprovedSessionCount;
+  delete auth.unapprovedRefreshTokenCount;
+  const storage = summarizeStorageInventory(
+    runPsqlJson(database, storageInventorySql(manifests.buckets, args.kind)),
+    subjectScope,
+    args.kind,
+  );
 
   const liveSecrets = runSupabaseJson(
     ["secrets", "list", "--project-ref", projectRef],
@@ -671,7 +889,22 @@ async function main() {
     };
   });
 
-  const blockers = [];
+  const blockers = [
+    ...storage.blockers,
+    ...scopeInventoryBlockers(args.kind, scopeBinding, rawAuth, rawPublicData),
+  ];
+  delete storage.blockers;
+  const excludedDataInventory = {
+    authUserCount: rawAuth.excludedUserCount,
+    authIdentityCount: rawAuth.unapprovedIdentityCount,
+    authSessionCount: rawAuth.unapprovedSessionCount,
+    authRefreshTokenCount: rawAuth.unapprovedRefreshTokenCount,
+    publicData: rawPublicData.map((
+      { relation, excludedOwnedRowCount, unapprovedRowCount },
+    ) => ({ relation, excludedOwnedRowCount, unapprovedRowCount })),
+    storageObjects: storage.excludedObjects,
+  };
+  delete storage.excludedObjects;
   const expectedRelationSet = new Set(manifests.relationNames);
   const actualRelationSet = new Set(catalog.relations.map(({ name }) => name));
   for (const name of manifests.relationNames) {
@@ -722,15 +955,6 @@ async function main() {
       blockers.push(`row-level security is disabled: ${relation.name}`);
     }
   }
-  for (const row of publicData) {
-    if (row.copyMode === "copy" && row.totalRowCount !== row.copyRowCount) {
-      blockers.push(
-        `${row.relation} has ${
-          row.totalRowCount - row.copyRowCount
-        } non-owned rows without a disposition`,
-      );
-    }
-  }
   if (
     (publicData.find(({ relation }) => relation === "plaid_items")
       ?.copyRowCount ?? 0) > 0
@@ -751,7 +975,7 @@ async function main() {
       blockers.push(`storage owner-folder mismatch: ${objectInventory.bucket}`);
     }
     if (objectInventory.authFolderMismatchCount > 0) {
-      if (objectInventory.pathPolicy !== "legacy_flat_remap_required") {
+      if (objectInventory.pathPolicy !== "explicit_legacy_remap_required") {
         blockers.push(
           `storage path is not scoped to a migrated Auth subject: ${objectInventory.bucket}`,
         );
@@ -825,6 +1049,7 @@ async function main() {
     version: 1,
     kind: args.kind,
     projectRef,
+    subjectScope: scopeBinding,
     capturedAt: new Date().toISOString(),
     status: "pending",
     sourcePolicy: {
@@ -859,6 +1084,7 @@ async function main() {
     },
     catalog,
     publicData,
+    excludedDataInventory,
     auth,
     storage,
     secrets: {
@@ -882,12 +1108,11 @@ async function main() {
       args["compare-receipt"],
       "comparison receipt",
     );
-    assertPrivateFile(comparisonPath, "comparison receipt");
-    const sourceReceipt = JSON.parse(
-      readFileSync(comparisonPath, "utf8"),
-    );
-    compareReceipts(receipt, sourceReceipt, blockers);
-    receipt.comparedSourceReceiptSha256 = sha256File(comparisonPath);
+    const comparison = privateSnapshot(comparisonPath, "comparison receipt", {
+      json: true,
+    });
+    compareReceipts(receipt, comparison.value, blockers);
+    receipt.comparedSourceReceiptSha256 = comparison.sha256;
   }
   receipt.status = blockers.length === 0 ? "ready" : "blocked";
   writePrivateJson(args.receipt, receipt, { overwrite: args.overwrite });
@@ -897,7 +1122,11 @@ async function main() {
   if (blockers.length > 0 && !args["exit-zero"]) process.exitCode = 2;
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+if (
+  process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}

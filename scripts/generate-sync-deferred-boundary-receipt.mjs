@@ -21,6 +21,11 @@ import {
   sha256File,
   writePrivateJson,
 } from "./lib/supabase-isolation.mjs";
+import {
+  assertScopeBinding,
+  validateSubjectScopeBinding,
+} from "./lib/migration-subject-scope.mjs";
+import { privateSnapshot } from "./lib/import-subject-package.mjs";
 
 const SOURCE_PROJECT_REF = "ekekeywoxvdbfbmqyhjy";
 const PUBLIC_API_KEY_ENV = "MIND_MANUAL_TARGET_PUBLIC_API_KEY";
@@ -115,34 +120,53 @@ function hasExactKeys(value, keys) {
   return Boolean(value) &&
     typeof value === "object" &&
     !Array.isArray(value) &&
-    canonicalJson(Object.keys(value).sort()) === canonicalJson([...keys].sort());
+    canonicalJson(Object.keys(value).sort()) ===
+      canonicalJson([...keys].sort());
 }
 
 export function credentialSafeError(error, secretValues, label) {
   let message = error instanceof Error ? error.message : String(error);
-  for (const secret of secretValues.filter((value) =>
-    typeof value === "string" && value.length > 0
-  )) {
+  for (
+    const secret of secretValues.filter((value) =>
+      typeof value === "string" && value.length > 0
+    )
+  ) {
     message = message.replaceAll(secret, "[redacted]");
   }
   return new Error(`${label}: ${message}`);
 }
 
 function readPrivateReceipt(path, label) {
-  const absolutePath = assertAbsolutePath(path, label);
-  assertPrivateFile(absolutePath, label);
-  const bytes = readFileSync(absolutePath);
-  let value;
-  try {
-    value = JSON.parse(bytes.toString("utf8"));
-  } catch {
-    throw new Error(`${label} must contain valid JSON`);
-  }
-  return { value, sha256: sha256(bytes) };
+  const { value, sha256: hash } = privateSnapshot(path, label, { json: true });
+  return { value, sha256: hash };
 }
 
 export function validateReceiptChain(receipts, targetRef) {
   const { source, imported, storage, oauthReset, quarantine } = receipts;
+  const binding = validateSubjectScopeBinding(source.value?.subjectScope);
+  if (
+    binding.targetProjectRef !== targetRef ||
+    source.value.auth?.userCount !== binding.subjectCount ||
+    source.value.auth?.subjectIdsSha256 !== binding.subjectIdsSha256
+  ) {
+    throw new Error(
+      "Sync source Auth inventory is outside the approved subject scope",
+    );
+  }
+  for (
+    const [label, entry] of Object.entries({
+      imported,
+      storage,
+      oauthReset,
+      quarantine,
+    })
+  ) {
+    assertScopeBinding(
+      entry.value?.subjectScope,
+      binding,
+      `${label} subject scope`,
+    );
+  }
   const chain = {
     sourceReceiptSha256: source.sha256,
     importReceiptSha256: imported.sha256,
@@ -154,6 +178,8 @@ export function validateReceiptChain(receipts, targetRef) {
     source.value?.version !== 1 ||
     source.value?.kind !== "source" ||
     source.value?.status !== "ready" ||
+    !Array.isArray(source.value?.blockers) ||
+    source.value.blockers.length !== 0 ||
     source.value?.projectRef !== SOURCE_PROJECT_REF ||
     !SHA256_PATTERN.test(source.sha256) ||
     imported.value?.version !== 1 ||
@@ -198,6 +224,36 @@ export function validateReceiptChain(receipts, targetRef) {
     );
   }
   return chain;
+}
+
+/** Denied writes alone are insufficient: the preserved rows must be the approved copy. */
+export function validateDeferredSourceParity(snapshot, source) {
+  validateSubjectScopeBinding(source?.subjectScope);
+  if (
+    !Array.isArray(snapshot?.rows) ||
+    snapshot.rows.length !== DEFERRED_RELATIONS.length ||
+    !Array.isArray(source?.publicData)
+  ) throw new Error("Missing selected sync row parity inventory");
+  for (const relation of DEFERRED_RELATIONS) {
+    const expected = source.publicData.filter((row) =>
+      row.relation === relation
+    );
+    const actual = snapshot.rows.filter((row) => row.relation === relation);
+    if (
+      expected.length !== 1 || actual.length !== 1 ||
+      expected[0].copyMode !== "copy" ||
+      !Number.isSafeInteger(expected[0].copyRowCount) ||
+      expected[0].copyRowCount < 0 ||
+      typeof expected[0].copyRowsSha256 !== "string" ||
+      !SHA256_PATTERN.test(expected[0].copyRowsSha256) ||
+      actual[0].rowCount !== expected[0].copyRowCount ||
+      actual[0].rowsSha256 !== expected[0].copyRowsSha256
+    ) {
+      throw new Error(
+        "Target sync rows do not match the selected source inventory",
+      );
+    }
+  }
 }
 
 function privilegeJson(role, relation) {
@@ -573,7 +629,9 @@ export function buildServiceTestReceipt({
   };
 }
 
-function runDeferredServiceTest({ capturedAt, targetRef, chain, secretValues }) {
+function runDeferredServiceTest(
+  { capturedAt, targetRef, chain, secretValues },
+) {
   const executable = resolve(repoRoot, "node_modules/.bin/vitest");
   if (!existsSync(executable)) {
     throw new Error(
@@ -594,7 +652,8 @@ function assertNoSecretValues(receipt, secretValues) {
   const serialized = JSON.stringify(receipt);
   if (
     secretValues.some((secret) =>
-      typeof secret === "string" && secret.length > 0 && serialized.includes(secret)
+      typeof secret === "string" && secret.length > 0 &&
+      serialized.includes(secret)
     )
   ) {
     throw new Error("refusing to write a sync receipt containing a credential");
@@ -686,19 +745,21 @@ async function selfTest() {
       hint: null,
       message: `permission denied for table ${expected.relation}`,
     });
-    probes.push(await runHttpNegativeProbe({
-      fetchImpl: async () =>
-        new Response(responseBody, {
-          status: expected.expectedStatus,
-          headers: { "Content-Type": "application/json" },
-        }),
-      targetOrigin: "https://abcdefghijklmnopqrst.supabase.co",
-      publicApiKey: "offline-public-key",
-      authAccessToken: "offline-auth-token",
-      relation: expected.relation,
-      role: expected.role,
-      method: expected.method,
-    }));
+    probes.push(
+      await runHttpNegativeProbe({
+        fetchImpl: async () =>
+          new Response(responseBody, {
+            status: expected.expectedStatus,
+            headers: { "Content-Type": "application/json" },
+          }),
+        targetOrigin: "https://abcdefghijklmnopqrst.supabase.co",
+        publicApiKey: "offline-public-key",
+        authAccessToken: "offline-auth-token",
+        relation: expected.relation,
+        role: expected.role,
+        method: expected.method,
+      }),
+    );
   }
   validateHttpProbeReceipts(probes);
   assert.throws(
@@ -727,10 +788,11 @@ async function selfTest() {
     /rows changed/u,
   );
   assert.throws(
-    () => validateHttpProbeReceipts([
-      { ...probes[0], observedStatus: 200 },
-      ...probes.slice(1),
-    ]),
+    () =>
+      validateHttpProbeReceipts([
+        { ...probes[0], observedStatus: 200 },
+        ...probes.slice(1),
+      ]),
     /not exact/u,
   );
   console.log("sync deferred-boundary receipt self-test passed");
@@ -769,7 +831,9 @@ async function main() {
     "sync boundary receipt",
   );
   if (resolve(serviceTestReceiptPath) === resolve(boundaryReceiptPath)) {
-    throw new Error("service-test and boundary receipts require distinct paths");
+    throw new Error(
+      "service-test and boundary receipts require distinct paths",
+    );
   }
   if (
     !args.overwrite &&
@@ -815,6 +879,7 @@ async function main() {
       runPsqlJson(database, snapshotSql),
       "before snapshot",
     );
+    validateDeferredSourceParity(before, receipts.source.value);
   } catch (error) {
     throw credentialSafeError(
       error,
@@ -825,15 +890,17 @@ async function main() {
   const targetOrigin = `https://${targetRef}.supabase.co`;
   const httpProbes = [];
   for (const expected of expectedHttpProbeContract()) {
-    httpProbes.push(await runHttpNegativeProbe({
-      fetchImpl: fetch,
-      targetOrigin,
-      publicApiKey,
-      authAccessToken,
-      relation: expected.relation,
-      role: expected.role,
-      method: expected.method,
-    }));
+    httpProbes.push(
+      await runHttpNegativeProbe({
+        fetchImpl: fetch,
+        targetOrigin,
+        publicApiKey,
+        authAccessToken,
+        relation: expected.relation,
+        role: expected.role,
+        method: expected.method,
+      }),
+    );
   }
   validateHttpProbeReceipts(httpProbes);
   let after;
@@ -842,6 +909,7 @@ async function main() {
       runPsqlJson(database, snapshotSql),
       "after snapshot",
     );
+    validateDeferredSourceParity(after, receipts.source.value);
   } catch (error) {
     throw credentialSafeError(
       error,
@@ -874,7 +942,11 @@ async function main() {
     serviceTestReceiptPath,
     serviceTestReceiptSha256,
   });
-  assertNoSecretValues(receipt, [databasePassword, publicApiKey, authAccessToken]);
+  assertNoSecretValues(receipt, [
+    databasePassword,
+    publicApiKey,
+    authAccessToken,
+  ]);
   writePrivateJson(serviceTestReceiptPath, serviceTestReceipt, {
     overwrite: args.overwrite,
   });
@@ -882,7 +954,9 @@ async function main() {
     throw new Error("service-test receipt hash changed while writing");
   }
   writePrivateJson(boundaryReceiptPath, receipt, { overwrite: args.overwrite });
-  console.log("sync deferred-boundary receipt verified; no target rows changed");
+  console.log(
+    "sync deferred-boundary receipt verified; no target rows changed",
+  );
   console.log(`service-test receipt sha256: ${serviceTestReceiptSha256}`);
   console.log(`receipt sha256: ${sha256File(boundaryReceiptPath)}`);
 }

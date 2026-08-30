@@ -2,6 +2,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   assertAbsolutePath,
   assertPrivateFile,
@@ -13,13 +14,20 @@ import {
   sha256File,
   writePrivateJson,
 } from "./lib/supabase-isolation.mjs";
+import {
+  assertScopeBinding,
+  classifyStorageObject,
+  loadSubjectScope,
+  subjectScopeBinding,
+} from "./lib/migration-subject-scope.mjs";
 
 const SOURCE_PROJECT_REF = "ekekeywoxvdbfbmqyhjy";
 const PAGE_SIZE = 100;
 
-function usage() {
-  console.log(
+function usage(logger) {
+  logger.log(
     "usage: node scripts/copy-isolated-supabase-storage.mjs " +
+      "--subject-scope /absolute/subject-scope.json " +
       "--source-receipt /absolute/source.json --target-ref <ref> " +
       "--receipt /absolute/storage-receipt.json " +
       "[--plan-receipt /absolute/storage-plan.json --execute " +
@@ -41,11 +49,12 @@ function encodedObjectPath(bucket, path) {
   return `${encode(bucket)}/${path.split("/").map(encode).join("/")}`;
 }
 
-async function storageRequest(url, key, path, options, label) {
+async function storageRequest(fetchImpl, url, key, path, options, label) {
   let response;
   try {
-    response = await fetch(`${url}/storage/v1${path}`, {
+    response = await fetchImpl(`${url}/storage/v1${path}`, {
       ...options,
+      redirect: "error",
       headers: headers(key, options?.headers),
     });
   } catch {
@@ -57,15 +66,16 @@ async function storageRequest(url, key, path, options, label) {
   return response;
 }
 
-async function listAuthSubjectIds(url, key) {
+async function listAuthSubjectIds(fetchImpl, url, key) {
   const subjectIds = [];
   for (let page = 1;; page += 1) {
     let response;
     try {
-      response = await fetch(
+      response = await fetchImpl(
         `${url}/auth/v1/admin/users?page=${page}&per_page=100`,
         {
           method: "GET",
+          redirect: "error",
           headers: headers(key),
         },
       );
@@ -97,13 +107,99 @@ async function listAuthSubjectIds(url, key) {
   return subjectIds;
 }
 
-async function listBucket(url, key, bucket) {
+async function verifySelectedSourceAuth(fetchImpl, url, key, subjectIds) {
+  for (const subjectId of subjectIds) {
+    let response;
+    try {
+      response = await fetchImpl(
+        `${url}/auth/v1/admin/users/${encodeURIComponent(subjectId)}`,
+        {
+          method: "GET",
+          redirect: "error",
+          headers: headers(key),
+        },
+      );
+    } catch {
+      throw new Error(
+        "approved source Auth subject verification request failed",
+      );
+    }
+    if (!response.ok) {
+      throw new Error(
+        "approved source Auth subjects are missing or unavailable after preflight",
+      );
+    }
+    let body;
+    try {
+      body = await response.json();
+    } catch {
+      throw new Error("invalid approved source Auth subject response");
+    }
+    if ((body?.user ?? body)?.id !== subjectId) {
+      throw new Error(
+        "approved source Auth subject response does not match the requested subject",
+      );
+    }
+  }
+}
+
+async function verifyTargetBuckets(fetchImpl, url, key, allowedBuckets) {
+  const names = new Set();
+  for (let offset = 0;; offset += PAGE_SIZE) {
+    // Supabase StorageBucketApi.listBuckets returns Bucket[] at GET /bucket;
+    // explicit pagination avoids trusting a server-default result cap.
+    const query = new URLSearchParams({
+      limit: String(PAGE_SIZE),
+      offset: String(offset),
+      sortColumn: "id",
+      sortOrder: "asc",
+    });
+    const response = await storageRequest(
+      fetchImpl,
+      url,
+      key,
+      `/bucket?${query}`,
+      { method: "GET" },
+      "target bucket inventory",
+    );
+    let buckets;
+    try {
+      buckets = await response.json();
+    } catch {
+      throw new Error("invalid target bucket inventory response");
+    }
+    if (!Array.isArray(buckets)) {
+      throw new Error("invalid target bucket inventory response");
+    }
+    for (const bucket of buckets) {
+      if (
+        !bucket || typeof bucket.id !== "string" || bucket.name !== bucket.id ||
+        !allowedBuckets.includes(bucket.id) || bucket.public !== false ||
+        names.has(bucket.id)
+      ) {
+        throw new Error(
+          "target buckets must be exactly the approved private bucket set",
+        );
+      }
+      names.add(bucket.id);
+    }
+    if (buckets.length < PAGE_SIZE) break;
+  }
+  if (names.size !== allowedBuckets.length) {
+    throw new Error(
+      "target buckets must be exactly the approved private bucket set",
+    );
+  }
+}
+
+async function listBucket(fetchImpl, url, key, bucket) {
   const files = [];
   const pendingPrefixes = [""];
   while (pendingPrefixes.length > 0) {
     const prefix = pendingPrefixes.shift();
     for (let offset = 0;; offset += PAGE_SIZE) {
       const response = await storageRequest(
+        fetchImpl,
         url,
         key,
         `/object/list/${encodeURIComponent(bucket)}`,
@@ -125,7 +221,9 @@ async function listBucket(url, key, bucket) {
       }
       for (const entry of entries) {
         if (
-          !entry || typeof entry.name !== "string" || entry.name.includes("\0")
+          !entry || typeof entry.name !== "string" ||
+          entry.name.length === 0 || entry.name.includes("\0") ||
+          entry.name.includes("/") || [".", ".."].includes(entry.name)
         ) {
           throw new Error(`invalid object entry in ${bucket}`);
         }
@@ -133,9 +231,16 @@ async function listBucket(url, key, bucket) {
         if (entry.id === null || entry.id === undefined) {
           pendingPrefixes.push(`${path}/`);
         } else {
+          if (
+            entry.owner_id != null && entry.owner != null &&
+            entry.owner_id !== entry.owner
+          ) {
+            throw new Error(`conflicting object owner metadata in ${bucket}`);
+          }
           files.push({
             bucket,
             path,
+            ownerId: entry.owner_id ?? entry.owner ?? undefined,
             contentType: entry.metadata?.mimetype ?? "application/octet-stream",
             cacheControl: String(entry.metadata?.cacheControl ?? "3600"),
           });
@@ -151,9 +256,10 @@ async function listBucket(url, key, bucket) {
   return files;
 }
 
-async function downloadObject(url, key, object) {
+async function downloadObject(fetchImpl, url, key, object) {
   const path = encodedObjectPath(object.bucket, object.path);
   const response = await storageRequest(
+    fetchImpl,
     url,
     key,
     `/object/authenticated/${path}`,
@@ -163,9 +269,10 @@ async function downloadObject(url, key, object) {
   return Buffer.from(await response.arrayBuffer());
 }
 
-async function uploadObject(url, key, object, contents) {
+async function uploadObject(fetchImpl, url, key, object, contents) {
   const path = encodedObjectPath(object.bucket, object.path);
   await storageRequest(
+    fetchImpl,
     url,
     key,
     `/object/${path}`,
@@ -182,9 +289,10 @@ async function uploadObject(url, key, object, contents) {
   );
 }
 
-async function verifySignedUrl(url, key, object) {
+async function verifySignedUrl(fetchImpl, url, key, object) {
   const path = encodedObjectPath(object.bucket, object.path);
   const response = await storageRequest(
+    fetchImpl,
     url,
     key,
     `/object/sign/${path}`,
@@ -198,13 +306,33 @@ async function verifySignedUrl(url, key, object) {
   const body = await response.json();
   const signedPath = body.signedURL ?? body.signedUrl;
   if (typeof signedPath !== "string" || signedPath.length === 0) return false;
-  const signedUrl = signedPath.startsWith("http")
-    ? signedPath
-    : `${url}${signedPath}`;
-  const signedResponse = await fetch(signedUrl, {
-    method: "GET",
-    headers: { range: "bytes=0-0" },
-  });
+  let signedUrl;
+  try {
+    signedUrl = new URL(
+      signedPath.startsWith("/object/")
+        ? `/storage/v1${signedPath}`
+        : signedPath,
+      url,
+    );
+  } catch {
+    throw new Error("invalid signed URL for approved target object");
+  }
+  if (
+    signedUrl.origin !== url || signedUrl.username || signedUrl.password ||
+    signedUrl.pathname !== `/storage/v1/object/sign/${path}`
+  ) {
+    throw new Error("signed URL does not identify the approved target object");
+  }
+  let signedResponse;
+  try {
+    signedResponse = await fetchImpl(signedUrl.href, {
+      method: "GET",
+      redirect: "error",
+      headers: { range: "bytes=0-0" },
+    });
+  } catch {
+    throw new Error("approved target signed URL request failed");
+  }
   return signedResponse.ok;
 }
 
@@ -255,7 +383,105 @@ function sourcePlanProjection(objects) {
     );
 }
 
-function selfTest() {
+function validateStorageInventory(rows, buckets) {
+  if (!Array.isArray(rows)) {
+    throw new Error("source receipt must include scoped storage inventory");
+  }
+  const seen = new Set();
+  for (const row of rows) {
+    if (
+      !row || !buckets.includes(row.bucket) || seen.has(row.bucket) ||
+      !Number.isSafeInteger(row.objectCount) || row.objectCount < 0 ||
+      !Number.isSafeInteger(row.totalBytes) || row.totalBytes < 0 ||
+      !/^[a-f0-9]{64}$/u.test(row.pathManifestSha256 ?? "") ||
+      !/^[a-f0-9]{64}$/u.test(row.targetPathManifestSha256 ?? "")
+    ) {
+      throw new Error("source receipt has invalid scoped storage inventory");
+    }
+    seen.add(row.bucket);
+  }
+}
+
+function readPrivateReceipt(path, label) {
+  assertPrivateFile(path, label);
+  const bytes = readFileSync(path);
+  let receipt;
+  try {
+    receipt = JSON.parse(bytes.toString("utf8"));
+  } catch {
+    throw new Error(`invalid JSON in ${label}`);
+  }
+  if (!receipt || typeof receipt !== "object" || Array.isArray(receipt)) {
+    throw new Error(`invalid ${label} envelope`);
+  }
+  return { receipt, receiptSha256: sha256(bytes) };
+}
+
+export function selectStorageObjects(scope, sourceObjects) {
+  const inventory = new Set();
+  const selected = [];
+  const targets = new Set();
+  for (const object of sourceObjects) {
+    const sourceIdentity = `${object.bucket}\0${sha256(object.path)}`;
+    if (inventory.has(sourceIdentity)) {
+      throw new Error("source storage contains duplicate inventory entries");
+    }
+    inventory.add(sourceIdentity);
+    const classification = classifyStorageObject(scope, object);
+    if (!classification.selected) continue;
+    const identity = `${object.bucket}\0${classification.targetPath}`;
+    if (targets.has(identity)) {
+      throw new Error("approved source paths collide after storage remapping");
+    }
+    targets.add(identity);
+    selected.push({ ...object, targetPath: classification.targetPath });
+  }
+  const selectedSubjects = new Set(scope.subjectIds);
+  for (const assignment of scope.legacyStorageAssignments) {
+    if (
+      selectedSubjects.has(assignment.ownerSubjectId) &&
+      !inventory.has(`${assignment.bucket}\0${assignment.pathSha256}`)
+    ) {
+      throw new Error(
+        "selected legacy storage assignment is absent from source inventory",
+      );
+    }
+  }
+  return selected;
+}
+
+function assertTargetStorageSelection(
+  scope,
+  objects,
+  sourceIdentities,
+  requireComplete = false,
+) {
+  const identities = new Set(
+    objects.map((object) => `${object.bucket}\0${object.path}`),
+  );
+  if (objects.length !== identities.size) {
+    throw new Error("target storage contains duplicate inventory entries");
+  }
+  if ([...identities].some((identity) => !sourceIdentities.has(identity))) {
+    throw new Error(
+      "target storage contains paths outside the approved source selection",
+    );
+  }
+  for (const object of objects) {
+    if (!classifyStorageObject(scope, object).selected) {
+      throw new Error(
+        "target storage contains an object outside the approved scope",
+      );
+    }
+  }
+  if (requireComplete && identities.size !== sourceIdentities.size) {
+    throw new Error(
+      "target storage inventory is missing approved source paths",
+    );
+  }
+}
+
+function selfTest(logger) {
   const objects = [
     { path: "b/two.bin" },
     { path: "a/one.bin" },
@@ -295,19 +521,24 @@ function selfTest() {
       "content manifest order must be canonical across bucket/path collisions",
     );
   }
-  console.log("storage migration self-test passed");
+  logger.log("storage migration self-test passed");
 }
 
-async function main() {
-  if (process.argv.slice(2).includes("--self-test")) {
-    selfTest();
+export async function runStorageCopy(argv = process.argv.slice(2), {
+  fetch: fetchImpl = globalThis.fetch,
+  env = process.env,
+  logger = console,
+} = {}) {
+  if (argv.includes("--self-test")) {
+    selfTest(logger);
     return;
   }
-  if (process.argv.slice(2).includes("--help")) {
-    usage();
+  if (argv.includes("--help")) {
+    usage(logger);
     return;
   }
-  const args = parseArgs(process.argv.slice(2), {
+  const args = parseArgs(argv, {
+    "subject-scope": { required: true },
     "source-receipt": { required: true },
     "target-ref": { required: true },
     receipt: { required: true },
@@ -320,30 +551,56 @@ async function main() {
   if (args.execute && args["verify-only"]) {
     throw new Error("--execute and --verify-only are mutually exclusive");
   }
-  const sourceReceiptPath = assertAbsolutePath(
-    args["source-receipt"],
-    "source receipt",
-  );
-  assertPrivateFile(sourceReceiptPath, "source receipt");
-  const sourceReceipt = JSON.parse(readFileSync(sourceReceiptPath, "utf8"));
-  if (
-    sourceReceipt.version !== 1 ||
-    sourceReceipt.kind !== "source" ||
-    sourceReceipt.projectRef !== SOURCE_PROJECT_REF ||
-    sourceReceipt.status !== "ready"
-  ) {
-    throw new Error("storage copy requires a ready canonical source receipt");
-  }
   const targetRef = assertProjectRef(args["target-ref"], "target project ref");
   if (targetRef === SOURCE_PROJECT_REF) {
     throw new Error("target must differ from source");
   }
+  // Scope is operator-reviewed local input. Validate it and every input receipt
+  // before reading credentials or making even a metadata-only network request.
+  const scope = loadSubjectScope(args["subject-scope"], {
+    targetProjectRef: targetRef,
+  });
+  const scopeBinding = subjectScopeBinding(scope);
+  const sourceReceiptPath = assertAbsolutePath(
+    args["source-receipt"],
+    "source receipt",
+  );
+  const { receipt: sourceReceipt, receiptSha256: sourceReceiptSha256 } =
+    readPrivateReceipt(sourceReceiptPath, "source receipt");
+  if (
+    sourceReceipt.version !== 1 ||
+    sourceReceipt.kind !== "source" ||
+    sourceReceipt.projectRef !== SOURCE_PROJECT_REF ||
+    sourceReceipt.status !== "ready" ||
+    !Array.isArray(sourceReceipt.blockers) ||
+    sourceReceipt.blockers.length !== 0
+  ) {
+    throw new Error("storage copy requires a ready canonical source receipt");
+  }
+  assertScopeBinding(
+    sourceReceipt.subjectScope,
+    scopeBinding,
+    "source receipt",
+  );
+  const selectedSubjectIds = [...scope.subjectIds].sort();
+  if (
+    sourceReceipt.auth?.userCount !== selectedSubjectIds.length ||
+    sourceReceipt.auth?.subjectIdsSha256 !==
+      sha256(selectedSubjectIds.join("\n"))
+  ) {
+    throw new Error("source Auth receipt does not match the approved subjects");
+  }
+  const buckets = readManifestLines(
+    "supabase/isolation/mind-manual-buckets.txt",
+  );
+  validateStorageInventory(sourceReceipt.storage?.objects, buckets);
   const outputReceiptPath = assertAbsolutePath(args.receipt, "output receipt");
   if (existsSync(outputReceiptPath)) {
-    throw new Error(`refusing to overwrite existing output: ${outputReceiptPath}`);
+    throw new Error(
+      `refusing to overwrite existing output: ${outputReceiptPath}`,
+    );
   }
 
-  const sourceReceiptSha256 = sha256File(sourceReceiptPath);
   let planReceipt = null;
   let planReceiptSha256 = null;
   let comparedStorageReceipt = null;
@@ -356,14 +613,16 @@ async function main() {
     if (planPath === outputReceiptPath) {
       throw new Error("execution output must differ from the plan receipt");
     }
-    assertPrivateFile(planPath, "storage plan receipt");
-    planReceipt = JSON.parse(readFileSync(planPath, "utf8"));
-    planReceiptSha256 = sha256File(planPath);
+    ({ receipt: planReceipt, receiptSha256: planReceiptSha256 } =
+      readPrivateReceipt(planPath, "storage plan receipt"));
+    assertScopeBinding(planReceipt.subjectScope, scopeBinding, "storage plan");
     const confirmation = `COPY_STORAGE:${targetRef}:${
       planReceiptSha256.slice(0, 12)
     }`;
     if (args.confirmation !== confirmation) {
-      throw new Error(`--execute requires exact --confirmation ${confirmation}`);
+      throw new Error(
+        `--execute requires exact --confirmation ${confirmation}`,
+      );
     }
     if (
       planReceipt.version !== 1 ||
@@ -387,11 +646,19 @@ async function main() {
       "verified storage receipt",
     );
     if (comparePath === outputReceiptPath) {
-      throw new Error("revalidation output must differ from the verified receipt");
+      throw new Error(
+        "revalidation output must differ from the verified receipt",
+      );
     }
-    assertPrivateFile(comparePath, "verified storage receipt");
-    comparedStorageReceipt = JSON.parse(readFileSync(comparePath, "utf8"));
-    comparedStorageReceiptSha256 = sha256File(comparePath);
+    ({
+      receipt: comparedStorageReceipt,
+      receiptSha256: comparedStorageReceiptSha256,
+    } = readPrivateReceipt(comparePath, "verified storage receipt"));
+    assertScopeBinding(
+      comparedStorageReceipt.subjectScope,
+      scopeBinding,
+      "verified storage receipt",
+    );
     if (
       comparedStorageReceipt.version !== 1 ||
       comparedStorageReceipt.status !== "verified" ||
@@ -406,13 +673,15 @@ async function main() {
       throw new Error("storage revalidation input is not a verified receipt");
     }
   } else if (args["plan-receipt"] || args["compare-receipt"]) {
-    throw new Error("plan/compare receipts are valid only in execute/verify modes");
+    throw new Error(
+      "plan/compare receipts are valid only in execute/verify modes",
+    );
   }
 
-  let sourceKey = process.env.MIND_MANUAL_SOURCE_SERVICE_ROLE_KEY;
-  let targetKey = process.env.MIND_MANUAL_TARGET_SERVICE_ROLE_KEY;
-  delete process.env.MIND_MANUAL_SOURCE_SERVICE_ROLE_KEY;
-  delete process.env.MIND_MANUAL_TARGET_SERVICE_ROLE_KEY;
+  let sourceKey = env.MIND_MANUAL_SOURCE_SERVICE_ROLE_KEY;
+  let targetKey = env.MIND_MANUAL_TARGET_SERVICE_ROLE_KEY;
+  delete env.MIND_MANUAL_SOURCE_SERVICE_ROLE_KEY;
+  delete env.MIND_MANUAL_TARGET_SERVICE_ROLE_KEY;
   if (!sourceKey || !targetKey) {
     throw new Error(
       "MIND_MANUAL_SOURCE_SERVICE_ROLE_KEY and MIND_MANUAL_TARGET_SERVICE_ROLE_KEY must be injected without echoing",
@@ -422,48 +691,37 @@ async function main() {
     throw new Error("source and target service-role keys must differ");
   }
 
-  const buckets = readManifestLines(
-    "supabase/isolation/mind-manual-buckets.txt",
-  );
   const sourceUrl = `https://${SOURCE_PROJECT_REF}.supabase.co`;
   const targetUrl = `https://${targetRef}.supabase.co`;
-  const sourceSubjectIds = await listAuthSubjectIds(sourceUrl, sourceKey);
-  const targetSubjectIds = await listAuthSubjectIds(targetUrl, targetKey);
-  if (
-    sourceSubjectIds.length !== sourceReceipt.auth.userCount ||
-    sha256(sourceSubjectIds.join("\n")) !== sourceReceipt.auth.subjectIdsSha256
-  ) {
-    throw new Error("source Auth subjects changed after preflight");
+  await verifySelectedSourceAuth(
+    fetchImpl,
+    sourceUrl,
+    sourceKey,
+    selectedSubjectIds,
+  );
+  const targetSubjectIds = await listAuthSubjectIds(
+    fetchImpl,
+    targetUrl,
+    targetKey,
+  );
+  if (canonicalJson(targetSubjectIds) !== canonicalJson(selectedSubjectIds)) {
+    throw new Error("target Auth subject IDs do not match the approved scope");
   }
-  if (canonicalJson(targetSubjectIds) !== canonicalJson(sourceSubjectIds)) {
-    throw new Error("target Auth subject IDs do not match the source");
-  }
+  await verifyTargetBuckets(fetchImpl, targetUrl, targetKey, buckets);
   const sourceObjects = [];
   const targetObjects = [];
   for (const bucket of buckets) {
-    sourceObjects.push(...await listBucket(sourceUrl, sourceKey, bucket));
-    targetObjects.push(...await listBucket(targetUrl, targetKey, bucket));
+    sourceObjects.push(
+      ...await listBucket(fetchImpl, sourceUrl, sourceKey, bucket),
+    );
+    targetObjects.push(
+      ...await listBucket(fetchImpl, targetUrl, targetKey, bucket),
+    );
   }
 
-  const subjectSet = new Set(sourceSubjectIds);
-  const mappedSourceObjects = sourceObjects.map((object) => {
-    const firstSegment = object.path.split("/", 1)[0];
-    if (subjectSet.has(firstSegment)) {
-      return { ...object, targetPath: object.path };
-    }
-    if (
-      object.bucket === "photos" &&
-      !object.path.includes("/") &&
-      sourceSubjectIds.length === 1
-    ) {
-      return { ...object, targetPath: `${sourceSubjectIds[0]}/${object.path}` };
-    }
-    throw new Error(
-      `object path cannot be mapped to an Auth owner: ${object.bucket}/${
-        sha256(object.path).slice(0, 12)
-      }`,
-    );
-  });
+  // Never download bytes while classification is incomplete: a later ambiguous
+  // legacy entry must invalidate the entire inventory before any object read.
+  const mappedSourceObjects = selectStorageObjects(scope, sourceObjects);
 
   for (const bucket of buckets) {
     const expected = sourceReceipt.storage.objects.find((row) =>
@@ -472,11 +730,18 @@ async function main() {
       objectCount: 0,
       totalBytes: 0,
       pathManifestSha256: sha256(""),
+      targetPathManifestSha256: sha256(""),
     };
-    const listed = sourceObjects.filter((object) => object.bucket === bucket);
+    const listed = mappedSourceObjects.filter((object) =>
+      object.bucket === bucket
+    );
     if (
       listed.length !== expected.objectCount ||
-      sourcePathDigest(listed) !== expected.pathManifestSha256
+      sourcePathDigest(listed) !== expected.pathManifestSha256 ||
+      sourcePathDigest(
+          listed.map(({ targetPath }) => ({ path: targetPath })),
+        ) !==
+        expected.targetPathManifestSha256
     ) {
       throw new Error(
         `source storage listing changed after preflight: ${bucket}`,
@@ -492,12 +757,7 @@ async function main() {
       `${object.bucket}\0${object.targetPath}`
     ),
   );
-  const extras = targetObjects.filter(
-    (object) => !sourceIdentities.has(`${object.bucket}\0${object.path}`),
-  );
-  if (extras.length > 0) {
-    throw new Error("target storage contains paths absent from source");
-  }
+  assertTargetStorageSelection(scope, targetObjects, sourceIdentities);
 
   const objectReceipts = [];
   const pendingCopies = [];
@@ -505,6 +765,7 @@ async function main() {
     const targetObject = { ...sourceObject, path: sourceObject.targetPath };
     const identity = `${sourceObject.bucket}\0${sourceObject.targetPath}`;
     const sourceContents = await downloadObject(
+      fetchImpl,
       sourceUrl,
       sourceKey,
       sourceObject,
@@ -514,6 +775,7 @@ async function main() {
     let targetContents = null;
     if (existingTarget) {
       targetContents = await downloadObject(
+        fetchImpl,
         targetUrl,
         targetKey,
         existingTarget,
@@ -528,7 +790,7 @@ async function main() {
     }
     const targetContentSha256 = targetContents ? sha256(targetContents) : null;
     const signedUrlVerified = targetContents
-      ? await verifySignedUrl(targetUrl, targetKey, targetObject)
+      ? await verifySignedUrl(fetchImpl, targetUrl, targetKey, targetObject)
       : false;
     const receiptIndex = objectReceipts.length;
     objectReceipts.push({
@@ -561,6 +823,18 @@ async function main() {
     (sum, row) => sum + row.bytes,
     0,
   );
+  for (const bucket of buckets) {
+    const actual = objectReceipts.filter((row) => row.bucket === bucket)
+      .reduce((sum, row) => sum + row.bytes, 0);
+    const expected = sourceReceipt.storage.objects.find((row) =>
+      row.bucket === bucket
+    );
+    if (actual !== (expected?.totalBytes ?? 0)) {
+      throw new Error(
+        `downloaded source bytes differ from scoped inventory: ${bucket}`,
+      );
+    }
+  }
   if (expectedTotalBytes !== actualTotalBytes) {
     throw new Error(
       "downloaded source bytes differ from the database inventory",
@@ -574,6 +848,7 @@ async function main() {
     sourceProjectRef: SOURCE_PROJECT_REF,
     targetProjectRef: targetRef,
     sourceReceiptSha256,
+    subjectScope: scopeBinding,
     objectCount: objectReceipts.length,
     totalBytes: actualTotalBytes,
     remappedPathCount:
@@ -592,19 +867,19 @@ async function main() {
     };
     writePrivateJson(outputReceiptPath, receipt);
     const receiptSha256 = sha256File(outputReceiptPath);
-    console.log(
+    logger.log(
       `storage ${receipt.status}: ${receipt.objectCount} object(s), ${receipt.totalBytes} bytes`,
     );
-    console.log(`receipt sha256: ${receiptSha256}`);
-    console.log(
-      `execute confirmation: COPY_STORAGE:${targetRef}:${receiptSha256.slice(0, 12)}`,
+    logger.log(`receipt sha256: ${receiptSha256}`);
+    logger.log(
+      `execute confirmation: COPY_STORAGE:${targetRef}:${
+        receiptSha256.slice(0, 12)
+      }`,
     );
-    return;
+    return receipt;
   }
 
-  const comparisonReceipt = args.execute
-    ? planReceipt
-    : comparedStorageReceipt;
+  const comparisonReceipt = args.execute ? planReceipt : comparedStorageReceipt;
   if (
     comparisonReceipt.objectCount !== objectReceipts.length ||
     comparisonReceipt.totalBytes !== actualTotalBytes ||
@@ -620,18 +895,21 @@ async function main() {
   if (args.execute) {
     for (const pending of pendingCopies) {
       await uploadObject(
+        fetchImpl,
         targetUrl,
         targetKey,
         pending.targetObject,
         pending.sourceContents,
       );
       const targetContents = await downloadObject(
+        fetchImpl,
         targetUrl,
         targetKey,
         pending.targetObject,
       );
       const targetContentSha256 = sha256(targetContents);
       const signedUrlVerified = await verifySignedUrl(
+        fetchImpl,
         targetUrl,
         targetKey,
         pending.targetObject,
@@ -662,6 +940,31 @@ async function main() {
   if (!targetComplete) {
     throw new Error("target storage is not an exact signed-URL-verified copy");
   }
+  await verifyTargetBuckets(fetchImpl, targetUrl, targetKey, buckets);
+  const finalTargetObjects = [];
+  for (const bucket of buckets) {
+    finalTargetObjects.push(
+      ...await listBucket(fetchImpl, targetUrl, targetKey, bucket),
+    );
+  }
+  assertTargetStorageSelection(
+    scope,
+    finalTargetObjects,
+    sourceIdentities,
+    true,
+  );
+  const finalTargetSubjectIds = await listAuthSubjectIds(
+    fetchImpl,
+    targetUrl,
+    targetKey,
+  );
+  if (
+    canonicalJson(finalTargetSubjectIds) !== canonicalJson(selectedSubjectIds)
+  ) {
+    throw new Error(
+      "target Auth subject IDs changed during storage verification",
+    );
+  }
 
   const receipt = args["verify-only"]
     ? {
@@ -678,15 +981,21 @@ async function main() {
       objects: objectReceipts,
     };
   writePrivateJson(outputReceiptPath, receipt);
-  console.log(
+  logger.log(
     `storage ${receipt.status}: ${receipt.objectCount} object(s), ${receipt.totalBytes} bytes`,
   );
-  console.log(`receipt sha256: ${sha256File(outputReceiptPath)}`);
+  logger.log(`receipt sha256: ${sha256File(outputReceiptPath)}`);
   sourceKey = undefined;
   targetKey = undefined;
+  return receipt;
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
+) {
+  runStorageCopy().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}
