@@ -101,6 +101,7 @@ describe('v2 durable Calendar dispatch admission', () => {
     expect(body).toEqual({ version: 2, ...calendarOperationIdentity(request), outcome: 'recorded', completedAt: NOW,
       result: { outcome: 'written', etag: '"after"', cacheUpdated: true } });
     expect(parseCalendarOperationResponse(body)).toEqual(body);
+    expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(JSON.stringify(body)).not.toContain(after.title); expect(JSON.stringify(f.saved)).not.toContain(after.title);
   });
@@ -132,7 +133,8 @@ describe('v2 durable Calendar dispatch admission', () => {
   });
   it('does not turn a missing RPC or its raw error into a fallback/known no-write receipt', async () => {
     const f = fixture(); f.claimOperation.mockRejectedValueOnce(new Error('PRIVATE SQL INTENT'));
-    const { body } = await dispatch(f); expect(body).toMatchObject({ outcome: 'held', code: 'registry_unavailable' });
+    const { response, body } = await dispatch(f); expect(body).toMatchObject({ outcome: 'held', code: 'registry_unavailable' });
+    expect(response.status).toBe(502);
     expect(JSON.stringify(body)).not.toContain('PRIVATE'); expect(f.fetch).not.toHaveBeenCalled(); expect(f.finalizeOperation).not.toHaveBeenCalled();
   });
   it('keeps a busy/mismatched identity held rather than claiming it was not written', async () => {
@@ -143,8 +145,16 @@ describe('v2 durable Calendar dispatch admission', () => {
   it('never executes an existing pending claim', async () => {
     const f = fixture(); const request = await confirmation();
     f.saved = { ownerUserId: OWNER, identity: calendarOperationIdentity(request), state: 'pending', completedAt: null, result: null };
-    expect((await dispatch(f, request)).body).toMatchObject({ outcome: 'held', code: 'operation_pending' });
+    const result = await dispatch(f, request);
+    expect(result.body).toMatchObject({ outcome: 'held', code: 'operation_pending' }); expect(result.response.status).toBe(200);
     expect(f.order).toEqual(['claim', 'read']); expect(f.loadAccount).not.toHaveBeenCalled(); expect(f.fetch).not.toHaveBeenCalled();
+  });
+  it('finishes only the replay request lifetime when its exact no-claim result is followed by an unavailable read', async () => {
+    const f = fixture(); f.claimOperation.mockResolvedValueOnce({ claimed: false });
+    f.readOperation.mockRejectedValueOnce(new Error('PRIVATE LOOKUP'));
+    const { response, body } = await dispatch(f);
+    expect(response.status).toBe(200); expect(body).toMatchObject({ outcome: 'held', code: 'registry_unavailable' });
+    expect(JSON.stringify(body)).not.toContain('PRIVATE'); expect(f.loadAccount).not.toHaveBeenCalled(); expect(f.fetch).not.toHaveBeenCalled();
   });
   it('returns an exact saved replay without checking expired/disconnected provider state', async () => {
     const f = fixture(); const request = await confirmation(); const first = await dispatch(f, request);
@@ -163,7 +173,8 @@ describe('v2 durable Calendar dispatch admission', () => {
   it('pins the actual stored Google target and never contacts a substituted calendar', async () => {
     const f = fixture(); f.loadAccount.mockResolvedValueOnce({ id: ACCOUNT, user_id: OWNER, provider: 'google', sync_enabled: true,
       calendar_id: 'other@example.test', oauth_token_id: TOKEN });
-    expect((await dispatch(f)).body).toMatchObject({ outcome: 'recorded', result: { outcome: 'not_written' } });
+    const result = await dispatch(f);
+    expect(result.body).toMatchObject({ outcome: 'recorded', result: { outcome: 'not_written' } }); expect(result.response.status).toBe(200);
     expect(f.fetch).not.toHaveBeenCalled(); expect(f.finalizeOperation).toHaveBeenCalledOnce();
   });
   it('detaches the frozen request before an async claim can observe caller mutations', async () => {
@@ -188,11 +199,12 @@ describe('v2 completion persistence preserves uncertainty', () => {
     if (kind === 'lost-patch') f.fetch.mockResolvedValueOnce(json(providerEvent())).mockRejectedValueOnce(new Error('PRIVATE PROVIDER'));
     if (kind === 'bad-patch') f.fetch.mockResolvedValueOnce(json(providerEvent())).mockResolvedValueOnce(json(providerEvent(after, '"before"')));
     if (kind === 'cache') f.updateCache.mockRejectedValueOnce(new Error('PRIVATE CACHE'));
-    const { body } = await dispatch(f, request); expect(body.outcome).toBe('held');
+    const { response, body } = await dispatch(f, request); expect(body.outcome).toBe('held'); expect(response.status).toBe(502);
     expect(f.saved?.state).toBe(kind === 'cache' ? 'provider_written' : 'uncertain');
     expect(JSON.stringify(body)).not.toContain('PRIVATE'); f.fetch.mockClear();
-    expect((await dispatch(f, request)).body.outcome).toBe('held'); expect(f.fetch).not.toHaveBeenCalled();
-    expect((await read(f, calendarOperationIdentity(request))).body.outcome).toBe('held');
+    const replay = await dispatch(f, request); expect(replay.body.outcome).toBe('held'); expect(replay.response.status).toBe(200);
+    expect(f.fetch).not.toHaveBeenCalled();
+    const lookup = await read(f, calendarOperationIdentity(request)); expect(lookup.body.outcome).toBe('held'); expect(lookup.response.status).toBe(200);
   });
   it.each(['throw', 'null', 'other-owner', 'other-operation', 'wrong-result'])('does not report terminal completion on finalize %s', async kind => {
     const f = fixture(); const request = await confirmation();
@@ -202,7 +214,8 @@ describe('v2 completion persistence preserves uncertainty', () => {
       state: kind === 'wrong-result' ? 'not_written' : 'written', completedAt: NOW,
       result: kind === 'wrong-result' ? { outcome: 'not_written', code: 'disabled' } : { outcome: 'written', etag: '"after"', cacheUpdated: true },
     }));
-    const { body } = await dispatch(f, request); expect(body).toMatchObject({ outcome: 'held', code: 'outcome_unknown' });
+    const { response, body } = await dispatch(f, request); expect(body).toMatchObject({ outcome: 'held', code: 'outcome_unknown' });
+    expect(response.status).toBe(502);
     expect(JSON.stringify(body)).not.toContain('PRIVATE'); expect(f.saved?.state).toBe('pending');
   });
   it('recovers a committed terminal receipt after the finalize response was lost, without any write', async () => {

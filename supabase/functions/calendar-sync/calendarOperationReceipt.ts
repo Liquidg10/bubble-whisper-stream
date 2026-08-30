@@ -25,8 +25,8 @@ function response(body: CalendarOperationResponse | { error: 'invalid_request' }
     'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': '*',
   } });
 }
-function held(identity: CalendarOperationIdentity, code: CalendarOperationHeldCode): Response {
-  return response({ version: 2, ...identity, outcome: 'held', code });
+function held(identity: CalendarOperationIdentity, code: CalendarOperationHeldCode, status = 200): Response {
+  return response({ version: 2, ...identity, outcome: 'held', code }, status);
 }
 function snapshotRequest(raw: unknown): CalendarOperationRequest | null {
   try {
@@ -37,16 +37,16 @@ function snapshotRequest(raw: unknown): CalendarOperationRequest | null {
 function authenticated(dependencies: CalendarOperationReadDependencies): dependencies is CalendarOperationReadDependencies & { callerUserId: string } {
   return !dependencies.isInternalCaller && reviewedUpdateUuid(dependencies.callerUserId);
 }
-function storedResponse(raw: unknown, owner: string, identity: CalendarOperationIdentity, missing: CalendarOperationHeldCode): Response {
-  if (raw === null) return held(identity, missing);
+function storedResponse(raw: unknown, owner: string, identity: CalendarOperationIdentity, missing: CalendarOperationHeldCode, unresolvedStatus = 200): Response {
+  if (raw === null) return held(identity, missing, unresolvedStatus);
   const saved = parseCalendarOperationStoredRecord(raw, owner);
-  if (!saved || !equalCalendarOperationIdentity(saved.identity, identity)) return held(identity, 'registry_unavailable');
+  if (!saved || !equalCalendarOperationIdentity(saved.identity, identity)) return held(identity, 'registry_unavailable', unresolvedStatus);
   if ((saved.state === 'written' || saved.state === 'not_written') &&
     (saved.result?.outcome === 'written' || saved.result?.outcome === 'not_written') && saved.completedAt !== null) {
     return response({ version: 2, ...identity, outcome: 'recorded', completedAt: saved.completedAt, result: saved.result });
   }
   return held(identity, saved.state === 'provider_written' ? 'provider_written_cache_unknown'
-    : saved.state === 'pending' ? 'operation_pending' : 'outcome_unknown');
+    : saved.state === 'pending' ? 'operation_pending' : 'outcome_unknown', unresolvedStatus);
 }
 function sameResult(left: CalendarOperationResult | null, right: CalendarOperationResult): boolean {
   if (!left || left.outcome !== right.outcome) return false;
@@ -110,13 +110,16 @@ export async function handleCalendarOperationUpdate(raw: unknown, dependencies: 
     const digests = await calendarOperationDigests(owner, request);
     if (digests.requestDigest !== identity.requestDigest || digests.afterDigest !== identity.afterDigest) return held(identity, 'invalid_request');
     const claim = await dependencies.claimOperation(owner, identity);
-    if (!reviewedUpdateRecord(claim)) return held(identity, 'registry_unavailable');
+    if (!reviewedUpdateRecord(claim)) return held(identity, 'registry_unavailable', 502);
     if (claim.claimed === false && reviewedUpdateExactKeys(claim, ['claimed'])) {
       // Replays never re-check provider liveness or turn into a fresh attempt.
-      return storedResponse(await dependencies.readOperation(owner, identity), owner, identity, 'operation_conflict');
+      // This invocation conclusively did not claim work. Even an unavailable
+      // lookup must not create a permanent new migration lease for a read.
+      try { return storedResponse(await dependencies.readOperation(owner, identity), owner, identity, 'operation_conflict'); }
+      catch { return held(identity, 'registry_unavailable'); }
     }
     if (claim.claimed !== true || !reviewedUpdateExactKeys(claim, ['claimed', 'claimToken']) || !reviewedUpdateUuid(claim.claimToken))
-      return held(identity, 'registry_unavailable');
+      return held(identity, 'registry_unavailable', 502);
     admitted = true;
     const result = await handleReviewedCalendarUpdate({ version: 1, action: 'confirm_reviewed_update',
       operationId: identity.operationId, calendarAccountId: identity.calendarAccountId, eventId: identity.eventId,
@@ -130,10 +133,10 @@ export async function handleCalendarOperationUpdate(raw: unknown, dependencies: 
     });
     const provider = parseCalendarReviewedUpdateResponse(await result.json());
     if (!provider || provider.operationId !== identity.operationId || provider.calendarAccountId !== identity.calendarAccountId ||
-      provider.eventId !== identity.eventId || provider.outcome === 'ready') return held(identity, 'outcome_unknown');
+      provider.eventId !== identity.eventId || provider.outcome === 'ready') return held(identity, 'outcome_unknown', 502);
     let completion: CalendarOperationResult;
     if (provider.outcome === 'written' || provider.outcome === 'provider_written_cache_unknown') {
-      if (provider.etag === identity.expectedEtag || !equalCalendarReviewedUpdateFields(provider.fields, request.after)) return held(identity, 'outcome_unknown');
+      if (provider.etag === identity.expectedEtag || !equalCalendarReviewedUpdateFields(provider.fields, request.after)) return held(identity, 'outcome_unknown', 502);
       completion = provider.outcome === 'written'
         ? { outcome: 'written', etag: provider.etag, cacheUpdated: true }
         : { outcome: 'provider_written_cache_unknown', etag: provider.etag, cacheUpdated: false };
@@ -144,10 +147,14 @@ export async function handleCalendarOperationUpdate(raw: unknown, dependencies: 
     // it or try again: a later owner-only read can recover that exact receipt.
     const finalized = await dependencies.finalizeOperation(owner, identity, claim.claimToken, completion);
     const saved = parseCalendarOperationStoredRecord(finalized, owner);
-    if (!saved || !equalCalendarOperationIdentity(saved.identity, identity) || !sameResult(saved.result, completion)) return held(identity, 'outcome_unknown');
-    return storedResponse(saved, owner, identity, 'operation_unknown');
+    if (!saved || !equalCalendarOperationIdentity(saved.identity, identity) || !sameResult(saved.result, completion)) return held(identity, 'outcome_unknown', 502);
+    // A readable held receipt is not clean completion of this admitted write.
+    // Keep 5xx semantics so a future migration wrapper retains this request's
+    // lease. Read/replay requests above can finish their own separate lifetime;
+    // none identifies or releases the original write's lease.
+    return storedResponse(saved, owner, identity, 'operation_unknown', 502);
   } catch {
     // No raw provider, RPC, intent, token or account text reaches outer logging.
-    return held(identity, admitted ? 'outcome_unknown' : 'registry_unavailable');
+    return held(identity, admitted ? 'outcome_unknown' : 'registry_unavailable', 502);
   }
 }
