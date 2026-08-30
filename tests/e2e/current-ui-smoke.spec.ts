@@ -594,9 +594,136 @@ test.describe('current UI smoke gate', () => {
     }).getByRole('button')).toHaveCount(5);
   });
 
+  test('signed-out calendar sync is visible but cannot start work', async ({ page }, testInfo) => {
+    // Isolated unauthenticated UI proof; do not contact hosted services.
+    await page.route('**/*', route => {
+      const url = new URL(route.request().url());
+      return ['localhost', '127.0.0.1'].includes(url.hostname) ? route.continue() : route.abort();
+    });
+    const errors: string[] = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto('/calendar');
+    await closeOnboardingIfPresent(page);
+    await expect(page.getByRole('heading', { name: 'Local Calendar Status', exact: true })).toBeVisible();
+    await expect(page.getByText('Google writes', { exact: true })).toBeVisible();
+    await expect(page.getByText('Not verified', { exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Calendar Sync Manager', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Full Sync', exact: true })).toBeDisabled();
+    await expect(page.getByText('Sign in and wait for the calendar manager to be ready for your account.')).toBeVisible();
+    await expect(page.getByText('Calendar imports update owned local tasks only. Outbound calendar changes require review and are not sent by this manager.')).toBeVisible();
+    await page.getByRole('heading', { name: 'Calendar Sync Manager', exact: true }).scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath('calendar-sync-signed-out.png'), fullPage: true });
+    expect(errors).toEqual([]);
+  });
+
   test('unknown routes report an honest not-found state', async ({ page }) => {
     await page.goto('/route-that-does-not-exist');
     await closeOnboardingIfPresent(page);
     await expect(page.getByRole('heading', { name: '404', exact: true })).toBeVisible();
   });
+
+  for (const changeAfterReview of [false, true]) {
+    test(`synthetic signed-in recovery ${changeAfterReview ? 'preserves a hold when the saved task changes' : 'restores only the verified saved link'}`, async ({ page }, testInfo) => {
+      // Real built application + IndexedDB + Web Locks; auth and metadata are
+      // synthetic route responses. No request may reach a hosted service.
+      const owner = '11111111-1111-4111-8111-111111111111';
+      const account = '33333333-3333-4333-8333-333333333333';
+      const eventId = 'browser-recovery-event';
+      const calendar = { startTime: '2030-01-01T10:00:00.000Z', durationMin: 60, calendarId: account };
+      const provenance = { userId: owner, calendarImport: { calendarAccountId: account, eventId } };
+      const bubble = { id: 'browser-recovery-task', content: 'Synthetic saved calendar task', type: 'Task',
+        x: 0, y: 0, size: 0.5, tags: [], completed: false, createdAt: 1, updatedAt: 2,
+        metadata: { ...provenance, calendar, canonicalTask: { schemaVersion: 1, type: 'event', completed: false,
+          metadata: provenance, view: { calendar } } } };
+      const event = { user_id: owner, calendar_account_id: account, external_event_id: eventId, title: bubble.content,
+        start_time: calendar.startTime, end_time: '2030-01-01T11:00:00.000Z', location: null, description: null };
+      const user = { id: owner, aud: 'authenticated', role: 'authenticated', email: 'synthetic@example.test',
+        email_confirmed_at: '2026-01-01T00:00:00.000Z', created_at: '2026-01-01T00:00:00.000Z', app_metadata: {}, user_metadata: {}, identities: [] };
+      const expiry = Math.floor(Date.now() / 1000) + 3600;
+      const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
+      const syntheticToken = `${encode({ alg: 'HS256', typ: 'JWT' })}.${encode({ sub: owner, role: 'authenticated', exp: expiry })}.synthetic-not-a-valid-signature`;
+      await page.route('**/*', async route => {
+        const request = route.request(); const url = new URL(request.url());
+        if (['localhost', '127.0.0.1'].includes(url.hostname)) return route.continue();
+        if (url.pathname === '/auth/v1/token' && request.method() === 'POST') {
+          return route.fulfill({ json: { access_token: syntheticToken, token_type: 'bearer', expires_in: 3600, expires_at: expiry, refresh_token: 'synthetic-local-only-refresh', user } });
+        }
+        if (url.pathname === '/auth/v1/user' && request.method() === 'GET') return route.fulfill({ json: user });
+        if (url.pathname.startsWith('/rest/v1/') && request.method() === 'GET') {
+          const single = request.headers().accept?.includes('vnd.pgrst.object');
+          const row = url.pathname.endsWith('/calendar_accounts') ? { id: account, user_id: owner, sync_enabled: true } : url.pathname.endsWith('/calendar_events') ? event : null;
+          return route.fulfill({ json: single ? row : row ? [row] : [] });
+        }
+        return route.abort();
+      });
+      const pageErrors: string[] = [];
+      page.on('pageerror', error => pageErrors.push(error.message));
+      await page.goto('/login');
+      await closeOnboardingIfPresent(page);
+      await page.getByLabel('Email', { exact: true }).fill('synthetic@example.test');
+      await page.getByLabel('Password', { exact: true }).fill('synthetic-local-password');
+      await page.getByRole('button', { name: 'Sign In', exact: true }).click();
+      await expect(page).toHaveURL(/\/$/);
+      await closeOnboardingIfPresent(page);
+      const storageKey = `calendar-task-sync:v1:${owner}`;
+      await page.evaluate(async ({ bubble, storageKey, owner, account, eventId }) => {
+        await new Promise<void>((resolve, reject) => {
+          const request = indexedDB.open('BubbleUniverse', 4);
+          request.onerror = () => reject(request.error);
+          request.onsuccess = () => {
+            const db = request.result;
+            const tx = db.transaction('bubbles', 'readwrite');
+            tx.objectStore('bubbles').put(bubble);
+            tx.oncomplete = () => { db.close(); resolve(); };
+            tx.onabort = () => { db.close(); reject(new Error('Synthetic seed failed')); };
+          };
+        });
+        localStorage.setItem(storageKey, JSON.stringify({ version: 1, ownerUserId: owner, mappings: [], conflicts: [], unresolvedOperations: [JSON.stringify([account, eventId])] }));
+      }, { bubble, storageKey, owner, account, eventId });
+      await page.goto('/calendar');
+      await closeOnboardingIfPresent(page);
+      await page.getByRole('tab', { name: 'Recovery', exact: true }).click();
+      await page.getByRole('button', { name: 'Refresh recovery list', exact: true }).click();
+      await expect(page.getByText('Known unresolved imports in this list: 1')).toBeVisible();
+      await page.getByRole('button', { name: 'Review saved task link for unresolved import 1', exact: true }).click();
+      await expect(page.getByText('Saved task: Synthetic saved calendar task', { exact: true })).toBeVisible();
+      if (changeAfterReview) {
+        await page.evaluate(async bubble => {
+          await new Promise<void>((resolve, reject) => {
+            const request = indexedDB.open('BubbleUniverse', 4);
+            request.onsuccess = () => {
+              const db = request.result; const tx = db.transaction('bubbles', 'readwrite');
+              tx.objectStore('bubbles').put({ ...bubble, updatedAt: 99, content: 'Synthetic changed task' });
+              tx.oncomplete = () => { db.close(); resolve(); };
+              tx.onabort = () => reject(new Error('Synthetic edit failed'));
+            };
+          });
+        }, bubble);
+      }
+      await page.getByRole('button', { name: 'Restore saved task link', exact: true }).click();
+      if (changeAfterReview) {
+        await expect(page.getByText('Recovery was not confirmed. The hold is preserved; review the saved task again.', { exact: true })).toBeVisible();
+      } else {
+        await expect(page.getByText('Saved task link restored. The existing task and its content were preserved. No Google calendar changes were sent.', { exact: true })).toBeVisible();
+      }
+      const result = await page.evaluate(async ({ storageKey, taskId }) => {
+        const row = await new Promise<unknown>((resolve, reject) => {
+          const request = indexedDB.open('BubbleUniverse', 4);
+          request.onsuccess = () => {
+            const db = request.result; const tx = db.transaction('bubbles', 'readonly');
+            const read = tx.objectStore('bubbles').get(taskId);
+            tx.oncomplete = () => { db.close(); resolve(read.result); };
+            tx.onabort = () => reject(new Error('Synthetic read failed'));
+          };
+        });
+        return { row, envelope: JSON.parse(localStorage.getItem(storageKey)!) };
+      }, { storageKey, taskId: bubble.id });
+      expect(result.row).toEqual(changeAfterReview ? { ...bubble, updatedAt: 99, content: 'Synthetic changed task' } : bubble);
+      expect(result.envelope.unresolvedOperations).toHaveLength(changeAfterReview ? 1 : 0);
+      expect(result.envelope.mappings).toHaveLength(changeAfterReview ? 0 : 1);
+      await page.getByRole('heading', { name: 'Recover a saved calendar import link', exact: true }).scrollIntoViewIfNeeded();
+      await page.screenshot({ path: testInfo.outputPath(`calendar-recovery-${changeAfterReview ? 'held' : 'restored'}.png`), fullPage: true });
+      expect(pageErrors).toEqual([]);
+    });
+  }
 });

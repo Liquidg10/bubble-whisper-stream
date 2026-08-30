@@ -2,6 +2,9 @@
 
 import { Bubble, Reminder, Tag, SelfModel, Settings } from '@/types/bubble';
 
+const COMMITTED_BUBBLE_SNAPSHOT_MAX_ROWS = 10_000;
+const COMMITTED_BUBBLE_SNAPSHOT_MAX_BYTES = 16 * 1024 * 1024;
+
 // IndexedDB wrapper for local storage
 class StorageService {
   private db: IDBDatabase | null = null;
@@ -126,11 +129,7 @@ class StorageService {
 
   // Bubbles CRUD
   async createBubble(bubble: Bubble): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
-    
-    const transaction = this.db.transaction(['bubbles'], 'readwrite');
-    const store = transaction.objectStore('bubbles');
-    await this.promisifyRequest(store.add(bubble));
+    await this.commitBubble(bubble, 'add');
   }
 
   async getBubble(id: string): Promise<Bubble | null> {
@@ -151,12 +150,102 @@ class StorageService {
     return result || [];
   }
 
-  async updateBubble(bubble: Bubble): Promise<void> {
+  async readCommittedBubbles(): Promise<Bubble[]> {
     if (!this.db) throw new Error('Database not initialized');
-    
+    const failure = () => new Error('Committed bubble snapshot could not be verified');
+    let transaction: IDBTransaction;
+    try {
+      transaction = this.db.transaction(['bubbles'], 'readonly');
+    } catch {
+      throw failure();
+    }
+
+    // Recovery reads the database, not a possibly stale facade. A cursor bounds
+    // accumulation, and only a completed transaction can publish the snapshot.
+    // This is local transaction evidence, not remote or physical-disk durability.
+    return new Promise((resolve, reject) => {
+      const bubbles: Bubble[] = [];
+      let serializedBytes = 2; // The surrounding JSON array brackets.
+      let exhausted = false;
+      let failed = false;
+      const encoder = new TextEncoder();
+      const fail = () => {
+        if (failed) return;
+        failed = true;
+        try { transaction.abort(); } catch { /* Already inactive; no snapshot receipt. */ }
+        reject(failure());
+      };
+      transaction.oncomplete = () => {
+        if (exhausted && !failed) resolve(bubbles);
+        else reject(failure());
+      };
+      transaction.onabort = () => {
+        failed = true;
+        reject(failure());
+      };
+      transaction.onerror = fail;
+
+      try {
+        const request = transaction.objectStore('bubbles').openCursor();
+        request.onerror = fail;
+        request.onsuccess = () => {
+          if (failed) return;
+          try {
+            const cursor = request.result;
+            if (cursor === null) {
+              exhausted = true;
+              return;
+            }
+            if (bubbles.length >= COMMITTED_BUBBLE_SNAPSHOT_MAX_ROWS) throw failure();
+            const bubble = cursor.value as Bubble;
+            const serialized = JSON.stringify(bubble);
+            const separatorBytes = bubbles.length === 0 ? 0 : 1;
+            const remainingBytes = COMMITTED_BUBBLE_SNAPSHOT_MAX_BYTES - serializedBytes - separatorBytes;
+            // UTF-16 length is a cheap lower bound before allocating UTF-8 bytes.
+            if (typeof serialized !== 'string' || serialized.length > remainingBytes) throw failure();
+            const rowBytes = encoder.encode(serialized).byteLength;
+            if (rowBytes > remainingBytes) throw failure();
+            serializedBytes += separatorBytes + rowBytes;
+            bubbles.push(bubble);
+            cursor.continue();
+          } catch {
+            fail();
+          }
+        };
+      } catch {
+        fail();
+      }
+    });
+  }
+
+  async updateBubble(bubble: Bubble): Promise<void> {
+    await this.commitBubble(bubble, 'put');
+  }
+
+  private commitBubble(bubble: Bubble, operation: 'add' | 'put'): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
     const transaction = this.db.transaction(['bubbles'], 'readwrite');
-    const store = transaction.objectStore('bubbles');
-    await this.promisifyRequest(store.put(bubble));
+    // Request success can precede a later transaction abort. Publish a local
+    // save receipt only after commit; this is not a remote sync/durability claim.
+    return new Promise((resolve, reject) => {
+      let requestSucceeded = false;
+      let requestFailed = false;
+      transaction.oncomplete = () => {
+        if (requestSucceeded && !requestFailed) resolve();
+        else reject(new Error('Bubble transaction completed without a verified write'));
+      };
+      transaction.onabort = () => reject(new Error('Bubble transaction aborted before commit'));
+      transaction.onerror = () => { requestFailed = true; };
+      try {
+        const request = transaction.objectStore('bubbles')[operation](bubble);
+        request.onsuccess = () => { requestSucceeded = true; };
+        // Do not prevent the default abort or settle before the transaction.
+        request.onerror = () => { requestFailed = true; };
+      } catch {
+        try { transaction.abort(); } catch { /* Already inactive; no write receipt. */ }
+        reject(new Error('Unable to enqueue bubble write'));
+      }
+    });
   }
 
   async deleteBubble(id: string): Promise<void> {
