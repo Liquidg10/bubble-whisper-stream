@@ -5,6 +5,8 @@ This receipt does not claim a merge, frontend publication, provider operation,
 database rollout, source freeze or production cutover.
 
 - Initial canonical base: `ed73e9bfba8a8b0116343cdfe40e330ff6a6b7fe`.
+- Final integration base: `7b754d73af61d82c85f4d54f18fb8f175464766e`, the
+  preceding lifecycle release merged as PR #36. Rebase completed without conflict.
 - Branch: `codex/release-calendar-recovery`.
 - Extraction source: `9e366883cec9b50a173cd267d16f4b488f3e0ace` in draft PR #35.
 - Source worktree: `bubble-whisper-stream-scoped-migration-freeze` (preserved).
@@ -89,16 +91,20 @@ failure is not presented as successful recovery.
   photo gateway/client changes, Supabase configuration and scheduler changes.
   Those remain a separately coordinated rollout, not dependencies of this code.
 
-## Verification on the initial canonical base
+## Verification on the final integration base
 
 Foreground `npm ci` completed with zero reported dependency vulnerabilities.
 All 24 extracted files matched source revision `9e36688` byte-for-byte.
+The initial main-based extraction passed 1,158 full-suite tests and 635 bounded
+tests before rebase. The following release checks were repeated after integrating
+the preceding lifecycle merge; extraction-source equivalence was checked again.
 
 | Check | Result |
 | --- | --- |
 | `npm run test:isolation:calendar-sync` | 266 passed, 11 files |
-| `npm run test:vitest:ci` | 1,158 passed, 52 inherited skips; 107 passed / 3 skipped files |
-| `npm run test:unit:ci` | 635 passed, 58 files |
+| `npm run test:isolation:schedulers` | 68 passed, 5 files |
+| `npm run test:vitest:ci` | 1,226 passed, 52 inherited skips; 112 passed / 3 skipped files |
+| `npm run test:unit:ci` | 703 passed, 63 files |
 | `npm run test:storage-browser` | 7 passed |
 | `CI=true npm run test:e2e:ci` | 12 passed |
 | `CI=true npm run test:a11y:ci` | 14 passed |
@@ -122,6 +128,6 @@ the 52 skipped tests and lint/cohesion debt remain disclosed, not called resolve
 
 The focused Calendar gate is included in normal hosted quality CI, including
 AuthProvider and UI tests not selected by the older bounded unit gate. The real
-storage browser gate is included in normal browser CI. Rebase onto the preceding
-lifecycle merge, rerun focused/release checks, and verify exact-head hosted checks
-before merging. Publication and production parity are separate release steps.
+storage browser gate is included in normal browser CI. The preceding lifecycle
+merge is integrated. Exact-head hosted checks must also be verified before merging.
+Publication and production parity are separate release steps.
