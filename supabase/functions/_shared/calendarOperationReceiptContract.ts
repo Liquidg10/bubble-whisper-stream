@@ -53,14 +53,15 @@ export function calendarOperationGoogleId(value: unknown): value is string {
     ![...value].some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127) &&
     !['primary', 'all', '*'].includes(value);
 }
-export function calendarOperationDigest(value: unknown): value is string { return typeof value === 'string' && DIGEST.test(value); }
+export function calendarOperationDigest(value: unknown): value is string { return typeof value === 'string' && value.length === 64 && DIGEST.test(value); }
+function exactText(value: unknown): value is string { return typeof value === 'string' && value === value.trim(); }
 function base(value: Record<string, unknown>): boolean {
-  return BASE.every(key => Object.prototype.hasOwnProperty.call(value, key)) && reviewedUpdateUuid(value.operationId) &&
+  return BASE.every(key => Object.prototype.hasOwnProperty.call(value, key) && exactText(value[key])) && reviewedUpdateUuid(value.operationId) &&
     reviewedUpdateId(value.taskId) && reviewedUpdateUuid(value.calendarAccountId) && reviewedUpdateId(value.eventId);
 }
 export function parseCalendarOperationIdentity(value: unknown): CalendarOperationIdentity | null {
   if (!reviewedUpdateRecord(value) || !reviewedUpdateExactKeys(value, IDENTITY) || !base(value) ||
-    !calendarOperationGoogleId(value.googleCalendarId) || !reviewedUpdateEtag(value.expectedEtag) ||
+    !calendarOperationGoogleId(value.googleCalendarId) || !exactText(value.expectedEtag) || !reviewedUpdateEtag(value.expectedEtag) ||
     !calendarOperationDigest(value.requestDigest) || !calendarOperationDigest(value.afterDigest)) return null;
   return value as unknown as CalendarOperationIdentity;
 }
@@ -92,7 +93,7 @@ export function parseCalendarOperationResult(value: unknown, expectedEtag: strin
     return value as CalendarOperationResult;
   if (value.outcome === 'uncertain' && reviewedUpdateExactKeys(value, ['outcome', 'code']) && value.code === 'provider_outcome_unknown')
     return value as CalendarOperationResult;
-  if (reviewedUpdateExactKeys(value, ['outcome', 'etag', 'cacheUpdated']) && reviewedUpdateEtag(value.etag) && value.etag !== expectedEtag &&
+  if (reviewedUpdateExactKeys(value, ['outcome', 'etag', 'cacheUpdated']) && exactText(value.etag) && reviewedUpdateEtag(value.etag) && value.etag !== expectedEtag &&
     ((value.outcome === 'written' && value.cacheUpdated === true) || (value.outcome === 'provider_written_cache_unknown' && value.cacheUpdated === false)))
     return value as CalendarOperationResult;
   return null;
@@ -100,7 +101,7 @@ export function parseCalendarOperationResult(value: unknown, expectedEtag: strin
 export function parseCalendarOperationResponse(value: unknown): CalendarOperationResponse | null {
   if (!reviewedUpdateRecord(value) || value.version !== 2 || !base(value)) return null;
   if (value.outcome === 'ready' && reviewedUpdateExactKeys(value, ['version', 'outcome', ...BASE, 'googleCalendarId', 'expectedEtag', 'before']) &&
-    calendarOperationGoogleId(value.googleCalendarId) && reviewedUpdateEtag(value.expectedEtag) && isCalendarReviewedUpdateFields(value.before))
+    calendarOperationGoogleId(value.googleCalendarId) && exactText(value.expectedEtag) && reviewedUpdateEtag(value.expectedEtag) && isCalendarReviewedUpdateFields(value.before))
     return value as unknown as CalendarOperationPrepareResponse;
   if (value.outcome === 'unavailable' && reviewedUpdateExactKeys(value, ['version', 'outcome', ...BASE, 'code']) &&
     (knownNotWritten(value.code) || value.code === 'registry_unavailable')) return value as unknown as CalendarOperationPrepareResponse;
@@ -115,7 +116,7 @@ export function parseCalendarOperationResponse(value: unknown): CalendarOperatio
   return null;
 }
 export function parseCalendarOperationStoredRecord(value: unknown, owner: string): CalendarOperationStoredRecord | null {
-  if (!reviewedUpdateUuid(owner) || !reviewedUpdateRecord(value) ||
+  if (!exactText(owner) || !reviewedUpdateUuid(owner) || !reviewedUpdateRecord(value) ||
     !reviewedUpdateExactKeys(value, ['ownerUserId', 'identity', 'state', 'completedAt', 'result']) || value.ownerUserId !== owner) return null;
   const identity = parseCalendarOperationIdentity(value.identity);
   if (!identity) return null;
@@ -139,10 +140,14 @@ export async function calendarOperationAfterDigest(value: CalendarReviewedUpdate
 }
 /** Stable array encoding binds the authenticated owner, exact target, original version and all reviewed fields. */
 export async function calendarOperationDigests(owner: string, intent: CalendarOperationIntent): Promise<{ requestDigest: string; afterDigest: string }> {
-  if (!reviewedUpdateUuid(owner) || !reviewedUpdateRecord(intent) || !base(intent as unknown as Record<string, unknown>) ||
-    !calendarOperationGoogleId(intent.googleCalendarId) || !reviewedUpdateEtag(intent.expectedEtag) ||
+  if (!exactText(owner) || !reviewedUpdateUuid(owner) || !reviewedUpdateRecord(intent) || !base(intent as unknown as Record<string, unknown>) ||
+    !calendarOperationGoogleId(intent.googleCalendarId) || !exactText(intent.expectedEtag) || !reviewedUpdateEtag(intent.expectedEtag) ||
     !isCalendarReviewedUpdateFields(intent.before) || !isCalendarReviewedUpdateFields(intent.after)) throw new Error('Invalid Calendar intent');
-  const requestDigest = await digest(['mind-manual-calendar-operation', 2, owner, intent.operationId, intent.taskId,
-    intent.calendarAccountId, intent.eventId, intent.googleCalendarId, intent.expectedEtag, fields(intent.before), fields(intent.after)]);
-  return { requestDigest, afterDigest: await calendarOperationAfterDigest(intent.after) };
+  // Snapshot both encodings before any await: a mutable caller cannot bind two different intents.
+  const before = fields(intent.before);
+  const after = fields(intent.after);
+  const request = ['mind-manual-calendar-operation', 2, owner, intent.operationId, intent.taskId,
+    intent.calendarAccountId, intent.eventId, intent.googleCalendarId, intent.expectedEtag, before, after];
+  const [requestDigest, afterDigest] = await Promise.all([digest(request), digest(['mind-manual-calendar-fields', 2, after])]);
+  return { requestDigest, afterDigest };
 }
