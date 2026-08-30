@@ -37,6 +37,8 @@ jobs:
           MIND_MANUAL_TEST_PG_BIN: /usr/lib/postgresql/16/bin
       - name: Test preserved sync row parity and denied-write evidence
         run: npm run test:isolation:sync-deferred
+      - name: Test browser background writer lifecycle contracts
+        run: npm run test:isolation:schedulers
       - name: Test guarded storage ingress and exact guard catalogs
         run: npm run test:isolation:ingress
         env:

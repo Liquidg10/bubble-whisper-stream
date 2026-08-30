@@ -125,6 +125,9 @@ tranche before it can become a live activation verifier:
   has a twice-daily source call and manual dispatch. Inventory active/queued
   runs, database cron/network jobs, external jobs and operator writers. Drain
   them or prove their admission denial without losing provider catch-up work.
+  The [authenticated inventory and browser lifecycle follow-up](background-writer-lifecycle-and-rollout-inventory.md)
+  records a live observation, not retirement or drain. The candidate's browser
+  stop/start safeguards do not stop other clients or provider schedulers.
 - **Exact guard catalog parity.** Fixed-reference structural validation is now
   implemented. Fresh source and target receipts must prove the identical
   reviewed manual artifacts; no live installation or parity is established.
@@ -144,6 +147,7 @@ npm ci
 npm run test:isolation:freeze
 npm run test:isolation:subjects
 npm run test:isolation:ingress
+npm run test:isolation:schedulers
 npm run typecheck
 npm run test:unit:ci
 npm run test:vitest:ci
