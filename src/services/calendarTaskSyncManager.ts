@@ -1,6 +1,6 @@
 /**
- * Owner-bound Calendar-to-task synchronization. Automatic/provider writes are
- * intentionally unavailable: outgoing changes require a separate review flow.
+ * Owner-bound Calendar-to-task synchronization. Automatic provider writes are
+ * unavailable; manual existing-event updates use a separate gated review flow.
  * Stopping admission does not cancel an already dispatched local transaction.
  */
 import type { Task } from '@/types/task';
@@ -9,6 +9,10 @@ import { useTaskStore } from '@/stores/taskStore';
 import { storageService } from '@/services/storage';
 import { withCalendarSyncLock } from '@/services/calendarSyncCoordinator';
 import { findRecoveryCandidate } from '@/services/calendarImportRecoveryEvidence';
+import { findOutboundTaskCandidate } from '@/services/calendarOutboundTaskEvidence';
+import { readOutboundJournal, writeOutboundJournal, outboundHeld, type CalendarOutboundReceipt } from '@/services/calendarOutboundJournal';
+import { parseCalendarReviewedUpdateResponse, isCalendarReviewedUpdateFields, equalCalendarReviewedUpdateFields,
+  type CalendarReviewedUpdateFields, type CalendarReviewedUpdateResponse } from '../../supabase/functions/_shared/calendarReviewedUpdateContract';
 
 export interface CalendarTaskMapping {
   taskId: string;
@@ -58,6 +62,14 @@ export interface CalendarImportRecoveryInspection {
 }
 
 export interface CalendarImportRecoveryResult { success: boolean; message: string; taskId?: string }
+export interface CalendarOutboundInspection {
+  status: 'reviewable' | 'blocked'; message: string; code?: string; reviewToken?: string; taskId?: string;
+  calendarAccountId?: string; eventId?: string;
+  before?: CalendarReviewedUpdateFields; after?: CalendarReviewedUpdateFields;
+}
+export interface CalendarOutboundResult {
+  status: 'written' | 'not_written' | 'uncertain' | 'provider_written'; message: string; taskId?: string;
+}
 
 interface OwnerState {
   mappings: Map<string, CalendarTaskMapping>;
@@ -115,6 +127,9 @@ export class CalendarTaskSyncManager {
   private tail: Promise<unknown> = Promise.resolve();
   private operations = new Map<string, Promise<unknown>>();
   private recoveryReview: { token: string; context: SyncContext; accountId: string; eventId: string; fingerprint: string; expiresAt: number } | null = null;
+  private outboundReview: { token: string; context: SyncContext; operationId: string; taskId: string;
+    accountId: string; eventId: string; fingerprint: string; expiresAt: number; expectedEtag: string;
+    before: CalendarReviewedUpdateFields; after: CalendarReviewedUpdateFields } | null = null;
 
   // No constructor I/O: importing the Calendar page cannot start a writer,
   // load another user's browser state, or create a background timer.
@@ -136,6 +151,7 @@ export class CalendarTaskSyncManager {
     if (this.interval !== undefined) clearInterval(this.interval);
     this.interval = undefined;
     this.recoveryReview = null;
+    this.outboundReview = null;
     // Do not clear the admission tail or uncertainty holds on restart.
   }
 
@@ -229,6 +245,152 @@ export class CalendarTaskSyncManager {
     if (mapping && mapping.taskId !== candidate.taskId) return null;
     if ([...state.mappings.entries()].some(([otherKey, value]) => otherKey !== key && value.taskId === candidate.taskId)) return null;
     return { candidate, event, storageSnapshot, fingerprint: JSON.stringify([storageSnapshot, event, candidate.fingerprint]) };
+  }
+
+  refreshOutboundTasks(): Promise<{ success: boolean; items: { taskId: string; taskTitle: string; held: boolean }[]; message: string }> {
+    const context = this.context();
+    const blocked = () => ({ success: false, items: [], message: 'Linked task inventory could not be verified. Saved update outcomes were preserved.' });
+    if (!context) return Promise.resolve(blocked());
+    return this.admit(context, 'outbound-inventory', async () => {
+      this.outboundReview = null;
+      await this.requireOwner(context);
+      const state = this.state(context);
+      const { journal, snapshot } = readOutboundJournal(context.ownerUserId);
+      const syncSnapshot = localStorage.getItem(calendarSyncStorageKey(context.ownerUserId));
+      await storageService.initialize();
+      this.state(context);
+      const rows = await storageService.readCommittedBubbles();
+      await this.requireOwner(context);
+      if (readOutboundJournal(context.ownerUserId).snapshot !== snapshot || localStorage.getItem(calendarSyncStorageKey(context.ownerUserId)) !== syncSnapshot) return blocked();
+      const items = [...state.mappings.values()].flatMap(mapping => {
+        const candidate = findOutboundTaskCandidate(rows, context.ownerUserId, mapping);
+        if (!candidate || [...state.mappings.values()].filter(item => item.taskId === mapping.taskId).length !== 1) return [];
+        return [{ taskId: candidate.taskId, taskTitle: candidate.fields.title.slice(0, 160),
+          held: state.unresolved.has(eventKey(mapping.calendarAccountId, mapping.eventId)) || outboundHeld(journal, mapping.calendarAccountId, mapping.eventId) }];
+      });
+      return { success: true, items, message: 'Verified local links only; this is not a complete provider or unresolved-outcome inventory.' };
+    }, blocked);
+  }
+
+  inspectOutboundUpdate(taskId: string): Promise<CalendarOutboundInspection> {
+    const context = this.context();
+    const blocked = (message = 'This update could not be reviewed. Check the account, saved task, permissions and existing outcome holds.', code?: string): CalendarOutboundInspection => ({ status: 'blocked', message, ...(code ? { code } : {}) });
+    if (!context || !safeId(taskId)) return Promise.resolve(blocked());
+    return this.admit(context, `outbound-inspect:${taskId}`, async () => {
+      this.outboundReview = null;
+      const evidence = await this.outboundEvidence(context, taskId);
+      if (!evidence) return blocked();
+      const operationId = crypto.randomUUID();
+      const result = await this.invokeReviewedUpdate({ version: 1, action: 'prepare_reviewed_update', operationId,
+        calendarAccountId: evidence.mapping.calendarAccountId, eventId: evidence.mapping.eventId });
+      await this.requireOwner(context);
+      if (!this.matchesOutboundReceipt(result, operationId, evidence.mapping.calendarAccountId, evidence.mapping.eventId)) return blocked();
+      if (result.outcome === 'not_written') return blocked(this.outboundMessage(result), result.code);
+      if (result.outcome !== 'ready') return blocked();
+      const fresh = await this.outboundEvidence(context, taskId);
+      if (!fresh || fresh.fingerprint !== evidence.fingerprint) return blocked();
+      const after = { ...fresh.candidate.fields, startTz: result.before.startTz, endTz: result.before.endTz };
+      if (!isCalendarReviewedUpdateFields(after)) return blocked();
+      if (equalCalendarReviewedUpdateFields(result.before, after)) return blocked('The reviewed fields already match Google Calendar. No update was sent.');
+      const token = crypto.randomUUID();
+      this.outboundReview = { token, context, operationId, taskId, accountId: evidence.mapping.calendarAccountId,
+        eventId: evidence.mapping.eventId, fingerprint: fresh.fingerprint, expiresAt: Date.now() + 5 * 60_000,
+        expectedEtag: result.expectedEtag, before: result.before, after };
+      return { status: 'reviewable', reviewToken: token, taskId, calendarAccountId: evidence.mapping.calendarAccountId,
+        eventId: evidence.mapping.eventId, before: { ...result.before }, after: { ...after },
+        message: 'Review every field. Confirmation updates this existing Google event only; saved task contents and sync conflicts stay unchanged.' };
+    }, blocked);
+  }
+
+  confirmOutboundUpdate(reviewToken: string): Promise<CalendarOutboundResult> {
+    const context = this.context();
+    const notWritten = (): CalendarOutboundResult => ({ status: 'not_written', message: 'No update was dispatched. Review the current saved task again.' });
+    // From the moment dispatch is admitted, exceptions must not claim no write.
+    let dispatched = false;
+    const unknown = (): CalendarOutboundResult => dispatched
+      ? { status: 'uncertain', message: 'The Google update outcome is unconfirmed. Its saved hold blocks another attempt; outcome review is required.' } : notWritten();
+    if (!context || !uuid(reviewToken)) return Promise.resolve(notWritten());
+    return this.admit(context, `outbound-confirm:${reviewToken}`, async () => {
+      const reviewed = this.outboundReview;
+      this.outboundReview = null;
+      if (!reviewed || reviewed.token !== reviewToken || !this.isCurrent(reviewed.context) || Date.now() >= reviewed.expiresAt) return notWritten();
+      const evidence = await this.outboundEvidence(context, reviewed.taskId);
+      if (!evidence || evidence.fingerprint !== reviewed.fingerprint) return notWritten();
+      await this.requireOwner(context);
+      if (Date.now() >= reviewed.expiresAt || localStorage.getItem(calendarSyncStorageKey(context.ownerUserId)) !== evidence.syncSnapshot) return notWritten();
+      const receipt: CalendarOutboundReceipt = { operationId: reviewed.operationId, taskId: reviewed.taskId,
+        calendarAccountId: reviewed.accountId, eventId: reviewed.eventId, createdAt: Date.now(), outcome: 'pending' };
+      const journal = { ...evidence.journal, receipts: [...evidence.journal.receipts, receipt] };
+      const pendingSnapshot = writeOutboundJournal(context.ownerUserId, journal, evidence.journalSnapshot);
+      dispatched = true;
+      const result = await this.invokeReviewedUpdate({ version: 1, action: 'confirm_reviewed_update', operationId: reviewed.operationId,
+        calendarAccountId: reviewed.accountId, eventId: reviewed.eventId, expectedEtag: reviewed.expectedEtag, before: reviewed.before, after: reviewed.after });
+      this.state(context);
+      if (!this.matchesOutboundReceipt(result, reviewed.operationId, reviewed.accountId, reviewed.eventId)) return unknown();
+      let outcome: CalendarOutboundReceipt['outcome'] = 'uncertain';
+      let etag: string | undefined;
+      if (result.outcome === 'not_written') outcome = 'not_written';
+      if (result.outcome === 'written' || result.outcome === 'provider_written_cache_unknown') {
+        if (!equalCalendarReviewedUpdateFields(result.fields, reviewed.after) || result.etag === reviewed.expectedEtag) return unknown();
+        outcome = result.outcome === 'written' ? 'written' : 'provider_written';
+        etag = result.etag;
+      }
+      const completed = { ...receipt, outcome, completedAt: Math.max(Date.now(), receipt.createdAt), ...(etag ? { etag } : {}) };
+      try {
+        writeOutboundJournal(context.ownerUserId, { ...journal, receipts: [...journal.receipts.slice(0, -1), completed] }, pendingSnapshot);
+      } catch {
+        if (etag) return { status: 'provider_written', taskId: reviewed.taskId, message: 'Google returned the reviewed update, but its local receipt could not be saved. The hold remains; do not repeat it.' };
+        return unknown();
+      }
+      if (outcome === 'written') return { status: 'written', taskId: reviewed.taskId, message: 'Google confirmed the reviewed update and its cache receipt. Saved task contents and existing sync conflicts were not changed.' };
+      if (outcome === 'provider_written') return { status: 'provider_written', taskId: reviewed.taskId, message: 'Google confirmed the update, but its cache is unconfirmed. The hold remains; do not repeat it.' };
+      if (outcome === 'not_written') return { status: 'not_written', taskId: reviewed.taskId, message: this.outboundMessage(result) };
+      return unknown();
+    }, unknown);
+  }
+
+  private async outboundEvidence(context: SyncContext, taskId: string) {
+    await this.requireOwner(context);
+    const state = this.state(context);
+    const mappings = [...state.mappings.values()].filter(mapping => mapping.taskId === taskId);
+    if (mappings.length !== 1) return null;
+    const mapping = mappings[0];
+    const { journal, snapshot: journalSnapshot } = readOutboundJournal(context.ownerUserId);
+    if (journal.receipts.length >= 1000 || state.unresolved.has(eventKey(mapping.calendarAccountId, mapping.eventId))
+      || outboundHeld(journal, mapping.calendarAccountId, mapping.eventId)) return null;
+    const syncSnapshot = localStorage.getItem(calendarSyncStorageKey(context.ownerUserId));
+    await storageService.initialize();
+    this.state(context);
+    const rows = await storageService.readCommittedBubbles();
+    await this.requireOwner(context);
+    const candidate = findOutboundTaskCandidate(rows, context.ownerUserId, mapping);
+    if (!candidate || readOutboundJournal(context.ownerUserId).snapshot !== journalSnapshot
+      || localStorage.getItem(calendarSyncStorageKey(context.ownerUserId)) !== syncSnapshot) return null;
+    return { candidate, mapping, journal, journalSnapshot, syncSnapshot,
+      fingerprint: JSON.stringify([candidate.fingerprint, syncSnapshot, journalSnapshot]) };
+  }
+
+  private async invokeReviewedUpdate(body: Record<string, unknown>): Promise<CalendarReviewedUpdateResponse | null> {
+    const { data, error } = await supabase.functions.invoke('calendar-sync', { body });
+    if (!error) return parseCalendarReviewedUpdateResponse(data);
+    // Supabase wraps non-2xx responses. Only a strict versioned server receipt
+    // can explain a partial result; never infer an outcome from error text.
+    const response = error.context;
+    if (!(response instanceof Response)) return null;
+    try { return parseCalendarReviewedUpdateResponse(await response.json()); } catch { return null; }
+  }
+
+  private matchesOutboundReceipt(result: CalendarReviewedUpdateResponse | null, operationId: string, accountId: string, eventId: string): result is CalendarReviewedUpdateResponse {
+    return !!result && result.operationId === operationId && result.calendarAccountId === accountId && result.eventId === eventId;
+  }
+
+  private outboundMessage(result: CalendarReviewedUpdateResponse): string {
+    if (result.outcome !== 'not_written') return 'The update outcome requires review.';
+    if (result.code === 'disabled') return 'Reviewed Google updates are not enabled on this server. No update was sent.';
+    if (result.code === 'write_permission_required') return 'This Google connection has no verified write permission. A separately approved reconnection is required; no update was sent.';
+    if (result.code === 'stale_review') return 'The Google event changed after review. No update was written; review it again.';
+    if (result.code === 'event_not_supported') return 'This flow supports only single timed events without guests. No update was sent.';
+    return 'The server confirmed no update was written. Check the account and permissions, then review again.';
   }
 
   syncTaskToCalendar(task: Task): Promise<CalendarSyncOutcome> {
@@ -434,6 +596,7 @@ export class CalendarTaskSyncManager {
     try {
       state = this.state(context);
       if (state.unresolved.has(key)) return review(OUTCOME_MESSAGE);
+      if (outboundHeld(readOutboundJournal(context.ownerUserId).journal, accountId, eventId)) return review('A prior outbound update outcome requires review before this event can be imported again.');
       const event = await this.canonicalEvent(context, accountId, eventId);
       state = this.state(context);
       const mapping = state.mappings.get(key);
