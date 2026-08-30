@@ -36,6 +36,9 @@ jobs:
       - name: TypeScript
         run: npm run typecheck
 
+      - name: Check names-only optional configuration contract
+        run: npm run test:isolation:config
+
       - name: Run bounded unit and integration gate
         run: npm run test:unit:ci
 
