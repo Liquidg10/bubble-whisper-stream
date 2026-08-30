@@ -12,14 +12,14 @@ export const MIND_MANUAL_EDGE_FUNCTIONS = Object.freeze([
   'oauth-google', 'oauth-google-callback', 'oauth-google-refresh', 'oauth-google-revoke',
   'oauth-google-start', 'oauth-scope-decay', 'personal-voice-record',
   'plaid-create-link-token', 'plaid-exchange-token', 'plaid-get-accounts',
-  'plaid-get-transactions', 'plaid-webhook-handler', 'watch-renewal-cron',
+  'plaid-get-transactions', 'plaid-webhook-handler', 'storage-photo', 'watch-renewal-cron',
 ] as const);
 
 const allowedFunctions = new Set<string>(MIND_MANUAL_EDGE_FUNCTIONS);
 const uuidV4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-storage-operation',
   'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
   'Access-Control-Expose-Headers': 'Retry-After',
 };

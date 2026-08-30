@@ -58,12 +58,17 @@ receipt, not this historical list. Investigate every current blocker.
 
 The target preflight rejects every public relation outside the allowlist. It
 also rejects every public routine, Edge Function, and user-managed secret name
-outside its allowlist, requires exactly the private `photos` and `voice-samples`
+outside its allowlist (except the exact two independently validated guard RPCs), requires exactly the private `photos` and `voice-samples`
 buckets, and explicitly rejects `tenants`, `user_tenants`,
 `bookings`, `orders`, `gift_cards`, `gift_card_transactions`, and
 `financial_audit_log`.
 
 ## Private subject scope contract
+
+Before any guarded preflight, follow the
+[baseline and manual-guard dependency order](storage-ingress-and-catalog-contract.md#exact-catalog-contract-and-baseline-ownership).
+The baseline exporter requires a pre-guard source snapshot. Both projects then
+need the identical reviewed manual guards; absence on both is not parity.
 
 Prepare the real manifest outside Git in a mode-0600 regular file, inside a
 mode-0700 operator directory. The checked-in example has a synthetic UUID and
@@ -120,6 +125,8 @@ live activation gates in the fence document.
 - requires `--subject-scope` for both source and target, including an empty target;
 - fingerprints columns, constraints, indexes, RLS policies, triggers, grants,
   view definitions, and function definitions;
+- separately validates exact migration guard structure against the fixed local
+  reference, including private objects, Auth/public triggers and Storage policies;
 - records exact owner-scoped row counts and SHA-256 content digests without
   emitting row values;
 - records Auth subject/user/identity digests without emitting IDs, email, or
@@ -133,6 +140,8 @@ live activation gates in the fence document.
 `scripts/export-isolated-supabase-schema.sh`
 
 - exports only allowlisted public relations and reviewed functions;
+- refuses an installed guard schema/RPC/trigger/policy before and after export;
+  uses the retained reviewed pre-guard baseline, never strips guard objects;
 - aborts on a missing or overloaded manifest entry;
 - appends reviewed Auth trigger, grants, Plaid boundary, and private-bucket
   hardening;

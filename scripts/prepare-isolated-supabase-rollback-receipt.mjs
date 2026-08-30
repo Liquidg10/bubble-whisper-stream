@@ -3,6 +3,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { validateMigrationGuardCatalogBinding } from "./lib/migration-guard-catalog.mjs";
 import {
   assertAbsolutePath,
   assertPrivateFile,
@@ -338,6 +339,8 @@ function preservedAuthInventory(auth) {
 }
 
 export function validateFreshSourceReceipt(source, fresh) {
+  validateMigrationGuardCatalogBinding(source.catalog?.migrationGuard);
+  validateMigrationGuardCatalogBinding(fresh.catalog?.migrationGuard);
   assertScopeBinding(
     fresh.subjectScope,
     source.subjectScope,

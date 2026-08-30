@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { expectedMigrationGuardContract } from "../lib/migration-guard-catalog.mjs";
 import { spawn, spawnSync } from "node:child_process";
 import {
   chmodSync,
@@ -419,6 +420,7 @@ describe(
       const columnFingerprint = "a".repeat(64);
       const sourceReceipt = {
         ...source,
+        catalog: { migrationGuard: expectedMigrationGuardContract() },
         storage: { objects: [{ bucket: "photos" }] },
         auth: {
           ...source.auth,
@@ -428,6 +430,7 @@ describe(
       };
       const targetReceipt = {
         kind: "target",
+        catalog: { migrationGuard: expectedMigrationGuardContract() },
         subjectScope: binding,
         excludedPublicRelations: [],
         publicData: scopes.map(([relation]) => ({
@@ -446,6 +449,10 @@ describe(
         const validate of [validatePreImportTarget, validatePostImportTarget]
       ) {
         assert.doesNotThrow(() => validate(targetReceipt, sourceReceipt));
+        for (const catalog of [undefined, {}, { migrationGuard: { version: 1 } }]) {
+          assert.throws(() => validate({ ...targetReceipt, catalog }, sourceReceipt), /guard catalog/u);
+          assert.throws(() => validate(targetReceipt, { ...sourceReceipt, catalog }), /guard catalog/u);
+        }
         for (
           const blocker of [
             "storage missing from target: unapproved",

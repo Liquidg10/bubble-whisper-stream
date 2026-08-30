@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { validateMigrationGuardCatalogBinding } from "./lib/migration-guard-catalog.mjs";
 
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
@@ -143,6 +144,8 @@ function readPrivateReceipt(path, label) {
 
 export function validateReceiptChain(receipts, targetRef) {
   const { source, imported, storage, oauthReset, quarantine } = receipts;
+  validateMigrationGuardCatalogBinding(source.value?.catalog?.migrationGuard);
+  validateMigrationGuardCatalogBinding(imported.value?.migrationGuard);
   const binding = validateSubjectScopeBinding(source.value?.subjectScope);
   if (
     binding.targetProjectRef !== targetRef ||

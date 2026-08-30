@@ -37,6 +37,10 @@ jobs:
           MIND_MANUAL_TEST_PG_BIN: /usr/lib/postgresql/16/bin
       - name: Test preserved sync row parity and denied-write evidence
         run: npm run test:isolation:sync-deferred
+      - name: Test guarded storage ingress and exact guard catalogs
+        run: npm run test:isolation:ingress
+        env:
+          MIND_MANUAL_TEST_PG_BIN: /usr/lib/postgresql/16/bin
       - name: Confirm activation remains blocked
         shell: bash
         run: |
@@ -45,3 +49,8 @@ jobs:
           fence_status=$?
           set -e
           test "$fence_status" -eq 2
+          set +e
+          npm run supabase-storage:readiness
+          storage_status=$?
+          set -e
+          test "$storage_status" -eq 2

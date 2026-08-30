@@ -4,6 +4,7 @@ import { chmodSync, mkdirSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { privateSnapshot } from "./lib/import-subject-package.mjs";
+import { validateMigrationGuardCatalogBinding } from "./lib/migration-guard-catalog.mjs";
 import {
   assertScopeBinding,
   loadSubjectScope,
@@ -125,6 +126,7 @@ export function validateSourceReceipt(receipt) {
     receipt.subjectScope,
     "source receipt subject scope",
   );
+  validateMigrationGuardCatalogBinding(receipt.catalog?.migrationGuard);
   if (
     receipt.auth.userCount !== receipt.subjectScope.subjectCount ||
     receipt.auth.subjectIdsSha256 !== receipt.subjectScope.subjectIdsSha256

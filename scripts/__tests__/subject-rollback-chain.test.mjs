@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { expectedMigrationGuardContract } from "../lib/migration-guard-catalog.mjs";
 import { describe, it } from "node:test";
 import { validateRollbackScope } from "../lib/rollback-subject-scope.mjs";
 import { subjectScopeBinding } from "../lib/migration-subject-scope.mjs";
@@ -46,7 +47,7 @@ function fixture() {
     capturedAt: new Date().toISOString(),
     subjectScope: binding,
     manifests: { hash: "a".repeat(64) },
-    catalog: { exact: "b".repeat(64) },
+    catalog: { exact: "b".repeat(64), migrationGuard: expectedMigrationGuardContract() },
     auth: {
       userCount: 1,
       subjectIdsSha256: binding.subjectIdsSha256,
@@ -91,7 +92,7 @@ function fixture() {
         name,
         name === "sourceRevalidation"
           ? structuredClone(source)
-          : { subjectScope: binding },
+          : { subjectScope: binding, ...(name === "imported" ? { migrationGuard: expectedMigrationGuardContract() } : {}) },
       ]),
     ),
   };
@@ -100,6 +101,17 @@ function fixture() {
 describe("subject scope through rollback and deferred-sync evidence", () => {
   it("accepts one exact scope across all mandatory receipt boundaries", () => {
     assert.deepEqual(validateRollbackScope(fixture()), binding);
+  });
+  it("rejects missing or stale guard bindings in source, import and fresh source", () => {
+    for (const key of ["source", "imported", "sourceRevalidation"]) {
+      for (const guard of [undefined, { version: 1 }]) {
+        const input = fixture();
+        if (key === "source") input.source.catalog.migrationGuard = guard;
+        else if (key === "imported") input.receipts.imported.migrationGuard = guard;
+        else input.receipts.sourceRevalidation.catalog.migrationGuard = guard;
+        assert.throws(() => validateRollbackScope(input), /guard catalog/u);
+      }
+    }
   });
   for (const name of receiptNames) {
     it(`rejects missing or swapped ${name} scope even when project and counts agree`, () => {
@@ -140,7 +152,7 @@ describe("subject scope through rollback and deferred-sync evidence", () => {
         () =>
           validateFreshSourceReceipt(source, {
             ...fresh,
-            [section]: { changed: true },
+            [section]: section === "catalog" ? { ...fresh.catalog, changed: true } : { changed: true },
           }),
         /drifted/,
       );
@@ -204,6 +216,7 @@ describe("subject scope through rollback and deferred-sync evidence", () => {
       source: wrapped(source, "1"),
       imported: wrapped({
         ...envelope,
+        migrationGuard: expectedMigrationGuardContract(),
         status: "verified_pending_storage_and_provider_rebind",
       }, "2"),
       storage: wrapped({
@@ -224,6 +237,12 @@ describe("subject scope through rollback and deferred-sync evidence", () => {
       }, "5"),
     };
     assert.doesNotThrow(() => validateReceiptChain(inputs, targetRef));
+    for (const key of ["source", "imported"]) {
+      const changed = structuredClone(inputs);
+      if (key === "source") delete changed.source.value.catalog.migrationGuard;
+      else delete changed.imported.value.migrationGuard;
+      assert.throws(() => validateReceiptChain(changed, targetRef), /guard catalog/u);
+    }
     assert.throws(
       () =>
         validateReceiptChain({

@@ -8,11 +8,11 @@ import ts from 'typescript';
 export const ACTIVATION_BLOCKERS = Object.freeze([
   ['subject_scope', 'Subject-scoped export, preflight, storage and receipt binding are locally implemented, but require the actual owner-approved private subject list, reviewed legacy assignments, exact live guard membership and fresh scoped receipts. Synthetic tests do not approve any live subject.'],
   ['shared_identity', 'Selected identities and cross-product FK/trigger dependencies need an explicit disposition; fencing an Auth user also blocks that user\'s login metadata updates and can abort a commerce transaction that cascades into a selected row.'],
-  ['storage_ingress', 'Direct browser, signed/resumable/S3 and privileged storage writers must be stopped and drained at the byte ingress boundary. A database trigger is not proof.'],
-  ['runtime_generation', 'Verify the 33 endpoints are exclusive to Mind Manual, every deployed version, and retirement of pre-instrumentation requests/WebSockets; zero new leases does not prove old workers retired.'],
+  ['storage_ingress', 'The admitted photo gateway and restrictive direct-write policies are locally implemented; historical signed/resumable/S3, privileged and already-authorized storage writers still require provider-level stop/drain evidence. Zero app leases is not a byte freeze.'],
+  ['runtime_generation', 'Verify the 34 endpoints are exclusive to Mind Manual, every deployed version, and retirement of pre-instrumentation requests/WebSockets; zero new leases does not prove old workers retired.'],
   ['provider_outcomes', 'A completed HTTP handler is not proof a remote provider stopped after a lost response. Reconcile every ambiguous provider attempt, idempotency receipt and pending outcome before freeze.'],
   ['scheduler_inventory', 'GitHub calendar-watch-renewal schedule/manual dispatch, active runs, database jobs and external writers require authenticated scoped inventory and drain evidence.'],
-  ['catalog_parity', 'Source-only guard triggers and RPCs change catalog fingerprints. Exact parity or narrowly reviewed guard-aware comparison is not implemented.'],
+  ['catalog_parity', 'Fixed-reference exact guard catalog validation is locally implemented. Both projects must receive the identical reviewed manual guard artifacts after the retained pre-guard business baseline; fresh live catalog receipts are still required.'],
   ['live_denial_and_rollback', 'Fresh selected-user denial, unrelated-commerce continuity, storage-byte stability and tested rollback evidence are required after an approved deployment.'],
   ['owner_window', 'No source activation, Auth migration or maintenance window is authorized by implementing this code.'],
 ].map(([code, reason]) => Object.freeze({ code, reason })));

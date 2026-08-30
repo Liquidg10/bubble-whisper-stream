@@ -16,7 +16,7 @@ The control sequence is:
 
 1. `open`: admission allowed; writes unchanged; explicit existing Auth subjects
    can be configured through the private operator function.
-2. `draining`: new work through all 33 Mind Manual Edge entrypoints receives
+2. `draining`: new work through all 34 Mind Manual Edge entrypoints receives
    a sanitized 503 and retry header; already admitted requests retain leases;
    database writes are still allowed to let admitted work finish.
 3. `fenced`: transition is refused until every Edge lease is released. Writes
@@ -66,8 +66,10 @@ Source row/Auth/storage fingerprints describe selected users only; unrelated
 user/sign-up counts remain separate from compared evidence. Target inventories
 still inspect all rows/users and reject unapproved contents. Source durable
 rows with null or unknown owners require disposition. Exact catalog comparison
-is unchanged: there are no trigger/RPC exclusions to bypass the guard rollout
-blocker.
+is unchanged for business objects. A separate fixed-reference contract now
+validates the private guards, Auth/public triggers and exact two guard RPCs;
+missing guards on both sides is rejected. See the
+[storage and catalog contract](storage-ingress-and-catalog-contract.md).
 
 Exports recheck selected Auth/public row counts and content hashes inside the
 same repeatable-read transaction as every binary COPY. They also reject
@@ -81,14 +83,15 @@ The Edge wrapper is intentionally always enforced: there is no environment
 flag that silently disables it when the control schema is missing. **Deploying
 these Edge functions before the reviewed control SQL is installed would return
 503 for normal requests.** Neither source nor target installation/deployment is
-authorized by local implementation or test success. The current migration
-allowlists also do not include the two new RPCs or the guard catalog; do not
-add blanket exceptions to get around their rejection.
+authorized by local implementation or test success. Guard artifacts must be
+installed identically on both projects after the retained pre-guard baseline.
+Only exact independently validated guard RPCs are accepted beside the business
+allowlist; there are no blanket exceptions.
 
 ## What is not proven or implemented yet
 
 `npm run supabase-freeze:readiness` is read-only source inspection. It always
-exits 2 with `status: blocked`, even when all 33 entrypoints are wired. It has
+exits 2 with `status: blocked`, even when all 34 entrypoints are wired. It has
 no execute, force, confirmation or owner-assertion flags and cannot mint a
 freeze or CUTOVER receipt. Resolve all of the following in a later reviewed
 tranche before it can become a live activation verifier:
@@ -104,12 +107,12 @@ tranche before it can become a live activation verifier:
   FKs, cascades and triggers: blocking a selected child may roll back a larger
   transaction. Unselected synthetic-user tests do not prove every live commerce
   flow unaffected.
-- **Storage byte ingress.** `photoService` uploads/deletes directly through
-  Storage, outside Edge admission. Inventory and stop/drain standard, resumable,
-  S3, signed-upload and privileged writers for `photos` and `voice-samples`.
-  Guarding `storage.objects` alone cannot prove immutable stored bytes. No
-  storage fence is installed by this SQL.
-- **Runtime generation and endpoint exclusivity.** Prove these 33 functions
+- **Storage byte ingress.** Photo mutations now use the admitted gateway; the
+  separate manual artifact restricts direct client writes. Neither revokes
+  historical signed/privileged work or proves accepted requests drained. The
+  storage readiness diagnostic always remains blocked; authenticated provider
+  inventory, writer retirement and byte stability are still required.
+- **Runtime generation and endpoint exclusivity.** Prove these 34 functions
   belong only to Mind Manual, verify deployed artifacts, and retire/account for
   every pre-instrumentation request, stream and WebSocket. Zero leases only
   describes work admitted by the new helper.
@@ -122,10 +125,9 @@ tranche before it can become a live activation verifier:
   has a twice-daily source call and manual dispatch. Inventory active/queued
   runs, database cron/network jobs, external jobs and operator writers. Drain
   them or prove their admission denial without losing provider catch-up work.
-- **Exact guard catalog parity.** New public triggers change existing relation
-  fingerprints. New RPCs are rejected by the target allowlist; private control
-  objects and Auth triggers are not covered by the old catalog receipt. Extend
-  the exact contract, not broad exclusions or disabled comparisons.
+- **Exact guard catalog parity.** Fixed-reference structural validation is now
+  implemented. Fresh source and target receipts must prove the identical
+  reviewed manual artifacts; no live installation or parity is established.
 - **Live denial, data stability and rollback evidence.** After approved rollout,
   verify selected-user denials, unrelated-product continuity, byte-level storage
   stability and restoration. Local synthetic PostgreSQL and mocked HTTP results
@@ -141,11 +143,13 @@ tranche before it can become a live activation verifier:
 npm ci
 npm run test:isolation:freeze
 npm run test:isolation:subjects
+npm run test:isolation:ingress
 npm run typecheck
 npm run test:unit:ci
 npm run test:vitest:ci
 npm run build
 npm run supabase-freeze:readiness
+npm run supabase-storage:readiness
 ```
 
 The PostgreSQL integration runner must start an isolated local temporary

@@ -51,7 +51,7 @@ INSERT INTO mind_manual_migration.edge_functions (function_name) VALUES
   ('oauth-google-refresh'), ('oauth-google-revoke'), ('oauth-google-start'),
   ('oauth-scope-decay'), ('personal-voice-record'), ('plaid-create-link-token'),
   ('plaid-exchange-token'), ('plaid-get-accounts'), ('plaid-get-transactions'),
-  ('plaid-webhook-handler'), ('watch-renewal-cron');
+  ('plaid-webhook-handler'), ('storage-photo'), ('watch-renewal-cron');
 
 CREATE TABLE mind_manual_migration.edge_leases (
   lease_id uuid PRIMARY KEY,

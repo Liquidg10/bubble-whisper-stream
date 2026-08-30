@@ -3,6 +3,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { validateMigrationGuardCatalogBinding } from "./lib/migration-guard-catalog.mjs";
 import {
   assertAbsolutePath,
   assertPrivateFile,
@@ -582,6 +583,7 @@ export async function runStorageCopy(argv = process.argv.slice(2), {
     scopeBinding,
     "source receipt",
   );
+  validateMigrationGuardCatalogBinding(sourceReceipt.catalog?.migrationGuard);
   const selectedSubjectIds = [...scope.subjectIds].sort();
   if (
     sourceReceipt.auth?.userCount !== selectedSubjectIds.length ||

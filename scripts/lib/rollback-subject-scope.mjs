@@ -1,5 +1,6 @@
 import { assertScopeBinding } from "./migration-subject-scope.mjs";
 import { validateImportScope } from "./import-subject-package.mjs";
+import { validateMigrationGuardCatalogBinding } from "./migration-guard-catalog.mjs";
 
 /** One approved subject set must survive every action-time receipt boundary. */
 export function validateRollbackScope(
@@ -29,6 +30,8 @@ export function validateRollbackScope(
       `${label} subject scope`,
     );
   }
+  validateMigrationGuardCatalogBinding(receipts.imported.migrationGuard);
+  validateMigrationGuardCatalogBinding(receipts.sourceRevalidation.catalog?.migrationGuard);
   if (
     receipts.sourceRevalidation.auth?.subjectIdsSha256 !==
       binding.subjectIdsSha256 ||

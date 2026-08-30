@@ -21,6 +21,7 @@ import {
   writePrivateJson,
 } from "./lib/supabase-isolation.mjs";
 import { assertScopeBinding } from "./lib/migration-subject-scope.mjs";
+import { validateMigrationGuardCatalogBinding } from "./lib/migration-guard-catalog.mjs";
 import {
   importTransactionGuards,
   privateSnapshot,
@@ -100,6 +101,8 @@ function missingPendingStorageBlockers(sourceReceipt) {
 }
 
 export function validatePreImportTarget(targetReceipt, sourceReceipt) {
+  validateMigrationGuardCatalogBinding(sourceReceipt.catalog?.migrationGuard);
+  validateMigrationGuardCatalogBinding(targetReceipt.catalog?.migrationGuard);
   assertScopeBinding(
     targetReceipt.subjectScope,
     sourceReceipt.subjectScope,
@@ -148,6 +151,8 @@ export function validatePreImportTarget(targetReceipt, sourceReceipt) {
 }
 
 export function validatePostImportTarget(targetReceipt, sourceReceipt) {
+  validateMigrationGuardCatalogBinding(sourceReceipt.catalog?.migrationGuard);
+  validateMigrationGuardCatalogBinding(targetReceipt.catalog?.migrationGuard);
   assertScopeBinding(
     targetReceipt.subjectScope,
     sourceReceipt.subjectScope,
@@ -469,6 +474,7 @@ async function main() {
     writePrivateJson(importReceiptPath, {
       version: 1,
       status: "verified_pending_storage_and_provider_rebind",
+      migrationGuard: sourceReceipt.catalog.migrationGuard,
       importedAt: new Date().toISOString(),
       sourceProjectRef: SOURCE_PROJECT_REF,
       targetProjectRef: targetRef,

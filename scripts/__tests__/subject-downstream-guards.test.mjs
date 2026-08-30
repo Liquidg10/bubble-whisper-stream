@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { expectedMigrationGuardContract } from "../lib/migration-guard-catalog.mjs";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -77,6 +78,7 @@ function receiptFixture() {
     status: "ready",
     blockers: [],
     subjectScope: scope,
+    catalog: { migrationGuard: expectedMigrationGuardContract() },
     auth: { userCount: 1, subjectIdsSha256: scope.subjectIdsSha256 },
     publicData,
     manifests: {
@@ -87,6 +89,7 @@ function receiptFixture() {
   };
   const imported = {
     version: 1,
+    migrationGuard: expectedMigrationGuardContract(),
     status: "verified_pending_storage_and_provider_rebind",
     sourceProjectRef: sourceRef,
     targetProjectRef: targetRef,
@@ -120,6 +123,14 @@ function receiptFixture() {
 }
 
 describe("scoped downstream receipt contracts", () => {
+  it("rejects legacy or forged guard receipts before reset or quarantine", () => {
+    const { source, imported, reset, sourceHash, importHash } = receiptFixture();
+    for (const migrationGuard of [undefined, {}, { ...imported.migrationGuard, catalogSha256: "0".repeat(64) }]) {
+      const changed = { ...imported, migrationGuard };
+      assert.throws(() => validateMigrationReceipts(source, changed, sourceHash, targetRef), /guard catalog/u);
+      assert.throws(() => validateQuarantineInputs(changed, reset, importHash, targetRef), /guard catalog/u);
+    }
+  });
   it("accepts one exact scoped source/import/reset chain", () => {
     const { source, imported, reset, sourceHash, importHash } =
       receiptFixture();

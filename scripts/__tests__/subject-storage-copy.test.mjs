@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { expectedMigrationGuardContract } from "../lib/migration-guard-catalog.mjs";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -87,6 +88,7 @@ function sourceReceipt(scope, objects) {
     status: "ready",
     blockers: [],
     subjectScope: subjectScopeBinding(scope),
+    catalog: { migrationGuard: expectedMigrationGuardContract() },
     auth: { userCount: 1, subjectIdsSha256: sha256(SELECTED) },
     storage: {
       objects: BUCKETS.map((bucket) => {
@@ -346,6 +348,18 @@ function noCredentialAccess() {
 }
 
 describe("subject-scoped storage migration with offline transport", () => {
+  it("rejects missing or forged source guard catalog before credentials and network", async () => {
+    for (const migrationGuard of [undefined, {}, { version: 1 }]) {
+      const h = harness();
+      const source = JSON.parse(readFileSync(h.sourcePath, "utf8"));
+      source.catalog = { migrationGuard };
+      privateJson(h.sourcePath, source);
+      const credentials = noCredentialAccess();
+      await assert.rejects(() => h.run(h.args(), { env: credentials.env }), /guard catalog/u);
+      credentials.assertUntouched();
+      assert.equal(h.transport.requests.length, 0);
+    }
+  });
   it("requires an explicit scope before credential access or network", async () => {
     const h = harness();
     const credentials = noCredentialAccess();

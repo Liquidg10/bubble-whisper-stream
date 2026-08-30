@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { validateMigrationGuardCatalogBinding } from "./lib/migration-guard-catalog.mjs";
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -67,6 +68,7 @@ export function validateQuarantineInputs(
   importReceiptSha256,
   targetRef,
 ) {
+  validateMigrationGuardCatalogBinding(importReceipt.migrationGuard);
   const subjectScope = validateSubjectScopeBinding(importReceipt.subjectScope);
   assertScopeBinding(
     oauthResetReceipt.subjectScope,

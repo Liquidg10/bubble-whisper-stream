@@ -8,7 +8,7 @@ import { buildLocalFenceReadiness, inspectEdgeFenceCoverage } from '../../../scr
 describe('source freeze reachability and truthful activation boundary', () => {
   it('wraps every manifested Edge entrypoint with its exact name', () => {
     const coverage = inspectEdgeFenceCoverage(process.cwd());
-    expect(coverage).toHaveLength(33);
+    expect(coverage).toHaveLength(34);
     expect(coverage.filter((entry: { covered: boolean }) => !entry.covered)).toEqual([]);
   });
 

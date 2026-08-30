@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { expectedMigrationGuardContract, validateMigrationGuardCatalogBinding } from "./lib/migration-guard-catalog.mjs";
 
 import assert from "node:assert/strict";
 import {
@@ -233,6 +234,8 @@ export function validateMigrationReceipts(
   sourceReceiptSha256,
   targetRef,
 ) {
+  validateMigrationGuardCatalogBinding(source.catalog?.migrationGuard);
+  validateMigrationGuardCatalogBinding(imported.migrationGuard);
   const binding = validateSubjectScopeBinding(source.subjectScope);
   validateSubjectScopeBinding(imported.subjectScope);
   if (
@@ -977,6 +980,7 @@ function selfTest() {
     status: "ready",
     blockers: [],
     subjectScope,
+    catalog: { migrationGuard: expectedMigrationGuardContract() },
     auth: { userCount: 2, subjectIdsSha256: subjectScope.subjectIdsSha256 },
     manifests: { dataScopesSha256: sha256File(DATA_SCOPES_PATH) },
     publicData: RECEIPT_BOUND_RELATIONS.map((relation) => ({
@@ -1000,6 +1004,7 @@ function selfTest() {
   const sourceHash = "b".repeat(64);
   const imported = {
     version: 1,
+    migrationGuard: expectedMigrationGuardContract(),
     status: "verified_pending_storage_and_provider_rebind",
     sourceProjectRef: SOURCE_PROJECT_REF,
     targetProjectRef: targetRef,

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { expectedMigrationGuardContract } from "../lib/migration-guard-catalog.mjs";
 import { spawnSync } from "node:child_process";
 import {
   existsSync,
@@ -139,7 +140,7 @@ function inventories(subjectScope = scope, kind = "source") {
     blockers,
     subjectScope: subjectScopeBinding(subjectScope),
     manifests: { fixture: "exact" },
-    catalog: { relations: [], functions: [] },
+    catalog: { relations: [], functions: [], migrationGuard: expectedMigrationGuardContract() },
     auth,
     publicData,
     storage,
@@ -435,6 +436,17 @@ describe("subject-scoped source/export — real disposable PostgreSQL", {
     const blockers = [];
     compareReceipts({ ...approved, kind: "target" }, old, blockers);
     assert.match(blockers.join("\n"), /subject scope/u);
+  });
+
+  it("rejects missing or forged guards even when source and target claim matching catalogs", () => {
+    const approved = inventories();
+    for (const migrationGuard of [undefined, {}, { ...approved.catalog.migrationGuard, catalogSha256: "0".repeat(64) }]) {
+      const changed = { ...approved, catalog: { ...approved.catalog, migrationGuard } };
+      assert.throws(() => validateSourceReceipt(changed), /guard catalog/u);
+      const blockers = [];
+      compareReceipts({ ...changed, kind: "target" }, changed, blockers);
+      assert.match(blockers.join("\n"), /guard catalog/u);
+    }
   });
 
   it("requires the exact approved scope, byte-snapshot hash, owner decision and actual fresh freeze assertion", () => {

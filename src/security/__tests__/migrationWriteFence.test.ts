@@ -39,11 +39,11 @@ function upgradedResponse() {
 }
 
 describe('Mind Manual Edge admission', () => {
-  it('matches the exact reviewed 33-function manifest', () => {
+  it('matches the exact reviewed 34-function manifest', () => {
     const expected = readFileSync(resolve(process.cwd(), 'supabase/isolation/mind-manual-edge-functions.tsv'), 'utf8')
       .split('\n').filter((line) => line && !line.startsWith('#')).map((line) => line.split('\t')[0]);
     expect([...MIND_MANUAL_EDGE_FUNCTIONS]).toEqual(expected);
-    expect(expected).toHaveLength(33);
+    expect(expected).toHaveLength(34);
   });
 
   it('denies before provider/storage/body work, with sanitized retriable CORS response', async () => {

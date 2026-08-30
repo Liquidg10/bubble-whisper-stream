@@ -5,6 +5,11 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { privateSnapshot } from "./lib/import-subject-package.mjs";
 import {
+  migrationGuardCatalogSql,
+  validateMigrationGuardCatalog,
+  validateMigrationGuardCatalogBinding,
+} from "./lib/migration-guard-catalog.mjs";
+import {
   assertScopeBinding,
   classifyStorageObject,
   loadSubjectScope,
@@ -692,6 +697,13 @@ export function compareReceipts(receipt, source, blockers) {
   if (source.status !== "ready") {
     blockers.push("comparison source receipt is not ready");
   }
+  for (const candidate of [source, receipt]) {
+    try {
+      validateMigrationGuardCatalogBinding(candidate.catalog?.migrationGuard);
+    } catch {
+      blockers.push("migration guard catalog binding is missing, stale or unreviewed");
+    }
+  }
   try {
     assertScopeBinding(
       receipt.subjectScope,
@@ -820,6 +832,16 @@ async function main() {
   const database = getLinkedDatabaseConfig(projectRef);
   const rawCatalog = runPsqlJson(database, catalogSql(manifests));
   const catalog = fingerprintCatalog(rawCatalog);
+  // This is independent of the business catalog. Missing guards must not be
+  // mistaken for parity just because both projects are missing them.
+  let migrationGuardBlocker;
+  try {
+    catalog.migrationGuard = validateMigrationGuardCatalog(
+      runPsqlJson(database, migrationGuardCatalogSql()),
+    );
+  } catch {
+    migrationGuardBlocker = "migration guard catalog is missing or differs from the reviewed reference";
+  }
   const relationMap = new Map(
     rawCatalog.relations.map((row) => [row.name, row]),
   );
@@ -892,6 +914,7 @@ async function main() {
   const blockers = [
     ...storage.blockers,
     ...scopeInventoryBlockers(args.kind, scopeBinding, rawAuth, rawPublicData),
+    ...(migrationGuardBlocker ? [migrationGuardBlocker] : []),
   ];
   delete storage.blockers;
   const excludedDataInventory = {
@@ -941,6 +964,11 @@ async function main() {
     }
   }
   const expectedFunctionSet = new Set(manifests.functionNames);
+  if (catalog.migrationGuard) {
+    // Only these exact independently validated RPCs belong to the guard layer.
+    expectedFunctionSet.add("mind_manual_admit_edge");
+    expectedFunctionSet.add("mind_manual_release_edge");
+  }
   const excludedPublicFunctions = catalog.allPublicFunctions
     .filter(({ name }) => !expectedFunctionSet.has(name))
     .map(({ name, identityArguments }) => `${name}(${identityArguments})`)

@@ -15,6 +15,7 @@ import {
   writePrivateFile,
 } from "./supabase-isolation.mjs";
 import { resolve } from "node:path";
+import { validateMigrationGuardCatalogBinding } from "./migration-guard-catalog.mjs";
 import {
   assertScopeBinding,
   subjectScopeBinding,
@@ -91,6 +92,7 @@ export function validateImportScope(
       "Source Auth inventory does not match the approved subject scope",
     );
   }
+  validateMigrationGuardCatalogBinding(source.catalog?.migrationGuard);
   return binding;
 }
 

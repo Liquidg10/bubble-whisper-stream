@@ -75,3 +75,6 @@ verify_jwt = true
 # separately authenticates every control request.
 [functions.calendar-watch]
 verify_jwt = false
+
+[functions.storage-photo]
+verify_jwt = true

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { expectedMigrationGuardContract } from "../lib/migration-guard-catalog.mjs";
 import {
   chmodSync,
   mkdirSync,
@@ -102,6 +103,7 @@ function importInputs() {
     source: {
       subjectScope: binding,
       auth: { userCount: 2, subjectIdsSha256: binding.subjectIdsSha256 },
+      catalog: { migrationGuard: expectedMigrationGuardContract() },
     },
     decision: { subjectScope: binding },
   };
