@@ -3,6 +3,8 @@ import { CalendarTaskSyncManager, calendarSyncStorageKey } from '../calendarTask
 import { calendarOutboundJournalKey, readOutboundJournal } from '../calendarOutboundJournal';
 import { taskToBubble } from '@/adapters/taskAdapter';
 import type { Task } from '@/types/task';
+import { webcrypto } from 'node:crypto';
+import { calendarOperationIdentity, calendarOperationDigests } from '../../../supabase/functions/_shared/calendarOperationReceiptContract';
 
 const mock = vi.hoisted(() => ({ user: vi.fn(), read: vi.fn(), initialize: vi.fn(), invoke: vi.fn(), from: vi.fn(), getState: vi.fn() }));
 vi.mock('@/services/storage', () => ({ storageService: { initialize: mock.initialize, readCommittedBubbles: mock.read } }));
@@ -35,6 +37,7 @@ describe('explicit owned outbound Calendar review and dispatch', () => {
   const create = () => { const next = new CalendarTaskSyncManager(); managers.push(next); next.start(owner); return next; };
   beforeEach(() => {
     vi.resetAllMocks(); localStorage.clear(); managers = []; rows = [taskToBubble(task())]; held = new Set(); confirmationOutcome = 'written'; receiptChange = value => value;
+    vi.stubGlobal('crypto', webcrypto);
     vi.stubGlobal('navigator', { locks: { request: async (name: string, _options: unknown, callback: (lock: object | null) => Promise<unknown>) => {
       if (held.has(name)) return callback(null);
       held.add(name); try { return await callback({ name }); } finally { held.delete(name); }
@@ -43,13 +46,18 @@ describe('explicit owned outbound Calendar review and dispatch', () => {
     mock.read.mockImplementation(async () => structuredClone(rows));
     mock.initialize.mockResolvedValue(undefined);
     mock.invoke.mockImplementation(async (_name, { body }) => {
-      const base = { version: 1, operationId: body.operationId, calendarAccountId: account, eventId };
-      if (body.action === 'prepare_reviewed_update') return { data: { ...base, outcome: 'ready', expectedEtag: '"old"', before }, error: null };
+      expect(body.version).toBe(2);
+      const base = { version: 2, operationId: body.operationId, taskId: mapping.taskId, calendarAccountId: account, eventId };
+      if (body.action === 'prepare_reviewed_update') return { data: { ...base, outcome: 'ready', googleCalendarId: 'synthetic@example.test', expectedEtag: '"old"', before }, error: null };
       // A durable hold MUST predate dispatch, including synchronous throws.
       expect(receipts().at(-1)).toMatchObject({ operationId: body.operationId, outcome: 'pending' });
-      return { data: receiptChange(confirmationOutcome === 'written' || confirmationOutcome === 'provider_written_cache_unknown'
-        ? { ...base, outcome: confirmationOutcome, etag: '"new"', fields: body.after, cacheUpdated: confirmationOutcome === 'written' }
-        : { ...base, outcome: confirmationOutcome, code: confirmationOutcome === 'not_written' ? 'stale_review' : 'provider_outcome_unknown' }), error: null };
+      expect(receipts().at(-1)?.intent).toMatchObject({ version: 2, googleCalendarId: body.googleCalendarId,
+        expectedEtag: body.expectedEtag, requestDigest: body.requestDigest, afterDigest: body.afterDigest });
+      expect(await calendarOperationDigests(owner, body)).toEqual({ requestDigest: body.requestDigest, afterDigest: body.afterDigest });
+      return { data: receiptChange(confirmationOutcome === 'written' || confirmationOutcome === 'not_written'
+        ? { version: 2, ...calendarOperationIdentity(body), outcome: 'recorded', completedAt: 2,
+          result: confirmationOutcome === 'written' ? { outcome: 'written', etag: '"new"', cacheUpdated: true } : { outcome: 'not_written', code: 'stale_review' } }
+        : { version: 2, ...calendarOperationIdentity(body), outcome: 'held', code: confirmationOutcome === 'uncertain' ? 'outcome_unknown' : 'provider_written_cache_unknown' }), error: null };
     });
     localStorage.setItem(calendarSyncStorageKey(owner), JSON.stringify(initial())); manager = create();
   });
@@ -70,6 +78,32 @@ describe('explicit owned outbound Calendar review and dispatch', () => {
     expect(mock.getState).not.toHaveBeenCalled(); expect(mock.from).not.toHaveBeenCalled();
     expect((await manager.confirmOutboundUpdate(preview.reviewToken!)).status).toBe('not_written');
     expect(mock.invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it('detaches provider and outward review fields before asynchronous hashing and dispatch', async () => {
+    const provider = { version: 2, outcome: 'ready', googleCalendarId: 'synthetic@example.test', expectedEtag: '"old"', before: { ...before } };
+    mock.invoke.mockImplementationOnce(async (_name, { body }) => ({ data: { operationId: body.operationId, taskId: mapping.taskId,
+      calendarAccountId: account, eventId, ...provider }, error: null }));
+    const barrier = deferred<void>(); const digest = webcrypto.subtle.digest.bind(webcrypto.subtle);
+    const hashing = vi.spyOn(webcrypto.subtle, 'digest').mockImplementationOnce(async (algorithm, data) => { await barrier.promise; return digest(algorithm, data); });
+    const pending = inspect(); await vi.waitFor(() => expect(hashing).toHaveBeenCalled());
+    provider.before.title = 'mutated provider data'; provider.googleCalendarId = 'other@example.test'; provider.expectedEtag = '"other"';
+    barrier.resolve(); const preview = await pending;
+    expect(preview).toMatchObject({ status: 'reviewable', googleCalendarId: 'synthetic@example.test', before });
+    preview.before!.title = 'mutated returned data'; preview.after!.title = 'mutated returned task';
+    expect((await manager.confirmOutboundUpdate(preview.reviewToken!)).status).toBe('written');
+    expect(mock.invoke.mock.calls[1][1].body).toMatchObject({ googleCalendarId: 'synthetic@example.test', expectedEtag: '"old"', before, after: fields });
+  });
+
+  it.each(['auth', 'owner', 'stop', 'journal', 'mapping'])('revalidates %s after asynchronous intent hashing without creating a hold', async change => {
+    const barrier = deferred<void>(); const digest = webcrypto.subtle.digest.bind(webcrypto.subtle);
+    const hashing = vi.spyOn(webcrypto.subtle, 'digest').mockImplementationOnce(async (algorithm, data) => { await barrier.promise; return digest(algorithm, data); });
+    const pending = inspect(); await vi.waitFor(() => expect(hashing).toHaveBeenCalled());
+    if (change === 'auth') mock.user.mockResolvedValue({ data: { user: { id: other } }, error: null });
+    if (change === 'owner') manager.start(other); if (change === 'stop') manager.stop();
+    if (change === 'journal') localStorage.setItem(calendarOutboundJournalKey(owner), JSON.stringify({ version: 1, ownerUserId: owner, receipts: [] }));
+    if (change === 'mapping') localStorage.setItem(calendarSyncStorageKey(owner), JSON.stringify({ ...initial(), mappings: [] }));
+    barrier.resolve(); expect((await pending).status).toBe('blocked'); expect(receipts()).toEqual([]); expect(mock.invoke).toHaveBeenCalledTimes(1);
   });
 
   it.each(['missing', 'legacy', 'foreign', 'duplicate', 'unsupported'])('refuses %s persisted task evidence', async kind => {
@@ -120,25 +154,25 @@ describe('explicit owned outbound Calendar review and dispatch', () => {
   it.each(['operation', 'account', 'event', 'fields', 'etag', 'boolean', 'raw', 'version'])('does not accept a misleading %s receipt', async kind => {
     receiptChange = value => kind === 'operation' ? { ...value, operationId: other } : kind === 'account' ? { ...value, calendarAccountId: other }
       : kind === 'event' ? { ...value, eventId: 'other' } : kind === 'fields' ? { ...value, fields: { ...fields, title: 'Different' } }
-      : kind === 'etag' ? { ...value, etag: '"old"' } : kind === 'boolean' ? { ...value, cacheUpdated: false }
-      : kind === 'version' ? { ...value, version: 2 } : { success: true };
+      : kind === 'etag' ? { ...value, result: { outcome: 'written', etag: '"old"', cacheUpdated: true } } : kind === 'boolean' ? { ...value, result: { outcome: 'written', etag: '"new"', cacheUpdated: false } }
+      : kind === 'version' ? { ...value, version: 1 } : { success: true };
     expect((await confirm()).status).toBe('uncertain'); expect(receipts()[0].outcome).toBe('pending');
     expect((await inspect()).status).toBe('blocked');
   });
 
-  it.each(['uncertain', 'provider_written_cache_unknown'])('persists %s without permitting another attempt', async outcome => {
+  it.each(['uncertain', 'provider_written_cache_unknown'])('keeps pending %s unchanged without permitting another attempt', async outcome => {
     confirmationOutcome = outcome;
-    expect((await confirm()).status).toBe(outcome === 'uncertain' ? 'uncertain' : 'provider_written');
-    expect(receipts()[0].outcome).toBe(outcome === 'uncertain' ? 'uncertain' : 'provider_written');
+    expect((await confirm()).status).toBe('uncertain');
+    expect(receipts()[0].outcome).toBe('pending');
     expect((await inspect()).status).toBe('blocked');
   });
 
-  it('decodes a strict partial receipt from a non-2xx Functions response without treating raw errors as evidence', async () => {
+  it.each(['provider_written_cache_unknown', 'outcome_unknown', 'registry_unavailable'])('decodes strict held %s from non-2xx Functions response without clearing pending', async code => {
     const preview = await inspect();
-    mock.invoke.mockImplementationOnce(async (_name, { body }) => ({ data: null, error: { context: new Response(JSON.stringify({ version: 1, operationId: body.operationId,
-      calendarAccountId: account, eventId, outcome: 'provider_written_cache_unknown', fields: body.after, etag: '"new"', cacheUpdated: false }), { status: 502 }) } }));
-    expect((await manager.confirmOutboundUpdate(preview.reviewToken!)).status).toBe('provider_written');
-    expect(receipts()[0].outcome).toBe('provider_written');
+    mock.invoke.mockImplementationOnce(async (_name, { body }) => ({ data: null, error: { context: new Response(JSON.stringify({ version: 2,
+      ...calendarOperationIdentity(body), outcome: 'held', code }), { status: 502 }) } }));
+    expect((await manager.confirmOutboundUpdate(preview.reviewToken!)).status).toBe('uncertain');
+    expect(receipts()[0].outcome).toBe('pending');
   });
 
   it('records known stale rejection but requires a new review instead of replay', async () => {
@@ -148,7 +182,7 @@ describe('explicit owned outbound Calendar review and dispatch', () => {
     expect((await inspect()).status).toBe('reviewable');
   });
   it('never releases a hold on a contradictory no-write/unknown-outcome receipt', async () => {
-    confirmationOutcome = 'not_written'; receiptChange = value => ({ ...value, code: 'provider_outcome_unknown' });
+    confirmationOutcome = 'not_written'; receiptChange = value => ({ ...value, result: { outcome: 'not_written', code: 'provider_outcome_unknown' } });
     expect((await confirm()).status).toBe('uncertain');
     expect(receipts()[0].outcome).toBe('pending'); expect((await inspect()).status).toBe('blocked');
   });
@@ -170,7 +204,7 @@ describe('explicit owned outbound Calendar review and dispatch', () => {
   });
 
   it.each(['disabled', 'write_permission_required'])('explains %s without creating a dispatch hold', async code => {
-    mock.invoke.mockImplementationOnce(async (_name, { body }) => ({ data: { version: 1, operationId: body.operationId, calendarAccountId: account, eventId, outcome: 'not_written', code }, error: null }));
+    mock.invoke.mockImplementationOnce(async (_name, { body }) => ({ data: { version: 2, operationId: body.operationId, taskId: mapping.taskId, calendarAccountId: account, eventId, outcome: 'unavailable', code }, error: null }));
     const result = await inspect(); expect(result.status).toBe('blocked');
     expect(result.message).toContain(code === 'disabled' ? 'not enabled' : 'no verified write permission'); expect(receipts()).toEqual([]);
   });

@@ -1,3 +1,8 @@
+import { parseCalendarOperationIdentity, equalCalendarOperationIdentity, type CalendarOperationIdentity } from '../../supabase/functions/_shared/calendarOperationReceiptContract';
+
+export interface CalendarOutboundIntent {
+  version: 2; googleCalendarId: string; expectedEtag: string; requestDigest: string; afterDigest: string;
+}
 /** Minimal owner-scoped dispatch receipts. Pending/uncertain work never expires. */
 export interface CalendarOutboundReceipt {
   operationId: string;
@@ -8,6 +13,7 @@ export interface CalendarOutboundReceipt {
   outcome: 'pending' | 'written' | 'not_written' | 'provider_written' | 'uncertain';
   completedAt?: number;
   etag?: string;
+  intent?: CalendarOutboundIntent;
 }
 export interface CalendarOutboundJournal {
   version: 1;
@@ -37,10 +43,15 @@ function validate(value: unknown, owner: string): CalendarOutboundJournal {
     || value.version !== 1 || value.ownerUserId !== owner || !Array.isArray(value.receipts) || value.receipts.length > 1000) throw fail();
   const seen = new Set<string>();
   for (const receipt of value.receipts) {
-    if (!object(receipt) || !exact(receipt, ['operationId', 'taskId', 'calendarAccountId', 'eventId', 'createdAt', 'outcome'], ['completedAt', 'etag'])
+    if (!object(receipt) || !exact(receipt, ['operationId', 'taskId', 'calendarAccountId', 'eventId', 'createdAt', 'outcome'], ['completedAt', 'etag', 'intent'])
       || !uuid(receipt.operationId) || seen.has(receipt.operationId) || !uuid(receipt.calendarAccountId)
       || typeof receipt.taskId !== 'string' || !ID.test(receipt.taskId) || typeof receipt.eventId !== 'string' || !ID.test(receipt.eventId)
       || !time(receipt.createdAt) || typeof receipt.outcome !== 'string' || !OUTCOMES.has(receipt.outcome)) throw fail();
+    if ('intent' in receipt) {
+      if (!Object.prototype.hasOwnProperty.call(receipt, 'intent') || !object(receipt.intent)
+        || !exact(receipt.intent, ['version', 'googleCalendarId', 'expectedEtag', 'requestDigest', 'afterDigest']) || receipt.intent.version !== 2
+        || !outboundOperationIdentity(receipt as unknown as CalendarOutboundReceipt)) throw fail();
+    }
     const hasCompleted = Object.prototype.hasOwnProperty.call(receipt, 'completedAt');
     const hasEtag = Object.prototype.hasOwnProperty.call(receipt, 'etag');
     if (receipt.outcome === 'pending') {
@@ -60,6 +71,20 @@ export function readOutboundJournal(owner: string): { snapshot: string | null; j
 }
 export function writeOutboundJournal(owner: string, journal: CalendarOutboundJournal, previous: string | null): string {
   validate(journal, owner);
+  if (previous !== null) {
+    const before = validate(JSON.parse(previous), owner);
+    for (const old of before.receipts) {
+      const next = journal.receipts.find(receipt => receipt.operationId === old.operationId);
+      if (!next || old.taskId !== next.taskId || old.calendarAccountId !== next.calendarAccountId || old.eventId !== next.eventId
+        || old.createdAt !== next.createdAt || Boolean(old.intent) !== Boolean(next.intent)) throw fail();
+      if (old.intent && !equalCalendarOperationIdentity(outboundOperationIdentity(old)!, outboundOperationIdentity(next)!)) throw fail();
+      if (old.outcome === 'provider_written' && (next.etag !== old.etag
+        || (next.outcome !== 'provider_written' && next.outcome !== 'written'))) throw fail();
+      // Legacy holds are never upgraded/cleared, and terminal history is immutable.
+      if ((!old.intent || old.outcome === 'written' || old.outcome === 'not_written')
+        && (old.outcome !== next.outcome || old.completedAt !== next.completedAt || old.etag !== next.etag)) throw fail();
+    }
+  }
   const serialized = JSON.stringify(journal);
   if (serialized.length > MAX_BYTES || new TextEncoder().encode(serialized).byteLength > MAX_BYTES
     || localStorage.getItem(calendarOutboundJournalKey(owner)) !== previous) throw fail();
@@ -74,7 +99,15 @@ export function outboundHeld(journal: CalendarOutboundJournal, accountId: string
 /** Includes orphaned task/event locators; no task or mapping join may hide a hold. */
 export function outboundHolds(journal: CalendarOutboundJournal): CalendarOutboundHold[] {
   return journal.receipts.filter((receipt): receipt is CalendarOutboundHold =>
-    receipt.outcome === 'pending' || receipt.outcome === 'provider_written' || receipt.outcome === 'uncertain').map(receipt => ({ ...receipt }));
+    receipt.outcome === 'pending' || receipt.outcome === 'provider_written' || receipt.outcome === 'uncertain')
+    .map(receipt => ({ ...receipt, ...(receipt.intent ? { intent: { ...receipt.intent } } : {}) }));
+}
+
+export function outboundOperationIdentity(receipt: CalendarOutboundReceipt): CalendarOperationIdentity | null {
+  if (!Object.prototype.hasOwnProperty.call(receipt, 'intent') || !receipt.intent || receipt.intent.version !== 2) return null;
+  return parseCalendarOperationIdentity({ operationId: receipt.operationId, taskId: receipt.taskId,
+    calendarAccountId: receipt.calendarAccountId, eventId: receipt.eventId, googleCalendarId: receipt.intent.googleCalendarId,
+    expectedEtag: receipt.intent.expectedEtag, requestDigest: receipt.intent.requestDigest, afterDigest: receipt.intent.afterDigest });
 }
 
 /** Validate the UI boundary without accessing storage or accepting terminal rows. */

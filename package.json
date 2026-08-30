@@ -21,6 +21,7 @@
     "test:storage-browser": "playwright test --config tests/runtime/playwright.config.ts",
     "test:isolation:config": "node --test scripts/__tests__/supabase-optional-config.test.mjs",
     "test:calendar:receipts": "vitest run src/services/__tests__/calendarOperationReceiptContract.test.ts --pool=forks --maxWorkers=1 --no-file-parallelism && node --test scripts/__tests__/calendar-operation-registry.integration.test.mjs",
+    "test:calendar:recorded": "vitest run src/services/__tests__/calendarOperationReceiptContract.test.ts src/services/__tests__/calendarOperationReceipt.server.test.ts src/services/__tests__/calendarOperationRegistry.test.ts src/services/__tests__/calendarOutboundJournal.v2.test.ts src/services/__tests__/calendarRecordedRecovery.test.ts src/components/__tests__/CalendarRecordedRecoveryPanel.test.tsx --pool=forks --maxWorkers=1 --no-file-parallelism",
     "test:isolation:sync-deferred": "node --test scripts/__tests__/sync-deferred-boundary-receipt.test.mjs && vitest run src/services/__tests__/crossDeviceSyncService.deferred.test.ts --pool=forks --maxWorkers=1 --no-file-parallelism",
     "preview": "vite preview",
     "test:a11y": "playwright test tests/a11y/",
