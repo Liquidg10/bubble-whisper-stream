@@ -5,6 +5,7 @@ import type { Task } from '@/types/task';
 const mock = vi.hoisted(() => ({ getUser: vi.fn(), from: vi.fn(), read: vi.fn(), invoke: vi.fn(), getState: vi.fn(), addTask: vi.fn(), updateTask: vi.fn(), draft: vi.fn(), confirm: vi.fn() }));
 vi.mock('@/integrations/supabase/client', () => ({ supabase: { auth: { getUser: mock.getUser }, from: mock.from, functions: { invoke: mock.invoke } } }));
 vi.mock('@/stores/taskStore', () => ({ useTaskStore: { getState: mock.getState } }));
+vi.mock('@/services/calendarSyncCoordinator', () => ({ withCalendarSyncLock: async (_owner: string, run: () => Promise<unknown>) => run() }));
 vi.mock('@/services/calendarWriteService', () => ({ calendarWriteService: { createEventDraft: mock.draft, confirmDraft: mock.confirm } }));
 
 const owner = '11111111-1111-4111-8111-111111111111';

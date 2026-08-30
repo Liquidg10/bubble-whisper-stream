@@ -11,6 +11,7 @@ import { calendarTaskSyncManager, type SyncConflict, type CalendarTaskMapping } 
 import { useTaskStore } from '@/stores/taskStore';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/hooks/use-toast';
+import { CalendarImportRecoveryPanel } from '@/components/CalendarImportRecoveryPanel';
 
 type SyncResult = Awaited<ReturnType<typeof calendarTaskSyncManager.performFullSync>>;
 type SyncView = {
@@ -156,10 +157,11 @@ export function CalendarSyncPanel() {
         <Alert><AlertDescription>Calendar imports update owned local tasks only. Outbound calendar changes require review and are not sent by this manager.</AlertDescription></Alert>
         {visible.status === 'error' ? <Alert variant="destructive"><AlertDescription>Sync data is not confirmed. Refresh or review this account.</AlertDescription></Alert> : null}
         <Tabs defaultValue="overview" className="mt-4 w-full">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid h-auto w-full grid-cols-2 sm:grid-cols-5">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="conflicts">Conflicts ({conflicts.length})</TabsTrigger>
             <TabsTrigger value="mappings">Mappings</TabsTrigger>
+            <TabsTrigger value="recovery">Recovery</TabsTrigger>
             <TabsTrigger value="settings">Settings</TabsTrigger>
           </TabsList>
           <TabsContent value="overview" className="space-y-4">
@@ -202,6 +204,7 @@ export function CalendarSyncPanel() {
               </CardContent></Card>
             ))}
           </TabsContent>
+          <TabsContent value="recovery"><CalendarImportRecoveryPanel readyOwner={readyOwner} onRecovered={loadSyncData} /></TabsContent>
           <TabsContent value="settings"><p>Automatic checks only review the signed-in account. Full Sync explicitly imports calendar data into owned local tasks. This panel does not change the schedule or enable outbound calendar writes.</p></TabsContent>
         </Tabs>
       </CardContent>

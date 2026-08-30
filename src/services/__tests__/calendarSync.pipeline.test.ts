@@ -15,6 +15,7 @@ vi.mock('@/integrations/supabase/client', () => ({ supabase: {
   from: mock.from, auth: { getUser: mock.user }, functions: { invoke: mock.invoke },
 } }));
 vi.mock('@/utils/logger', () => ({ logger: { debug: vi.fn(), error: vi.fn(), warn: vi.fn(), info: vi.fn() } }));
+vi.mock('@/services/calendarSyncCoordinator', () => ({ withCalendarSyncLock: async (_owner: string, run: () => Promise<unknown>) => run() }));
 
 const OWNER = '10000000-0000-4000-8000-000000000001';
 const ACCOUNT = '10000000-0000-4000-8000-000000000002';

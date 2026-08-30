@@ -6,6 +6,9 @@
 import type { Task } from '@/types/task';
 import { supabase } from '@/integrations/supabase/client';
 import { useTaskStore } from '@/stores/taskStore';
+import { storageService } from '@/services/storage';
+import { withCalendarSyncLock } from '@/services/calendarSyncCoordinator';
+import { findRecoveryCandidate } from '@/services/calendarImportRecoveryEvidence';
 
 export interface CalendarTaskMapping {
   taskId: string;
@@ -45,6 +48,17 @@ export interface CalendarFullSyncResult {
   errors: string[];
 }
 
+export interface CalendarImportRecoveryInspection {
+  status: 'recoverable' | 'blocked';
+  message: string;
+  reviewToken?: string;
+  taskId?: string;
+  taskTitle?: string;
+  eventTitle?: string;
+}
+
+export interface CalendarImportRecoveryResult { success: boolean; message: string; taskId?: string }
+
 interface OwnerState {
   mappings: Map<string, CalendarTaskMapping>;
   conflicts: Map<string, SyncConflict>;
@@ -68,7 +82,7 @@ const ID = /^[A-Za-z0-9][A-Za-z0-9._:@-]{0,255}$/;
 const MAX_ITEMS = 1000;
 const MAX_STATE_BYTES = 1024 * 1024;
 const REVIEW_MESSAGE = 'Outgoing Calendar changes require review; no provider event was written.';
-const STOPPED_MESSAGE = 'Calendar synchronization is not active for this owner.';
+const STOPPED_MESSAGE = 'Calendar synchronization could not run. Check this account, saved state, browser coordination, and other pending calendar work.';
 const STATE_MESSAGE = 'Calendar synchronization state requires review before further imports.';
 const OUTCOME_MESSAGE = 'The local import outcome requires review before it can be repeated.';
 const eventKey = (accountId: string, eventId: string) => JSON.stringify([accountId, eventId]);
@@ -100,6 +114,7 @@ export class CalendarTaskSyncManager {
   private owners = new Map<string, OwnerState>();
   private tail: Promise<unknown> = Promise.resolve();
   private operations = new Map<string, Promise<unknown>>();
+  private recoveryReview: { token: string; context: SyncContext; accountId: string; eventId: string; fingerprint: string; expiresAt: number } | null = null;
 
   // No constructor I/O: importing the Calendar page cannot start a writer,
   // load another user's browser state, or create a background timer.
@@ -120,6 +135,7 @@ export class CalendarTaskSyncManager {
     this.ownerUserId = null;
     if (this.interval !== undefined) clearInterval(this.interval);
     this.interval = undefined;
+    this.recoveryReview = null;
     // Do not clear the admission tail or uncertainty holds on restart.
   }
 
@@ -128,8 +144,91 @@ export class CalendarTaskSyncManager {
       isRunning: this.interval !== undefined,
       ownerUserId: this.ownerUserId,
       pendingOperations: this.operations.size,
-      unresolvedOperations: [...this.owners.values()].reduce((count, state) => count + state.unresolved.size + Number(state.blocked), 0),
+      unresolvedOperations: this.ownerUserId ? (() => {
+        const state = this.owners.get(this.ownerUserId!);
+        return state ? state.unresolved.size + Number(state.blocked) : 0;
+      })() : 0,
     };
+  }
+
+  getUnresolvedImports(): { calendarAccountId: string; eventId: string }[] {
+    const context = this.context();
+    if (!context) return [];
+    return [...this.state(context).unresolved].map(key => {
+      const [calendarAccountId, eventId] = JSON.parse(key) as [string, string];
+      return { calendarAccountId, eventId };
+    });
+  }
+
+  refreshUnresolvedImports(): Promise<{ success: boolean; items: { calendarAccountId: string; eventId: string }[]; message: string }> {
+    const context = this.context();
+    const blocked = () => ({ success: false, items: [], message: 'Recovery inventory is unavailable. Existing holds are preserved; check this account and other open calendar tabs.' });
+    if (!context) return Promise.resolve(blocked());
+    return this.admit(context, 'recovery-inventory', async () => {
+      await this.requireOwner(context);
+      return { success: true, items: this.getUnresolvedImports(), message: 'Known held imports for this account were refreshed.' };
+    }, blocked);
+  }
+
+  inspectImportRecovery(accountId: string, eventId: string): Promise<CalendarImportRecoveryInspection> {
+    const context = this.context();
+    const blocked = (): CalendarImportRecoveryInspection => ({ status: 'blocked', message: 'Recovery could not be verified. The hold is preserved; check this account and any other open calendar tabs.' });
+    if (!context || !uuid(accountId) || !safeId(eventId)) return Promise.resolve(blocked());
+    return this.admit(context, `inspect:${eventKey(accountId, eventId)}`, async () => {
+      this.recoveryReview = null;
+      const evidence = await this.recoveryEvidence(context, accountId, eventId);
+      if (!evidence) return blocked();
+      const token = crypto.randomUUID();
+      this.recoveryReview = { token, context, accountId, eventId, fingerprint: evidence.fingerprint, expiresAt: Date.now() + 5 * 60_000 };
+      return { status: 'recoverable', reviewToken: token, taskId: evidence.candidate.taskId,
+        taskTitle: evidence.candidate.taskTitle.slice(0, 160), eventTitle: evidence.event.title.slice(0, 160),
+        message: 'One matching saved task was verified. You can restore its local calendar link without changing the task or Google Calendar.' };
+    }, blocked);
+  }
+
+  confirmImportRecovery(reviewToken: string): Promise<CalendarImportRecoveryResult> {
+    const context = this.context();
+    const blocked = (): CalendarImportRecoveryResult => ({ success: false, message: 'Recovery was not confirmed. The hold is preserved; review the saved task again.' });
+    if (!context || !uuid(reviewToken)) return Promise.resolve(blocked());
+    return this.admit(context, `recover:${reviewToken}`, async () => {
+      const review = this.recoveryReview;
+      this.recoveryReview = null; // Single-use, including failed confirmations.
+      if (!review || review.token !== reviewToken || !this.isCurrent(review.context) || Date.now() >= review.expiresAt) return blocked();
+      const evidence = await this.recoveryEvidence(context, review.accountId, review.eventId);
+      if (!evidence || evidence.fingerprint !== review.fingerprint || Date.now() >= review.expiresAt) return blocked();
+      const state = this.state(context);
+      const key = eventKey(review.accountId, review.eventId);
+      const next: OwnerState = { ...state, mappings: new Map(state.mappings), conflicts: new Map(state.conflicts), unresolved: new Set(state.unresolved) };
+      const existing = next.mappings.get(key);
+      // This is an association receipt, not proof of the original lost write.
+      // Existing conflicts remain for their separately reviewed resolution.
+      next.mappings.set(key, existing ?? { taskId: evidence.candidate.taskId, eventId: review.eventId,
+        calendarAccountId: review.accountId, lastSyncedAt: Date.now(), syncDirection: 'calendar-to-task', conflictStatus: 'none' });
+      next.unresolved.delete(key);
+      if (localStorage.getItem(calendarSyncStorageKey(context.ownerUserId)) !== evidence.storageSnapshot) return blocked();
+      if (!this.persist(context.ownerUserId, next)) return blocked();
+      this.owners.set(context.ownerUserId, next);
+      return { success: true, taskId: evidence.candidate.taskId, message: 'The verified local calendar link was restored. No task or Google Calendar content was changed.' };
+    }, blocked);
+  }
+
+  private async recoveryEvidence(context: SyncContext, accountId: string, eventId: string) {
+    const state = this.state(context);
+    const key = eventKey(accountId, eventId);
+    if (!state.unresolved.has(key)) return null;
+    const storageSnapshot = localStorage.getItem(calendarSyncStorageKey(context.ownerUserId));
+    const event = await this.canonicalEvent(context, accountId, eventId);
+    await this.requireOwner(context);
+    await storageService.initialize();
+    this.state(context);
+    const bubbles = await storageService.readCommittedBubbles();
+    this.state(context);
+    const candidate = findRecoveryCandidate(bubbles, context.ownerUserId, event);
+    if (!candidate || localStorage.getItem(calendarSyncStorageKey(context.ownerUserId)) !== storageSnapshot) return null;
+    const mapping = state.mappings.get(key);
+    if (mapping && mapping.taskId !== candidate.taskId) return null;
+    if ([...state.mappings.entries()].some(([otherKey, value]) => otherKey !== key && value.taskId === candidate.taskId)) return null;
+    return { candidate, event, storageSnapshot, fingerprint: JSON.stringify([storageSnapshot, event, candidate.fingerprint]) };
   }
 
   syncTaskToCalendar(task: Task): Promise<CalendarSyncOutcome> {
@@ -239,7 +338,13 @@ export class CalendarTaskSyncManager {
     if (existing) return existing as Promise<T>;
     const promise = this.tail.then(async () => {
       if (!this.isCurrent(context)) return stopped();
-      return operation();
+      return withCalendarSyncLock(context.ownerUserId, async () => {
+        if (!this.isCurrent(context)) return stopped();
+        // A different updated tab may have committed while this instance was
+        // idle. Never overwrite its mappings/holds with the constructor cache.
+        this.owners.set(context.ownerUserId, this.loadOwnerState(context.ownerUserId));
+        return operation();
+      });
     }).catch(() => stopped()).finally(() => {
       if (this.operations.get(admissionKey) === promise) this.operations.delete(admissionKey);
     });

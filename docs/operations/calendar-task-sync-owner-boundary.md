@@ -5,6 +5,11 @@ Continuation base: `5959646b0de88304110f9042bd75f1ee3d604d14`.
 Canonical main: `ed73e9bfba8a8b0116343cdfe40e330ff6a6b7fe`.
 Branch: `codex/scoped-migration-freeze`; [PR #35](https://github.com/Liquidg10/bubble-whisper-stream/pull/35).
 
+This is the base-tranche receipt. The subsequent
+[reviewed association recovery](calendar-import-recovery-contract.md) adds a
+mapping-only recovery UI and coordination between updated same-origin managers;
+its explicit limits replace the corresponding remaining-work items below.
+
 ## Behavior and intentional limits
 
 The Calendar page eagerly imports its sync panel and manager. Previously that
