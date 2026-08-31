@@ -2,6 +2,7 @@
  * Full-duplex realtime voice service with streaming STT/TTS and barge-in
  * Uses OpenAI Realtime API with WebSocket connection
  */
+import { supabaseConfig } from '@/integrations/supabase/client';
 
 export interface VoiceSessionConfig {
   voice?: 'alloy' | 'ash' | 'ballad' | 'coral' | 'echo' | 'sage' | 'shimmer' | 'verse';
@@ -167,7 +168,7 @@ class VoiceRealtimeService {
       }, 10000);
 
       // Connect to Supabase edge function for realtime voice
-      const wsUrl = `wss://ekekeywoxvdbfbmqyhjy.functions.supabase.co/ai-realtime-voice`;
+      const wsUrl = `wss://${supabaseConfig.projectRef}.functions.supabase.co/ai-realtime-voice`;
       console.log('🔗 Attempting WebSocket connection to:', wsUrl);
       this.ws = new WebSocket(wsUrl);
 

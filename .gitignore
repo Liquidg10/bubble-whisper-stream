@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Generated browser verification evidence (uploaded separately by CI)
+/test-results/
+/playwright-report/
+
 # Supabase CLI link/runtime metadata (project refs, image versions, pooler URL)
 supabase/.temp/
 

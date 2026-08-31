@@ -6,9 +6,14 @@ import {
   resolveSupabasePublicConfig,
 } from "./src/integrations/supabase/config.ts";
 import { resolveDevHost } from "./vite.dev-host.ts";
+import { assertAtomicDeploymentOverrides, buildDeploymentEnvironment, resolveDeploymentBoundary } from './src/integrations/supabase/deploymentBoundary.ts';
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
+  assertAtomicDeploymentOverrides({
+    VITE_MIND_MANUAL_DEPLOYMENT_MODE: process.env.VITE_MIND_MANUAL_DEPLOYMENT_MODE,
+    VITE_MIND_MANUAL_DEPLOYMENT_ORIGIN: process.env.VITE_MIND_MANUAL_DEPLOYMENT_ORIGIN,
+  });
   assertAtomicSupabasePublicOverrides({
     VITE_SUPABASE_PROJECT_ID: process.env.VITE_SUPABASE_PROJECT_ID,
     VITE_SUPABASE_URL: process.env.VITE_SUPABASE_URL,
@@ -16,6 +21,7 @@ export default defineConfig(({ mode }) => {
   });
 
   const environment = loadEnv(mode, process.cwd(), 'VITE_');
+  resolveDeploymentBoundary(buildDeploymentEnvironment(environment));
   resolveSupabasePublicConfig({
     VITE_SUPABASE_PROJECT_ID: environment.VITE_SUPABASE_PROJECT_ID,
     VITE_SUPABASE_URL: environment.VITE_SUPABASE_URL,
