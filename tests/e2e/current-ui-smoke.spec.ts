@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { prepareOutboundFixture, readOutboundFixture } from '../helpers/calendar-outbound-fixture';
+import { expectActiveGlimmers, prepareActiveGlimmers, readGlimmerRows, SAVED_GLIMMER_ID } from '../helpers/glimmer-fixture';
 
 const CURRENT_ROUTES = [
   { path: '/', heading: 'Mind Manual' },
@@ -7,6 +8,98 @@ const CURRENT_ROUTES = [
   { path: '/kanban', heading: 'Kanban Board' },
   { path: '/matrix', heading: 'Eisenhower Matrix' },
 ] as const;
+
+test.describe('active Glimmer layout regression', () => {
+  for (const viewport of [{ width: 320, height: 568 }, { width: 1280, height: 900 }]) {
+    test(`generated message leaves onboarding and List keyboard help operable at ${viewport.width}`, async ({ page }) => {
+      await page.setViewportSize(viewport);
+      const fixture = await prepareActiveGlimmers(page);
+      const before = await readGlimmerRows(page);
+      const welcome = page.getByRole('dialog', { name: 'Welcome', exact: true });
+      await expect(welcome).toBeVisible();
+      await expectActiveGlimmers(page, false);
+      await welcome.getByRole('button', { name: 'Close', exact: true }).click();
+      await expect(welcome).toBeHidden();
+
+      const generated = page.getByTestId('generated-assistant-message');
+      await generated.scrollIntoViewIfNeeded();
+      await expect(generated).toBeInViewport();
+      expect(await generated.evaluate(element => getComputedStyle(element).position)).not.toBe('fixed');
+      const shortcuts = page.getByRole('button', { name: 'Show keyboard shortcuts' });
+      await shortcuts.focus();
+      await page.keyboard.press('Enter');
+      const help = page.getByRole('dialog', { name: 'Keyboard Shortcuts', exact: true });
+      await expect(help).toBeVisible();
+      await expectActiveGlimmers(page, false);
+      await help.getByRole('button', { name: 'Got it!', exact: true }).click();
+      await expect(help).toBeHidden();
+      expect(await readGlimmerRows(page)).toEqual(before);
+      expect(fixture.errors).toEqual([]);
+    });
+  }
+
+  test('both active messages preserve all five mobile Atomic controls, navigation and both dismissal paths', async ({ page }, testInfo) => {
+    await page.setViewportSize({ width: 320, height: 568 });
+    const fixture = await prepareActiveGlimmers(page);
+    await closeOnboardingIfPresent(page);
+    await page.getByRole('button', { name: 'Atomic view mode', exact: true }).click();
+    await expectActiveGlimmers(page);
+    const before = await readGlimmerRows(page);
+    expect(before.some(row => row.tone === 'supportive')).toBe(true);
+    await closeMilestoneIfPresent(page);
+
+    const atomic = page.getByRole('region', { name: 'Atomic view (experimental)', exact: true });
+    await expect(atomic).toBeVisible();
+    const heightBefore = (await atomic.boundingBox())!.height;
+    expect(heightBefore).toBeGreaterThan(120);
+    await expect.poll(() => page.locator('[data-testid="generated-assistant-message"], [data-testid="saved-assistant-message"]')
+      .evaluateAll(notices => {
+        const viewport = document.querySelector('[data-testid="atomic-viewport"]')!.getBoundingClientRect();
+        return notices.map(notice => getComputedStyle(notice).position !== 'fixed'
+          && notice.getBoundingClientRect().top >= viewport.bottom - 1);
+      })).toEqual([true, true]);
+    const molecules = atomic.locator('[data-molecule]');
+    await expect(molecules).toHaveCount(5);
+    await expect.poll(() => molecules.evaluateAll(targets => targets.map(target => {
+      const rect = target.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      return rect.width >= 44 && rect.height >= 44 && hit?.closest('[data-molecule]') === target;
+    }))).toEqual([true, true, true, true, true]);
+    // Trial clicks run real pointer actionability/hit tests without moving tasks.
+    for (let index = 0; index < 5; index += 1) await molecules.nth(index).click({ trial: true });
+    await page.getByText('Tasks (5)', { exact: true }).click();
+    await expect(page.getByRole('list', { name: 'Atomic tasks by life domain and time horizon' })
+      .getByRole('button')).toHaveCount(5);
+    await page.getByText('Tasks (5)', { exact: true }).click();
+    await expectActiveGlimmers(page);
+    const lane = page.getByRole('complementary', { name: 'Assistant messages' });
+    await lane.scrollIntoViewIfNeeded();
+    await expect(page.getByTestId('saved-assistant-message')).toBeInViewport();
+    await page.screenshot({ path: testInfo.outputPath('both-active-glimmer-cards-mobile.png'), fullPage: true });
+
+    // A real footer navigation must stay usable while neither message is dismissed.
+    await page.getByRole('navigation').getByRole('link', { name: 'Settings', exact: true }).click();
+    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page.getByTestId('saved-assistant-message')).toHaveCount(0);
+    await expectActiveGlimmers(page, false);
+    await page.getByRole('button', { name: 'Atomic view mode', exact: true }).click();
+    await expectActiveGlimmers(page);
+    expect(await readGlimmerRows(page)).toEqual(before);
+
+    // Dismiss only after the active-card interaction checks. Both genuine action
+    // paths must update their own IndexedDB row, not merely remove markup.
+    await page.getByTestId('generated-assistant-message').getByRole('button', { name: 'Dismiss glimmer', exact: true }).click();
+    await expect(page.getByTestId('generated-assistant-message')).toHaveCount(0);
+    await expect.poll(async () => (await readGlimmerRows(page))
+      .filter(row => row.tone === 'supportive' && row.dismissed).length).toBe(1);
+    await expect(page.getByTestId('saved-assistant-message')).toBeVisible();
+    await page.getByRole('button', { name: 'Dismiss saved message', exact: true }).click();
+    await expect(page.getByTestId('saved-assistant-message')).toHaveCount(0);
+    await expect.poll(async () => (await readGlimmerRows(page)).find(row => row.id === SAVED_GLIMMER_ID)?.dismissed).toBe(true);
+    expect((await atomic.boundingBox())!.height).toBeCloseTo(heightBefore, 0);
+    expect(fixture.errors).toEqual([]);
+  });
+});
 
 for (const outcome of ['written', 'lost', 'disabled', 'recover'] as const) {
   test(`synthetic reviewed Calendar update: ${outcome}`, async ({ page }, testInfo) => {
