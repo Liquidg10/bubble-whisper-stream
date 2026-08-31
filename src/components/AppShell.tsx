@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom';
 import { CompactThemeToggle } from '@/components/ThemeToggle';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { GlimmerNotificationSystem } from '@/components/GlimmerNotificationSystem';
+import { GlimmerNotifications } from '@/components/GlimmerNotifications';
 import { OfflineDetector } from '@/components/OfflineDetector';
 import { OfflineStatusBanner } from '@/components/OfflineStatusBanner';
 import { AudioQueueIndicator } from '@/components/AudioQueueIndicator';
@@ -131,7 +132,11 @@ export const AppShell: React.FC = () => {
             <Outlet />
           </div>
         </div>
-        <GlimmerNotificationSystem />
+        {/* Notices add scrollable content without covering or shrinking the task viewport. */}
+        <aside aria-label="Glimmer messages" className="space-y-4">
+          <GlimmerNotificationSystem />
+          {location.pathname === '/' && <GlimmerNotifications />}
+        </aside>
         <OfflineDetector />
         <AudioQueueIndicator />
       </main>

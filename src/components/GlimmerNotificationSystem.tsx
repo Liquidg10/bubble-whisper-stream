@@ -99,7 +99,8 @@ export function GlimmerNotificationSystem() {
             duration: settings.reducedMotion ? 0.1 : 0.3,
             ease: "easeOut" 
           }}
-          className="fixed bottom-4 left-4 right-4 z-50 max-w-md mx-auto"
+          data-testid="generated-glimmer"
+          className="mx-auto mb-4 w-full max-w-md px-4"
         >
           <Card className={`shadow-lg border-2 ${toneColor}`}>
             <CardContent className="p-4">

@@ -6,7 +6,6 @@ import { JoyMomentumIntegration } from '@/components/JoyMomentumIntegration';
 import { AtomicView } from '@/components/AtomicView';
 import { RadialCapture } from '@/components/RadialCapture';
 import { NotificationSystem } from '@/components/NotificationSystem';
-import { GlimmerNotifications } from '@/components/GlimmerNotifications';
 import { MiniMap } from '@/components/MiniMap';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { useUILayout } from '@/hooks/useUILayout';
@@ -116,7 +115,6 @@ export default function Index() {
         </div>
       </details>
       <NotificationSystem />
-      <GlimmerNotifications />
       <JoyMomentumIntegration />
       
       {/* MiniMap */}
