@@ -4,6 +4,27 @@
  * This file outlines tests to validate the base64 encoding hypothesis
  * and raise confidence in the fix from 85% to 95%+
  */
+import { supabaseConfig } from '@/integrations/supabase/client';
+
+async function requestDiagnosticAudio(payload: Record<string, string>): Promise<Response> {
+  try {
+    return await fetch(`${supabaseConfig.url}/functions/v1/ai-tts-generate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: supabaseConfig.publishableKey,
+        // Validated legacy anonymous keys are JWTs. Modern publishable keys
+        // identify the project but are not user JWTs or fresh authorization.
+        ...(!supabaseConfig.publishableKey.startsWith('sb_publishable_')
+          ? { Authorization: `Bearer ${supabaseConfig.publishableKey}` } : {}),
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    // Fetch errors can reflect request headers. Never propagate their payload.
+    throw new Error('Diagnostic audio request failed.');
+  }
+}
 
 export interface TTSDiagnosticResult {
   testName: string;
@@ -110,28 +131,20 @@ export class TTSDiagnostic {
     try {
       console.log('Testing edge function deployment and response...');
       
-      // Use the full URL for the edge function
-      const response = await fetch('https://ekekeywoxvdbfbmqyhjy.supabase.co/functions/v1/ai-tts-generate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          text: 'Test audio generation for diagnostics.',
-          voice: 'alloy',
-          tone: 'neutral',
-          context: 'diagnostic'
-        })
+      const response = await requestDiagnosticAudio({
+        text: 'Test audio generation for diagnostics.',
+        voice: 'alloy',
+        tone: 'neutral',
+        context: 'diagnostic'
       });
 
       console.log('Edge function response status:', response.status);
       
       if (!response.ok) {
-        const errorText = await response.text();
         return {
           testName: 'Edge Function Response',
           passed: false,
-          details: `Function deployment issue - ${response.status}: ${response.statusText}. Response: ${errorText.substring(0, 100)}`,
+          details: `Function request rejected (HTTP ${response.status}). Diagnostic access or deployment is not verified.`,
           confidence: response.status === 404 ? 98 : 70
         };
       }
@@ -145,7 +158,7 @@ export class TTSDiagnostic {
         return {
           testName: 'Edge Function Response',
           passed: false,
-          details: `JSON parse error: ${parseError.message}. Function may be returning invalid response.`,
+          details: 'The function returned an invalid diagnostic response.',
           confidence: 85
         };
       }
@@ -160,11 +173,11 @@ export class TTSDiagnostic {
         confidence: (hasAudioContent && isValidBase64Length) ? 95 : 65
       };
     } catch (error) {
-      console.error('Edge function test error:', error);
+      console.error('Edge function diagnostic request failed.');
       return {
         testName: 'Edge Function Response',
         passed: false,
-        details: `Network/fetch error: ${error.message}`,
+        details: 'Diagnostic request failed. Network access and deployment are not verified.',
         confidence: 80
       };
     }
@@ -221,12 +234,14 @@ export class TTSDiagnostic {
 
     if (edgeFunctionResult.passed) {
       // Only run audio tests if we have valid base64
-      const response = await fetch('https://ekekeywoxvdbfbmqyhjy.supabase.co/functions/v1/ai-tts-generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: 'Test', voice: 'alloy' })
-      });
-      const data = await response.json();
+      const response = await requestDiagnosticAudio({ text: 'Test', voice: 'alloy' });
+      let data;
+      try {
+        if (!response.ok) throw new Error('Diagnostic sample rejected.');
+        data = await response.json();
+      } catch {
+        throw new Error('Diagnostic audio sample is unavailable.');
+      }
       
       if (data.audioContent) {
         results.push(await this.testAudioPlayability(data.audioContent));
