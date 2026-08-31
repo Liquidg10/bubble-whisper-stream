@@ -8,15 +8,25 @@ const CURRENT_ROUTES = [
   { path: '/matrix', heading: 'Eisenhower Matrix' },
 ] as const;
 
-async function closeOnboardingIfPresent(page: import('@playwright/test').Page) {
+async function closeFirstRunOnboarding(page: import('@playwright/test').Page) {
   const dialog = page.getByRole('dialog', { name: 'Welcome' });
-  if (await dialog.isVisible().catch(() => false)) {
-    await page.keyboard.press('Escape');
-    await expect(dialog).toBeHidden();
-  }
+  // Every test starts with a fresh profile. Startup now imports the app lazily,
+  // and onboarding also checks IndexedDB asynchronously, so network idle does
+  // not establish that the expected first-run dialog has appeared.
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
 }
 
 async function expectNoWcagViolations(page: import('@playwright/test').Page) {
+  // Scan the rendered endpoint of entrance/theme transitions, not an opacity
+  // blend mid-animation. This observes CSS and Framer Motion's Web Animations
+  // without cancelling them or excluding any elements from the axe scan.
+  await page.waitForFunction(() => document.getAnimations().every((animation) => (
+    animation.playState !== 'running'
+    || !Number.isFinite(animation.effect?.getComputedTiming().endTime)
+  )), undefined, { timeout: 5_000 });
+
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21aa'])
     .analyze();
@@ -35,7 +45,7 @@ test.describe('bounded accessibility release gate', () => {
     test(`onboarding and current shell pass WCAG automated checks in ${theme} mode`, async ({ page }) => {
       await page.emulateMedia({ colorScheme: theme });
       await page.goto('/');
-      await page.waitForLoadState('networkidle');
+      await expect(page.getByRole('dialog', { name: 'Welcome' })).toBeVisible();
       await page.evaluate((value) => {
         document.documentElement.classList.remove('light', 'dark');
         document.documentElement.classList.add(value);
@@ -44,7 +54,7 @@ test.describe('bounded accessibility release gate', () => {
       await expect(page.getByRole('dialog', { name: 'Welcome' })).toBeVisible();
       await expectNoWcagViolations(page);
 
-      await closeOnboardingIfPresent(page);
+      await closeFirstRunOnboarding(page);
       await expectNoWcagViolations(page);
     });
   }
@@ -52,8 +62,7 @@ test.describe('bounded accessibility release gate', () => {
   for (const route of CURRENT_ROUTES) {
     test(`${route.path} exposes its current surface without automated WCAG violations`, async ({ page }) => {
       await page.goto(route.path);
-      await page.waitForLoadState('networkidle');
-      await closeOnboardingIfPresent(page);
+      await closeFirstRunOnboarding(page);
 
       await expect(page.getByRole('heading', { name: route.heading, exact: true })).toBeVisible();
       await expectNoWcagViolations(page);
@@ -86,7 +95,6 @@ test.describe('bounded accessibility release gate', () => {
     });
 
     await page.goto('/');
-    await page.waitForLoadState('networkidle');
 
     const dialog = page.getByRole('dialog');
     const status = dialog.getByRole('status');

@@ -39,6 +39,12 @@ jobs:
       - name: Check names-only optional configuration contract
         run: npm run test:isolation:config
 
+      - name: Verify shared versus isolated deployment boundary
+        run: npm run test:deployment:boundary
+
+      - name: Reject invalid deployment builds before compilation
+        run: npm run test:deployment:build
+
       - name: Run bounded unit and integration gate
         run: npm run test:unit:ci
 
