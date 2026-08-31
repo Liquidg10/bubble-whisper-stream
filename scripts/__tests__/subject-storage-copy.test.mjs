@@ -435,7 +435,7 @@ describe("subject-scoped storage migration with offline transport", () => {
     });
     const credentials = noCredentialAccess();
     await assert.rejects(h.run(h.args(), { env: credentials.env }), (error) => {
-      assert.equal(error.message, "invalid JSON in source receipt");
+      assert.equal(error.message, "source receipt must be a readable private regular JSON file");
       assert.equal(error.message.includes(SELECTED), false);
       return true;
     });

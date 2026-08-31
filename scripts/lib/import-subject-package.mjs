@@ -56,6 +56,13 @@ export function privateSnapshot(path, label, { json = false } = {}) {
   }
 }
 
+/** Reject stale batch receipts from the same private bytes that supply their hash. */
+export function privateScopedReceiptSnapshot(path, label) {
+  const snapshot = privateSnapshot(path, label, { json: true });
+  validateSubjectScopeBinding(snapshot.value?.subjectScope, `${label} subject scope`);
+  return snapshot;
+}
+
 export function validateImportScope(
   { scope, scopeFileSha256, manifest, source, decision, targetRef },
 ) {

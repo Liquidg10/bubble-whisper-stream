@@ -3,7 +3,7 @@
 import { chmodSync, mkdirSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { privateSnapshot } from "./lib/import-subject-package.mjs";
+import { privateScopedReceiptSnapshot, privateSnapshot } from "./lib/import-subject-package.mjs";
 import { validateMigrationGuardCatalogBinding } from "./lib/migration-guard-catalog.mjs";
 import {
   assertScopeBinding,
@@ -353,22 +353,18 @@ async function main() {
     "subject-scope": { required: true },
     "output-dir": { required: true },
   });
-  const sourceSnapshot = privateSnapshot(
+  const subjectScope = loadSubjectScope(args["subject-scope"]);
+  const scopeBinding = subjectScopeBinding(subjectScope);
+  const sourceSnapshot = privateScopedReceiptSnapshot(
     args["source-receipt"],
     "source receipt",
-    { json: true },
   );
-  const decisionSnapshot = privateSnapshot(
+  const decisionSnapshot = privateScopedReceiptSnapshot(
     args["auth-decision"],
     "Auth decision",
-    { json: true },
   );
   const sourceReceipt = sourceSnapshot.value;
   const authDecision = decisionSnapshot.value;
-  const subjectScope = loadSubjectScope(args["subject-scope"], {
-    targetProjectRef: authDecision.targetProjectRef,
-  });
-  const scopeBinding = subjectScopeBinding(subjectScope);
   validateSourceReceipt(sourceReceipt);
   assertScopeBinding(
     sourceReceipt.subjectScope,

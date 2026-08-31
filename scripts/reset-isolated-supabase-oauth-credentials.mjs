@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { privateScopedReceiptSnapshot } from "./lib/import-subject-package.mjs";
 import { expectedMigrationGuardContract, validateMigrationGuardCatalogBinding } from "./lib/migration-guard-catalog.mjs";
 
 import assert from "node:assert/strict";
@@ -24,7 +25,6 @@ import { pathToFileURL } from "node:url";
 import { validateSubjectScopeBinding } from "./lib/migration-subject-scope.mjs";
 import {
   assertAbsolutePath,
-  assertPrivateFile,
   assertProjectRef,
   canonicalJson,
   consumeTargetDatabasePassword,
@@ -123,14 +123,7 @@ function usage() {
 }
 
 function readReceiptSnapshot(path, label) {
-  assertAbsolutePath(path, label);
-  assertPrivateFile(path, label);
-  const bytes = readFileSync(path);
-  try {
-    return { value: JSON.parse(bytes.toString("utf8")), sha256: sha256(bytes) };
-  } catch {
-    throw new Error(`${label} is not valid JSON`);
-  }
+  return privateScopedReceiptSnapshot(path, label);
 }
 
 function decodeEncryptionKey(configuredValue) {
@@ -969,7 +962,7 @@ function selfTest() {
     targetProjectRef: targetRef,
     scopeSha256: "1".repeat(64),
     subjectIdsSha256: "2".repeat(64),
-    subjectCount: 2,
+    subjectCount: 1,
     legacyAssignmentsSha256: "3".repeat(64),
     rawSubjectIdsIncluded: false,
   };
@@ -981,7 +974,7 @@ function selfTest() {
     blockers: [],
     subjectScope,
     catalog: { migrationGuard: expectedMigrationGuardContract() },
-    auth: { userCount: 2, subjectIdsSha256: subjectScope.subjectIdsSha256 },
+    auth: { userCount: 1, subjectIdsSha256: subjectScope.subjectIdsSha256 },
     manifests: { dataScopesSha256: sha256File(DATA_SCOPES_PATH) },
     publicData: RECEIPT_BOUND_RELATIONS.map((relation) => ({
       relation,
@@ -1173,6 +1166,11 @@ async function main() {
   if (!args.recover && existsSync(receiptPath)) {
     throw new Error(`refusing to overwrite existing output: ${receiptPath}`);
   }
+  // Recovery is also bound to the one-owner decision before any key/password
+  // access. Keep the same private snapshot for the later exact intent check.
+  const preparedSnapshot = args.recover
+    ? readReceiptSnapshot(receiptPath, "prepared OAuth-reset receipt")
+    : null;
   const targetDatabasePassword = consumeTargetDatabasePassword();
   let configuredKey = process.env[OAUTH_KEY_ENV];
   delete process.env[OAUTH_KEY_ENV];
@@ -1210,15 +1208,20 @@ async function main() {
     let prepared;
     let preparedIntentSha256;
     if (args.recover) {
-      if (!existsSync(receiptPath)) {
-        throw new Error(
-          "--recover requires the existing prepared reset receipt",
-        );
-      }
-      const preparedSnapshot = readReceiptSnapshot(
+      // The early scope check is not a lock. A cooperating reset may have
+      // replaced this path while we prepared the key/contract or waited for
+      // the target lock. Never overwrite a newer completed receipt using an
+      // earlier prepared snapshot, even when target rows already look reset.
+      const lockedPreparedSnapshot = readReceiptSnapshot(
         receiptPath,
         "prepared OAuth-reset receipt",
       );
+      if (lockedPreparedSnapshot.sha256 !== preparedSnapshot.sha256 ||
+        !lockedPreparedSnapshot.bytes.equals(preparedSnapshot.bytes)) {
+        throw new Error(
+          "Prepared OAuth-reset receipt changed before the target lock; reconcile the current receipt before recovery",
+        );
+      }
       prepared = preparedSnapshot.value;
       validatePreparedResetReceipt(prepared, {
         targetRef,

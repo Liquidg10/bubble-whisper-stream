@@ -26,7 +26,7 @@ import {
   assertScopeBinding,
   validateSubjectScopeBinding,
 } from "./lib/migration-subject-scope.mjs";
-import { privateSnapshot } from "./lib/import-subject-package.mjs";
+import { privateScopedReceiptSnapshot } from "./lib/import-subject-package.mjs";
 
 const SOURCE_PROJECT_REF = "ekekeywoxvdbfbmqyhjy";
 const PUBLIC_API_KEY_ENV = "MIND_MANUAL_TARGET_PUBLIC_API_KEY";
@@ -138,7 +138,7 @@ export function credentialSafeError(error, secretValues, label) {
 }
 
 function readPrivateReceipt(path, label) {
-  const { value, sha256: hash } = privateSnapshot(path, label, { json: true });
+  const { value, sha256: hash } = privateScopedReceiptSnapshot(path, label);
   return { value, sha256: hash };
 }
 

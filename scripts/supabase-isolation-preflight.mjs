@@ -3,7 +3,7 @@
 import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { privateSnapshot } from "./lib/import-subject-package.mjs";
+import { privateScopedReceiptSnapshot } from "./lib/import-subject-package.mjs";
 import {
   migrationGuardCatalogSql,
   validateMigrationGuardCatalog,
@@ -18,7 +18,6 @@ import {
   validateSubjectScopeBinding,
 } from "./lib/migration-subject-scope.mjs";
 import {
-  assertAbsolutePath,
   assertIdentifier,
   assertProjectRef,
   canonicalJson,
@@ -917,6 +916,15 @@ async function main() {
   const scopeBinding = subjectScopeBinding(subjectScope);
   validateSubjectScopeBinding(scopeBinding, "preflight subject scope");
 
+  // A READY legacy batch comparison is not authority to inventory any project.
+  // Snapshot and bind it before linked configuration, database or provider IO.
+  const comparison = args["compare-receipt"]
+    ? privateScopedReceiptSnapshot(args["compare-receipt"], "comparison receipt")
+    : null;
+  if (comparison) {
+    assertScopeBinding(comparison.value.subjectScope, scopeBinding, "comparison receipt scope");
+  }
+
   const manifests = loadManifests();
   const database = getLinkedDatabaseConfig(projectRef);
   const rawCatalog = runPsqlJson(database, catalogSql(manifests));
@@ -1197,14 +1205,7 @@ async function main() {
     blockers,
   };
 
-  if (args["compare-receipt"]) {
-    const comparisonPath = assertAbsolutePath(
-      args["compare-receipt"],
-      "comparison receipt",
-    );
-    const comparison = privateSnapshot(comparisonPath, "comparison receipt", {
-      json: true,
-    });
+  if (comparison) {
     compareReceipts(receipt, comparison.value, blockers);
     receipt.comparedSourceReceiptSha256 = comparison.sha256;
   }

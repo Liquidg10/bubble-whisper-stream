@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { validateMigrationGuardCatalogBinding } from "./lib/migration-guard-catalog.mjs";
+import { privateScopedReceiptSnapshot } from "./lib/import-subject-package.mjs";
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -14,7 +15,6 @@ import {
 } from "./reset-isolated-supabase-oauth-credentials.mjs";
 import {
   assertAbsolutePath,
-  assertPrivateFile,
   assertProjectRef,
   consumeTargetDatabasePassword,
   getLinkedDatabaseConfig,
@@ -123,28 +123,14 @@ async function main() {
     args["import-receipt"],
     "import receipt",
   );
-  assertPrivateFile(importReceiptPath, "import receipt");
-  const importReceiptBytes = readFileSync(importReceiptPath);
-  let importReceipt;
-  try {
-    importReceipt = JSON.parse(importReceiptBytes.toString("utf8"));
-  } catch {
-    throw new Error("import receipt is not valid JSON");
-  }
+  const { value: importReceipt, sha256: importReceiptSha256 } =
+    privateScopedReceiptSnapshot(importReceiptPath, "import receipt");
   const oauthResetReceiptPath = assertAbsolutePath(
     args["oauth-reset-receipt"],
     "OAuth-reset receipt",
   );
-  assertPrivateFile(oauthResetReceiptPath, "OAuth-reset receipt");
-  const oauthResetReceiptBytes = readFileSync(oauthResetReceiptPath);
-  let oauthResetReceipt;
-  try {
-    oauthResetReceipt = JSON.parse(oauthResetReceiptBytes.toString("utf8"));
-  } catch {
-    throw new Error("OAuth-reset receipt is not valid JSON");
-  }
-  const importReceiptSha256 = sha256(importReceiptBytes);
-  const oauthResetReceiptSha256 = sha256(oauthResetReceiptBytes);
+  const { value: oauthResetReceipt, sha256: oauthResetReceiptSha256 } =
+    privateScopedReceiptSnapshot(oauthResetReceiptPath, "OAuth-reset receipt");
   const subjectScope = validateQuarantineInputs(
     importReceipt,
     oauthResetReceipt,

@@ -20,10 +20,11 @@ import {
   writePrivateFile,
   writePrivateJson,
 } from "./lib/supabase-isolation.mjs";
-import { assertScopeBinding } from "./lib/migration-subject-scope.mjs";
+import { assertScopeBinding, subjectScopeBinding, validateSubjectScope } from "./lib/migration-subject-scope.mjs";
 import { validateMigrationGuardCatalogBinding } from "./lib/migration-guard-catalog.mjs";
 import {
   importTransactionGuards,
+  privateScopedReceiptSnapshot,
   privateSnapshot,
   snapshotPackageBinaryFiles,
   validateImportScope,
@@ -299,43 +300,42 @@ async function main() {
     throw new Error("refusing to import into the source project");
   }
 
-  // Execution uses only verified private snapshots, never package paths reopened
-  // after a long target preflight. A source freeze cannot protect local files.
-  const stagingDir = mkdtempSync(
-    resolve(tmpdir(), "mind-manual-import-snapshot-"),
+  // Validate the embedded owner scope before opening receipt chains or creating
+  // staging output. Later execution uses these exact snapshots, never rereads.
+  const scopeSnapshot = privateSnapshot(
+    resolvePackagePath(packageDir, "subject-scope.json"),
+    "package subject scope",
+    { json: true },
   );
-  chmodSync(stagingDir, 0o700);
+  const embeddedBinding = subjectScopeBinding(validateSubjectScope(scopeSnapshot.value, {
+    targetProjectRef: targetRef,
+  }));
+  let stagingDir;
   try {
-    const manifestSnapshot = privateSnapshot(
+    const manifestSnapshot = privateScopedReceiptSnapshot(
       resolvePackagePath(packageDir, "package-manifest.json"),
       "package manifest",
-      { json: true },
     );
-    const sourceSnapshot = privateSnapshot(
+    assertScopeBinding(manifestSnapshot.value.subjectScope, embeddedBinding, "package scope");
+    const sourceSnapshot = privateScopedReceiptSnapshot(
       resolvePackagePath(
         packageDir,
         "source-preflight.json",
       ),
       "source receipt",
-      { json: true },
     );
+    assertScopeBinding(sourceSnapshot.value.subjectScope, embeddedBinding, "source receipt scope");
     const manifest = manifestSnapshot.value;
     const sourceReceipt = sourceSnapshot.value;
     const authDecisionPath = assertAbsolutePath(
       args["auth-decision"],
       "Auth decision",
     );
-    const decisionSnapshot = privateSnapshot(
+    const decisionSnapshot = privateScopedReceiptSnapshot(
       authDecisionPath,
       "Auth decision",
-      { json: true },
     );
     const authDecision = decisionSnapshot.value;
-    const scopeSnapshot = privateSnapshot(
-      resolvePackagePath(packageDir, "subject-scope.json"),
-      "package subject scope",
-      { json: true },
-    );
     const binding = validateImportScope({
       scope: scopeSnapshot.value,
       scopeFileSha256: scopeSnapshot.sha256,
@@ -374,6 +374,8 @@ async function main() {
       );
     }
     validatePackageFiles(manifest, sourceReceipt);
+    stagingDir = mkdtempSync(resolve(tmpdir(), "mind-manual-import-snapshot-"));
+    chmodSync(stagingDir, 0o700);
     const sourceReceiptPath = resolve(stagingDir, "source-preflight.json");
     const subjectScopePath = resolve(stagingDir, "subject-scope.json");
     writePrivateFile(sourceReceiptPath, sourceSnapshot.bytes);
@@ -498,7 +500,7 @@ async function main() {
     console.log(`import receipt sha256: ${sha256File(importReceiptPath)}`);
   } finally {
     // Only this mkdtemp-created snapshot is disposable; original packages remain.
-    rmSync(stagingDir, { recursive: true, force: true });
+    if (stagingDir) rmSync(stagingDir, { recursive: true, force: true });
   }
 }
 

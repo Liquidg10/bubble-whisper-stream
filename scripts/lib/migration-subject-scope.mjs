@@ -71,9 +71,14 @@ export function validateSubjectScope(input, { targetProjectRef } = {}) {
     throw new Error("Invalid subject scope envelope");
   }
   validProjects(input, targetProjectRef);
+  // Owner's policy is one account, not a configurable batch-size limit. Keep
+  // this in the shared validator so private files, embedded packages, SQL
+  // helpers and future callers cannot opt into the old multi-user migration.
+  if (Array.isArray(input.subjectIds) && input.subjectIds.length !== 1) {
+    throw new Error("Owner-only migration requires exactly one selected subject");
+  }
   if (
-    !Array.isArray(input.subjectIds) || input.subjectIds.length < 1 ||
-    input.subjectIds.length > 5000 ||
+    !Array.isArray(input.subjectIds) ||
     input.subjectIds.some((id) => !validUuid(id)) ||
     new Set(input.subjectIds).size !== input.subjectIds.length
   ) {
@@ -166,8 +171,7 @@ export function validateSubjectScopeBinding(
   if (
     !exactKeys(binding, BINDING_KEYS) || binding.version !== 1 ||
     binding.rawSubjectIdsIncluded !== false ||
-    !Number.isSafeInteger(binding.subjectCount) || binding.subjectCount < 1 ||
-    binding.subjectCount > 5000 ||
+    !Number.isSafeInteger(binding.subjectCount) ||
     typeof binding.scopeSha256 !== "string" ||
     !HASH.test(binding.scopeSha256) ||
     typeof binding.subjectIdsSha256 !== "string" ||
@@ -176,6 +180,11 @@ export function validateSubjectScopeBinding(
     !HASH.test(binding.legacyAssignmentsSha256)
   ) throw new Error(`Invalid ${label}`);
   validProjects(binding);
+  // Old READY/imported/verified receipts are not an override of today's
+  // owner-only scope. Validate cardinality before any downstream use.
+  if (binding.subjectCount !== 1) {
+    throw new Error("Owner-only migration requires exactly one selected subject");
+  }
   return binding;
 }
 

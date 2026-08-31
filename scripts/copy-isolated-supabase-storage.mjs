@@ -1,12 +1,12 @@
 #!/usr/bin/env node
+import { privateScopedReceiptSnapshot } from "./lib/import-subject-package.mjs";
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { validateMigrationGuardCatalogBinding } from "./lib/migration-guard-catalog.mjs";
 import {
   assertAbsolutePath,
-  assertPrivateFile,
   assertProjectRef,
   canonicalJson,
   parseArgs,
@@ -404,18 +404,8 @@ function validateStorageInventory(rows, buckets) {
 }
 
 function readPrivateReceipt(path, label) {
-  assertPrivateFile(path, label);
-  const bytes = readFileSync(path);
-  let receipt;
-  try {
-    receipt = JSON.parse(bytes.toString("utf8"));
-  } catch {
-    throw new Error(`invalid JSON in ${label}`);
-  }
-  if (!receipt || typeof receipt !== "object" || Array.isArray(receipt)) {
-    throw new Error(`invalid ${label} envelope`);
-  }
-  return { receipt, receiptSha256: sha256(bytes) };
+  const { value: receipt, sha256: receiptSha256 } = privateScopedReceiptSnapshot(path, label);
+  return { receipt, receiptSha256 };
 }
 
 export function selectStorageObjects(scope, sourceObjects) {

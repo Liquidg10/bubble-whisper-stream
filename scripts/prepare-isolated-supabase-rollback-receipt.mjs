@@ -25,7 +25,7 @@ import {
   validateHttpProbeReceipts,
   validateTargetSnapshot,
 } from "./generate-sync-deferred-boundary-receipt.mjs";
-import { privateSnapshot } from "./lib/import-subject-package.mjs";
+import { privateScopedReceiptSnapshot, privateSnapshot } from "./lib/import-subject-package.mjs";
 import {
   assertScopeBinding,
   loadSubjectScope,
@@ -786,6 +786,9 @@ async function main() {
 
   // Hash and parse exactly the same private bytes; reopening mutable receipts can
   // otherwise bind evidence different from what was actually validated.
+  const scope = loadSubjectScope(args["subject-scope"], {
+    targetProjectRef: targetRef,
+  });
   const snapshots = Object.fromEntries([
     "source-receipt",
     "source-revalidation-receipt",
@@ -798,7 +801,9 @@ async function main() {
     "oauth-reset-receipt",
     "quarantine-receipt",
     "target-canary-receipt",
-  ].map((key) => [key, privateSnapshot(args[key], key, { json: true })]));
+  ].map((key) => [key, key === "target-canary-receipt"
+    ? privateSnapshot(args[key], key, { json: true })
+    : privateScopedReceiptSnapshot(args[key], key)]));
   const source = snapshots["source-receipt"].value;
   const sourceRevalidation = snapshots["source-revalidation-receipt"].value;
   const sourceFreeze = snapshots["source-freeze-receipt"].value;
@@ -822,9 +827,6 @@ async function main() {
     snapshots["storage-revalidation-receipt"].sha256;
   const oauthResetReceiptSha256 = snapshots["oauth-reset-receipt"].sha256;
   const quarantineReceiptSha256 = snapshots["quarantine-receipt"].sha256;
-  const scope = loadSubjectScope(args["subject-scope"], {
-    targetProjectRef: targetRef,
-  });
   const packagedScope = privateSnapshot(
     resolve(dirname(args["package-manifest"]), "subject-scope.json"),
     "packaged subject scope",

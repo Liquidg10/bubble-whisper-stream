@@ -25,6 +25,7 @@ import {
 } from "../lib/migration-subject-scope.mjs";
 import {
   importTransactionGuards,
+  privateScopedReceiptSnapshot,
   privateSnapshot,
   snapshotPackageBinaryFiles,
   validateImportScope,
@@ -64,7 +65,7 @@ function scope() {
     kind: "mind_manual_subject_scope",
     sourceProjectRef: SOURCE,
     targetProjectRef: TARGET,
-    subjectIds: [SECOND, FIRST],
+    subjectIds: [FIRST],
     legacyStorageAssignments: [
       {
         bucket: "voice-samples",
@@ -102,7 +103,7 @@ function importInputs() {
     },
     source: {
       subjectScope: binding,
-      auth: { userCount: 2, subjectIdsSha256: binding.subjectIdsSha256 },
+      auth: { userCount: 1, subjectIdsSha256: binding.subjectIdsSha256 },
       catalog: { migrationGuard: expectedMigrationGuardContract() },
     },
     decision: { subjectScope: binding },
@@ -114,7 +115,7 @@ describe("private subject scope and hash-only contracts", () => {
     const input = scope();
     const before = canonicalJson(input);
     const normalized = validateSubjectScope(input);
-    assert.deepEqual(normalized.subjectIds, [FIRST, SECOND]);
+    assert.deepEqual(normalized.subjectIds, [FIRST]);
     assert.equal(canonicalJson(input), before);
     const reordered = {
       ...input,
@@ -123,9 +124,9 @@ describe("private subject scope and hash-only contracts", () => {
     };
     const binding = subjectScopeBinding(input);
     assert.deepEqual(subjectScopeBinding(reordered), binding);
-    assert.equal(binding.subjectIdsSha256, sha256(`${FIRST}\n${SECOND}`));
+    assert.equal(binding.subjectIdsSha256, sha256(FIRST));
     assert.equal(binding.scopeSha256, sha256(canonicalJson(normalized)));
-    assert.equal(binding.subjectCount, 2);
+    assert.equal(binding.subjectCount, 1);
     assert.equal(binding.rawSubjectIdsIncluded, false);
     assert.ok(!canonicalJson(binding).includes(FIRST));
     assert.ok(!canonicalJson(binding).includes("legacy-photo.png"));
@@ -172,11 +173,12 @@ describe("private subject scope and hash-only contracts", () => {
     );
   });
 
-  it("requires a nonempty bounded set of explicit canonical UUID strings", () => {
+  it("requires exactly one explicit canonical UUID without a batch override", () => {
     for (
       const ids of [
         [],
         [FIRST, FIRST],
+        [FIRST, SECOND],
         ["ALL"],
         ["00000000-0000-0000-0000-000000000000"],
         [[FIRST]],
@@ -187,7 +189,7 @@ describe("private subject scope and hash-only contracts", () => {
     ) {
       assert.throws(
         () => validateSubjectScope({ ...scope(), subjectIds: ids }),
-        /canonical UUIDs/u,
+        /canonical UUIDs|exactly one selected subject/u,
       );
     }
   });
@@ -294,7 +296,7 @@ describe("private subject scope and hash-only contracts", () => {
     const sql = scopeSqlPredicate(scope(), "r.user_id");
     assert.equal(
       sql,
-      `"r"."user_id" = ANY(ARRAY['${FIRST}','${SECOND}']::uuid[])`,
+      `"r"."user_id" = ANY(ARRAY['${FIRST}']::uuid[])`,
     );
     assert.ok(!sql.includes("auth.users"));
     for (
@@ -315,7 +317,7 @@ describe("private subject scope and hash-only contracts", () => {
   it("target SQL contains hashes/counts but no raw subject IDs and checks orphan identities", () => {
     const binding = subjectScopeBinding(scope());
     const sql = targetSubjectAssertionSql(binding);
-    assert.match(sql, /count\(\*\) FROM auth\.users\) <> 2/u);
+    assert.match(sql, /count\(\*\) FROM auth\.users\) <> 1/u);
     assert.ok(sql.includes(binding.subjectIdsSha256));
     assert.match(
       sql,
@@ -347,6 +349,23 @@ describe("private subject scope and hash-only contracts", () => {
       assert.equal(error.message, "Subject scope is not valid JSON");
       return true;
     });
+  });
+
+  it("rejects a formerly valid private batch scope rather than narrowing it implicitly", () => {
+    const path = join(temporary(), "batch-scope.json");
+    const batch = { ...scope(), subjectIds: [FIRST, SECOND] };
+    writeFileSync(path, JSON.stringify(batch), { mode: 0o600 });
+    assert.throws(() => loadSubjectScope(path), /Owner-only migration requires exactly one selected subject/u);
+    assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), batch);
+    assert.throws(() => subjectScopeBinding(batch), /exactly one selected subject/u);
+    assert.throws(() => scopeSqlPredicate(batch, "r.user_id"), /exactly one selected subject/u);
+  });
+
+  it("rejects legacy multi-subject bindings even when both compared receipts agree", () => {
+    const batch = { ...subjectScopeBinding(scope()), subjectCount: 2 };
+    assert.throws(() => validateSubjectScopeBinding(batch), /exactly one selected subject/u);
+    assert.throws(() => assertScopeBinding(batch, batch), /exactly one selected subject/u);
+    assert.throws(() => targetSubjectAssertionSql(batch), /exactly one selected subject/u);
   });
 });
 
@@ -434,6 +453,37 @@ describe("storage classification has no implicit ownership", () => {
 });
 
 describe("immutable private import package snapshots", () => {
+  it("checks one-owner receipts against the same detached bytes and hash without rereading the path", () => {
+    const path = join(temporary(), "receipt.json");
+    const one = { status: "ready", subjectScope: subjectScopeBinding(scope()) };
+    const bytes = JSON.stringify(one);
+    writeFileSync(path, bytes, { mode: 0o600 });
+    const snapshot = privateScopedReceiptSnapshot(path, "synthetic receipt");
+    const batch = { ...one, subjectScope: { ...one.subjectScope, subjectCount: 2 } };
+    writeFileSync(path, JSON.stringify(batch));
+    assert.equal(snapshot.sha256, sha256(bytes));
+    assert.equal(snapshot.bytes.toString("utf8"), bytes);
+    assert.deepEqual(snapshot.value, one);
+    assert.throws(() => privateScopedReceiptSnapshot(path, "synthetic receipt"), /exactly one selected subject/u);
+  });
+
+  it("keeps private receipt descriptor, symlink and diagnostic protections at the policy boundary", () => {
+    const directory = temporary();
+    const path = join(directory, "receipt.json");
+    writeFileSync(path, JSON.stringify({ subjectScope: subjectScopeBinding(scope()) }), { mode: 0o600 });
+    const link = join(directory, "receipt-link.json");
+    symlinkSync(path, link);
+    assert.throws(() => privateScopedReceiptSnapshot(link, "synthetic receipt"), /private regular JSON file/u);
+    chmodSync(path, 0o644);
+    assert.throws(() => privateScopedReceiptSnapshot(path, "synthetic receipt"), /private regular JSON file/u);
+    chmodSync(path, 0o600);
+    writeFileSync(path, `malformed-private-${FIRST}`);
+    assert.throws(() => privateScopedReceiptSnapshot(path, "synthetic receipt"), (error) => {
+      assert.equal(error.message, "synthetic receipt must be a readable private regular JSON file");
+      return true;
+    });
+  });
+
   it("binds parsed JSON and SHA to the same bytes and keeps a detached snapshot", () => {
     const directory = temporary();
     const path = join(directory, "input.json");
@@ -524,9 +574,9 @@ describe("immutable private import package snapshots", () => {
     }
     for (
       const auth of [{
-        userCount: 1,
+        userCount: 2,
         subjectIdsSha256: input.source.auth.subjectIdsSha256,
-      }, { userCount: 2, subjectIdsSha256: sha256("different") }]
+      }, { userCount: 1, subjectIdsSha256: sha256("different") }]
     ) {
       assert.throws(
         () =>
@@ -607,7 +657,7 @@ describe("transactional import SQL guards", () => {
     return {
       subjectScope,
       auth: {
-        userCount: 2,
+        userCount: 1,
         subjectIdsSha256: subjectScope.subjectIdsSha256,
         usersSha256: sha256("synthetic-users"),
         identityCount: 2,
