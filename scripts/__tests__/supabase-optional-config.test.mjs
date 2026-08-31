@@ -10,9 +10,19 @@ import {
   validateSecretNameManifests,
 } from "../supabase-isolation-preflight.mjs";
 import { repoRoot, sha256 } from "../lib/supabase-isolation.mjs";
+import { expectedMigrationGuardContract } from "../lib/migration-guard-catalog.mjs";
+import { subjectScopeBinding } from "../lib/migration-subject-scope.mjs";
 
 const REQUIRED = ["OPENAI_API_KEY", "PLAID_CLIENT_ID", "PLAID_SECRET"];
 const OPTIONAL = ["CALENDAR_REVIEWED_UPDATES_ENABLED"];
+const SYNTHETIC_SCOPE = {
+  version: 1,
+  kind: "mind_manual_subject_scope",
+  sourceProjectRef: "ekekeywoxvdbfbmqyhjy",
+  targetProjectRef: "fjxedbaskrbewjunfxaj",
+  subjectIds: ["10000000-0000-4000-8000-000000000001"],
+  legacyStorageAssignments: [],
+};
 const inventory = (liveNames = REQUIRED, kind = "target") => evaluateSecretNameInventory({
   requiredNames: REQUIRED, optionalNames: OPTIONAL, liveNames, kind,
 });
@@ -20,7 +30,9 @@ const inventory = (liveNames = REQUIRED, kind = "target") => evaluateSecretNameI
 function receipt(kind = "target") {
   return {
     version: 1, kind, status: "ready", manifests: secretManifestFingerprints(),
-    catalog: { relations: [], functions: [] }, publicData: [], storage: { objects: [] }, auth: {},
+    subjectScope: subjectScopeBinding(SYNTHETIC_SCOPE),
+    catalog: { relations: [], functions: [], migrationGuard: expectedMigrationGuardContract() },
+    publicData: [], storage: { objects: [] }, auth: {},
   };
 }
 
@@ -111,6 +123,52 @@ describe("strict optional default-OFF configuration inventory", () => {
     const blockers = [];
     compareReceipts(receipt(), receipt("source"), blockers);
     assert.deepEqual(blockers, []);
+  });
+
+  for (const side of ["source", "target"]) {
+    for (const change of ["missing", "different"]) {
+      it(`keeps ${change} ${side} subject scope blocked despite valid configuration bindings`, () => {
+        const source = receipt("source");
+        const target = receipt();
+        const changed = side === "source" ? source : target;
+        if (change === "missing") delete changed.subjectScope;
+        else changed.subjectScope = subjectScopeBinding({
+          ...SYNTHETIC_SCOPE,
+          subjectIds: ["20000000-0000-4000-8000-000000000002"],
+        });
+        const blockers = [];
+        compareReceipts(target, source, blockers);
+        assert.equal(blockers.length, 1);
+        assert.match(blockers[0], /subject scope/u);
+      });
+    }
+
+    for (const change of ["missing", "forged"]) {
+      it(`keeps ${change} ${side} migration guard blocked despite valid configuration and scope`, () => {
+        const source = receipt("source");
+        const target = receipt();
+        const changed = side === "source" ? source : target;
+        if (change === "missing") delete changed.catalog.migrationGuard;
+        else changed.catalog.migrationGuard.catalogSha256 = "0".repeat(64);
+        const blockers = [];
+        compareReceipts(target, source, blockers);
+        assert.deepEqual(blockers, ["migration guard catalog binding is missing, stale or unreviewed"]);
+      });
+    }
+  }
+
+  it("retains configuration and guard blockers before a missing subject scope stops comparison", () => {
+    const source = receipt("source");
+    const target = receipt();
+    delete target.subjectScope;
+    delete source.catalog.migrationGuard;
+    delete target.manifests.optionalConfigSha256;
+    const blockers = [];
+    compareReceipts(target, source, blockers);
+    assert.equal(blockers.length, 3);
+    assert.ok(blockers.includes("migration guard catalog binding is missing, stale or unreviewed"));
+    assert.ok(blockers.includes("configuration manifest binding mismatch: optionalConfigSha256"));
+    assert.ok(blockers.some((blocker) => /subject scope/u.test(blocker)));
   });
 
   for (const field of ["secretsSha256", "optionalConfigSha256"]) {

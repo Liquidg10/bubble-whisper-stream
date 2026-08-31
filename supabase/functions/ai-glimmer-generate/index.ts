@@ -1,3 +1,4 @@
+import { wrapMindManualHandler } from "../_shared/migrationWriteFence.ts";
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
@@ -20,7 +21,7 @@ const TONE_STYLES = {
   'future-you': 'wise future version of yourself looking back with compassion'
 };
 
-serve(async (req) => {
+serve(wrapMindManualHandler("ai-glimmer-generate", async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -151,4 +152,4 @@ Generate a ${personalizationScore > 0.6 ? 'highly personalized' : 'contextually 
       status: 200,
     });
   }
-});
+}));

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { expectedMigrationGuardContract, validateMigrationGuardCatalogBinding } from "./lib/migration-guard-catalog.mjs";
 
 import assert from "node:assert/strict";
 import {
@@ -19,6 +20,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import { validateSubjectScopeBinding } from "./lib/migration-subject-scope.mjs";
 import {
   assertAbsolutePath,
   assertPrivateFile,
@@ -30,6 +33,7 @@ import {
   parseArgs,
   quoteIdentifier,
   quoteLiteral,
+  readTsvManifest,
   repoRoot,
   runPsql,
   runPsqlJson,
@@ -118,13 +122,14 @@ function usage() {
   );
 }
 
-function readReceipt(path, label) {
+function readReceiptSnapshot(path, label) {
   assertAbsolutePath(path, label);
   assertPrivateFile(path, label);
+  const bytes = readFileSync(path);
   try {
-    return JSON.parse(readFileSync(path, "utf8"));
-  } catch (error) {
-    throw new Error(`${label} is not valid JSON: ${error.message}`);
+    return { value: JSON.parse(bytes.toString("utf8")), sha256: sha256(bytes) };
+  } catch {
+    throw new Error(`${label} is not valid JSON`);
   }
 }
 
@@ -172,7 +177,9 @@ function encryptTombstone(key, iv = randomBytes(12)) {
     Buffer.concat([ciphertext, cipher.getAuthTag()]).toString("base64url"),
   ].join(":");
   if (!STRICT_ENVELOPE_PATTERN.test(envelope)) {
-    throw new Error("generated OAuth tombstone does not match the strict envelope");
+    throw new Error(
+      "generated OAuth tombstone does not match the strict envelope",
+    );
   }
   return envelope;
 }
@@ -212,19 +219,34 @@ function sourceRelationMap(sourceReceipt) {
   const entries = new Map();
   for (const row of sourceReceipt.publicData) {
     if (typeof row?.relation !== "string" || entries.has(row.relation)) {
-      throw new Error("source receipt has duplicate or invalid public-data rows");
+      throw new Error(
+        "source receipt has duplicate or invalid public-data rows",
+      );
     }
     entries.set(row.relation, row);
   }
   return entries;
 }
 
-function validateMigrationReceipts(
+export function validateMigrationReceipts(
   source,
   imported,
   sourceReceiptSha256,
   targetRef,
 ) {
+  validateMigrationGuardCatalogBinding(source.catalog?.migrationGuard);
+  validateMigrationGuardCatalogBinding(imported.migrationGuard);
+  const binding = validateSubjectScopeBinding(source.subjectScope);
+  validateSubjectScopeBinding(imported.subjectScope);
+  if (
+    binding.sourceProjectRef !== SOURCE_PROJECT_REF ||
+    binding.targetProjectRef !== targetRef ||
+    canonicalJson(imported.subjectScope) !== canonicalJson(binding) ||
+    source.auth?.userCount !== binding.subjectCount ||
+    source.auth?.subjectIdsSha256 !== binding.subjectIdsSha256
+  ) {
+    throw new Error("OAuth reset requires one exact selected-subject scope");
+  }
   if (
     source.version !== 1 ||
     source.kind !== "source" ||
@@ -316,7 +338,81 @@ function rowDigestExpression(valueExpression) {
   return `encode(extensions.digest(convert_to(COALESCE(string_agg(${valueExpression}, E'\\n' ORDER BY ${valueExpression}), ''), 'UTF8'), 'sha256'), 'hex')`;
 }
 
-function inventorySql(expectedTombstone = null) {
+// The target must contain ONLY the approved subjects. Matching an old import
+// receipt is insufficient: a new signup or an unowned durable row must fail
+// before a target-wide credential operation can touch it. No raw IDs enter SQL.
+export function targetSubjectScopeGuardSql(binding, { lock = false } = {}) {
+  validateSubjectScopeBinding(binding);
+  if (
+    binding.sourceProjectRef !== SOURCE_PROJECT_REF ||
+    binding.targetProjectRef === SOURCE_PROJECT_REF
+  ) {
+    throw new Error("target scope guard requires the isolated target scope");
+  }
+  const scopes = readTsvManifest(
+    "supabase/isolation/mind-manual-data-scopes.tsv",
+    3,
+  );
+  const tables = [
+    "auth.identities",
+    "auth.users",
+    ...scopes.map(([relation]) => `public.${quoteIdentifier(relation)}`),
+  ];
+  const ownershipChecks = [
+    ["auth", "identities", "user_id"],
+    ...scopes.map(([relation, owner]) => ["public", relation, owner]),
+  ]
+    .map(([schema, relation, owner]) => `
+  IF EXISTS (SELECT 1 FROM ${schema}.${quoteIdentifier(relation)} AS owned
+             WHERE NOT EXISTS (SELECT 1 FROM auth.users AS approved WHERE approved.id = owned.${
+      quoteIdentifier(owner)
+    })) THEN
+    RAISE EXCEPTION 'Target contains rows outside the approved subject scope' USING ERRCODE = '55000';
+  END IF;`).join("\n");
+  return `${
+    lock ? `LOCK TABLE ${tables.join(", ")} IN SHARE ROW EXCLUSIVE MODE;\n` : ""
+  }
+DO $subject_scope$
+BEGIN
+  IF (SELECT count(*) FROM auth.users) <> ${binding.subjectCount}
+     OR (SELECT ${rowDigestExpression("id::text")} FROM auth.users) <> ${
+    quoteLiteral(binding.subjectIdsSha256)
+  } THEN
+    RAISE EXCEPTION 'Target Auth subjects differ from the approved scope' USING ERRCODE = '55000';
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_catalog.pg_class AS relation
+             JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+             WHERE namespace.nspname = 'public' AND relation.relkind IN ('r', 'p')
+               AND relation.relname <> ALL (ARRAY[${
+    scopes.map(([relation]) => quoteLiteral(relation)).join(", ")
+  }]::text[])) THEN
+    RAISE EXCEPTION 'Target contains unapproved public relations' USING ERRCODE = '55000';
+  END IF;
+  ${ownershipChecks}
+END
+$subject_scope$;
+`;
+}
+
+export function guardTargetMutationSql(template, binding) {
+  if (
+    (template.match(/^BEGIN;$/gmu) ?? []).length !== 1 ||
+    (template.match(/^COMMIT;$/gmu) ?? []).length !== 1
+  ) {
+    throw new Error(
+      "target mutation template must have one explicit transaction",
+    );
+  }
+  return template.replace(
+    /^BEGIN;$/mu,
+    `BEGIN;\nSET ROLE postgres;\nSET LOCAL lock_timeout = '5s';\nSET LOCAL statement_timeout = '60s';\n${
+      targetSubjectScopeGuardSql(binding, { lock: true })
+    }`,
+  )
+    .replace(/^COMMIT;$/mu, `${targetSubjectScopeGuardSql(binding)}\nCOMMIT;`);
+}
+
+export function inventorySql(expectedTombstone = null, binding) {
   const relationInventory = RECEIPT_BOUND_RELATIONS.map((relation) => {
     const table = quoteIdentifier(relation);
     return `
@@ -336,8 +432,9 @@ function inventorySql(expectedTombstone = null) {
     : "0";
 
   return `
-BEGIN READ ONLY;
+BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;
 SET ROLE postgres;
+${targetSubjectScopeGuardSql(binding)}
 SELECT json_build_object(
   'relations', (
     SELECT json_agg(json_build_object(
@@ -427,19 +524,35 @@ SELECT json_build_object(
   ),
   'preservation', json_build_object(
     'oauthTokenMetadataSha256', (
-      SELECT ${rowDigestExpression("jsonb_build_object('id', id, 'user_id', user_id, 'provider', provider, 'service_type', service_type, 'provider_account_id', provider_account_id, 'account_email', account_email, 'scope', scope, 'created_at', created_at)::text")}
+      SELECT ${
+    rowDigestExpression(
+      "jsonb_build_object('id', id, 'user_id', user_id, 'provider', provider, 'service_type', service_type, 'provider_account_id', provider_account_id, 'account_email', account_email, 'scope', scope, 'created_at', created_at)::text",
+    )
+  }
       FROM public.oauth_tokens
     ),
     'oauthIdentityLinkageSha256', (
-      SELECT ${rowDigestExpression("jsonb_build_object('id', id, 'user_id', user_id, 'provider', provider, 'service_type', service_type, 'provider_account_id', provider_account_id)::text")}
+      SELECT ${
+    rowDigestExpression(
+      "jsonb_build_object('id', id, 'user_id', user_id, 'provider', provider, 'service_type', service_type, 'provider_account_id', provider_account_id)::text",
+    )
+  }
       FROM public.oauth_tokens
     ),
     'calendarAccountMetadataSha256', (
-      SELECT ${rowDigestExpression("jsonb_build_object('id', id, 'user_id', user_id, 'oauth_token_id', oauth_token_id, 'provider', provider, 'account_name', account_name, 'account_email', account_email, 'calendar_id', calendar_id, 'calendar_name', calendar_name, 'is_primary', is_primary, 'bounded_sync_window_days', bounded_sync_window_days, 'created_at', created_at)::text")}
+      SELECT ${
+    rowDigestExpression(
+      "jsonb_build_object('id', id, 'user_id', user_id, 'oauth_token_id', oauth_token_id, 'provider', provider, 'account_name', account_name, 'account_email', account_email, 'calendar_id', calendar_id, 'calendar_name', calendar_name, 'is_primary', is_primary, 'bounded_sync_window_days', bounded_sync_window_days, 'created_at', created_at)::text",
+    )
+  }
       FROM public.calendar_accounts
     ),
     'calendarIdentityLinkageSha256', (
-      SELECT ${rowDigestExpression("jsonb_build_object('id', id, 'user_id', user_id, 'oauth_token_id', oauth_token_id, 'provider', provider, 'calendar_id', calendar_id)::text")}
+      SELECT ${
+    rowDigestExpression(
+      "jsonb_build_object('id', id, 'user_id', user_id, 'oauth_token_id', oauth_token_id, 'provider', provider, 'calendar_id', calendar_id)::text",
+    )
+  }
       FROM public.calendar_accounts
     ),
     'calendarEventsSha256', (
@@ -467,7 +580,9 @@ function inventoryRelationMap(inventory) {
     result.set(row.relation, row);
   }
   if (result.size !== RECEIPT_BOUND_RELATIONS.length) {
-    throw new Error("target inventory relation set does not match the contract");
+    throw new Error(
+      "target inventory relation set does not match the contract",
+    );
   }
   return result;
 }
@@ -477,7 +592,9 @@ function hasExactFields(value, fields, predicate) {
     typeof value === "object" &&
     !Array.isArray(value) &&
     Object.keys(value).length === fields.length &&
-    fields.every((field) => Object.hasOwn(value, field) && predicate(value[field]));
+    fields.every((field) =>
+      Object.hasOwn(value, field) && predicate(value[field])
+    );
 }
 
 function relationshipsAreClear(value) {
@@ -516,11 +633,14 @@ function validateBeforeInventory(inventory, expected) {
       expected.get("calendar_accounts").rowCount ||
     inventory.calendar?.primaryCalendarIdCount !==
       expected.get("calendar_accounts").rowCount ||
-    inventory.calendar?.eventCount !== expected.get("calendar_events").rowCount ||
+    inventory.calendar?.eventCount !==
+      expected.get("calendar_events").rowCount ||
     !relationshipsAreClear(inventory.relationships) ||
     !preservationIsHashed(inventory.preservation)
   ) {
-    throw new Error("target OAuth relationships do not match the reset contract");
+    throw new Error(
+      "target OAuth relationships do not match the reset contract",
+    );
   }
 }
 
@@ -529,12 +649,16 @@ function validateAfterInventory(after, before, expected) {
   for (const relation of RECEIPT_BOUND_RELATIONS) {
     const actualRow = actual.get(relation);
     if (!actualRow || actualRow.rowCount !== expected.get(relation).rowCount) {
-      throw new Error(`target row count changed during OAuth reset: ${relation}`);
+      throw new Error(
+        `target row count changed during OAuth reset: ${relation}`,
+      );
     }
   }
   for (const relation of PRESERVED_RELATIONS) {
     if (actual.get(relation).rowsSha256 !== expected.get(relation).rowsSha256) {
-      throw new Error(`preserved target data changed during OAuth reset: ${relation}`);
+      throw new Error(
+        `preserved target data changed during OAuth reset: ${relation}`,
+      );
     }
   }
   const tokenCount = expected.get("oauth_tokens").rowCount;
@@ -563,14 +687,32 @@ function validateAfterInventory(after, before, expected) {
   }
 }
 
-function renderResetSql(template, expected, tombstone) {
+export function renderResetSql(template, expected, tombstone, binding) {
   const replacements = new Map([
-    ["@@EXPECTED_OAUTH_TOKEN_COUNT@@", String(expected.get("oauth_tokens").rowCount)],
-    ["@@EXPECTED_CALENDAR_ACCOUNT_COUNT@@", String(expected.get("calendar_accounts").rowCount)],
-    ["@@EXPECTED_CALENDAR_EVENT_COUNT@@", String(expected.get("calendar_events").rowCount)],
-    ["@@EXPECTED_OAUTH_TOKEN_DIGEST@@", quoteLiteral(expected.get("oauth_tokens").rowsSha256)],
-    ["@@EXPECTED_CALENDAR_ACCOUNT_DIGEST@@", quoteLiteral(expected.get("calendar_accounts").rowsSha256)],
-    ["@@EXPECTED_CALENDAR_EVENT_DIGEST@@", quoteLiteral(expected.get("calendar_events").rowsSha256)],
+    [
+      "@@EXPECTED_OAUTH_TOKEN_COUNT@@",
+      String(expected.get("oauth_tokens").rowCount),
+    ],
+    [
+      "@@EXPECTED_CALENDAR_ACCOUNT_COUNT@@",
+      String(expected.get("calendar_accounts").rowCount),
+    ],
+    [
+      "@@EXPECTED_CALENDAR_EVENT_COUNT@@",
+      String(expected.get("calendar_events").rowCount),
+    ],
+    [
+      "@@EXPECTED_OAUTH_TOKEN_DIGEST@@",
+      quoteLiteral(expected.get("oauth_tokens").rowsSha256),
+    ],
+    [
+      "@@EXPECTED_CALENDAR_ACCOUNT_DIGEST@@",
+      quoteLiteral(expected.get("calendar_accounts").rowsSha256),
+    ],
+    [
+      "@@EXPECTED_CALENDAR_EVENT_DIGEST@@",
+      quoteLiteral(expected.get("calendar_events").rowsSha256),
+    ],
     ["@@OAUTH_TOMBSTONE@@", quoteLiteral(tombstone)],
   ]);
   let rendered = template;
@@ -580,7 +722,7 @@ function renderResetSql(template, expected, tombstone) {
   if (/@@[A-Z0-9_]+@@/u.test(rendered)) {
     throw new Error("OAuth reset SQL template contains an unresolved token");
   }
-  return rendered;
+  return guardTargetMutationSql(rendered, binding);
 }
 
 function confirmationContract(
@@ -589,6 +731,7 @@ function confirmationContract(
   importReceiptSha256,
   expected,
   targetOauthKeyFingerprintSha256,
+  subjectScope,
 ) {
   if (!SHA256_PATTERN.test(targetOauthKeyFingerprintSha256)) {
     throw new Error("target OAuth key fingerprint is invalid");
@@ -598,6 +741,7 @@ function confirmationContract(
     action: "reset-isolated-supabase-oauth-credentials",
     sourceProjectRef: SOURCE_PROJECT_REF,
     targetProjectRef: targetRef,
+    subjectScope: validateSubjectScopeBinding(subjectScope),
     sourceReceiptSha256,
     importReceiptSha256,
     resetSqlSha256: sha256File(RESET_SQL_PATH),
@@ -619,12 +763,14 @@ function acquireTargetRunLock(targetRef, contractSha256) {
     descriptor = openSync(lockPath, "wx", 0o600);
     writeFileSync(
       descriptor,
-      `${canonicalJson({
-        version: 1,
-        action: "reset-isolated-supabase-oauth-credentials",
-        targetProjectRef: targetRef,
-        confirmationContractSha256: contractSha256,
-      })}\n`,
+      `${
+        canonicalJson({
+          version: 1,
+          action: "reset-isolated-supabase-oauth-credentials",
+          targetProjectRef: targetRef,
+          confirmationContractSha256: contractSha256,
+        })
+      }\n`,
     );
     fsyncSync(descriptor);
     chmodSync(lockPath, 0o600);
@@ -678,13 +824,13 @@ function preparedResetReceipt({
     preparedAt: new Date().toISOString(),
     sourceProjectRef: SOURCE_PROJECT_REF,
     targetProjectRef: targetRef,
+    subjectScope: contract.subjectScope,
     sourceReceiptSha256,
     importReceiptSha256,
     confirmationContractSha256: contractSha256,
     resetSqlSha256: contract.resetSqlSha256,
     oauthCryptoContractSha256: contract.oauthCryptoContractSha256,
-    targetOauthKeyFingerprintSha256:
-      contract.targetOauthKeyFingerprintSha256,
+    targetOauthKeyFingerprintSha256: contract.targetOauthKeyFingerprintSha256,
     before: {
       relationCounts: expectedRelationCounts(expected),
       preservation: before.preservation,
@@ -717,6 +863,8 @@ function validatePreparedResetReceipt(
     prepared.status !== "prepared_oauth_reset_not_verified" ||
     prepared.sourceProjectRef !== SOURCE_PROJECT_REF ||
     prepared.targetProjectRef !== targetRef ||
+    canonicalJson(prepared.subjectScope) !==
+      canonicalJson(contract.subjectScope) ||
     prepared.sourceReceiptSha256 !== sourceReceiptSha256 ||
     prepared.importReceiptSha256 !== importReceiptSha256 ||
     prepared.confirmationContractSha256 !== contractSha256 ||
@@ -758,19 +906,19 @@ function finalResetReceipt({
     preparedIntentSha256,
     sourceProjectRef: prepared.sourceProjectRef,
     targetProjectRef: prepared.targetProjectRef,
+    subjectScope: prepared.subjectScope,
     sourceReceiptSha256: prepared.sourceReceiptSha256,
     importReceiptSha256: prepared.importReceiptSha256,
     confirmationContractSha256: prepared.confirmationContractSha256,
     resetSqlSha256: prepared.resetSqlSha256,
     oauthCryptoContractSha256: prepared.oauthCryptoContractSha256,
-    targetOauthKeyFingerprintSha256:
-      prepared.targetOauthKeyFingerprintSha256,
+    targetOauthKeyFingerprintSha256: prepared.targetOauthKeyFingerprintSha256,
     before: prepared.before,
     after: {
       oauthTokenCount: after.oauth.tokenCount,
       expiredTokenCount: after.oauth.expiredTokenCount,
-      nulledRefreshTokenCount:
-        after.oauth.tokenCount - after.oauth.nonNullRefreshCount,
+      nulledRefreshTokenCount: after.oauth.tokenCount -
+        after.oauth.nonNullRefreshCount,
       disabledCalendarAccountCount: after.calendar.syncDisabledCount,
       primaryCalendarAccountCount: after.calendar.primaryCalendarIdCount,
       preservedCalendarEventCount: after.calendar.eventCount,
@@ -814,36 +962,53 @@ function selfTest() {
   assert.notEqual(deterministicFirst, differentContract);
 
   const digest = "a".repeat(64);
+  const targetRef = "abcdefghijklmnopqrst";
+  const subjectScope = {
+    version: 1,
+    sourceProjectRef: SOURCE_PROJECT_REF,
+    targetProjectRef: targetRef,
+    scopeSha256: "1".repeat(64),
+    subjectIdsSha256: "2".repeat(64),
+    subjectCount: 2,
+    legacyAssignmentsSha256: "3".repeat(64),
+    rawSubjectIdsIncluded: false,
+  };
   const source = {
     version: 1,
     kind: "source",
     projectRef: SOURCE_PROJECT_REF,
     status: "ready",
     blockers: [],
+    subjectScope,
+    catalog: { migrationGuard: expectedMigrationGuardContract() },
+    auth: { userCount: 2, subjectIdsSha256: subjectScope.subjectIdsSha256 },
     manifests: { dataScopesSha256: sha256File(DATA_SCOPES_PATH) },
     publicData: RECEIPT_BOUND_RELATIONS.map((relation) => ({
       relation,
       copyMode: relation === "oauth_state" ? "skip_transient" : "copy",
-      totalRowCount: relation === "oauth_tokens" || relation === "calendar_accounts"
-        ? 2
-        : relation === "calendar_events"
-        ? 40
-        : 0,
-      copyRowCount: relation === "oauth_tokens" || relation === "calendar_accounts"
-        ? 2
-        : relation === "calendar_events"
-        ? 40
-        : 0,
+      totalRowCount:
+        relation === "oauth_tokens" || relation === "calendar_accounts"
+          ? 2
+          : relation === "calendar_events"
+          ? 40
+          : 0,
+      copyRowCount:
+        relation === "oauth_tokens" || relation === "calendar_accounts"
+          ? 2
+          : relation === "calendar_events"
+          ? 40
+          : 0,
       copyRowsSha256: digest,
     })),
   };
-  const targetRef = "abcdefghijklmnopqrst";
   const sourceHash = "b".repeat(64);
   const imported = {
     version: 1,
+    migrationGuard: expectedMigrationGuardContract(),
     status: "verified_pending_storage_and_provider_rebind",
     sourceProjectRef: SOURCE_PROJECT_REF,
     targetProjectRef: targetRef,
+    subjectScope,
     sourceReceiptSha256: sourceHash,
     authDecisionSha256: "9".repeat(64),
     packageManifestSha256: "c".repeat(64),
@@ -873,6 +1038,7 @@ function selfTest() {
     "8".repeat(64),
     expected,
     sha256(key),
+    subjectScope,
   );
   const testContractSha256 = sha256(canonicalJson(testContract));
   const recoveryTombstone = encryptTombstone(
@@ -906,22 +1072,43 @@ function selfTest() {
     tombstone: recoveryTombstone,
   });
   assert.throws(
-    () => validatePreparedResetReceipt(
-      { ...prepared, intendedTombstoneEnvelopeSha256: "0".repeat(64) },
-      {
-        targetRef,
-        sourceReceiptSha256: sourceHash,
-        importReceiptSha256: "8".repeat(64),
-        contract: testContract,
-        contractSha256: testContractSha256,
-        expected,
-        tombstone: recoveryTombstone,
-      },
-    ),
+    () =>
+      validatePreparedResetReceipt(
+        { ...prepared, intendedTombstoneEnvelopeSha256: "0".repeat(64) },
+        {
+          targetRef,
+          sourceReceiptSha256: sourceHash,
+          importReceiptSha256: "8".repeat(64),
+          contract: testContract,
+          contractSha256: testContractSha256,
+          expected,
+          tombstone: recoveryTombstone,
+        },
+      ),
     /does not match/u,
   );
+  for (
+    const subjectScope of [undefined, {
+      ...prepared.subjectScope,
+      scopeSha256: "0".repeat(64),
+    }]
+  ) {
+    assert.throws(
+      () =>
+        validatePreparedResetReceipt({ ...prepared, subjectScope }, {
+          targetRef,
+          sourceReceiptSha256: sourceHash,
+          importReceiptSha256: "8".repeat(64),
+          contract: testContract,
+          contractSha256: testContractSha256,
+          expected,
+          tombstone: recoveryTombstone,
+        }),
+      /does not match/u,
+    );
+  }
   const template = readFileSync(RESET_SQL_PATH, "utf8");
-  const rendered = renderResetSql(template, expected, first);
+  const rendered = renderResetSql(template, expected, first, subjectScope);
   assert.doesNotMatch(rendered, /@@[A-Z0-9_]+@@/u);
   assert.doesNotMatch(rendered, new RegExp(TOMBSTONE_PLAINTEXT, "u"));
   assert.ok(rendered.includes(first));
@@ -954,22 +1141,28 @@ async function main() {
     confirmation: {},
   });
   const targetRef = assertProjectRef(args["target-ref"], "target project ref");
-  const targetDatabasePassword = consumeTargetDatabasePassword();
   if (targetRef === SOURCE_PROJECT_REF) {
-    throw new Error("refusing to reset OAuth credentials on the source project");
+    throw new Error(
+      "refusing to reset OAuth credentials on the source project",
+    );
   }
   if (process.env[FRESH_KEY_CONFIRMATION_ENV] !== "yes") {
     throw new Error(
       `set ${FRESH_KEY_CONFIRMATION_ENV}=yes only after provisioning a newly generated target-only key`,
     );
   }
-  let configuredKey = process.env[OAUTH_KEY_ENV];
-  delete process.env[OAUTH_KEY_ENV];
-
-  const source = readReceipt(args["source-receipt"], "source receipt");
-  const imported = readReceipt(args["import-receipt"], "import receipt");
-  const sourceReceiptSha256 = sha256File(args["source-receipt"]);
-  const importReceiptSha256 = sha256File(args["import-receipt"]);
+  const sourceSnapshot = readReceiptSnapshot(
+    args["source-receipt"],
+    "source receipt",
+  );
+  const importSnapshot = readReceiptSnapshot(
+    args["import-receipt"],
+    "import receipt",
+  );
+  const source = sourceSnapshot.value;
+  const imported = importSnapshot.value;
+  const sourceReceiptSha256 = sourceSnapshot.sha256;
+  const importReceiptSha256 = importSnapshot.sha256;
   const expected = validateMigrationReceipts(
     source,
     imported,
@@ -980,6 +1173,9 @@ async function main() {
   if (!args.recover && existsSync(receiptPath)) {
     throw new Error(`refusing to overwrite existing output: ${receiptPath}`);
   }
+  const targetDatabasePassword = consumeTargetDatabasePassword();
+  let configuredKey = process.env[OAUTH_KEY_ENV];
+  delete process.env[OAUTH_KEY_ENV];
   let tombstone;
   let key;
   let targetOauthKeyFingerprintSha256;
@@ -996,6 +1192,7 @@ async function main() {
       importReceiptSha256,
       expected,
       targetOauthKeyFingerprintSha256,
+      source.subjectScope,
     );
     contractSha256 = sha256(canonicalJson(contract));
     confirmation = `RESET-OAUTH:${targetRef}:${contractSha256.slice(0, 12)}`;
@@ -1013,99 +1210,121 @@ async function main() {
     let prepared;
     let preparedIntentSha256;
     if (args.recover) {
-    if (!existsSync(receiptPath)) {
-      throw new Error("--recover requires the existing prepared reset receipt");
-    }
-    prepared = readReceipt(receiptPath, "prepared OAuth-reset receipt");
-    validatePreparedResetReceipt(prepared, {
-      targetRef,
-      sourceReceiptSha256,
-      importReceiptSha256,
-      contract,
-      contractSha256,
-      expected,
-      tombstone,
-    });
-    preparedIntentSha256 = sha256File(receiptPath);
+      if (!existsSync(receiptPath)) {
+        throw new Error(
+          "--recover requires the existing prepared reset receipt",
+        );
+      }
+      const preparedSnapshot = readReceiptSnapshot(
+        receiptPath,
+        "prepared OAuth-reset receipt",
+      );
+      prepared = preparedSnapshot.value;
+      validatePreparedResetReceipt(prepared, {
+        targetRef,
+        sourceReceiptSha256,
+        importReceiptSha256,
+        contract,
+        contractSha256,
+        expected,
+        tombstone,
+      });
+      preparedIntentSha256 = preparedSnapshot.sha256;
     }
 
     const readOnlyDatabase = getLinkedDatabaseConfig(targetRef);
-    const current = runPsqlJson(readOnlyDatabase, inventorySql(tombstone));
+    const current = runPsqlJson(
+      readOnlyDatabase,
+      inventorySql(tombstone, source.subjectScope),
+    );
     let targetState;
     try {
-    validateBeforeInventory(current, expected);
-    if (
-      prepared &&
-      canonicalJson(current.preservation) !==
-        canonicalJson(prepared.before.preservation)
-    ) {
-      throw new Error("prepared preservation digest drift");
-    }
-    targetState = "pre_reset";
+      validateBeforeInventory(current, expected);
+      if (
+        prepared &&
+        canonicalJson(current.preservation) !==
+          canonicalJson(prepared.before.preservation)
+      ) {
+        throw new Error("prepared preservation digest drift");
+      }
+      targetState = "pre_reset";
     } catch {
-    if (!prepared) {
-      throw new Error(
-        "target is not in the exact receipt-bound pre-reset state",
-      );
-    }
-    try {
-      validateAfterInventory(
-        current,
-        { preservation: prepared.before.preservation },
-        expected,
-      );
-      targetState = "post_reset";
-    } catch {
-      throw new Error(
-        "prepared reset recovery found neither the exact pre-reset nor post-reset target state",
-      );
-    }
+      if (!prepared) {
+        throw new Error(
+          "target is not in the exact receipt-bound pre-reset state",
+        );
+      }
+      try {
+        validateAfterInventory(
+          current,
+          { preservation: prepared.before.preservation },
+          expected,
+        );
+        targetState = "post_reset";
+      } catch {
+        throw new Error(
+          "prepared reset recovery found neither the exact pre-reset nor post-reset target state",
+        );
+      }
     }
 
     if (!args.execute) {
-    console.log(
-      args.recover
-        ? `prepared target OAuth reset recovery ready (${targetState})`
-        : "target OAuth credential reset dry-run ready",
-    );
-    console.log(`execute confirmation: ${confirmation}`);
+      console.log(
+        args.recover
+          ? `prepared target OAuth reset recovery ready (${targetState})`
+          : "target OAuth credential reset dry-run ready",
+      );
+      console.log(`execute confirmation: ${confirmation}`);
       return;
     }
     if (args.confirmation !== confirmation) {
-    throw new Error(`--execute requires exact --confirmation ${confirmation}`);
+      throw new Error(
+        `--execute requires exact --confirmation ${confirmation}`,
+      );
     }
 
     if (!prepared) {
-    prepared = preparedResetReceipt({
-      targetRef,
-      sourceReceiptSha256,
-      importReceiptSha256,
-      contract,
-      contractSha256,
-      expected,
-      before: current,
-      tombstone,
-    });
-    writePrivateJson(receiptPath, prepared);
-    preparedIntentSha256 = sha256File(receiptPath);
+      prepared = preparedResetReceipt({
+        targetRef,
+        sourceReceiptSha256,
+        importReceiptSha256,
+        contract,
+        contractSha256,
+        expected,
+        before: current,
+        tombstone,
+      });
+      writePrivateJson(receiptPath, prepared);
+      preparedIntentSha256 = sha256File(receiptPath);
     }
 
     let after = current;
     if (targetState === "pre_reset") {
-    const database = getTargetAdminDatabaseConfig(
-      targetRef,
-      SOURCE_PROJECT_REF,
-      targetDatabasePassword,
-    );
-    const template = readFileSync(RESET_SQL_PATH, "utf8");
-    const sql = renderResetSql(template, expected, tombstone);
-    runPsql(database, sql);
-    after = runPsqlJson(database, inventorySql(tombstone));
-    validateAfterInventory(
-      after,
-      { preservation: prepared.before.preservation },
-      expected,
-    );
+      const database = getTargetAdminDatabaseConfig(
+        targetRef,
+        SOURCE_PROJECT_REF,
+        targetDatabasePassword,
+      );
+      const template = readFileSync(RESET_SQL_PATH, "utf8");
+      if (sha256(template) !== contract.resetSqlSha256) {
+        throw new Error("OAuth-reset SQL changed after the confirmed contract");
+      }
+      const sql = renderResetSql(
+        template,
+        expected,
+        tombstone,
+        source.subjectScope,
+      );
+      runPsql(database, sql);
+      after = runPsqlJson(
+        database,
+        inventorySql(tombstone, source.subjectScope),
+      );
+      validateAfterInventory(
+        after,
+        { preservation: prepared.before.preservation },
+        expected,
+      );
     }
 
     writePrivateJson(
@@ -1127,7 +1346,12 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
+) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}

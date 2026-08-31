@@ -93,6 +93,22 @@ connection_args=(
   --dbname "$db_name"
 )
 
+# The baseline owns business tables/functions only. Guard installation owns its
+# private schema, RPCs and triggers and must happen separately on BOTH projects.
+# pg_dump --table would include public guard triggers without their private
+# dependencies. Never strip arbitrary triggers or emit that incomplete baseline.
+assert_guard_free_source() {
+  local guard_present
+  guard_present=$(PGPASSWORD="$db_pass" psql "${connection_args[@]}" --no-psqlrc \
+    --quiet --tuples-only --no-align --set ON_ERROR_STOP=1 \
+    --command "SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'mind_manual_migration') OR EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname IN ('mind_manual_admit_edge','mind_manual_release_edge')) OR EXISTS (SELECT 1 FROM pg_trigger WHERE tgname IN ('mind_manual_subject_write_fence','mind_manual_subject_write_fence_after','mind_manual_truncate_fence')) OR EXISTS (SELECT 1 FROM pg_policy WHERE polname IN ('mind_manual_gateway_insert','mind_manual_gateway_update','mind_manual_gateway_delete'));")
+  if [[ "$guard_present" != "f" ]]; then
+    echo "baseline export requires a pre-guard source snapshot; use the retained reviewed baseline, then install the exact manual guards separately on both projects" >&2
+    exit 65
+  fi
+}
+assert_guard_free_source
+
 # pg_dump treats an unmatched --table pattern as non-fatal when another pattern
 # matches. Validate the entire allowlist first so a required runtime relation or
 # function can never disappear silently from an apparently successful export.
@@ -126,6 +142,13 @@ PGPASSWORD="$db_pass" psql "${connection_args[@]}" --no-psqlrc \
 PGPASSWORD="$db_pass" pg_dump "${connection_args[@]}" --role postgres \
   --schema-only --section=post-data --no-owner --no-comments \
   "${table_args[@]}" --file "$work_dir/post.sql"
+
+assert_guard_free_source
+if LC_ALL=C grep -Eq 'mind_manual_migration|mind_manual_(subject_write_fence|truncate_fence|admit_edge|release_edge|gateway_)' \
+  "$work_dir/pre.sql" "$work_dir/post.sql" "$work_dir/functions.sql"; then
+  echo "guard objects appeared in the baseline snapshot; no output created" >&2
+  exit 65
+fi
 
 {
   printf '%s\n' '-- Generated Mind Manual isolated-project baseline.'

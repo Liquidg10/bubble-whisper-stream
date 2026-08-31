@@ -1,3 +1,4 @@
+import { wrapMindManualHandler } from "../_shared/migrationWriteFence.ts";
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
@@ -13,7 +14,7 @@ function stripPII(text: string): string {
     .replace(/\b\d{4}\s?\d{4}\s?\d{4}\s?\d{4}\b/g, '[CARD]');
 }
 
-serve(async (req) => {
+serve(wrapMindManualHandler("ai-pattern-analysis", async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -163,4 +164,4 @@ Guidelines:
       status: 200,
     });
   }
-});
+}));

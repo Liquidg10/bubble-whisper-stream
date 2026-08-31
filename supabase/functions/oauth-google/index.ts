@@ -1,3 +1,4 @@
+import { wrapMindManualHandler } from "../_shared/migrationWriteFence.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import {
   googleOAuthCorsHeaders,
@@ -8,7 +9,7 @@ import {
 // created Supabase users, and persisted plaintext provider credentials. Keep a
 // bounded tombstone during rollout so stale clients fail closed and operators
 // receive an unambiguous receipt instead of a missing-function retry loop.
-serve((request: Request): Response => {
+serve(wrapMindManualHandler("oauth-google", (request: Request): Response => {
   const requestOrigin = request.headers.get("origin");
   let headers: Record<string, string> = { "Content-Type": "application/json" };
   try {
@@ -33,4 +34,4 @@ serve((request: Request): Response => {
     }),
     { status: 410, headers },
   );
-});
+}));

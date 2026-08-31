@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { validateMigrationGuardCatalogBinding } from "./lib/migration-guard-catalog.mjs";
 import {
   assertAbsolutePath,
   assertPrivateFile,
@@ -20,9 +21,17 @@ import {
   expectedDeferredAssertionsSha256,
   expectedHttpProbeContract,
   targetSnapshotSql,
+  validateDeferredSourceParity,
   validateHttpProbeReceipts,
   validateTargetSnapshot,
 } from "./generate-sync-deferred-boundary-receipt.mjs";
+import { privateSnapshot } from "./lib/import-subject-package.mjs";
+import {
+  assertScopeBinding,
+  loadSubjectScope,
+  subjectScopeBinding,
+} from "./lib/migration-subject-scope.mjs";
+import { validateRollbackScope } from "./lib/rollback-subject-scope.mjs";
 
 const SOURCE_PROJECT_REF = "ekekeywoxvdbfbmqyhjy";
 const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
@@ -201,6 +210,7 @@ function usage() {
   console.log(
     "usage: node scripts/prepare-isolated-supabase-rollback-receipt.mjs " +
       "--source-receipt /absolute/source.json " +
+      "--subject-scope /absolute/subject-scope.json " +
       "--source-revalidation-receipt /absolute/fresh-source.json " +
       "--source-freeze-receipt /absolute/source-freeze.json " +
       "--package-manifest /absolute/package-manifest.json " +
@@ -214,12 +224,6 @@ function usage() {
       "--target-ref <ref> --window-ends <ISO timestamp> " +
       "--receipt /absolute/rollback.json",
   );
-}
-
-function readReceipt(path, label) {
-  assertAbsolutePath(path, label);
-  assertPrivateFile(path, label);
-  return JSON.parse(readFileSync(path, "utf8"));
 }
 
 function resetExpectedRelations(source, imported) {
@@ -298,16 +302,15 @@ function preservationReceiptIsValid(value) {
     typeof value === "object" &&
     !Array.isArray(value) &&
     Object.keys(value).length === expectedFields.length &&
-    expectedFields.every((field) =>
-      SHA256_PATTERN.test(value[field] ?? "")
-    );
+    expectedFields.every((field) => SHA256_PATTERN.test(value[field] ?? ""));
 }
 
 function hasExactKeys(value, keys) {
   return Boolean(value) &&
     typeof value === "object" &&
     !Array.isArray(value) &&
-    canonicalJson(Object.keys(value).sort()) === canonicalJson([...keys].sort());
+    canonicalJson(Object.keys(value).sort()) ===
+      canonicalJson([...keys].sort());
 }
 
 function isFreshTimestamp(value, maxAgeMs) {
@@ -335,7 +338,14 @@ function preservedAuthInventory(auth) {
   ].map((field) => [field, auth?.[field]]));
 }
 
-function validateFreshSourceReceipt(source, fresh) {
+export function validateFreshSourceReceipt(source, fresh) {
+  validateMigrationGuardCatalogBinding(source.catalog?.migrationGuard);
+  validateMigrationGuardCatalogBinding(fresh.catalog?.migrationGuard);
+  assertScopeBinding(
+    fresh.subjectScope,
+    source.subjectScope,
+    "fresh source subject scope",
+  );
   if (
     fresh.version !== 1 ||
     fresh.kind !== "source" ||
@@ -470,6 +480,7 @@ export function validateSyncDeferredEvidence(
   storageReceiptSha256,
   oauthResetReceiptSha256,
   quarantineReceiptSha256,
+  source,
 ) {
   if (
     !hasExactKeys(receipt, SYNC_DEFERRED_EVIDENCE_FIELDS) ||
@@ -511,6 +522,8 @@ export function validateSyncDeferredEvidence(
     { catalog: receipt.catalogAfter, rows: receipt.rowStateAfter },
     "sync boundary after snapshot",
   );
+  validateDeferredSourceParity({ rows: receipt.rowStateBefore }, source);
+  validateDeferredSourceParity({ rows: receipt.rowStateAfter }, source);
   if (
     canonicalJson(receipt.catalogBefore) !==
       canonicalJson(receipt.catalogAfter) ||
@@ -588,6 +601,7 @@ function validateQuarantineReceipt(
     "quarantinedAt",
     "sourceProjectRef",
     "targetProjectRef",
+    "subjectScope",
     "importReceiptSha256",
     "oauthResetReceiptSha256",
     "quarantineSqlSha256",
@@ -635,6 +649,7 @@ function validateCanaryReceipt(
   storageReceiptSha256,
   oauthResetReceiptSha256,
   quarantineReceiptSha256,
+  source,
 ) {
   const verifiedAt = Date.parse(canary.verifiedAt);
   const ageMs = Date.now() - verifiedAt;
@@ -724,6 +739,7 @@ function validateCanaryReceipt(
     storageReceiptSha256,
     oauthResetReceiptSha256,
     quarantineReceiptSha256,
+    source,
   );
   return evidenceReceipts;
 }
@@ -735,6 +751,7 @@ async function main() {
   }
   const args = parseArgs(process.argv.slice(2), {
     "source-receipt": { required: true },
+    "subject-scope": { required: true },
     "source-revalidation-receipt": { required: true },
     "source-freeze-receipt": { required: true },
     "package-manifest": { required: true },
@@ -767,54 +784,74 @@ async function main() {
     );
   }
 
-  const source = readReceipt(args["source-receipt"], "source receipt");
-  const sourceRevalidation = readReceipt(
-    args["source-revalidation-receipt"],
-    "source revalidation receipt",
+  // Hash and parse exactly the same private bytes; reopening mutable receipts can
+  // otherwise bind evidence different from what was actually validated.
+  const snapshots = Object.fromEntries([
+    "source-receipt",
+    "source-revalidation-receipt",
+    "source-freeze-receipt",
+    "package-manifest",
+    "auth-decision",
+    "import-receipt",
+    "storage-receipt",
+    "storage-revalidation-receipt",
+    "oauth-reset-receipt",
+    "quarantine-receipt",
+    "target-canary-receipt",
+  ].map((key) => [key, privateSnapshot(args[key], key, { json: true })]));
+  const source = snapshots["source-receipt"].value;
+  const sourceRevalidation = snapshots["source-revalidation-receipt"].value;
+  const sourceFreeze = snapshots["source-freeze-receipt"].value;
+  const packageManifest = snapshots["package-manifest"].value;
+  const authDecision = snapshots["auth-decision"].value;
+  const imported = snapshots["import-receipt"].value;
+  const storage = snapshots["storage-receipt"].value;
+  const storageRevalidation = snapshots["storage-revalidation-receipt"].value;
+  const oauthReset = snapshots["oauth-reset-receipt"].value;
+  const quarantine = snapshots["quarantine-receipt"].value;
+  const canary = snapshots["target-canary-receipt"].value;
+  const sourceReceiptSha256 = snapshots["source-receipt"].sha256;
+  const sourceRevalidationReceiptSha256 =
+    snapshots["source-revalidation-receipt"].sha256;
+  const sourceFreezeReceiptSha256 = snapshots["source-freeze-receipt"].sha256;
+  const packageManifestSha256 = snapshots["package-manifest"].sha256;
+  const authDecisionSha256 = snapshots["auth-decision"].sha256;
+  const importReceiptSha256 = snapshots["import-receipt"].sha256;
+  const storageReceiptSha256 = snapshots["storage-receipt"].sha256;
+  const storageRevalidationReceiptSha256 =
+    snapshots["storage-revalidation-receipt"].sha256;
+  const oauthResetReceiptSha256 = snapshots["oauth-reset-receipt"].sha256;
+  const quarantineReceiptSha256 = snapshots["quarantine-receipt"].sha256;
+  const scope = loadSubjectScope(args["subject-scope"], {
+    targetProjectRef: targetRef,
+  });
+  const packagedScope = privateSnapshot(
+    resolve(dirname(args["package-manifest"]), "subject-scope.json"),
+    "packaged subject scope",
+    { json: true },
   );
-  const sourceFreeze = readReceipt(
-    args["source-freeze-receipt"],
-    "source write-freeze receipt",
+  const subjectScope = validateRollbackScope({
+    scope: packagedScope.value,
+    scopeFileSha256: packagedScope.sha256,
+    manifest: packageManifest,
+    source,
+    decision: authDecision,
+    targetRef,
+    receipts: {
+      sourceRevalidation,
+      sourceFreeze,
+      imported,
+      storage,
+      storageRevalidation,
+      oauthReset,
+      quarantine,
+    },
+  });
+  assertScopeBinding(
+    subjectScopeBinding(scope),
+    subjectScope,
+    "operator subject scope",
   );
-  const packageManifest = readReceipt(
-    args["package-manifest"],
-    "package manifest",
-  );
-  const authDecision = readReceipt(args["auth-decision"], "Auth decision");
-  const imported = readReceipt(args["import-receipt"], "import receipt");
-  const storage = readReceipt(args["storage-receipt"], "storage receipt");
-  const storageRevalidation = readReceipt(
-    args["storage-revalidation-receipt"],
-    "storage revalidation receipt",
-  );
-  const oauthReset = readReceipt(
-    args["oauth-reset-receipt"],
-    "OAuth-reset receipt",
-  );
-  const quarantine = readReceipt(
-    args["quarantine-receipt"],
-    "provider-quarantine receipt",
-  );
-  const canary = readReceipt(
-    args["target-canary-receipt"],
-    "target canary receipt",
-  );
-  const sourceReceiptSha256 = sha256File(args["source-receipt"]);
-  const sourceRevalidationReceiptSha256 = sha256File(
-    args["source-revalidation-receipt"],
-  );
-  const sourceFreezeReceiptSha256 = sha256File(
-    args["source-freeze-receipt"],
-  );
-  const packageManifestSha256 = sha256File(args["package-manifest"]);
-  const authDecisionSha256 = sha256File(args["auth-decision"]);
-  const importReceiptSha256 = sha256File(args["import-receipt"]);
-  const storageReceiptSha256 = sha256File(args["storage-receipt"]);
-  const storageRevalidationReceiptSha256 = sha256File(
-    args["storage-revalidation-receipt"],
-  );
-  const oauthResetReceiptSha256 = sha256File(args["oauth-reset-receipt"]);
-  const quarantineReceiptSha256 = sha256File(args["quarantine-receipt"]);
   const expectedResetRelations = resetExpectedRelations(source, imported);
   const expectedResetRelationCounts = Object.fromEntries(
     Object.entries(expectedResetRelations).map(([relation, row]) => [
@@ -855,12 +892,12 @@ async function main() {
     action: "reset-isolated-supabase-oauth-credentials",
     sourceProjectRef: SOURCE_PROJECT_REF,
     targetProjectRef: targetRef,
+    subjectScope,
     sourceReceiptSha256,
     importReceiptSha256,
     resetSqlSha256: sha256File(oauthResetSqlPath),
     oauthCryptoContractSha256: sha256File(oauthCryptoPath),
-    targetOauthKeyFingerprintSha256:
-      oauthReset.targetOauthKeyFingerprintSha256,
+    targetOauthKeyFingerprintSha256: oauthReset.targetOauthKeyFingerprintSha256,
     expectedRelations: expectedResetRelations,
   }));
   validateFreshSourceReceipt(source, sourceRevalidation);
@@ -895,6 +932,7 @@ async function main() {
     "preparedIntentSha256",
     "sourceProjectRef",
     "targetProjectRef",
+    "subjectScope",
     "sourceReceiptSha256",
     "importReceiptSha256",
     "confirmationContractSha256",
@@ -1034,6 +1072,7 @@ async function main() {
     storageReceiptSha256,
     oauthResetReceiptSha256,
     quarantineReceiptSha256,
+    source,
   );
   const syncDeferredEvidence = evidenceReceipts.get("syncDeferredBoundary");
 
@@ -1043,6 +1082,7 @@ async function main() {
     preparedAt: new Date().toISOString(),
     sourceProjectRef: SOURCE_PROJECT_REF,
     targetProjectRef: targetRef,
+    subjectScope,
     sourcePublicConfigStored: true,
     sourceSecretValuesRecorded: false,
     sourceReceiptSha256,
@@ -1055,7 +1095,7 @@ async function main() {
     storageRevalidationReceiptSha256,
     oauthResetReceiptSha256,
     quarantineReceiptSha256,
-    targetCanaryReceiptSha256: sha256File(args["target-canary-receipt"]),
+    targetCanaryReceiptSha256: snapshots["target-canary-receipt"].sha256,
     syncDeferredBoundaryReceiptSha256:
       canary.evidenceReceiptSha256.syncDeferredBoundary,
     syncDeferredServiceTestReceiptSha256:

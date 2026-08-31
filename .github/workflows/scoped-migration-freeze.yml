@@ -1,0 +1,60 @@
+name: Scoped migration fence tests
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  local-fence-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Install local PostgreSQL server binaries
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends postgresql-16
+      - name: Test isolated database and Edge lifecycle contracts
+        run: npm run test:isolation:freeze
+        env:
+          MIND_MANUAL_TEST_PG_BIN: /usr/lib/postgresql/16/bin
+      - name: Test subject scope and private migration receipt chain
+        run: npm run test:isolation:subjects
+        env:
+          MIND_MANUAL_TEST_PG_BIN: /usr/lib/postgresql/16/bin
+      - name: Test preserved sync row parity and denied-write evidence
+        run: npm run test:isolation:sync-deferred
+      - name: Test browser background writer lifecycle contracts
+        run: npm run test:isolation:schedulers
+      - name: Test authenticated calendar task sync and local commit contracts
+        run: npm run test:isolation:calendar-sync
+      - name: Test guarded storage ingress and exact guard catalogs
+        run: npm run test:isolation:ingress
+        env:
+          MIND_MANUAL_TEST_PG_BIN: /usr/lib/postgresql/16/bin
+      - name: Confirm activation remains blocked
+        shell: bash
+        run: |
+          set +e
+          npm run supabase-freeze:readiness
+          fence_status=$?
+          set -e
+          test "$fence_status" -eq 2
+          set +e
+          npm run supabase-storage:readiness
+          storage_status=$?
+          set -e
+          test "$storage_status" -eq 2

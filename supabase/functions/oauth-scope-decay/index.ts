@@ -1,3 +1,4 @@
+import { wrapMindManualHandler } from "../_shared/migrationWriteFence.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import {
   googleOAuthCorsHeaders,
@@ -8,7 +9,7 @@ import {
 // every user's scope metadata without authenticating or proving that provider
 // grants had actually changed. Real least-privilege changes now require
 // provider revocation followed by an explicit minimal reauthorization.
-serve((request: Request): Response => {
+serve(wrapMindManualHandler("oauth-scope-decay", (request: Request): Response => {
   const requestOrigin = request.headers.get("origin");
   let headers: Record<string, string> = { "Content-Type": "application/json" };
   try {
@@ -33,4 +34,4 @@ serve((request: Request): Response => {
     }),
     { status: 410, headers },
   );
-});
+}));

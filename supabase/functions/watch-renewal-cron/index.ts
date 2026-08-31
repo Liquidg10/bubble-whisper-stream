@@ -1,3 +1,4 @@
+import { wrapMindManualHandler } from "../_shared/migrationWriteFence.ts";
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import {
@@ -27,7 +28,7 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-serve(async (req) => {
+serve(wrapMindManualHandler("watch-renewal-cron", async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -182,7 +183,7 @@ serve(async (req) => {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
-});
+}));
 
 /**
  * Renew a specific watch channel
