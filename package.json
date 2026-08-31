@@ -10,7 +10,7 @@
     "lint": "eslint .",
     "lint:ratchet": "node scripts/check-eslint-ratchet.cjs",
     "lint:cohesion": "node scripts/lint-assistant-cohesion.cjs",
-    "lint:cohesion:ratchet": "node scripts/check-assistant-cohesion-ratchet.cjs",
+    "lint:cohesion:ratchet": "node --test scripts/__tests__/assistant-cohesion-lint.test.mjs && node scripts/check-assistant-cohesion-ratchet.cjs",
     "typecheck": "tsc -p tsconfig.app.json --noEmit --pretty false",
     "test:unit:ci": "vitest run src/services src/security/__tests__ src/components/__tests__/TaskCard.test.tsx src/components/__tests__/VoiceIntentCapture.accessibility.test.tsx src/components/__tests__/GlimmerNotificationSystem.test.tsx src/components/__tests__/GlimmerNotifications.layout.test.tsx src/components/__tests__/AppShell.glimmers.test.tsx src/integrations/supabase/__tests__/config.test.ts src/integrations/supabase/__tests__/client.routeDetection.test.ts src/plugins/__tests__/CalendarIntegrationPlugin.oauth.test.tsx src/pages/__tests__/AuthCallback.calendarOAuth.test.tsx src/pages/__tests__/Settings.integrationsRoute.test.tsx --pool=forks --maxWorkers=1 --no-file-parallelism --silent=passed-only",
     "test:vitest:ci": "vitest run --pool=forks --maxWorkers=1 --no-file-parallelism --silent=passed-only",

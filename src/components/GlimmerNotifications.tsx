@@ -63,7 +63,7 @@ export const GlimmerNotifications: React.FC = () => {
   }
 
   return (
-    <div data-testid="saved-glimmer" className="mx-auto mb-4 w-full max-w-sm px-4">
+    <div data-testid="saved-assistant-message" className="mx-auto mb-4 w-full max-w-sm px-4">
       <div className="bg-card/95 backdrop-blur-sm border border-primary/20 rounded-lg shadow-lg p-4 animate-in slide-in-from-bottom-5 duration-300">
         <div className="flex items-start justify-between gap-2 mb-3">
           <div className="flex items-center gap-2">
@@ -77,7 +77,7 @@ export const GlimmerNotifications: React.FC = () => {
             size="sm"
             onClick={() => handleDismiss(activeGlimmer.id)}
             className="h-6 w-6 p-0 hover:bg-primary/10"
-            aria-label="Dismiss saved glimmer"
+            aria-label="Dismiss saved message"
           >
             <X className="h-3 w-3" />
           </Button>

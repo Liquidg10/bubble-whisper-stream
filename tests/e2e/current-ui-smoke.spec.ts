@@ -21,7 +21,7 @@ test.describe('active Glimmer layout regression', () => {
       await welcome.getByRole('button', { name: 'Close', exact: true }).click();
       await expect(welcome).toBeHidden();
 
-      const generated = page.getByTestId('generated-glimmer');
+      const generated = page.getByTestId('generated-assistant-message');
       await generated.scrollIntoViewIfNeeded();
       await expect(generated).toBeInViewport();
       expect(await generated.evaluate(element => getComputedStyle(element).position)).not.toBe('fixed');
@@ -52,7 +52,7 @@ test.describe('active Glimmer layout regression', () => {
     await expect(atomic).toBeVisible();
     const heightBefore = (await atomic.boundingBox())!.height;
     expect(heightBefore).toBeGreaterThan(120);
-    await expect.poll(() => page.locator('[data-testid="generated-glimmer"], [data-testid="saved-glimmer"]')
+    await expect.poll(() => page.locator('[data-testid="generated-assistant-message"], [data-testid="saved-assistant-message"]')
       .evaluateAll(notices => {
         const viewport = document.querySelector('[data-testid="atomic-viewport"]')!.getBoundingClientRect();
         return notices.map(notice => getComputedStyle(notice).position !== 'fixed'
@@ -72,15 +72,15 @@ test.describe('active Glimmer layout regression', () => {
       .getByRole('button')).toHaveCount(5);
     await page.getByText('Tasks (5)', { exact: true }).click();
     await expectActiveGlimmers(page);
-    const lane = page.getByRole('complementary', { name: 'Glimmer messages' });
+    const lane = page.getByRole('complementary', { name: 'Assistant messages' });
     await lane.scrollIntoViewIfNeeded();
-    await expect(page.getByTestId('saved-glimmer')).toBeInViewport();
+    await expect(page.getByTestId('saved-assistant-message')).toBeInViewport();
     await page.screenshot({ path: testInfo.outputPath('both-active-glimmer-cards-mobile.png'), fullPage: true });
 
     // A real footer navigation must stay usable while neither message is dismissed.
     await page.getByRole('navigation').getByRole('link', { name: 'Settings', exact: true }).click();
     await expect(page).toHaveURL(/\/settings$/);
-    await expect(page.getByTestId('saved-glimmer')).toHaveCount(0);
+    await expect(page.getByTestId('saved-assistant-message')).toHaveCount(0);
     await expectActiveGlimmers(page, false);
     await page.getByRole('button', { name: 'Atomic view mode', exact: true }).click();
     await expectActiveGlimmers(page);
@@ -88,13 +88,13 @@ test.describe('active Glimmer layout regression', () => {
 
     // Dismiss only after the active-card interaction checks. Both genuine action
     // paths must update their own IndexedDB row, not merely remove markup.
-    await page.getByTestId('generated-glimmer').getByRole('button', { name: 'Dismiss glimmer', exact: true }).click();
-    await expect(page.getByTestId('generated-glimmer')).toHaveCount(0);
+    await page.getByTestId('generated-assistant-message').getByRole('button', { name: 'Dismiss glimmer', exact: true }).click();
+    await expect(page.getByTestId('generated-assistant-message')).toHaveCount(0);
     await expect.poll(async () => (await readGlimmerRows(page))
       .filter(row => row.tone === 'supportive' && row.dismissed).length).toBe(1);
-    await expect(page.getByTestId('saved-glimmer')).toBeVisible();
-    await page.getByRole('button', { name: 'Dismiss saved glimmer', exact: true }).click();
-    await expect(page.getByTestId('saved-glimmer')).toHaveCount(0);
+    await expect(page.getByTestId('saved-assistant-message')).toBeVisible();
+    await page.getByRole('button', { name: 'Dismiss saved message', exact: true }).click();
+    await expect(page.getByTestId('saved-assistant-message')).toHaveCount(0);
     await expect.poll(async () => (await readGlimmerRows(page)).find(row => row.id === SAVED_GLIMMER_ID)?.dismissed).toBe(true);
     expect((await atomic.boundingBox())!.height).toBeCloseTo(heightBefore, 0);
     expect(fixture.errors).toEqual([]);

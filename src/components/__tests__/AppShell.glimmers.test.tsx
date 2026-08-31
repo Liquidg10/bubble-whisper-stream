@@ -45,7 +45,7 @@ function mountShell(path = '/') {
 describe('AppShell non-obstructing Glimmer placement', () => {
   it('places both home messages after, not inside, the full-height route viewport', () => {
     mountShell();
-    const messages = screen.getByRole('complementary', { name: 'Glimmer messages' });
+    const messages = screen.getByRole('complementary', { name: 'Assistant messages' });
     const routeContainer = messages.previousElementSibling;
     expect(routeContainer).toHaveClass('h-full', 'flex', 'flex-col');
     expect(routeContainer).toContainElement(screen.getByTestId('route-viewport'));

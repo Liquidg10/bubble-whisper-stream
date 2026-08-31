@@ -30,7 +30,9 @@ export async function prepareActiveGlimmers(page: Page) {
   // Login is outside AppShell: create the real storage schema without mounting
   // either notification producer. No synthetic credentials/sign-in are needed.
   await page.goto('/login');
-  await expect(page.getByRole('button', { name: 'Sign In', exact: true })).toBeAttached();
+  // First-run onboarding can already hide Login from the accessibility tree.
+  // This is a DOM-readiness check only; real dialog interaction is tested later.
+  await expect(page.getByRole('button', { name: 'Sign In', exact: true, includeHidden: true })).toBeAttached();
   await page.evaluate(async ({ noon, savedId, savedMessage }) => {
     const backup = JSON.parse(localStorage.getItem('bubble-universe-store') || '{"state":{}}');
     const settings = { ...backup.state.settings, intelligenceEnabled: true, glimmersEnabled: true,
@@ -76,10 +78,10 @@ export async function prepareActiveGlimmers(page: Page) {
   // card on root. Concurrent shell effects can exceed the cap before writes
   // settle; this fixture does not claim that inherited producer race is fixed.
   await page.goto('/list');
-  await expect(page.getByTestId('generated-glimmer')).toBeVisible();
+  await expect(page.getByTestId('generated-assistant-message')).toBeVisible();
   await expect.poll(async () => (await readGlimmerRows(page)).length).toBeGreaterThanOrEqual(3);
   await expect.poll(async () => (await readGlimmerRows(page)).filter(row => row.tone === 'supportive').length).toBeGreaterThan(0);
-  await expect(page.getByTestId('saved-glimmer')).toHaveCount(0);
+  await expect(page.getByTestId('saved-assistant-message')).toHaveCount(0);
   return { errors, blockedRequests };
 }
 
@@ -98,10 +100,10 @@ export async function readGlimmerRows(page: Page): Promise<GlimmerRow[]> {
 }
 
 export async function expectActiveGlimmers(page: Page, saved = true) {
-  await expect(page.getByTestId('generated-glimmer')).toBeVisible();
+  await expect(page.getByTestId('generated-assistant-message')).toBeVisible();
   if (saved) {
-    await expect(page.getByTestId('saved-glimmer')).toBeVisible();
-    await expect(page.getByTestId('saved-glimmer')).toContainText(SAVED_GLIMMER_MESSAGE);
+    await expect(page.getByTestId('saved-assistant-message')).toBeVisible();
+    await expect(page.getByTestId('saved-assistant-message')).toContainText(SAVED_GLIMMER_MESSAGE);
   }
   expect(await page.evaluate(() => {
     const backup = JSON.parse(localStorage.getItem('bubble-universe-store') || 'null');

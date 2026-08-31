@@ -133,7 +133,7 @@ export const AppShell: React.FC = () => {
           </div>
         </div>
         {/* Notices add scrollable content without covering or shrinking the task viewport. */}
-        <aside aria-label="Glimmer messages" className="space-y-4">
+        <aside aria-label="Assistant messages" className="space-y-4">
           <GlimmerNotificationSystem />
           {location.pathname === '/' && <GlimmerNotifications />}
         </aside>

@@ -29,7 +29,7 @@ describe('saved Glimmer flow placement', () => {
   it('keeps an existing message visible without a fixed overlay or a new generation', async () => {
     render(<GlimmerNotifications />);
     expect(await screen.findByText('A saved message')).toBeInTheDocument();
-    const notice = screen.getByTestId('saved-glimmer');
+    const notice = screen.getByTestId('saved-assistant-message');
     expect(notice.className).not.toMatch(/\b(?:fixed|absolute|z-\d+)\b/);
     expect(notice).toHaveClass('w-full', 'max-w-sm');
     expect(service.generateGlimmer).not.toHaveBeenCalled();
@@ -38,7 +38,7 @@ describe('saved Glimmer flow placement', () => {
 
   it('keeps the existing saved-message dismissal action', async () => {
     render(<GlimmerNotifications />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Dismiss saved glimmer' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Dismiss saved message' }));
     await waitFor(() => expect(screen.queryByText('A saved message')).not.toBeInTheDocument());
     expect(state.dismissGlimmer).toHaveBeenCalledExactlyOnceWith('saved-notice');
   });
@@ -46,7 +46,7 @@ describe('saved Glimmer flow placement', () => {
   it('keeps the existing intelligence-disabled behavior', () => {
     state.settings.intelligenceEnabled = false;
     render(<GlimmerNotifications />);
-    expect(screen.queryByTestId('saved-glimmer')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('saved-assistant-message')).not.toBeInTheDocument();
     expect(service.shouldTriggerGlimmer).not.toHaveBeenCalled();
   });
 });
