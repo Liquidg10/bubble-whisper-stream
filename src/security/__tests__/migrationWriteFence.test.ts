@@ -395,8 +395,8 @@ describe('Mind Manual per-subject scheduled work', () => {
     expect(() => captured.holdUntil(Promise.resolve())).toThrow('before returning');
   });
 
-  it.each(['retained', 'malformed', 'transport'])
-  ('makes one release attempt and preserves completed work for a %s release', async (failure) => {
+  it.each(['retained', 'malformed', 'transport'])(
+    'makes one release attempt and preserves completed work for a %s release', async (failure) => {
     const { deps, fetchMock } = ownerScopedDependencies();
     fetchMock.mockResolvedValueOnce(Response.json({ decision: 'admitted', generation: GENERATION }));
     if (failure === 'transport') fetchMock.mockRejectedValueOnce(new Error('release transport lost'));
@@ -409,7 +409,8 @@ describe('Mind Manual per-subject scheduled work', () => {
     expect(rpcCalls(fetchMock, 'mind_manual_admit_subject_edge')).toHaveLength(1);
     expect(rpcCalls(fetchMock, 'mind_manual_release_subject_edge')).toHaveLength(1);
     expect(fetchMock).toHaveBeenCalledTimes(2);
-  });
+    },
+  );
 });
 
 describe('Mind Manual Edge admission', () => {
