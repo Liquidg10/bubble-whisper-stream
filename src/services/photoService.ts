@@ -165,14 +165,14 @@ export class PhotoService {
       if (error || data?.path !== storagePath) {
         throw new Error('Photo deletion did not return a verified result. Do not retry automatically.');
       }
-      return;
-    }
-    const { data, error } = await sanitized(
-      () => supabase.storage.from('photos').remove([storagePath]),
-      'Photo deletion did not return a verified result. Do not retry automatically.',
-    );
-    if (error || !verifiedDirectDelete(data, storagePath)) {
-      throw new Error('Photo deletion did not return a verified result. Do not retry automatically.');
+    } else {
+      const { data, error } = await sanitized(
+        () => supabase.storage.from('photos').remove([storagePath]),
+        'Photo deletion did not return a verified result. Do not retry automatically.',
+      );
+      if (error || !verifiedDirectDelete(data, storagePath)) {
+        throw new Error('Photo deletion did not return a verified result. Do not retry automatically.');
+      }
     }
   }
 }

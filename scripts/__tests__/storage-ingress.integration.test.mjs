@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { after, before, beforeEach, describe, it } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 import { canonicalJson, sha256 } from '../lib/supabase-isolation.mjs';
 import { subjectScopeBinding } from '../lib/migration-subject-scope.mjs';
 import {
@@ -247,11 +248,12 @@ const validate = (input) => validateStorageIngressObservations(input, { scope, b
 const codes = (report) => report.blockers.map((blocker) => blocker.code);
 
 describe('storage observation consistency diagnostics — never activation authority', () => {
-  it('recognizes local wrapped gateway and gateway-only photo mutation without claiming deployed proof', () => {
+  it('recognizes the exact isolated-gateway/shared-direct photo split without claiming deployed proof', () => {
     const wiring = inspectStorageIngressWiring(root);
     assert.equal(wiring.gatewayGuarded, true);
-    assert.equal(wiring.allEntrypointsGuarded, true);
-    assert.equal(wiring.photoClientGatewayOnly, true);
+    assert.equal(wiring.allEntrypointsGuarded,
+      wiring.guardedEntrypointCount === wiring.expectedEntrypointCount);
+    assert.equal(wiring.photoClientTransportRoutingExact, true);
     const report = buildStorageIngressReadiness(root);
     assert.equal(report.status, 'blocked');
     assert.equal(report.eligibleForActivation, false);
@@ -260,7 +262,10 @@ describe('storage observation consistency diagnostics — never activation autho
   });
   it('even internally complete observations remain blocked and unverified', () => {
     const report = buildStorageIngressReadiness(root, { scope, observations: observations(), now });
-    assert.deepEqual(codes(report), ['provider_review_unproven', 'owner_window']);
+    assert.deepEqual(codes(report), [
+      ...(!report.wiring.allEntrypointsGuarded ? ['unguarded_entrypoint'] : []),
+      'provider_review_unproven', 'owner_window',
+    ]);
     for (const key of ['eligibleForActivation', 'sourceWriteFreezeConfirmed', 'storageByteFreezeConfirmed', 'externalProvenanceVerified']) assert.equal(report[key], false);
     assert.equal(report.observations.externalProvenanceVerified, false);
     assert.equal(report.observations.suppliedByteContentsStable, true);
@@ -331,7 +336,7 @@ describe('storage observation consistency diagnostics — never activation autho
       assert.throws(() => loadStorageIngressObservations(temp), /regular/u);
     } finally { rmSync(temp, { recursive: true, force: true }); }
   });
-  it('detects a direct Storage fallback and a changed gateway binding in a disposable source copy', () => {
+  it('rejects cross-mode fallback, inverted boundary guards, retry loops, and changed source bindings', () => {
     const temp = mkdtempSync(join(tmpdir(), 'mind-manual-ingress-source-'));
     try {
       for (const directory of ['supabase/functions', 'supabase/isolation', 'src/services']) mkdirSync(join(temp, directory), { recursive: true });
@@ -339,11 +344,38 @@ describe('storage observation consistency diagnostics — never activation autho
       for (const file of ['mind-manual-edge-functions.tsv', 'storage-write-gateway.sql']) cpSync(join(root, 'supabase/isolation', file), join(temp, 'supabase/isolation', file));
       const photoPath = join(temp, 'src/services/photoService.ts');
       cpSync(join(root, 'src/services/photoService.ts'), photoPath);
-      assert.equal(inspectStorageIngressWiring(temp).photoClientGatewayOnly, true);
-      writeFileSync(photoPath, `${readFileSync(photoPath, 'utf8')}\nsupabase.storage.from('photos').upload('unsafe', new Blob());\n`);
-      const report = buildStorageIngressReadiness(temp);
-      assert.ok(codes(report).includes('direct_photo_ingress'));
-      assert.notEqual(report.boundary.photoClientSha256, boundary().photoClientSha256);
+      const exactSource = readFileSync(photoPath, 'utf8');
+      assert.equal(inspectStorageIngressWiring(temp).photoClientTransportRoutingExact, true);
+      const uploadMethod = "  async uploadPhoto(file: File | string, fileName?: string): Promise<string> {";
+      const mutations = [
+        `${exactSource}\nsupabase.storage.from('photos').upload('unsafe', new Blob());\n`,
+        exactSource.replaceAll("supabaseDeploymentBoundary.mode === 'owner-isolated'", "supabaseDeploymentBoundary.mode !== 'owner-isolated'"),
+        exactSource.replace(
+          "if (supabaseDeploymentBoundary.mode === 'owner-isolated') {",
+          "if (supabaseDeploymentBoundary.mode === 'owner-isolated') {\n      await supabase.storage.from('photos').upload('unsafe', fileToUpload);",
+        ),
+        exactSource.replace(
+          "() => supabase.storage.from('photos').upload(storagePath, fileToUpload, {\n          cacheControl: '3600', upsert: false,\n        }),",
+          "() => {\n          for (let attempt = 0; attempt < 2; attempt++) {\n            return supabase.storage.from('photos').upload(storagePath, fileToUpload, { cacheControl: '3600', upsert: false });\n          }\n          throw new Error('unreachable');\n        },",
+        ),
+        exactSource.replace(uploadMethod, `${uploadMethod}\n    const { upload } = supabase.storage.from('photos');\n    void upload('unsafe', file);`),
+        exactSource.replace(uploadMethod, `${uploadMethod}\n    void globalThis.fetch('/storage/v1/object/photos/unsafe', { method: 'POST' });`),
+        exactSource.replace(uploadMethod, `${uploadMethod}\n    void this.uploadPhoto(file, fileName);`),
+        exactSource.replace("cacheControl: '3600', upsert: false,", "cacheControl: '3600', upsert: false, ...{ upsert: true },"),
+        exactSource.replace("cacheControl: '3600', upsert: false,", "cacheControl: '3600', upsert: false, ['up' + 'sert']: true,"),
+        exactSource.replace(".upload(storagePath, fileToUpload, {", ".upload('foreign/path', fileToUpload, {"),
+      ];
+      for (const mutation of mutations) {
+        assert.notEqual(mutation, exactSource);
+        const parsed = ts.createSourceFile('photoService.mutant.ts', mutation, ts.ScriptTarget.Latest, true);
+        assert.equal(parsed.parseDiagnostics.length, 0,
+          parsed.parseDiagnostics.map((diagnostic) => diagnostic.messageText).join('; '));
+        writeFileSync(photoPath, mutation);
+        const report = buildStorageIngressReadiness(temp);
+        assert.equal(report.wiring.photoClientTransportRoutingExact, false);
+        assert.ok(codes(report).includes('photo_transport_topology_mismatch'));
+      }
+      assert.notEqual(buildStorageIngressReadiness(temp).boundary.photoClientSha256, boundary().photoClientSha256);
       assert.throws(() => buildStorageIngressReadiness(temp, { scope, observations: observations(), now }), /boundary mismatch/u);
     } finally { rmSync(temp, { recursive: true, force: true }); }
   });

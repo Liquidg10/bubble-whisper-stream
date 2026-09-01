@@ -56,50 +56,215 @@ export function inspectStorageIngressWiring(root) {
   const sourceText = readFileSync(resolve(root, 'src/services/photoService.ts'), 'utf8');
   const source = ts.createSourceFile('photoService.ts', sourceText, ts.ScriptTarget.Latest, true);
   const operations = [];
+  const modeGuards = [];
+  const methodDeclarations = [];
+  let boundaryModeReferences = 0;
   let unsafe = source.parseDiagnostics.length !== 0;
-  const bannedProperties = new Set(['upload', 'uploadToSignedUrl', 'createSignedUploadUrl', 'update', 'remove', 'move', 'copy',
-    'fetch', 'XMLHttpRequest', 'WebSocket', 'eval', 'Function']);
+  const guardedMethods = new Set(['uploadPhoto', 'deletePhoto']);
+  const protectedBindings = new Set(['sanitized', 'supabase', 'supabaseConfig', 'supabaseDeploymentBoundary']);
+  const dangerousProperties = new Set(['invoke', 'upload', 'uploadToSignedUrl', 'createSignedUploadUrl', 'createSignedUrl',
+    'update', 'remove', 'move', 'copy', 'catch', 'retry', 'fetch', 'XMLHttpRequest', 'WebSocket', 'eval', 'Function',
+    'uploadPhoto', 'deletePhoto']);
   const propertyName = (node) => ts.isPropertyAccessExpression(node) ? node.name.text
     : ts.isElementAccessExpression(node) && ts.isStringLiteral(node.argumentExpression) ? node.argumentExpression.text : null;
+  const methodName = (node) => node?.name !== undefined
+    && (ts.isIdentifier(node.name) || ts.isStringLiteral(node.name)) ? node.name.text : null;
+  const enclosingMethod = (node) => {
+    for (let cursor = node.parent; cursor; cursor = cursor.parent) {
+      if (ts.isMethodDeclaration(cursor)) return cursor;
+    }
+    return null;
+  };
+  const contains = (container, node) => {
+    for (let cursor = node; cursor; cursor = cursor.parent) {
+      if (cursor === container) return true;
+    }
+    return false;
+  };
+  const exactModeGuard = (node) => ts.isIfStatement(node)
+    && ts.isBinaryExpression(node.expression)
+    && node.expression.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken
+    && node.expression.left.getText(source) === 'supabaseDeploymentBoundary.mode'
+    && ts.isStringLiteral(node.expression.right)
+    && node.expression.right.text === 'owner-isolated'
+    && node.elseStatement !== undefined;
+  const deploymentBranch = (node, method) => {
+    for (let cursor = node.parent; cursor && cursor !== method; cursor = cursor.parent) {
+      if (!exactModeGuard(cursor)) continue;
+      if (contains(cursor.thenStatement, node)) return 'owner-isolated';
+      if (contains(cursor.elseStatement, node)) return 'shared';
+    }
+    return 'common';
+  };
+  const unsafeMutationControlFlow = (node, method) => {
+    for (let cursor = node.parent; cursor && cursor !== method; cursor = cursor.parent) {
+      if (ts.isTryStatement(cursor) || ts.isCatchClause(cursor)
+        || [ts.SyntaxKind.ForStatement, ts.SyntaxKind.ForInStatement, ts.SyntaxKind.ForOfStatement,
+          ts.SyntaxKind.WhileStatement, ts.SyntaxKind.DoStatement].includes(cursor.kind)) return true;
+    }
+    return false;
+  };
+  const exactSanitizedWrapper = (call) => {
+    const arrow = call.parent;
+    const wrapper = arrow?.parent;
+    return ts.isArrowFunction(arrow) && arrow.parameters.length === 0 && arrow.body === call
+      && ts.isCallExpression(wrapper) && wrapper.expression.getText(source) === 'sanitized'
+      && wrapper.arguments.length === 2 && wrapper.arguments[0] === arrow
+      && ts.isStringLiteral(wrapper.arguments[1]);
+  };
+  const targetImports = source.statements.filter((statement) => ts.isImportDeclaration(statement)
+    && ts.isStringLiteral(statement.moduleSpecifier)
+    && statement.moduleSpecifier.text === '@/integrations/supabase/client');
+  const namedImports = targetImports[0]?.importClause?.namedBindings;
+  const importsExactBoundary = targetImports.length === 1 && namedImports !== undefined && ts.isNamedImports(namedImports)
+    && namedImports.elements.every((element) => element.propertyName === undefined)
+    && canonicalJson(namedImports.elements.map((element) => element.name.text).sort())
+      === canonicalJson(['supabase', 'supabaseConfig', 'supabaseDeploymentBoundary'].sort());
+  if (!importsExactBoundary) unsafe = true;
+  const sanitizedFunctions = source.statements.filter((statement) => ts.isFunctionDeclaration(statement)
+    && statement.name?.text === 'sanitized');
+  const sanitizedFunction = sanitizedFunctions[0];
+  const sanitizedTry = sanitizedFunction?.body?.statements[0];
+  const sanitizedReturn = ts.isTryStatement(sanitizedTry) && sanitizedTry.tryBlock.statements.length === 1
+    ? sanitizedTry.tryBlock.statements[0] : undefined;
+  const sanitizedAwait = ts.isReturnStatement(sanitizedReturn) ? sanitizedReturn.expression : undefined;
+  const sanitizedCall = ts.isAwaitExpression(sanitizedAwait) ? sanitizedAwait.expression : undefined;
+  const sanitizedCatch = ts.isTryStatement(sanitizedTry) ? sanitizedTry.catchClause : undefined;
+  const sanitizedThrow = sanitizedCatch?.block.statements.length === 1 ? sanitizedCatch.block.statements[0] : undefined;
+  const sanitizedError = ts.isThrowStatement(sanitizedThrow) ? sanitizedThrow.expression : undefined;
+  const sanitizedExact = sanitizedFunctions.length === 1 && sanitizedFunction?.body?.statements.length === 1
+    && ts.isTryStatement(sanitizedTry) && sanitizedTry.finallyBlock === undefined
+    && ts.isCallExpression(sanitizedCall) && sanitizedCall.expression.getText(source) === 'operation'
+    && sanitizedCall.arguments.length === 0 && sanitizedCatch?.variableDeclaration === undefined
+    && ts.isNewExpression(sanitizedError) && sanitizedError.expression.getText(source) === 'Error'
+    && sanitizedError.arguments?.length === 1 && sanitizedError.arguments[0].getText(source) === 'message';
+  if (!sanitizedExact) unsafe = true;
   function objectProperty(node, name) {
     if (!node || !ts.isObjectLiteralExpression(node)) return undefined;
     return node.properties.find((property) => ts.isPropertyAssignment(property)
       && (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)) && property.name.text === name)?.initializer;
   }
+  function objectKeysExact(node, keys) {
+    return ts.isObjectLiteralExpression(node) && node.properties.every((property) => ts.isPropertyAssignment(property)
+      && (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)))
+      && canonicalJson(node.properties.map((property) => property.name.text).sort())
+        === canonicalJson([...keys].sort());
+  }
+  function storageCall(call) {
+    const member = call.expression;
+    if (!ts.isPropertyAccessExpression(member)) return null;
+    const fromCall = member.expression;
+    if (!ts.isCallExpression(fromCall) || !ts.isPropertyAccessExpression(fromCall.expression)
+      || fromCall.expression.name.text !== 'from' || fromCall.expression.expression.getText(source) !== 'supabase.storage'
+      || fromCall.arguments.length !== 1 || !ts.isStringLiteral(fromCall.arguments[0])
+      || fromCall.arguments[0].text !== 'photos') return null;
+    return member.name.text;
+  }
   const visit = (node) => {
-    if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) && bannedProperties.has(propertyName(node))) unsafe = true;
+    if (ts.isMethodDeclaration(node) && guardedMethods.has(methodName(node))) {
+      const parentName = ts.isClassDeclaration(node.parent) ? node.parent.name?.text : null;
+      methodDeclarations.push(`${parentName}:${methodName(node)}`);
+    }
+    if (ts.isFunctionDeclaration(node) && node.name?.text === 'sanitized' && node !== sanitizedFunction) unsafe = true;
+    if ((ts.isVariableDeclaration(node) || ts.isParameter(node))
+      && ts.isIdentifier(node.name) && protectedBindings.has(node.name.text)) unsafe = true;
+    if (ts.isBinaryExpression(node) && ts.isIdentifier(node.left)
+      && protectedBindings.has(node.left.text)
+      && [ts.SyntaxKind.EqualsToken, ts.SyntaxKind.PlusEqualsToken, ts.SyntaxKind.MinusEqualsToken,
+        ts.SyntaxKind.AsteriskEqualsToken, ts.SyntaxKind.SlashEqualsToken].includes(node.operatorToken.kind)) unsafe = true;
+    if (ts.isVariableDeclaration(node) && node.initializer
+      && (ts.isPropertyAccessExpression(node.initializer) || ts.isElementAccessExpression(node.initializer)
+        || ts.isCallExpression(node.initializer))
+      && /\bsupabase(?:\.(?:storage|functions))?\b/u.test(node.initializer.getText(source))) unsafe = true;
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      && /\bsupabase\.(?:storage|functions)\b/u.test(node.right.getText(source))) unsafe = true;
+    if (ts.isElementAccessExpression(node) && /\bsupabase\b/u.test(node.expression.getText(source))) unsafe = true;
+    if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) && node.questionDotToken
+      && /\bsupabase\b/u.test(node.getText(source))) unsafe = true;
+    if (ts.isPropertyAccessExpression(node) && node.getText(source) === 'supabaseDeploymentBoundary.mode') {
+      boundaryModeReferences++;
+      const binary = node.parent;
+      if (!ts.isBinaryExpression(binary) || binary.left !== node || !exactModeGuard(binary.parent)) unsafe = true;
+    }
+    if (ts.isIfStatement(node) && exactModeGuard(node)) {
+      const method = enclosingMethod(node);
+      modeGuards.push(methodName(method));
+    }
+    if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node))
+      && dangerousProperties.has(propertyName(node))
+      && !(ts.isCallExpression(node.parent) && node.parent.expression === node)) unsafe = true;
     if (ts.isCallExpression(node) && ['fetch', 'eval', 'Function'].includes(node.expression.getText(source))) unsafe = true;
     if (ts.isNewExpression(node) && ['XMLHttpRequest', 'WebSocket', 'Function'].includes(node.expression.getText(source))) unsafe = true;
-    if (ts.isPropertyAccessExpression(node) && node.getText(source) === 'supabase.storage') {
-      // The only direct Storage use is a private signed READ URL; aliases and
-      // dynamically selected methods are not accepted by this narrow contract.
-      const from = node.parent;
-      const fromCall = from.parent;
-      const read = fromCall.parent;
-      if (!ts.isPropertyAccessExpression(from) || from.name.text !== 'from'
-        || !ts.isCallExpression(fromCall) || fromCall.expression !== from || fromCall.arguments.length !== 1
-        || !ts.isStringLiteral(fromCall.arguments[0]) || fromCall.arguments[0].text !== 'photos'
-        || !ts.isPropertyAccessExpression(read) || read.name.text !== 'createSignedUrl'
-        || !ts.isCallExpression(read.parent) || read.parent.expression !== read) unsafe = true;
-    }
-    if (ts.isCallExpression(node) && node.expression.getText(source) === 'supabase.functions.invoke') {
-      const name = node.arguments[0];
-      const operation = objectProperty(objectProperty(node.arguments[1], 'headers'), 'x-storage-operation');
-      if (node.arguments.length !== 2 || !ts.isStringLiteral(name) || name.text !== 'storage-photo'
-        || !operation || !ts.isStringLiteral(operation)) unsafe = true;
-      else operations.push(operation.text);
+    if (ts.isCallExpression(node) && dangerousProperties.has(propertyName(node.expression))) {
+      const method = enclosingMethod(node);
+      const ownerMethod = methodName(method);
+      const branch = deploymentBranch(node, method);
+      const directMethod = storageCall(node);
+      if (!method || !guardedMethods.has(ownerMethod) || unsafeMutationControlFlow(node, method)
+        || !exactSanitizedWrapper(node)) unsafe = true;
+      if (node.expression.getText(source) === 'supabase.functions.invoke') {
+        const name = node.arguments[0];
+        const invokeOptions = node.arguments[1];
+        const headers = objectProperty(invokeOptions, 'headers');
+        const operation = objectProperty(headers, 'x-storage-operation');
+        if (node.arguments.length !== 2 || !ts.isStringLiteral(name) || name.text !== 'storage-photo'
+          || !objectKeysExact(invokeOptions, ['body', 'headers'])
+          || !operation || !ts.isStringLiteral(operation)) unsafe = true;
+        else {
+          const body = objectProperty(invokeOptions, 'body');
+          const uploadShape = operation.text === 'upload' && body?.getText(source) === 'fileToUpload'
+            && objectKeysExact(headers, ['content-type', 'x-storage-operation'])
+            && objectProperty(headers, 'content-type')?.getText(source) === 'fileToUpload.type';
+          const deletePath = objectProperty(body, 'path');
+          const deleteShape = operation.text === 'delete' && objectKeysExact(body, ['path'])
+            && objectKeysExact(headers, ['x-storage-operation']) && deletePath?.getText(source) === 'storagePath';
+          if (!uploadShape && !deleteShape) unsafe = true;
+          operations.push(`gateway:${ownerMethod}:${branch}:${operation.text}`);
+        }
+      } else if (directMethod === 'upload' || directMethod === 'remove') {
+        const uploadShape = directMethod === 'upload' && node.arguments.length === 3
+          && node.arguments[0].getText(source) === 'storagePath'
+          && node.arguments[1].getText(source) === 'fileToUpload'
+          && objectKeysExact(node.arguments[2], ['cacheControl', 'upsert'])
+          && objectProperty(node.arguments[2], 'cacheControl')?.getText(source) === "'3600'"
+          && objectProperty(node.arguments[2], 'upsert')?.kind === ts.SyntaxKind.FalseKeyword;
+        const removeShape = directMethod === 'remove' && node.arguments.length === 1
+          && ts.isArrayLiteralExpression(node.arguments[0]) && node.arguments[0].elements.length === 1
+          && node.arguments[0].elements[0].getText(source) === 'storagePath';
+        if (!uploadShape && !removeShape) unsafe = true;
+        operations.push(`direct:${ownerMethod}:${branch}:${directMethod === 'remove' ? 'delete' : 'upload'}`);
+      } else if (directMethod === 'createSignedUrl') {
+        if (node.arguments.length !== 2 || node.arguments[0].getText(source) !== 'uploadedPath'
+          || node.arguments[1].getText(source) !== 'TEN_YEARS_IN_SECONDS') unsafe = true;
+        operations.push(`signed-read:${ownerMethod}:${branch}:createSignedUrl`);
+      } else {
+        unsafe = true;
+      }
     }
     ts.forEachChild(node, visit);
   };
   visit(source);
   const gateway = entrypoints.find((entry) => entry.name === 'storage-photo');
+  const expectedOperations = [
+    'gateway:uploadPhoto:owner-isolated:upload',
+    'direct:uploadPhoto:shared:upload',
+    'signed-read:uploadPhoto:common:createSignedUrl',
+    'gateway:deletePhoto:owner-isolated:delete',
+    'direct:deletePhoto:shared:delete',
+  ];
+  const photoClientTransportRoutingExact = !unsafe
+    && boundaryModeReferences === 2
+    && canonicalJson(methodDeclarations.sort())
+      === canonicalJson(['PhotoService:deletePhoto', 'PhotoService:uploadPhoto'])
+    && canonicalJson(modeGuards.sort()) === canonicalJson(['deletePhoto', 'uploadPhoto'])
+    && canonicalJson(operations.sort()) === canonicalJson(expectedOperations.sort());
   return {
     evidenceClass: 'local_source_inspection_only',
     gatewayGuarded: gateway?.covered === true,
     allEntrypointsGuarded: entrypoints.length > 0 && entrypoints.every((entry) => entry.covered),
     guardedEntrypointCount: entrypoints.filter((entry) => entry.covered).length,
     expectedEntrypointCount: entrypoints.length,
-    photoClientGatewayOnly: !unsafe && canonicalJson(operations.sort()) === canonicalJson(['delete', 'upload']),
+    photoClientTransportRoutingExact,
     photoClientSha256: sha256(sourceText),
   };
 }
@@ -217,7 +382,7 @@ export function buildStorageIngressReadiness(root, { scope, observations, now } 
   const evidence = observations === undefined ? null : validateStorageIngressObservations(observations, { scope, boundary, now });
   const blockers = [];
   if (!wiring.gatewayGuarded || !wiring.allEntrypointsGuarded) blockers.push({ code: 'unguarded_entrypoint', reason: 'Local Edge entrypoints do not all meet the exact admission wrapper contract.' });
-  if (!wiring.photoClientGatewayOnly) blockers.push({ code: 'direct_photo_ingress', reason: 'The photo client does not meet the gateway-only mutation contract.' });
+  if (!wiring.photoClientTransportRoutingExact) blockers.push({ code: 'photo_transport_topology_mismatch', reason: 'The photo client does not meet the exact deployment-scoped transport topology contract.' });
   if (!evidence) blockers.push({ code: 'observations_missing', reason: 'No subject-bound storage writer, lease, and byte observations were supplied.' });
   return {
     version: 1, kind: 'mind_manual_storage_ingress_readiness', status: 'blocked',

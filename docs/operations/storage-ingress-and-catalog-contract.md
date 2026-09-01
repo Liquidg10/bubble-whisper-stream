@@ -6,16 +6,21 @@ provider retirement, source freeze, data copy, or cutover is performed by this w
 
 ## Application ingress
 
-`PhotoService` sends upload/delete requests only to `storage-photo`. Private read
-URL signing remains a Storage read operation. The gateway is entrypoint 34 in the
-exact Edge manifest and uses the same non-expiring admission lease as the other
-entrypoints. Authorization still verifies the caller independently.
+In an `owner-isolated` deployment, `PhotoService` sends upload/delete requests
+only to `storage-photo`. The shared deployment retains its existing authenticated,
+owner-prefixed direct private-bucket path so this draft cannot disrupt unrelated
+users before a separately approved cutover. There is no cross-mode fallback or
+automatic retry. Private read URL signing remains a Storage read operation. The
+gateway is entrypoint 34 in the exact Edge manifest and uses the same non-expiring
+admission lease as the other entrypoints. Authorization still verifies the caller
+independently.
 
 Uploads accept bounded JPEG, PNG, WebP or GIF bodies (10 MiB maximum), check magic
 bytes, and generate an owner-prefixed UUID path server-side. Caller filenames,
 foreign owners, overwrite/upsert, arbitrary buckets and arbitrary destinations
-are not accepted. Deletes accept one validated current-owner photo path. There
-is no direct-write fallback, automatic retry, or compensating delete.
+are not accepted. Deletes accept one validated current-owner photo path. The
+isolated route has no direct-write fallback, automatic retry, or compensating
+delete.
 
 The handler consumes the full Storage mutation response and checks its returned
 identity before reporting success. Transport failures, redirects, non-success
