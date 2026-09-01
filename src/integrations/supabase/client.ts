@@ -11,7 +11,8 @@ const publicEnvironment = buildDeploymentEnvironment({
   VITE_MIND_MANUAL_DEPLOYMENT_MODE: import.meta.env.VITE_MIND_MANUAL_DEPLOYMENT_MODE,
   VITE_MIND_MANUAL_DEPLOYMENT_ORIGIN: import.meta.env.VITE_MIND_MANUAL_DEPLOYMENT_ORIGIN,
 });
-assertDeploymentOrigin(resolveDeploymentBoundary(publicEnvironment),
+export const supabaseDeploymentBoundary = resolveDeploymentBoundary(publicEnvironment);
+assertDeploymentOrigin(supabaseDeploymentBoundary,
   typeof window === 'undefined' ? undefined : window.location.origin);
 export const supabaseConfig = resolveSupabasePublicConfig(publicEnvironment);
 
