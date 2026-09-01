@@ -144,7 +144,16 @@ describe("migration guard catalog — real local PostgreSQL", { concurrency: fal
   it("excludes only operational subject, phase/time and unresolved lease rows", () => {
     const changed = mutatedCatalog(`
       INSERT INTO mind_manual_migration.subjects VALUES ('10000000-0000-4000-8000-000000000001');
-      INSERT INTO mind_manual_migration.edge_leases VALUES ('20000000-0000-4000-8000-000000000002', 'storage-photo', now());
+      INSERT INTO mind_manual_migration.edge_leases
+        (lease_id, function_name, subject_id, action, generation, admitted_at)
+      VALUES (
+        '20000000-0000-4000-8000-000000000002',
+        'storage-photo',
+        '10000000-0000-4000-8000-000000000001',
+        'upload',
+        'fixture-generation',
+        now()
+      );
       UPDATE mind_manual_migration.control SET phase='draining', changed_at='2040-01-01';
     `);
     assert.deepEqual(changed, baseline);

@@ -19,11 +19,41 @@ export const ACTIVATION_BLOCKERS = Object.freeze([
 
 const digest = (value) => createHash('sha256').update(value).digest('hex');
 
+export const OWNER_SCOPED_BEARER_FUNCTIONS = Object.freeze([
+  'ai-cbt-reframe', 'ai-conversation', 'ai-embeddings', 'ai-glimmer-generate',
+  'ai-monthly-summary', 'ai-pattern-analysis', 'ai-photo-analyze', 'ai-plan-generate',
+  'ai-realtime-voice', 'ai-tts-generate', 'ai-voice-transcribe',
+  'calendar-oauth-callback', 'calendar-oauth-start', 'document-scan',
+  'gmail-compose', 'gmail-sync', 'grocery-intelligence',
+  'oauth-google-callback', 'oauth-google-refresh', 'oauth-google-revoke',
+  'oauth-google-start', 'personal-voice-record', 'plaid-create-link-token',
+  'plaid-exchange-token', 'plaid-get-accounts', 'plaid-get-transactions',
+  'storage-photo',
+]);
+
+export const LEGACY_GLOBAL_ADMISSION_FUNCTIONS = Object.freeze([
+  'calendar-sync', 'calendar-watch', 'gmail-watch', 'plaid-webhook-handler',
+  'watch-renewal-cron',
+]);
+
+export const RETIRED_UNWRAPPED_FUNCTIONS = Object.freeze([
+  'oauth-google', 'oauth-scope-decay',
+]);
+
 export function inspectEdgeFenceCoverage(root) {
   const manifest = readFileSync(resolve(root, 'supabase/isolation/mind-manual-edge-functions.tsv'), 'utf8');
   const names = manifest.split(/\r?\n/u).filter((line) => line.trim() && !line.startsWith('#')).map((line) => line.split('\t')[0]);
   if (names.length === 0 || new Set(names).size !== names.length || names.some((name) => !/^[a-z][a-z0-9-]*$/u.test(name))) {
     throw new Error('Invalid Edge function manifest');
+  }
+  const classifications = [
+    ...OWNER_SCOPED_BEARER_FUNCTIONS,
+    ...LEGACY_GLOBAL_ADMISSION_FUNCTIONS,
+    ...RETIRED_UNWRAPPED_FUNCTIONS,
+  ];
+  if (new Set(classifications).size !== classifications.length ||
+    JSON.stringify([...classifications].sort()) !== JSON.stringify([...names].sort())) {
+    throw new Error('Edge admission classification/manifest mismatch');
   }
   const directories = readdirSync(resolve(root, 'supabase/functions'), { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && entry.name !== '_shared').map((entry) => entry.name).sort();
@@ -40,21 +70,51 @@ export function inspectEdgeFenceCoverage(root) {
     visit(source);
     const call = calls[0];
     const wrapper = call?.arguments[0];
-    const importPresent = source.statements.some((statement) => ts.isImportDeclaration(statement)
+    const imported = (symbol) => source.statements.some((statement) => ts.isImportDeclaration(statement)
       && statement.moduleSpecifier.text === '../_shared/migrationWriteFence.ts'
       && statement.importClause?.namedBindings && ts.isNamedImports(statement.importClause.namedBindings)
-      && statement.importClause.namedBindings.elements.some((element) => element.name.text === 'wrapMindManualHandler' && !element.propertyName));
-    const covered = source.parseDiagnostics.length === 0 && importPresent && calls.length === 1 && call.arguments.length === 1
-      && ts.isCallExpression(wrapper) && wrapper.expression.getText(source) === 'wrapMindManualHandler'
-      && wrapper.arguments.length === 2 && ts.isStringLiteral(wrapper.arguments[0]) && wrapper.arguments[0].text === name;
-    return { name, relativePath, covered: Boolean(covered), sha256: digest(text) };
+      && statement.importClause.namedBindings.elements.some((element) => element.name.text === symbol && !element.propertyName));
+    const ownerScoped = OWNER_SCOPED_BEARER_FUNCTIONS.includes(name)
+      && imported('wrapMindManualSubjectHandler') && imported('verifiedBearerMindManualScope')
+      && !imported('wrapMindManualHandler') && calls.length === 1 && call.arguments.length === 1
+      && ts.isCallExpression(wrapper) && wrapper.expression.getText(source) === 'wrapMindManualSubjectHandler'
+      && wrapper.arguments.length === 3 && ts.isStringLiteral(wrapper.arguments[0])
+      && wrapper.arguments[0].text === name && ts.isCallExpression(wrapper.arguments[1])
+      && wrapper.arguments[1].expression.getText(source) === 'verifiedBearerMindManualScope'
+      && wrapper.arguments[1].arguments.length === 1;
+    const legacyGlobal = LEGACY_GLOBAL_ADMISSION_FUNCTIONS.includes(name)
+      && imported('wrapMindManualHandler') && !imported('wrapMindManualSubjectHandler')
+      && calls.length === 1 && call.arguments.length === 1 && ts.isCallExpression(wrapper)
+      && wrapper.expression.getText(source) === 'wrapMindManualHandler'
+      && wrapper.arguments.length === 2 && ts.isStringLiteral(wrapper.arguments[0])
+      && wrapper.arguments[0].text === name;
+    const retired = RETIRED_UNWRAPPED_FUNCTIONS.includes(name)
+      && !imported('wrapMindManualHandler') && !imported('wrapMindManualSubjectHandler')
+      && !imported('verifiedBearerMindManualScope') && calls.length === 1
+      && call.arguments.length === 1 && !ts.isCallExpression(wrapper);
+    const classification = ownerScoped ? 'owner_scoped_bearer'
+      : legacyGlobal ? 'legacy_global_blocked'
+      : retired ? 'retired_unwrapped'
+      : 'invalid';
+    return {
+      name,
+      relativePath,
+      classification,
+      covered: source.parseDiagnostics.length === 0 && (ownerScoped || retired),
+      sha256: digest(text),
+    };
   });
 }
 
 export function buildLocalFenceReadiness(root) {
   const entrypoints = inspectEdgeFenceCoverage(root);
   const implementationFailures = entrypoints.filter((entry) => !entry.covered)
-    .map((entry) => ({ code: 'unguarded_entrypoint', reason: entry.relativePath }));
+    .map((entry) => ({
+      code: entry.classification === 'legacy_global_blocked'
+        ? 'legacy_global_admission'
+        : 'unguarded_entrypoint',
+      reason: entry.relativePath,
+    }));
   return {
     version: 1,
     status: 'blocked',

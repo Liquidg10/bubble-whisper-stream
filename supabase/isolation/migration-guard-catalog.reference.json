@@ -2,7 +2,7 @@
   "version": 1,
   "kind": "mind_manual_migration_guard_catalog",
   "pinnedInputs": {
-    "supabase/isolation/source-write-fence.sql": "98cbc1969b54c437489f92e13edb177998218e95cecfe9ca5b0a2c27ab8aa6fe",
+    "supabase/isolation/source-write-fence.sql": "a7ea46f3545c492a5bde109b384a623b1a493870fa9bbca450f791ceba023ba5",
     "supabase/isolation/storage-write-gateway.sql": "bd7b1d627c8f8378b95313acb41a404009ec775e6a4a0e508404cb78c3b3c006",
     "supabase/isolation/mind-manual-data-scopes.tsv": "58aedb587370ead00c199df98afcb0bca729c220da7782bd1a13cafebc6e333d",
     "supabase/isolation/mind-manual-edge-functions.tsv": "f64930e723b0be5423fa566333a1af9fb8a28e873b9807f923e7a3798d896fc2"
@@ -11,15 +11,15 @@
   "components": {
     "schema": "e3ef1c1f6738fbe4d5aff2237b0fdfaa8fb4975bf3c9171f2f5f3493ba748687",
     "objects": "dbeee82f5c1c2ae670de6c555bdc24b9358cc59a6e13464f9f1ee8a0e5ed4e07",
-    "relations": "8881d5a04c4f92509cdc3012460b42106cb48840fcc1f47404ec5438838ed138",
+    "relations": "f643e185f1b30b1b1676fc60090dc5e486c36144067630b84e466a0a06de70ff",
     "types": "ac996e82d3987590a915d2ee641908dfb7aac0775e4dac10c0f4e8397293f289",
-    "functions": "7271cf95ec74973065f51752ecd37530b27fa3c717bdc84b1b641dd43dca90c8",
+    "functions": "deaceebd5adfd3984a21f58aa908e9d9aabaaefe5f8a51b415f6e251f2ffc8ef",
     "triggers": "fe9a221650e35389a55a8fa35d4668a2e42b6063c46b0fb80abceea57b9bd02f",
     "defaultPrivileges": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "relationScopes": "34f7341a209d1a67c05fad45a397819267cbb4f7e5a7daa02fa43f5471ee8849",
     "edgeFunctions": "cca8ec376c46c1013ff6dd710227970255b042da313525d6d5f33bfc39cc09c4",
     "storageGuard": "6c2057c6a6f5a9dc7e8f4ec35de9f26a3b8cd3e13559e75b80efd261aff8e3a8"
   },
-  "catalogSha256": "aa8109142241b3a3fe923f81575bcf772854596e543f2451f9902a7666cbced2",
+  "catalogSha256": "a3eb8dd96b43d2898d62ec7451a90d89ea55bff3687296395cc74387b4fe9410",
   "operationalRowsIncluded": false
 }

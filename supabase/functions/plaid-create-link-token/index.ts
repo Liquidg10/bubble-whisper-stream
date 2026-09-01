@@ -1,4 +1,4 @@
-import { wrapMindManualHandler } from "../_shared/migrationWriteFence.ts";
+import { verifiedBearerMindManualScope, wrapMindManualSubjectHandler } from "../_shared/migrationWriteFence.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 
 const corsHeaders = {
@@ -70,4 +70,4 @@ const handler = async (req: Request): Promise<Response> => {
   }
 };
 
-serve(wrapMindManualHandler("plaid-create-link-token", handler));
+serve(wrapMindManualSubjectHandler("plaid-create-link-token", verifiedBearerMindManualScope("authenticated_request"), handler));

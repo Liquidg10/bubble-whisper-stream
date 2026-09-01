@@ -56,6 +56,18 @@ INSERT INTO mind_manual_migration.edge_functions (function_name) VALUES
 CREATE TABLE mind_manual_migration.edge_leases (
   lease_id uuid PRIMARY KEY,
   function_name text NOT NULL REFERENCES mind_manual_migration.edge_functions,
+  -- NULL tuple rows are deliberately retained legacy admissions from the five
+  -- not-yet-converted mixed/scheduled/provider entrypoints. V2 can neither
+  -- impersonate nor release them, and every such row still blocks fencing.
+  subject_id uuid,
+  action text,
+  generation text,
+  CHECK (
+    (subject_id IS NULL AND action IS NULL AND generation IS NULL) OR
+    (subject_id IS NOT NULL AND action IS NOT NULL AND generation IS NOT NULL AND
+      action ~ '^[a-z][a-z0-9_]{0,63}$' AND
+      generation ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$')
+  ),
   admitted_at timestamptz NOT NULL DEFAULT clock_timestamp()
 );
 
@@ -110,9 +122,9 @@ BEGIN
   IF v_phase <> 'open' THEN
     RAISE EXCEPTION 'Mind Manual subjects may change only while open' USING ERRCODE = '55000';
   END IF;
-  IF p_subjects IS NULL OR cardinality(p_subjects) = 0
+  IF p_subjects IS NULL OR cardinality(p_subjects) <> 1
      OR array_position(p_subjects, NULL) IS NOT NULL THEN
-    RAISE EXCEPTION 'Mind Manual requires explicit nonempty subject UUIDs' USING ERRCODE = '22023';
+    RAISE EXCEPTION 'Mind Manual owner-only scope requires exactly one subject UUID' USING ERRCODE = '22023';
   END IF;
   IF cardinality(p_subjects) <> (SELECT count(DISTINCT subject) FROM unnest(p_subjects) AS subject) THEN
     RAISE EXCEPTION 'Mind Manual subject UUIDs must not contain duplicates' USING ERRCODE = '22023';
@@ -121,7 +133,18 @@ BEGIN
              WHERE NOT EXISTS (SELECT 1 FROM auth.users u WHERE u.id = selected.user_id)) THEN
     RAISE EXCEPTION 'Every Mind Manual subject must already exist in Auth' USING ERRCODE = '22023';
   END IF;
-  DELETE FROM mind_manual_migration.subjects;
+  IF EXISTS (SELECT 1 FROM mind_manual_migration.subjects) THEN
+    IF (SELECT count(*) FROM mind_manual_migration.subjects) = 1 AND EXISTS (
+      SELECT 1 FROM mind_manual_migration.subjects WHERE user_id = p_subjects[1]
+    ) THEN
+      -- Exact replays are harmless; the configured owner can never change.
+      RETURN;
+    END IF;
+    RAISE EXCEPTION 'Mind Manual owner scope is immutable once configured' USING ERRCODE = '55000';
+  END IF;
+  IF EXISTS (SELECT 1 FROM mind_manual_migration.edge_leases) THEN
+    RAISE EXCEPTION 'Mind Manual subjects cannot change with unresolved Edge leases' USING ERRCODE = '55000';
+  END IF;
   INSERT INTO mind_manual_migration.subjects SELECT unnest(p_subjects);
 END
 $function$;
@@ -197,9 +220,84 @@ BEGIN
   IF p_lease_id IS NULL THEN
     RAISE EXCEPTION 'Missing Mind Manual lease UUID' USING ERRCODE = '22023';
   END IF;
-  DELETE FROM mind_manual_migration.edge_leases WHERE lease_id = p_lease_id;
+  -- A legacy caller may release only its unattributed legacy row. It can never
+  -- delete an owner-scoped V2 lease even if given that lease UUID.
+  DELETE FROM mind_manual_migration.edge_leases
+    WHERE lease_id = p_lease_id AND subject_id IS NULL
+      AND action IS NULL AND generation IS NULL;
   GET DIAGNOSTICS v_deleted = ROW_COUNT;
   RETURN v_deleted = 1;
+END
+$function$;
+
+CREATE FUNCTION public.mind_manual_admit_subject_edge(
+  p_function_name text,
+  p_action text,
+  p_subject_id uuid,
+  p_lease_id uuid,
+  p_generation text
+)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog AS $function$
+DECLARE v_phase text; v_inserted integer; v_subject_count bigint; v_selected_subject uuid;
+BEGIN
+  IF p_lease_id IS NULL OR p_subject_id IS NULL OR p_function_name IS NULL OR
+     p_action IS NULL OR p_action !~ '^[a-z][a-z0-9_]{0,63}$' OR
+     p_generation IS NULL OR p_generation !~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$' OR
+     NOT EXISTS (
+       SELECT 1 FROM mind_manual_migration.edge_functions
+       WHERE function_name = p_function_name
+     ) THEN
+    RAISE EXCEPTION 'Invalid owner-scoped Mind Manual admission tuple' USING ERRCODE = '22023';
+  END IF;
+
+  -- Classification and phase observation share the transition lock. A subject
+  -- cannot become selected between an unrelated decision and a drain commit.
+  SELECT phase INTO STRICT v_phase FROM mind_manual_migration.control
+    WHERE singleton FOR SHARE;
+  SELECT count(*) INTO v_subject_count FROM mind_manual_migration.subjects;
+  IF v_subject_count <> 1 THEN
+    -- V2 must not serve traffic before the immutable owner is configured.
+    RETURN jsonb_build_object('decision', 'blocked');
+  END IF;
+  SELECT user_id INTO STRICT v_selected_subject FROM mind_manual_migration.subjects;
+  IF v_selected_subject <> p_subject_id THEN
+    RETURN jsonb_build_object('decision', 'unselected');
+  END IF;
+  IF v_phase <> 'open' THEN
+    RETURN jsonb_build_object('decision', 'blocked');
+  END IF;
+
+  INSERT INTO mind_manual_migration.edge_leases
+    (lease_id, function_name, subject_id, action, generation)
+    VALUES (p_lease_id, p_function_name, p_subject_id, p_action, p_generation)
+    ON CONFLICT (lease_id) DO NOTHING;
+  GET DIAGNOSTICS v_inserted = ROW_COUNT;
+  IF v_inserted <> 1 THEN RETURN jsonb_build_object('decision', 'blocked'); END IF;
+  RETURN jsonb_build_object('decision', 'admitted', 'generation', p_generation);
+END
+$function$;
+
+CREATE FUNCTION public.mind_manual_release_subject_edge(
+  p_function_name text,
+  p_action text,
+  p_subject_id uuid,
+  p_lease_id uuid,
+  p_generation text
+)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog AS $function$
+DECLARE v_deleted integer;
+BEGIN
+  IF p_lease_id IS NULL OR p_subject_id IS NULL OR p_function_name IS NULL OR
+     p_action IS NULL OR p_generation IS NULL THEN
+    RAISE EXCEPTION 'Missing owner-scoped Mind Manual release tuple' USING ERRCODE = '22023';
+  END IF;
+  DELETE FROM mind_manual_migration.edge_leases
+    WHERE lease_id = p_lease_id AND function_name = p_function_name
+      AND subject_id = p_subject_id AND action = p_action
+      AND generation = p_generation;
+  GET DIAGNOSTICS v_deleted = ROW_COUNT;
+  IF v_deleted = 1 THEN RETURN jsonb_build_object('decision', 'released'); END IF;
+  RETURN jsonb_build_object('decision', 'retained');
 END
 $function$;
 
@@ -277,7 +375,11 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA mind_manual_migration
   REVOKE ALL ON FUNCTIONS FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.mind_manual_admit_edge(text, uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.mind_manual_release_edge(uuid) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.mind_manual_admit_subject_edge(text, text, uuid, uuid, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.mind_manual_release_subject_edge(text, text, uuid, uuid, text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.mind_manual_admit_edge(text, uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.mind_manual_release_edge(uuid) TO service_role;
+GRANT EXECUTE ON FUNCTION public.mind_manual_admit_subject_edge(text, text, uuid, uuid, text) TO service_role;
+GRANT EXECUTE ON FUNCTION public.mind_manual_release_subject_edge(text, text, uuid, uuid, text) TO service_role;
 
 COMMIT;

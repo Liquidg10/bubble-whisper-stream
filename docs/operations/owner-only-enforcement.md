@@ -93,12 +93,16 @@ Local results on this implementation:
 
 ## Still separate and blocked
 
-This tranche does not change Edge admission, guard SQL, Storage policies,
+The later [owner-scoped admission Stage A](owner-scoped-admission-stage-a.md)
+changes the local draft Edge/guard contract without changing Storage policies,
 frontend binding, provider routing, or any activation gate. In particular:
 
-- Draft PR35 still pauses all 34 Edge functions and restricts direct writes to
-  both Storage buckets for all browser users; selected database row fencing
-  does not make those wider effects account-specific.
+- Twenty-seven user-facing functions now classify a verified bearer subject;
+  unrelated users do not lease or pause. Five mixed/scheduled/provider functions
+  still use the global compatibility wrapper and keep the draft undeployable.
+  The two retired OAuth tombstones are unwrapped 410 responses. Direct writes to
+  both Storage buckets are still restricted for all browser users; selected
+  database row fencing does not make that separate policy account-specific.
 - The public frontend still has one deployment-wide backend. Do not redirect
   other users to the one-account target. An owner-specific frontend/origin and
   its Auth/OAuth/session boundaries require separate implementation and proof.

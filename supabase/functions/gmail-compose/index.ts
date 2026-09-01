@@ -1,4 +1,4 @@
-import { wrapMindManualHandler } from "../_shared/migrationWriteFence.ts";
+import { verifiedBearerMindManualScope, wrapMindManualSubjectHandler } from "../_shared/migrationWriteFence.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import {
   createClient,
@@ -762,4 +762,4 @@ const handler = async (req: Request): Promise<Response> => {
   }
 };
 
-serve(wrapMindManualHandler("gmail-compose", handler));
+serve(wrapMindManualSubjectHandler("gmail-compose", verifiedBearerMindManualScope("authenticated_request"), handler));

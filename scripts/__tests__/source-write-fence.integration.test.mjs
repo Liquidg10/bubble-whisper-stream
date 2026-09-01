@@ -19,6 +19,7 @@ const selected = "10000000-0000-4000-8000-000000000001";
 const unrelated = "20000000-0000-4000-8000-000000000002";
 const newcomer = "30000000-0000-4000-8000-000000000003";
 const lease = "90000000-0000-4000-8000-000000000009";
+const generation = "owner-stage-a.test";
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("PG")));
 let pgBin;
 let scratch;
@@ -261,6 +262,62 @@ describe("manual source write fence — real local PostgreSQL", { concurrency: f
     assert.equal(sql(`SET ROLE service_role; SELECT public.mind_manual_admit_edge('calendar-sync', '${newcomer}')`), "f");
   });
 
+  it("classifies unrelated users without leases and binds selected leases to the exact V2 tuple", () => {
+    assert.equal(sql(`SELECT (public.mind_manual_admit_subject_edge(
+      'storage-photo', 'upload', '${unrelated}', '${lease}', '${generation}'
+    )) ->> 'decision'`), "unselected");
+    assert.equal(sql("SELECT count(*) FROM mind_manual_migration.edge_leases"), "0");
+
+    assert.equal(sql(`SELECT (public.mind_manual_admit_subject_edge(
+      'storage-photo', 'upload', '${selected}', '${lease}', '${generation}'
+    )) ->> 'decision'`), "admitted");
+    assert.equal(sql(`SELECT subject_id || ':' || function_name || ':' || action || ':' || generation
+      FROM mind_manual_migration.edge_leases WHERE lease_id='${lease}'`),
+    `${selected}:storage-photo:upload:${generation}`);
+
+    // Neither the old release nor a near-match may delete a selected V2 lease.
+    assert.equal(sql(`SELECT public.mind_manual_release_edge('${lease}')`), "f");
+    for (const tuple of [
+      `'storage-photo', 'delete', '${selected}', '${lease}', '${generation}'`,
+      `'storage-photo', 'upload', '${unrelated}', '${lease}', '${generation}'`,
+      `'storage-photo', 'upload', '${selected}', '${lease}', 'other-generation'`,
+    ]) {
+      assert.equal(sql(`SELECT (public.mind_manual_release_subject_edge(${tuple})) ->> 'decision'`), "retained");
+      assert.equal(sql("SELECT count(*) FROM mind_manual_migration.edge_leases"), "1");
+    }
+    assert.equal(sql(`SELECT (public.mind_manual_release_subject_edge(
+      'storage-photo', 'upload', '${selected}', '${lease}', '${generation}'
+    )) ->> 'decision'`), "released");
+    assert.equal(sql("SELECT count(*) FROM mind_manual_migration.edge_leases"), "0");
+
+    sql("SELECT mind_manual_migration.begin_drain()");
+    assert.equal(sql(`SELECT (public.mind_manual_admit_subject_edge(
+      'storage-photo', 'delete', '${unrelated}', '${lease}', '${generation}'
+    )) ->> 'decision'`), "unselected");
+    assert.equal(sql(`SELECT (public.mind_manual_admit_subject_edge(
+      'storage-photo', 'delete', '${selected}', '${lease}', '${generation}'
+    )) ->> 'decision'`), "blocked");
+    assert.equal(sql("SELECT count(*) FROM mind_manual_migration.edge_leases"), "0");
+  });
+
+  it("blocks V2 before configuration and makes the single selected owner immutable", () => {
+    sql("DELETE FROM mind_manual_migration.subjects");
+    assert.equal(sql(`SELECT (public.mind_manual_admit_subject_edge(
+      'storage-photo', 'upload', '${unrelated}', '${lease}', '${generation}'
+    )) ->> 'decision'`), "blocked");
+    assert.equal(sql("SELECT count(*) FROM mind_manual_migration.edge_leases"), "0");
+
+    sql(`SELECT mind_manual_migration.configure_subjects(ARRAY['${selected}']::uuid[])`);
+    assert.equal(sql(`SELECT (public.mind_manual_admit_subject_edge(
+      'storage-photo', 'upload', '${unrelated}', '${lease}', '${generation}'
+    )) ->> 'decision'`), "unselected");
+    assert.equal(sql("SELECT count(*) FROM mind_manual_migration.edge_leases"), "0");
+    // Exact replay is idempotent; selecting the formerly unrelated caller is forbidden forever.
+    sql(`SELECT mind_manual_migration.configure_subjects(ARRAY['${selected}']::uuid[])`);
+    denies(`SELECT mind_manual_migration.configure_subjects(ARRAY['${unrelated}']::uuid[])`);
+    assert.equal(sql("SELECT user_id FROM mind_manual_migration.subjects"), selected);
+  });
+
   it("retains leases through resume and restores guarded writes without deleting data", () => {
     sql(`SET ROLE service_role; SELECT public.mind_manual_admit_edge('gmail-sync', '${lease}'); RESET ROLE;
       SELECT mind_manual_migration.begin_drain(); SELECT mind_manual_migration.resume();`);
@@ -276,6 +333,12 @@ describe("manual source write fence — real local PostgreSQL", { concurrency: f
     for (const role of ["anon", "authenticated"]) {
       denies(`SET ROLE ${role}; SELECT public.mind_manual_admit_edge('calendar-sync', '${lease}')`, "42501");
       denies(`SET ROLE ${role}; SELECT public.mind_manual_release_edge('${lease}')`, "42501");
+      denies(`SET ROLE ${role}; SELECT public.mind_manual_admit_subject_edge(
+        'storage-photo', 'upload', '${selected}', '${lease}', '${generation}'
+      )`, "42501");
+      denies(`SET ROLE ${role}; SELECT public.mind_manual_release_subject_edge(
+        'storage-photo', 'upload', '${selected}', '${lease}', '${generation}'
+      )`, "42501");
     }
     for (const role of ["anon", "authenticated", "service_role"]) {
       denies(`SET ROLE ${role}; SELECT * FROM mind_manual_migration.control`, "42501");
@@ -290,6 +353,7 @@ describe("manual source write fence — real local PostgreSQL", { concurrency: f
     denies("SELECT mind_manual_migration.configure_subjects(ARRAY[]::uuid[])", "22023");
     denies("SELECT mind_manual_migration.configure_subjects(ARRAY[NULL]::uuid[])", "22023");
     denies(`SELECT mind_manual_migration.configure_subjects(ARRAY['${selected}', '${selected}']::uuid[])`, "22023");
+    denies(`SELECT mind_manual_migration.configure_subjects(ARRAY['${selected}', '${unrelated}']::uuid[])`, "22023");
     denies(`SELECT mind_manual_migration.configure_subjects(ARRAY['${newcomer}']::uuid[])`, "22023");
     denies("SELECT mind_manual_migration.fence()");
     sql("SELECT mind_manual_migration.begin_drain()");

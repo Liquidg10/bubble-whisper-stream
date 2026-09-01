@@ -3,21 +3,49 @@ import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { createSocketDrain } from '../../../supabase/functions/_shared/socketDrain.ts';
 import { dispatchAndDrain } from '../../../supabase/functions/plaid-webhook-handler/dispatch.ts';
-import { buildLocalFenceReadiness, inspectEdgeFenceCoverage } from '../../../scripts/lib/source-write-fence-readiness.mjs';
+import {
+  buildLocalFenceReadiness,
+  inspectEdgeFenceCoverage,
+  LEGACY_GLOBAL_ADMISSION_FUNCTIONS,
+  OWNER_SCOPED_BEARER_FUNCTIONS,
+  RETIRED_UNWRAPPED_FUNCTIONS,
+} from '../../../scripts/lib/source-write-fence-readiness.mjs';
 
 describe('source freeze reachability and truthful activation boundary', () => {
-  it('wraps every manifested Edge entrypoint with its exact name', () => {
+  it('exhaustively classifies the owner-scoped, legacy-blocked and retired entrypoints', () => {
     const coverage = inspectEdgeFenceCoverage(process.cwd());
     expect(coverage).toHaveLength(34);
-    expect(coverage.filter((entry: { covered: boolean }) => !entry.covered)).toEqual([]);
+    expect(coverage.filter((entry: { classification: string }) => entry.classification === 'owner_scoped_bearer')
+      .map((entry: { name: string }) => entry.name).sort()).toEqual([...OWNER_SCOPED_BEARER_FUNCTIONS].sort());
+    expect(coverage.filter((entry: { classification: string }) => entry.classification === 'legacy_global_blocked')
+      .map((entry: { name: string }) => entry.name).sort()).toEqual([...LEGACY_GLOBAL_ADMISSION_FUNCTIONS].sort());
+    expect(coverage.filter((entry: { classification: string }) => entry.classification === 'retired_unwrapped')
+      .map((entry: { name: string }) => entry.name).sort()).toEqual([...RETIRED_UNWRAPPED_FUNCTIONS].sort());
+    expect(coverage.filter((entry: { classification: string }) => entry.classification === 'invalid')).toEqual([]);
   });
 
   it('cannot turn local coverage into a live freeze or authorization', () => {
     const report = buildLocalFenceReadiness(process.cwd());
     expect(report).toMatchObject({ status: 'blocked', eligibleForActivation: false, sourceWriteFreezeConfirmed: false, evidenceClass: 'local_source_inspection_only' });
+    expect(report).toMatchObject({ implementedEntrypointCount: 29, expectedEntrypointCount: 34 });
+    expect(report.blockers.filter((blocker: { code: string }) => blocker.code === 'legacy_global_admission')).toHaveLength(5);
     expect(report.blockers.map((blocker: { code: string }) => blocker.code)).toEqual(expect.arrayContaining([
       'subject_scope', 'shared_identity', 'storage_ingress', 'runtime_generation', 'provider_outcomes', 'scheduler_inventory', 'catalog_parity', 'live_denial_and_rollback', 'owner_window',
     ]));
+  });
+
+  it('keeps retired tombstones bounded while preserving method-first preflight', () => {
+    for (const functionName of RETIRED_UNWRAPPED_FUNCTIONS) {
+      const retired = readFileSync(resolve(
+        process.cwd(),
+        `supabase/functions/${functionName}/index.ts`,
+      ), 'utf8');
+      expect(retired).toContain('request.method === "OPTIONS"');
+      expect(retired).toContain('status: 204');
+      expect(retired).toContain('status: 410');
+      expect(retired).not.toContain('wrapMindManualHandler');
+      expect(retired).not.toContain('wrapMindManualSubjectHandler');
+    }
   });
 
   it('binds realtime sockets and awaits Plaid child requests in the reachable handlers', () => {

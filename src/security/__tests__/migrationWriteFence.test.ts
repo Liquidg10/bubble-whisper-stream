@@ -3,7 +3,9 @@ import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
   MIND_MANUAL_EDGE_FUNCTIONS,
+  verifiedBearerMindManualScope,
   wrapMindManualHandler,
+  wrapMindManualSubjectHandler,
   type MigrationWriteFenceDependencies,
   type MindManualWorkLifecycle,
 } from '../../../supabase/functions/_shared/migrationWriteFence.ts';
@@ -11,7 +13,12 @@ import {
 const UUID_A = '4c50665f-610a-4cc1-8df0-fc3995487261';
 const UUID_B = '92f5ee58-76f8-4eb1-b593-51a7d873d2b6';
 const TEST_KEY = 'not-a-real-service-key';
+const SUBJECT = '10000000-0000-4000-8000-000000000001';
+const GENERATION = 'owner-stage-a.test';
 const request = () => new Request('https://app.invalid/function', { method: 'POST' });
+const authenticatedRequest = (body?: string) => new Request('https://app.invalid/function', {
+  method: 'POST', headers: { authorization: 'Bearer verified.user.token' }, body,
+});
 function deferred<T = void>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   let reject!: (reason: unknown) => void;
@@ -31,12 +38,224 @@ function dependencies(overrides: MigrationWriteFenceDependencies = {}) {
 function rpcCalls(mock: ReturnType<typeof vi.fn<typeof fetch>>, name: string) {
   return mock.mock.calls.filter(([url]) => String(url).endsWith(`/rpc/${name}`));
 }
+function ownerScopedDependencies(decision: unknown = { decision: 'admitted', generation: GENERATION }) {
+  const fetchMock = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+    const url = String(input);
+    if (url.endsWith('/auth/v1/user')) return Response.json({ id: SUBJECT });
+    if (url.endsWith('/rpc/mind_manual_admit_subject_edge')) return Response.json(decision);
+    if (url.endsWith('/rpc/mind_manual_release_subject_edge')) return Response.json({ decision: 'released' });
+    throw new Error(`Unexpected request: ${url}`);
+  });
+  const deps: MigrationWriteFenceDependencies = {
+    env: (name) => ({
+      SUPABASE_URL: 'https://control.supabase.co',
+      SUPABASE_SERVICE_ROLE_KEY: TEST_KEY,
+      MIND_MANUAL_RUNTIME_GENERATION: GENERATION,
+    })[name],
+    fetch: fetchMock,
+    randomUUID: () => UUID_A,
+  };
+  return { deps, fetchMock };
+}
 function upgradedResponse() {
   const response = new Response(null);
   // Node's constructor rejects 101; Deno.upgradeWebSocket returns such a Response.
   Object.defineProperty(response, 'status', { value: 101 });
   return response;
 }
+
+describe('Mind Manual owner-scoped Edge admission V2', () => {
+  it('verifies the bearer before sending an exact server-owned owner/action/generation tuple', async () => {
+    const { deps, fetchMock } = ownerScopedDependencies();
+    const handler = vi.fn((_request, _lifecycle, context: { userId: string }) =>
+      Response.json({ owner: context.userId }));
+    const incoming = authenticatedRequest(JSON.stringify({
+      user_id: 'attacker', subject_id: 'attacker', generation: 'attacker',
+    }));
+    const response = await wrapMindManualSubjectHandler(
+      'gmail-compose', verifiedBearerMindManualScope('authenticated_request'), handler, deps,
+    )(incoming);
+    expect(await response.json()).toEqual({ owner: SUBJECT });
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      'https://control.supabase.co/auth/v1/user',
+      'https://control.supabase.co/rest/v1/rpc/mind_manual_admit_subject_edge',
+      'https://control.supabase.co/rest/v1/rpc/mind_manual_release_subject_edge',
+    ]);
+    expect(fetchMock.mock.calls[0][1]?.headers).toMatchObject({
+      apikey: TEST_KEY,
+      Authorization: 'Bearer verified.user.token',
+    });
+    const tuple = {
+      p_function_name: 'gmail-compose',
+      p_action: 'authenticated_request',
+      p_subject_id: SUBJECT,
+      p_lease_id: UUID_A,
+      p_generation: GENERATION,
+    };
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual(tuple);
+    expect(JSON.parse(String(fetchMock.mock.calls[2][1]?.body))).toEqual(tuple);
+    expect(incoming.bodyUsed).toBe(false);
+  });
+
+  it('runs a verified unrelated user without creating or releasing a lease', async () => {
+    const { deps, fetchMock } = ownerScopedDependencies({ decision: 'unselected' });
+    const handler = vi.fn(() => Response.json({ ok: true }));
+    const response = await wrapMindManualSubjectHandler(
+      'document-scan', verifiedBearerMindManualScope('authenticated_request'), handler, deps,
+    )(authenticatedRequest());
+    expect(await response.json()).toEqual({ ok: true });
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(rpcCalls(fetchMock, 'mind_manual_admit_subject_edge')).toHaveLength(1);
+    expect(rpcCalls(fetchMock, 'mind_manual_release_subject_edge')).toHaveLength(0);
+  });
+
+  it.each([
+    ['selected', { decision: 'admitted', generation: GENERATION }],
+    ['unselected', { decision: 'unselected' }],
+  ])('preserves %s handler exceptions without releasing selected work', async (_label, decision) => {
+    const { deps, fetchMock } = ownerScopedDependencies(decision);
+    const wrapped = wrapMindManualSubjectHandler(
+      'document-scan', verifiedBearerMindManualScope('authenticated_request'),
+      () => { throw new Error('handler failure'); }, deps,
+    );
+    await expect(wrapped(authenticatedRequest())).rejects.toThrow('handler failure');
+    expect(rpcCalls(fetchMock, 'mind_manual_admit_subject_edge')).toHaveLength(1);
+    expect(rpcCalls(fetchMock, 'mind_manual_release_subject_edge')).toHaveLength(0);
+  });
+
+  it('keeps an unrelated user socket lifetime alive without creating a lease', async () => {
+    const completion = deferred();
+    const background: Promise<unknown>[] = [];
+    const { deps, fetchMock } = ownerScopedDependencies({ decision: 'unselected' });
+    deps.waitUntil = (promise) => { background.push(promise); };
+    const response = await wrapMindManualSubjectHandler(
+      'ai-realtime-voice', verifiedBearerMindManualScope('authenticated_request'),
+      (_request, lifecycle) => {
+        lifecycle.holdUntil(completion.promise);
+        return upgradedResponse();
+      }, deps,
+    )(authenticatedRequest());
+    expect(response.status).toBe(101);
+    expect(background).toHaveLength(1);
+    expect(rpcCalls(fetchMock, 'mind_manual_release_subject_edge')).toHaveLength(0);
+    completion.resolve();
+    await Promise.all(background);
+    expect(rpcCalls(fetchMock, 'mind_manual_release_subject_edge')).toHaveLength(0);
+  });
+
+  it('rejects missing/invalid authentication before admission and preserves OPTIONS', async () => {
+    const { deps, fetchMock } = ownerScopedDependencies();
+    const handler = vi.fn(() => new Response(null));
+    const wrapped = wrapMindManualSubjectHandler(
+      'ai-conversation', verifiedBearerMindManualScope('authenticated_request'), handler, deps,
+    );
+    expect((await wrapped(request())).status).toBe(401);
+    expect((await wrapped(new Request('https://app.invalid', {
+      method: 'POST', headers: { authorization: 'Bearer one two' },
+    }))).status).toBe(401);
+    expect((await wrapped(new Request('https://app.invalid', { method: 'OPTIONS' }))).status).toBe(204);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('normalizes case-insensitive bearer schemes and horizontal whitespace to one token', async () => {
+    const { deps, fetchMock } = ownerScopedDependencies();
+    const response = await wrapMindManualSubjectHandler(
+      'ai-conversation', verifiedBearerMindManualScope('authenticated_request'),
+      () => new Response(null), deps,
+    )(new Request('https://app.invalid', {
+      method: 'POST', headers: { authorization: 'bearer   verified.user.token\t' },
+    }));
+    expect(response.status).toBe(200);
+    expect(fetchMock.mock.calls[0][1]?.headers).toMatchObject({
+      Authorization: 'Bearer verified.user.token',
+    });
+  });
+
+  it('fails closed before authentication when the immutable deployed generation is absent', async () => {
+    const { deps, fetchMock } = ownerScopedDependencies();
+    deps.env = (name) => ({
+      SUPABASE_URL: 'https://control.supabase.co',
+      SUPABASE_SERVICE_ROLE_KEY: TEST_KEY,
+    })[name];
+    const handler = vi.fn(() => new Response(null));
+    const response = await wrapMindManualSubjectHandler(
+      'ai-conversation', verifiedBearerMindManualScope('authenticated_request'), handler, deps,
+    )(authenticatedRequest());
+    expect(response.status).toBe(503);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    false,
+    true,
+    { decision: 'admitted' },
+    { decision: 'admitted', generation: 'other' },
+    { decision: 'unselected', generation: GENERATION },
+    { decision: 'blocked', extra: true },
+  ])('fails closed for non-exact admission decision %j', async (decision) => {
+    const { deps, fetchMock } = ownerScopedDependencies(decision);
+    const handler = vi.fn(() => new Response(null));
+    const response = await wrapMindManualSubjectHandler(
+      'gmail-sync', verifiedBearerMindManualScope('authenticated_request'), handler, deps,
+    )(authenticatedRequest());
+    expect(response.status).toBe(503);
+    expect(handler).not.toHaveBeenCalled();
+    expect(rpcCalls(fetchMock, 'mind_manual_release_subject_edge')).toHaveLength(0);
+  });
+
+  it('binds photo upload/delete actions from the validated operation header, never the body', async () => {
+    const { deps, fetchMock } = ownerScopedDependencies();
+    const resolver = verifiedBearerMindManualScope((incoming) => {
+      const operation = incoming.headers.get('x-storage-operation');
+      return operation === 'upload' || operation === 'delete'
+        ? operation
+        : Response.json({ error: 'INVALID_PHOTO_REQUEST' }, { status: 400 });
+    });
+    const response = await wrapMindManualSubjectHandler(
+      'storage-photo', resolver, () => new Response(null), deps,
+    )(new Request('https://app.invalid', {
+      method: 'POST',
+      headers: { authorization: 'Bearer verified.user.token', 'x-storage-operation': 'delete' },
+      body: JSON.stringify({ action: 'upload', user_id: 'attacker' }),
+    }));
+    expect(response.status).toBe(200);
+    expect(JSON.parse(String(rpcCalls(fetchMock, 'mind_manual_admit_subject_edge')[0][1]?.body)))
+      .toMatchObject({ p_action: 'delete', p_subject_id: SUBJECT, p_generation: GENERATION });
+
+    const invalid = await wrapMindManualSubjectHandler(
+      'storage-photo', resolver, () => new Response(null), deps,
+    )(new Request('https://app.invalid', {
+      method: 'POST',
+      headers: { authorization: 'Bearer verified.user.token', 'x-storage-operation': 'attacker-value' },
+    }));
+    expect(invalid.status).toBe(400);
+    expect(rpcCalls(fetchMock, 'mind_manual_admit_subject_edge')).toHaveLength(1);
+  });
+
+  it('retains selected leases for 5xx responses and uncertain registered work', async () => {
+    const failed = ownerScopedDependencies();
+    const response = await wrapMindManualSubjectHandler(
+      'gmail-compose', verifiedBearerMindManualScope('authenticated_request'),
+      () => Response.json({ error: 'provider outcome unresolved' }, { status: 502 }), failed.deps,
+    )(authenticatedRequest());
+    expect(response.status).toBe(502);
+    expect(rpcCalls(failed.fetchMock, 'mind_manual_release_subject_edge')).toHaveLength(0);
+
+    const uncertain = ownerScopedDependencies();
+    const completed = await wrapMindManualSubjectHandler(
+      'gmail-compose', verifiedBearerMindManualScope('authenticated_request'),
+      (_request, lifecycle) => {
+        lifecycle.holdUntil(Promise.reject(new Error('completion unknown')));
+        return new Response(null);
+      }, uncertain.deps,
+    )(authenticatedRequest());
+    expect(completed.status).toBe(200);
+    expect(rpcCalls(uncertain.fetchMock, 'mind_manual_release_subject_edge')).toHaveLength(0);
+  });
+});
 
 describe('Mind Manual Edge admission', () => {
   it('matches the exact reviewed 34-function manifest', () => {

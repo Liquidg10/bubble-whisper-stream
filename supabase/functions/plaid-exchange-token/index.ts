@@ -1,4 +1,4 @@
-import { wrapMindManualHandler } from "../_shared/migrationWriteFence.ts";
+import { verifiedBearerMindManualScope, wrapMindManualSubjectHandler } from "../_shared/migrationWriteFence.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.56.0';
 
@@ -101,4 +101,4 @@ const handler = async (req: Request): Promise<Response> => {
   }
 };
 
-serve(wrapMindManualHandler("plaid-exchange-token", handler));
+serve(wrapMindManualSubjectHandler("plaid-exchange-token", verifiedBearerMindManualScope("authenticated_request"), handler));
