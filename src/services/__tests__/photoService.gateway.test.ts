@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { isOwnedPhotoPath, photoPathFromUrl, photoService } from '../photoService';
 
-const mock = vi.hoisted(() => ({ getUser: vi.fn(), invoke: vi.fn(), signed: vi.fn(), from: vi.fn() }));
+const mock = vi.hoisted(() => ({
+  getUser: vi.fn(), invoke: vi.fn(), signed: vi.fn(), from: vi.fn(),
+  config: { url: 'https://abcdefghijklmnopqrst.supabase.co' },
+}));
 vi.mock('@/integrations/supabase/client', () => ({ supabase: {
   auth: { getUser: mock.getUser }, functions: { invoke: mock.invoke }, storage: { from: mock.from },
-} }));
+}, supabaseConfig: mock.config }));
 const owner = '11111111-1111-4111-8111-111111111111';
 const other = '22222222-2222-4222-8222-222222222222';
 const project = 'https://abcdefghijklmnopqrst.supabase.co';
@@ -86,6 +89,14 @@ describe('photo service admitted gateway', () => {
       body: { path }, headers: { 'x-storage-operation': 'delete' },
     });
     expect(mock.from).not.toHaveBeenCalled();
+  });
+
+  it('uses the validated backend URL instead of rereading a mutable raw environment value', async () => {
+    vi.stubEnv('VITE_SUPABASE_URL', 'https://foreign.invalid');
+    await photoService.deletePhoto(signedUrl);
+    expect(mock.invoke).toHaveBeenCalledExactlyOnceWith('storage-photo', {
+      body: { path }, headers: { 'x-storage-operation': 'delete' },
+    });
   });
 
   it.each([

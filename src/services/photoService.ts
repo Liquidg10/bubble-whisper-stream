@@ -1,4 +1,4 @@
-import { supabase } from '@/integrations/supabase/client';
+import { supabase, supabaseConfig } from '@/integrations/supabase/client';
 
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 const PHOTO_PATH = new RegExp(`^${UUID}/[A-Za-z0-9][A-Za-z0-9._-]{0,254}$`, 'u');
@@ -90,7 +90,7 @@ export class PhotoService {
   async deletePhoto(photoUrl: string): Promise<void> {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
     if (authError || !user) throw new Error('Cannot delete photo: no authenticated user');
-    const storagePath = photoPathFromUrl(photoUrl, import.meta.env.VITE_SUPABASE_URL, user.id);
+    const storagePath = photoPathFromUrl(photoUrl, supabaseConfig.url, user.id);
     const { data, error } = await supabase.functions.invoke('storage-photo', {
       body: { path: storagePath },
       headers: { 'x-storage-operation': 'delete' },
