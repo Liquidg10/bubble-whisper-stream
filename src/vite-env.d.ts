@@ -4,6 +4,8 @@ interface ImportMetaEnv {
   readonly VITE_SUPABASE_PROJECT_ID?: string;
   readonly VITE_SUPABASE_URL?: string;
   readonly VITE_SUPABASE_PUBLISHABLE_KEY?: string;
+  readonly VITE_MIND_MANUAL_DEPLOYMENT_MODE?: string;
+  readonly VITE_MIND_MANUAL_DEPLOYMENT_ORIGIN?: string;
 }
 
 interface ImportMeta {

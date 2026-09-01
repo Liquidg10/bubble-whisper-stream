@@ -38,6 +38,9 @@ jobs:
       - name: Verify real browser local save commits and aborts
         run: npm run test:storage-browser
 
+      - name: Verify isolated builds stop on shared or copied origins
+        run: npm run test:deployment:browser
+
       - name: Upload smoke evidence
         uses: actions/upload-artifact@v7
         if: always()

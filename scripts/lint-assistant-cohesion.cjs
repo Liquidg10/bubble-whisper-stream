@@ -7,6 +7,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const ts = require('typescript');
 
 // Persona names that should never appear in user-facing UI
 const FORBIDDEN_PERSONA_NAMES = [
@@ -43,6 +44,33 @@ function isAllowedFile(filePath) {
   return ALLOWED_PATTERNS.some(pattern => pattern.test(filePath));
 }
 
+function maskModuleSpecifiers(content, filePath) {
+  const source = ts.createSourceFile(filePath, content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  // Parser recovery must not accidentally treat later UI text as an unterminated
+  // module path. On malformed source, retain the existing unmasked scan.
+  if (source.parseDiagnostics.length > 0) return content;
+
+  const ranges = [];
+  const visit = (node) => {
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
+      && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
+      ranges.push([node.moduleSpecifier.getStart(source), node.moduleSpecifier.getEnd()]);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+
+  let masked = content;
+  for (const [start, end] of ranges) {
+    // Replace only the AST module literal (including its quotes), keeping every
+    // UTF-16 offset and line ending. Other strings/JSX on that line still scan.
+    masked = masked.slice(0, start)
+      + content.slice(start, end).replace(/[^\r\n]/g, ' ')
+      + masked.slice(end);
+  }
+  return masked;
+}
+
 function scanFile(filePath) {
   const violations = [];
   
@@ -58,7 +86,7 @@ function scanFile(filePath) {
   
   try {
     const content = fs.readFileSync(filePath, 'utf8');
-    const lines = content.split('\n');
+    const lines = maskModuleSpecifiers(content, filePath).split('\n');
     
     lines.forEach((line, lineIndex) => {
       FORBIDDEN_PERSONA_NAMES.forEach(personaName => {

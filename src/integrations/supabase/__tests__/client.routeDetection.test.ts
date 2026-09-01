@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({ createClient: vi.fn(() => ({})) }));
-const TEST_PROJECT_REF = 'abcdefghijklmnopqrst';
+const TEST_PROJECT_REF = 'ekekeywoxvdbfbmqyhjy';
 const TEST_PROJECT_URL = `https://${TEST_PROJECT_REF}.supabase.co`;
 const TEST_PUBLISHABLE_KEY = `sb_publishable_${'r'.repeat(22)}_${'c'.repeat(8)}`;
 

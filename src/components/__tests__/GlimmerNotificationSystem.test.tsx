@@ -127,6 +127,11 @@ describe('GlimmerNotificationSystem', () => {
 
     expect(screen.getByText('Assistant')).toBeInTheDocument();
     expect(screen.getByText('Glimmer')).toBeInTheDocument();
+    // The shell supplies a below-viewport flow slot; this message must not
+    // regain the fixed overlay that intercepted modal and canvas controls.
+    const notice = screen.getByTestId('generated-assistant-message');
+    expect(notice.className).not.toMatch(/\b(?:fixed|absolute|z-\d+)\b/);
+    expect(notice).toHaveClass('w-full', 'max-w-md');
   });
 
   it('handles glimmer dismissal', async () => {

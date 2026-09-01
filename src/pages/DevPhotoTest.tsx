@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { BulletproofPhotoRenderer } from '@/components/BulletproofPhotoRenderer';
 import { DevPerformanceMonitor } from '@/components/DevPerformanceMonitor';
+import { supabaseConfig } from '@/integrations/supabase/client';
 
 // Test cases for all photo scenarios
 const testCases = [
@@ -28,14 +29,14 @@ const testCases = [
   {
     id: 'supabase-memory',
     name: 'Supabase URL - Memory',
-    src: 'https://ekekeywoxvdbfbmqyhjy.supabase.co/storage/v1/object/public/photos/sample-memory.jpg',
+    src: `${supabaseConfig.url}/storage/v1/object/public/photos/sample-memory.jpg`,
     type: 'Memory',
     completed: false
   },
   {
     id: 'supabase-mood-completed',
     name: 'Supabase URL - Mood (Completed)',
-    src: 'https://ekekeywoxvdbfbmqyhjy.supabase.co/storage/v1/object/public/photos/sample-mood.jpg',
+    src: `${supabaseConfig.url}/storage/v1/object/public/photos/sample-mood.jpg`,
     type: 'Mood',
     completed: true
   },
