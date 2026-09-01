@@ -58,10 +58,11 @@ type Handler<Context = undefined> = (
   context: Context,
 ) => Response | Promise<Response>;
 
-interface ResolverRuntime {
+export interface MindManualResolverRuntime {
   origin: string;
   serviceKey: string;
   fetch: typeof fetch;
+  env: (name: string) => string | undefined;
 }
 
 export type MindManualScopeResolution<Context> =
@@ -70,8 +71,64 @@ export type MindManualScopeResolution<Context> =
 
 export type MindManualScopeResolver<Context> = (
   request: Request,
-  runtime: ResolverRuntime,
+  runtime: MindManualResolverRuntime,
 ) => Promise<MindManualScopeResolution<Context>>;
+
+export type MindManualSubjectWorkResult<Value> = Readonly<
+  | { kind: 'completed'; value: Value }
+  | { kind: 'blocked' }
+>;
+
+export class MindManualAdmissionUnavailableError extends Error {
+  constructor() {
+    super('Owner-scoped migration admission is unavailable');
+    this.name = 'MindManualAdmissionUnavailableError';
+  }
+}
+
+export class MindManualSubjectWorkIncompleteError extends Error {
+  constructor() {
+    super('Owner-scoped work did not reach a verified completion');
+    this.name = 'MindManualSubjectWorkIncompleteError';
+  }
+}
+
+function explicitCompletionPromise(completion: PromiseLike<unknown>): Promise<unknown> {
+  if (completion === null || completion === undefined ||
+    (typeof completion !== 'object' && typeof completion !== 'function')) {
+    throw new Error('Work lifecycle requires an explicit completion promise');
+  }
+  let then: unknown;
+  try {
+    then = Reflect.get(completion as object, 'then');
+  } catch {
+    throw new Error('Work lifecycle requires an explicit completion promise');
+  }
+  if (typeof then !== 'function') {
+    throw new Error('Work lifecycle requires an explicit completion promise');
+  }
+  return new Promise((resolve, reject) => {
+    try {
+      Reflect.apply(then, completion, [resolve, reject]);
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+function registerSelectedCompletion(
+  completions: Promise<boolean>[],
+  completion: PromiseLike<unknown>,
+): void {
+  try {
+    completions.push(explicitCompletionPromise(completion).then(() => true, () => false));
+  } catch (error) {
+    // Record uncertainty before surfacing malformed registration. Even if the
+    // caller catches this error, selected work cannot release its lease.
+    completions.push(Promise.resolve(false));
+    throw error;
+  }
+}
 
 type ActionResolver = string | ((request: Request) => string | Response);
 
@@ -200,6 +257,75 @@ function rpcCaller(
   };
 }
 
+interface OwnerScopedControlRuntime extends MindManualResolverRuntime {
+  generation: string;
+  callRpc: (rpc: string, payload: Record<string, string>) => Promise<unknown>;
+}
+
+function ownerScopedControlRuntime(
+  dependencies: MigrationWriteFenceDependencies,
+): OwnerScopedControlRuntime {
+  const runtime = globalThis as RuntimeGlobals;
+  const env = dependencies.env ?? ((name) => runtime.Deno?.env?.get(name));
+  const { origin, serviceKey, generation } = ownerScopedConfiguration(env);
+  const requestFetch = dependencies.fetch ?? globalThis.fetch.bind(globalThis);
+  const timeoutMs = dependencies.rpcTimeoutMs ?? 5_000;
+  if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 30_000) {
+    throw new Error('Invalid owner-scoped migration timeout');
+  }
+  return {
+    origin,
+    serviceKey,
+    generation,
+    fetch: requestFetch,
+    env,
+    callRpc: rpcCaller(origin, serviceKey, requestFetch, timeoutMs),
+  };
+}
+
+type ResolvedAdmission = Readonly<
+  | { decision: 'unselected' | 'blocked' }
+  | { decision: 'admitted'; releaseLease: () => Promise<void> }
+>;
+
+async function admitResolvedSubject(
+  functionName: string,
+  subjectId: string,
+  action: string,
+  runtime: OwnerScopedControlRuntime,
+  dependencies: MigrationWriteFenceDependencies,
+): Promise<ResolvedAdmission> {
+  if (!allowedFunctions.has(functionName) || !validSubject(subjectId) || !validAction(action)) {
+    throw new Error('Invalid owner-scoped migration tuple');
+  }
+  const leaseId = (dependencies.randomUUID ?? (() => globalThis.crypto.randomUUID()))();
+  if (!uuidV4.test(leaseId)) throw new Error('Invalid owner-scoped migration lease');
+  const payload = {
+    p_function_name: functionName,
+    p_action: action,
+    p_subject_id: subjectId,
+    p_lease_id: leaseId,
+    p_generation: runtime.generation,
+  };
+  const decision = admissionDecision(
+    await runtime.callRpc('mind_manual_admit_subject_edge', payload),
+    runtime.generation,
+  );
+  if (decision === 'unselected' || decision === 'blocked') return { decision };
+  if (decision !== 'admitted') throw new Error('Invalid owner-scoped migration decision');
+  return {
+    decision: 'admitted',
+    releaseLease: async () => {
+      try {
+        // One exact attempt. False/malformed/lost releases retain the row.
+        releaseDecision(await runtime.callRpc('mind_manual_release_subject_edge', payload));
+      } catch {
+        // Retain uncertain selected work for explicit reconciliation.
+      }
+    },
+  };
+}
+
 /**
  * Resolve a Supabase bearer through the authoritative Auth endpoint before any
  * migration decision. Request bodies never provide subject or generation.
@@ -269,10 +395,7 @@ async function runWithoutLease<Context>(
   const lifecycle: MindManualWorkLifecycle = Object.freeze({
     holdUntil(completion: PromiseLike<unknown>) {
       if (!registrationOpen) throw new Error('Work lifecycle must be registered before returning');
-      if (!completion || typeof completion.then !== 'function') {
-        throw new Error('Work lifecycle requires an explicit completion promise');
-      }
-      completions.push(Promise.resolve(completion).then(() => undefined, () => undefined));
+      completions.push(explicitCompletionPromise(completion).then(() => undefined, () => undefined));
     },
   });
   let response: Response;
@@ -312,11 +435,7 @@ async function runWithLease<Context>(
       if (!registrationOpen) {
         throw new Error('Work lifecycle must be registered before returning');
       }
-      if (!completion || typeof completion.then !== 'function') {
-        completions.push(Promise.resolve(false));
-        throw new Error('Work lifecycle requires an explicit completion promise');
-      }
-      completions.push(Promise.resolve(completion).then(() => true, () => false));
+      registerSelectedCompletion(completions, completion);
     },
   });
 
@@ -417,44 +536,19 @@ export function wrapMindManualSubjectHandler<Context>(
       | Readonly<{ kind: 'unselected'; context: Context }>
       | Readonly<{ kind: 'admitted'; context: Context; releaseLease: () => Promise<void> }>;
     try {
-      const runtime = globalThis as RuntimeGlobals;
-      const env = dependencies.env ?? ((name) => runtime.Deno?.env?.get(name));
-      const { origin, serviceKey, generation } = ownerScopedConfiguration(env);
-      const requestFetch = dependencies.fetch ?? globalThis.fetch.bind(globalThis);
-      const scope = await resolver(request, { origin, serviceKey, fetch: requestFetch });
+      const runtime = ownerScopedControlRuntime(dependencies);
+      const scope = await resolver(request, runtime);
       if (scope.kind === 'respond') return scope.response;
-      if (!validSubject(scope.subjectId) || !validAction(scope.action)) return unavailable();
-
-      const leaseId = (dependencies.randomUUID ?? (() => globalThis.crypto.randomUUID()))();
-      if (!uuidV4.test(leaseId)) return unavailable();
-      const timeoutMs = dependencies.rpcTimeoutMs ?? 5_000;
-      if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 30_000) return unavailable();
-      const callRpc = rpcCaller(origin, serviceKey, requestFetch, timeoutMs);
-      const payload = {
-        p_function_name: functionName,
-        p_action: scope.action,
-        p_subject_id: scope.subjectId,
-        p_lease_id: leaseId,
-        p_generation: generation,
-      };
-      const decision = admissionDecision(
-        await callRpc('mind_manual_admit_subject_edge', payload),
-        generation,
+      const resolved = await admitResolvedSubject(
+        functionName, scope.subjectId, scope.action, runtime, dependencies,
       );
-      if (decision === 'unselected') {
+      if (resolved.decision === 'unselected') {
         admission = { kind: 'unselected', context: scope.context };
-      } else if (decision === 'admitted') {
+      } else if (resolved.decision === 'admitted') {
         admission = {
           kind: 'admitted',
           context: scope.context,
-          releaseLease: async () => {
-            try {
-              // One exact attempt. False/malformed/lost releases retain the row.
-              releaseDecision(await callRpc('mind_manual_release_subject_edge', payload));
-            } catch {
-              // Retain uncertain selected work for explicit reconciliation.
-            }
-          },
+          releaseLease: resolved.releaseLease,
         };
       } else {
         return unavailable();
@@ -472,6 +566,54 @@ export function wrapMindManualSubjectHandler<Context>(
       request, handler, admission.context, admission.releaseLease, dependencies,
     );
   };
+}
+
+/**
+ * Server-only per-subject work admission for schedulers that discover owners
+ * from authoritative rows after authenticating the scheduler itself. A caller
+ * must never pass a request-body owner into this primitive.
+ */
+export async function runMindManualSubjectWork<Value>(
+  functionName: string,
+  subject: Readonly<{ subjectId: string; action: string }>,
+  work: (lifecycle: MindManualWorkLifecycle) => Value | Promise<Value>,
+  dependencies: MigrationWriteFenceDependencies = {},
+): Promise<MindManualSubjectWorkResult<Value>> {
+  let admission: ResolvedAdmission;
+  try {
+    const runtime = ownerScopedControlRuntime(dependencies);
+    admission = await admitResolvedSubject(
+      functionName, subject.subjectId, subject.action, runtime, dependencies,
+    );
+  } catch {
+    // No control-plane, credential, subject, generation, or transport details.
+    throw new MindManualAdmissionUnavailableError();
+  }
+  if (admission.decision === 'blocked') return { kind: 'blocked' };
+
+  const completions: Promise<boolean>[] = [];
+  let registrationOpen = true;
+  const lifecycle: MindManualWorkLifecycle = Object.freeze({
+    holdUntil(completion: PromiseLike<unknown>) {
+      if (!registrationOpen) {
+        throw new Error('Work lifecycle must be registered before returning');
+      }
+      registerSelectedCompletion(completions, completion);
+    },
+  });
+
+  let value: Value;
+  try {
+    value = await work(lifecycle);
+  } finally {
+    registrationOpen = false;
+  }
+  if (!(await Promise.all(completions)).every(Boolean)) {
+    // Selected admission remains durable; unrelated work has no lease to guess.
+    throw new MindManualSubjectWorkIncompleteError();
+  }
+  if (admission.decision === 'admitted') await admission.releaseLease();
+  return { kind: 'completed', value };
 }
 
 /**
@@ -556,13 +698,9 @@ export function wrapMindManualHandler(
         if (!registrationOpen) {
           throw new Error('Work lifecycle must be registered before returning');
         }
-        if (!completion || typeof completion.then !== 'function') {
-          completions.push(Promise.resolve(false));
-          throw new Error('Work lifecycle requires an explicit completion promise');
-        }
         // Attach rejection handling immediately, even if the handler is still
         // working. A failed completion cannot establish a clean drain.
-        completions.push(Promise.resolve(completion).then(() => true, () => false));
+        registerSelectedCompletion(completions, completion);
       },
     });
 

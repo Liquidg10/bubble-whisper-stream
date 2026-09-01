@@ -3,6 +3,9 @@ import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
   MIND_MANUAL_EDGE_FUNCTIONS,
+  MindManualAdmissionUnavailableError,
+  MindManualSubjectWorkIncompleteError,
+  runMindManualSubjectWork,
   verifiedBearerMindManualScope,
   wrapMindManualHandler,
   wrapMindManualSubjectHandler,
@@ -106,6 +109,19 @@ describe('Mind Manual owner-scoped Edge admission V2', () => {
     )(authenticatedRequest());
     expect(await response.json()).toEqual({ ok: true });
     expect(handler).toHaveBeenCalledTimes(1);
+    expect(rpcCalls(fetchMock, 'mind_manual_admit_subject_edge')).toHaveLength(1);
+    expect(rpcCalls(fetchMock, 'mind_manual_release_subject_edge')).toHaveLength(0);
+  });
+
+  it('maps an exact blocked owner decision to a sanitized 503 before handler work', async () => {
+    const { deps, fetchMock } = ownerScopedDependencies({ decision: 'blocked' });
+    const handler = vi.fn(() => Response.json({ unsafe: true }));
+    const response = await wrapMindManualSubjectHandler(
+      'document-scan', verifiedBearerMindManualScope('authenticated_request'), handler, deps,
+    )(authenticatedRequest());
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: 'MIND_MANUAL_TEMPORARILY_UNAVAILABLE' });
+    expect(handler).not.toHaveBeenCalled();
     expect(rpcCalls(fetchMock, 'mind_manual_admit_subject_edge')).toHaveLength(1);
     expect(rpcCalls(fetchMock, 'mind_manual_release_subject_edge')).toHaveLength(0);
   });
@@ -254,6 +270,145 @@ describe('Mind Manual owner-scoped Edge admission V2', () => {
     )(authenticatedRequest());
     expect(completed.status).toBe(200);
     expect(rpcCalls(uncertain.fetchMock, 'mind_manual_release_subject_edge')).toHaveLength(0);
+  });
+});
+
+describe('Mind Manual per-subject scheduled work', () => {
+  it.each([
+    ['selected', { decision: 'admitted', generation: GENERATION }, 1],
+    ['unselected', { decision: 'unselected' }, 0],
+  ])('runs %s work with the exact server-owned tuple', async (_label, decision, releaseCount) => {
+    const { deps, fetchMock } = ownerScopedDependencies(decision);
+    const work = vi.fn(async () => 'renewed');
+    const result = await runMindManualSubjectWork(
+      'watch-renewal-cron', { subjectId: SUBJECT, action: 'renew_gmail' }, work, deps,
+    );
+    expect(result).toEqual({ kind: 'completed', value: 'renewed' });
+    expect(work).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(rpcCalls(fetchMock, 'mind_manual_admit_subject_edge')[0][1]?.body)))
+      .toEqual({
+        p_function_name: 'watch-renewal-cron',
+        p_action: 'renew_gmail',
+        p_subject_id: SUBJECT,
+        p_lease_id: UUID_A,
+        p_generation: GENERATION,
+      });
+    expect(rpcCalls(fetchMock, 'mind_manual_release_subject_edge')).toHaveLength(releaseCount);
+  });
+
+  it('skips blocked owner work and still gives separate rows unique leases', async () => {
+    const blocked = ownerScopedDependencies({ decision: 'blocked' });
+    const blockedWork = vi.fn(async () => 'unsafe');
+    await expect(runMindManualSubjectWork(
+      'watch-renewal-cron', { subjectId: SUBJECT, action: 'renew_calendar' },
+      blockedWork, blocked.deps,
+    )).resolves.toEqual({ kind: 'blocked' });
+    expect(blockedWork).not.toHaveBeenCalled();
+
+    const selected = ownerScopedDependencies();
+    selected.deps.randomUUID = vi.fn()
+      .mockReturnValueOnce(UUID_A)
+      .mockReturnValueOnce(UUID_B);
+    await runMindManualSubjectWork(
+      'watch-renewal-cron', { subjectId: SUBJECT, action: 'renew_calendar' },
+      async () => 'first', selected.deps,
+    );
+    await runMindManualSubjectWork(
+      'watch-renewal-cron', { subjectId: SUBJECT, action: 'renew_gmail' },
+      async () => 'second', selected.deps,
+    );
+    expect(rpcCalls(selected.fetchMock, 'mind_manual_admit_subject_edge').map(([, init]) =>
+      JSON.parse(String(init?.body)).p_lease_id)).toEqual([UUID_A, UUID_B]);
+  });
+
+  it('sanitizes admission failures before work and retains selected callback failures', async () => {
+    const malformed = ownerScopedDependencies({ decision: 'admitted' });
+    const never = vi.fn(async () => 'unsafe');
+    await expect(runMindManualSubjectWork(
+      'watch-renewal-cron', { subjectId: SUBJECT, action: 'renew_gmail' }, never, malformed.deps,
+    )).rejects.toEqual(new MindManualAdmissionUnavailableError());
+    expect(never).not.toHaveBeenCalled();
+
+    const failed = ownerScopedDependencies();
+    await expect(runMindManualSubjectWork(
+      'watch-renewal-cron', { subjectId: SUBJECT, action: 'renew_gmail' },
+      async () => { throw new Error('provider failure'); }, failed.deps,
+    )).rejects.toThrow('provider failure');
+    expect(rpcCalls(failed.fetchMock, 'mind_manual_release_subject_edge')).toHaveLength(0);
+  });
+
+  it('waits for registered completion and retains a selected lease when it rejects', async () => {
+    const { deps, fetchMock } = ownerScopedDependencies();
+    await expect(runMindManualSubjectWork(
+      'watch-renewal-cron', { subjectId: SUBJECT, action: 'renew_calendar' },
+      async (lifecycle) => {
+        lifecycle.holdUntil(Promise.reject(new Error('completion unknown')));
+        return 'response returned';
+      }, deps,
+    )).rejects.toEqual(new MindManualSubjectWorkIncompleteError());
+    expect(rpcCalls(fetchMock, 'mind_manual_release_subject_edge')).toHaveLength(0);
+  });
+
+  it('does not release selected scheduled work until a deferred completion resolves', async () => {
+    const completion = deferred();
+    const started = deferred();
+    const { deps, fetchMock } = ownerScopedDependencies();
+    const result = runMindManualSubjectWork(
+      'watch-renewal-cron', { subjectId: SUBJECT, action: 'renew_calendar' },
+      async (lifecycle) => {
+        lifecycle.holdUntil(completion.promise);
+        started.resolve();
+        return 'renewed';
+      }, deps,
+    );
+    await started.promise;
+    await Promise.resolve();
+    expect(rpcCalls(fetchMock, 'mind_manual_release_subject_edge')).toHaveLength(0);
+    completion.resolve();
+    await expect(result).resolves.toEqual({ kind: 'completed', value: 'renewed' });
+    expect(rpcCalls(fetchMock, 'mind_manual_release_subject_edge')).toHaveLength(1);
+  });
+
+  it('retains selected work for a throwing then getter even when the callback catches it', async () => {
+    const { deps, fetchMock } = ownerScopedDependencies();
+    const malformed = Object.create(null) as PromiseLike<unknown>;
+    Object.defineProperty(malformed, 'then', {
+      get() { throw new Error('hostile then getter'); },
+    });
+    await expect(runMindManualSubjectWork(
+      'watch-renewal-cron', { subjectId: SUBJECT, action: 'renew_gmail' },
+      async (lifecycle) => {
+        expect(() => lifecycle.holdUntil(malformed)).toThrow('completion promise');
+        return 'callback caught malformed registration';
+      }, deps,
+    )).rejects.toEqual(new MindManualSubjectWorkIncompleteError());
+    expect(rpcCalls(fetchMock, 'mind_manual_release_subject_edge')).toHaveLength(0);
+  });
+
+  it('rejects scheduled lifecycle registration after the callback has returned', async () => {
+    const { deps } = ownerScopedDependencies();
+    let captured!: MindManualWorkLifecycle;
+    await runMindManualSubjectWork(
+      'watch-renewal-cron', { subjectId: SUBJECT, action: 'renew_calendar' },
+      async (lifecycle) => { captured = lifecycle; return 'done'; }, deps,
+    );
+    expect(() => captured.holdUntil(Promise.resolve())).toThrow('before returning');
+  });
+
+  it.each(['retained', 'malformed', 'transport'])
+  ('makes one release attempt and preserves completed work for a %s release', async (failure) => {
+    const { deps, fetchMock } = ownerScopedDependencies();
+    fetchMock.mockResolvedValueOnce(Response.json({ decision: 'admitted', generation: GENERATION }));
+    if (failure === 'transport') fetchMock.mockRejectedValueOnce(new Error('release transport lost'));
+    else if (failure === 'malformed') fetchMock.mockResolvedValueOnce(new Response('not-json'));
+    else fetchMock.mockResolvedValueOnce(Response.json({ decision: 'retained' }));
+    await expect(runMindManualSubjectWork(
+      'watch-renewal-cron', { subjectId: SUBJECT, action: 'renew_gmail' },
+      async () => 'completed-before-release', deps,
+    )).resolves.toEqual({ kind: 'completed', value: 'completed-before-release' });
+    expect(rpcCalls(fetchMock, 'mind_manual_admit_subject_edge')).toHaveLength(1);
+    expect(rpcCalls(fetchMock, 'mind_manual_release_subject_edge')).toHaveLength(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });
 
