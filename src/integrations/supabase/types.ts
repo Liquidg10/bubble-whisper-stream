@@ -2096,6 +2096,48 @@ export type Database = {
       }
     }
     Functions: {
+      claim_gmail_pubsub_message_scoped: {
+        Args: {
+          p_user_id: string
+          p_oauth_account_id: string
+          p_account_email: string
+          p_watch_generation: number
+          p_watch_id: string
+          p_subscription_name: string
+          p_pubsub_message_id: string
+          p_notification_history_id: string
+          p_publish_time: string | null
+        }
+        Returns: {
+          attempts: number
+          claim_state: string
+          receipt_id: string
+          receipt_status: string
+        }[]
+      }
+      complete_gmail_pubsub_message_scoped: {
+        Args: {
+          p_user_id: string
+          p_oauth_account_id: string
+          p_account_email: string
+          p_watch_generation: number
+          p_watch_id: string
+          p_subscription_name: string
+          p_attempt_count: number
+          p_receipt_id: string
+          p_status: string
+          p_effective_history_id: string
+          p_history_records: number
+          p_change_events: number
+          p_result_summary: Json
+          p_error_code: string | null
+          p_error_message: string | null
+        }
+        Returns: {
+          completion_state: string
+          stored_history_id: string
+        }[]
+      }
       claim_gmail_pubsub_message: {
         Args: {
           p_notification_history_id: string

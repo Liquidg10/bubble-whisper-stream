@@ -19,35 +19,64 @@ describe('Gmail Pub/Sub watch security boundary', () => {
   });
 
   it('verifies Google OIDC identity before parsing or looking up a mailbox', () => {
-    const source = readRepoFile('supabase/functions/gmail-watch/index.ts');
-    const pushHandler = source.slice(source.indexOf('async function handlePubSubPush'));
-    const oidcVerification = pushHandler.indexOf('await verifyGooglePubSubOidcJwt');
-    const envelopeParsing = pushHandler.indexOf('parseGmailPubSubEnvelope');
-    const adminClient = pushHandler.indexOf('const supabase = createAdminClient()');
-    const mailboxLookup = pushHandler.indexOf('.from("gmail_watch_subscriptions")');
+    const resolver = readRepoFile(
+      'supabase/functions/_shared/gmailMigrationScope.ts',
+    );
+    const pushScope = resolver.slice(
+      resolver.indexOf('async function resolvePushScope'),
+      resolver.indexOf('export function gmailWatchMigrationScope'),
+    );
+    const oidcVerification = pushScope.indexOf(
+      'dependencies.verifyOidc ?? verifyGooglePubSubOidcJwt',
+    );
+    const envelopeParsing = pushScope.indexOf('parseGmailPubSubEnvelope');
+    const mailboxLookup = pushScope.indexOf('resolveActiveWatchOwner');
 
     expect(oidcVerification).toBeGreaterThan(-1);
     expect(oidcVerification).toBeLessThan(envelopeParsing);
-    expect(oidcVerification).toBeLessThan(adminClient);
     expect(oidcVerification).toBeLessThan(mailboxLookup);
-    expect(pushHandler).toContain('expectedAudience: requireEnv("GMAIL_PUBSUB_PUSH_AUDIENCE")');
-    expect(pushHandler).toMatch(
-      /expectedServiceAccountEmail:\s*requireEnv\(\s*"GMAIL_PUBSUB_PUSH_SERVICE_ACCOUNT"/,
+    expect(pushScope).toContain('runtime.env("GMAIL_PUBSUB_PUSH_AUDIENCE")');
+    expect(pushScope).toContain(
+      'runtime.env("GMAIL_PUBSUB_PUSH_SERVICE_ACCOUNT")',
     );
+    expect(pushScope).toContain('action: "pubsub_history"');
   });
 
   it('keeps control calls account-specific and owner-bound', () => {
     const source = readRepoFile('supabase/functions/gmail-watch/index.ts');
+    const resolver = readRepoFile(
+      'supabase/functions/_shared/gmailMigrationScope.ts',
+    );
     const control = source.slice(
       source.indexOf('async function handleControlRequest'),
       source.indexOf('function normalizeMessageReference'),
     );
 
-    expect(control).toContain('normalizeOAuthAccountId(input?.accountId)');
-    expect(control).toContain('loadOAuthAccount(supabase, accountId, caller.userId)');
-    expect(source).toContain('query = query.eq("user_id", callerUserId)');
-    expect(source).toContain('isExactServiceRoleBearer(authorization, serviceRoleKey)');
+    expect(resolver).toContain('normalizeOAuthAccountId(input.accountId)');
+    expect(resolver).toContain('verifiedBearerMindManualScope("user_request")');
+    expect(resolver).toContain(
+      'isExactServiceRoleBearer(authorization, runtime.serviceKey)',
+    );
+    expect(resolver).toContain('resolveAccountOwner(');
+    expect(control).toContain('scope.accountId');
+    expect(control).toContain('scope.subjectId');
+    expect(source).toContain('.eq("user_id", ownerUserId)');
     expect(control).not.toMatch(/renew-all|allAccounts|\beq\([^)]*\*\)/);
+  });
+
+  it('revalidates the exact admitted watch before any push receipt or provider work', () => {
+    const source = readRepoFile('supabase/functions/gmail-watch/index.ts');
+    const revalidation = readRepoFile('supabase/functions/gmail-watch/gmailWatchAdmissionWork.ts');
+    const push = source.slice(source.indexOf('async function handlePubSubPush'));
+    const watchLookup = revalidation.indexOf('.from("gmail_watch_subscriptions")');
+    const exactId = revalidation.indexOf('.eq("id", scope.watchId)');
+    const exactOwner = revalidation.indexOf('.eq("user_id", scope.subjectId)');
+    const receipt = push.indexOf('claimPushReceipt');
+
+    expect(watchLookup).toBeGreaterThan(-1);
+    expect(exactId).toBeGreaterThan(watchLookup);
+    expect(exactOwner).toBeGreaterThan(exactId);
+    expect(push.indexOf('loadAdmittedGmailPushWatch(supabase, scope)')).toBeLessThan(receipt);
   });
 
   it('requires encrypted OAuth envelopes for Gmail provider calls', () => {
@@ -104,16 +133,24 @@ describe('Gmail Pub/Sub watch security boundary', () => {
   });
 
   it('renews canonical Gmail watches without invented channel identifiers', () => {
-    const cron = readRepoFile('supabase/functions/watch-renewal-cron/index.ts');
+    const entrypoint = readRepoFile('supabase/functions/watch-renewal-cron/index.ts');
+    const cron = readRepoFile('supabase/functions/watch-renewal-cron/watchRenewalHandler.ts');
     const browserService = readRepoFile('src/services/watchRenewalService.ts');
-    const cronGmailBranch = cron.slice(cron.indexOf("else if (watch.provider === 'gmail')"));
+    const cronGmailBranch = cron.slice(cron.indexOf('supabase.functions.invoke("gmail-watch"'));
     const browserGmailMethod = browserService.slice(
       browserService.indexOf('private async renewGmailWatch'),
       browserService.indexOf('stopWatchRenewal()'),
     );
 
-    expect(cron).toContain(".from('gmail_watch_subscriptions')");
-    expect(cron).toContain(".eq('status', 'active')");
+    expect(cron).toContain('.from("gmail_watch_subscriptions")');
+    expect(entrypoint).toContain('serve(createWatchRenewalHandler({');
+    expect(cron).toContain('.eq("status", "active")');
+    expect(cron).toContain('runMindManualSubjectWork(');
+    expect(cron).toContain('? "renew_calendar"');
+    expect(cron).toContain(': "renew_gmail"');
+    expect(cron).toContain('if (admission.kind === "blocked")');
+    expect(cron).toContain('lifecycle.holdUntil(completion)');
+    expect(cron).toContain('migrationBlocked += 1');
     expect(cron).toContain('accountId: watch.account_id');
     expect(cronGmailBranch).not.toContain('oldChannelId: watch.channel_id');
     expect(browserService).toContain(".from('gmail_watch_subscriptions')");

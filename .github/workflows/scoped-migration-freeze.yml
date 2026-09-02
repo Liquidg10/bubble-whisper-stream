@@ -35,6 +35,12 @@ jobs:
         run: npm run test:isolation:subjects
         env:
           MIND_MANUAL_TEST_PG_BIN: /usr/lib/postgresql/16/bin
+      - name: Test specialized Edge owner resolution and completion contracts
+        run: npm run test:isolation:edge-scopes
+      - name: Test Gmail admitted receipt ownership and stale attempts
+        run: npm run test:isolation:gmail-receipts
+        env:
+          MIND_MANUAL_TEST_PG_BIN: /usr/lib/postgresql/16/bin
       - name: Test preserved sync row parity and denied-write evidence
         run: npm run test:isolation:sync-deferred
       - name: Test browser background writer lifecycle contracts

@@ -32,15 +32,58 @@ export const OWNER_SCOPED_BEARER_FUNCTIONS = Object.freeze([
 ]);
 
 export const LEGACY_GLOBAL_ADMISSION_FUNCTIONS = Object.freeze([
-  'calendar-sync', 'calendar-watch', 'gmail-watch', 'plaid-webhook-handler',
-  'watch-renewal-cron',
+  'plaid-webhook-handler',
 ]);
+
+export const OWNER_SCOPED_MIXED_FUNCTIONS = Object.freeze([
+  'calendar-sync', 'calendar-watch', 'gmail-watch',
+]);
+
+export const OWNER_SCOPED_SCHEDULED_FUNCTIONS = Object.freeze(['watch-renewal-cron']);
+
+const mixedResolvers = Object.freeze({
+  'calendar-sync': ['../_shared/calendarMigrationScope.ts', 'calendarSyncMigrationScope'],
+  'calendar-watch': ['../_shared/calendarMigrationScope.ts', 'calendarWatchMigrationScope'],
+  'gmail-watch': ['../_shared/gmailMigrationScope.ts', 'gmailWatchMigrationScope'],
+});
+
+function exactImport(source, symbol, module) {
+  return source.statements.some((statement) => ts.isImportDeclaration(statement)
+    && statement.moduleSpecifier.text === module
+    && statement.importClause?.namedBindings && ts.isNamedImports(statement.importClause.namedBindings)
+    && statement.importClause.namedBindings.elements.some((element) => element.name.text === symbol
+      && !element.propertyName && !element.isTypeOnly) && !statement.importClause.isTypeOnly);
+}
+
+function exportedFunction(source, symbol) {
+  return source.statements.some((statement) => ts.isFunctionDeclaration(statement)
+    && statement.name?.text === symbol
+    && statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword));
+}
+
+function scheduledWorkIsAwaited(source) {
+  const workCalls = [];
+  const visit = (node) => {
+    if (ts.isCallExpression(node) && node.expression.getText(source) === 'runMindManualSubjectWork') workCalls.push(node);
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  const call = workCalls[0];
+  if (workCalls.length !== 1 || !ts.isAwaitExpression(call.parent) || call.arguments.length !== 4
+    || !ts.isStringLiteral(call.arguments[0]) || call.arguments[0].text !== 'watch-renewal-cron'
+    || !ts.isObjectLiteralExpression(call.arguments[1]) || !ts.isArrowFunction(call.arguments[2])
+    || !call.arguments[2].modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.AsyncKeyword)) return false;
+  const scope = call.arguments[1].properties;
+  return scope.length === 2 && scope.some((property) => ts.isPropertyAssignment(property)
+    && property.name.getText(source) === 'subjectId' && property.initializer.getText(source) === 'watch.user_id')
+    && scope.some((property) => ts.isShorthandPropertyAssignment(property) && property.name.text === 'action');
+}
 
 export const RETIRED_UNWRAPPED_FUNCTIONS = Object.freeze([
   'oauth-google', 'oauth-scope-decay',
 ]);
 
-export function inspectEdgeFenceCoverage(root) {
+export function inspectEdgeFenceCoverage(root, readSource = (path) => readFileSync(resolve(root, path), 'utf8')) {
   const manifest = readFileSync(resolve(root, 'supabase/isolation/mind-manual-edge-functions.tsv'), 'utf8');
   const names = manifest.split(/\r?\n/u).filter((line) => line.trim() && !line.startsWith('#')).map((line) => line.split('\t')[0]);
   if (names.length === 0 || new Set(names).size !== names.length || names.some((name) => !/^[a-z][a-z0-9-]*$/u.test(name))) {
@@ -48,6 +91,8 @@ export function inspectEdgeFenceCoverage(root) {
   }
   const classifications = [
     ...OWNER_SCOPED_BEARER_FUNCTIONS,
+    ...OWNER_SCOPED_MIXED_FUNCTIONS,
+    ...OWNER_SCOPED_SCHEDULED_FUNCTIONS,
     ...LEGACY_GLOBAL_ADMISSION_FUNCTIONS,
     ...RETIRED_UNWRAPPED_FUNCTIONS,
   ];
@@ -60,7 +105,7 @@ export function inspectEdgeFenceCoverage(root) {
   if (JSON.stringify(directories) !== JSON.stringify([...names].sort())) throw new Error('Edge directory/manifest mismatch');
   return names.map((name) => {
     const relativePath = `supabase/functions/${name}/index.ts`;
-    const text = readFileSync(resolve(root, relativePath), 'utf8');
+    const text = readSource(relativePath);
     const source = ts.createSourceFile(relativePath, text, ts.ScriptTarget.Latest, true);
     const calls = [];
     const visit = (node) => {
@@ -70,10 +115,13 @@ export function inspectEdgeFenceCoverage(root) {
     visit(source);
     const call = calls[0];
     const wrapper = call?.arguments[0];
-    const imported = (symbol) => source.statements.some((statement) => ts.isImportDeclaration(statement)
-      && statement.moduleSpecifier.text === '../_shared/migrationWriteFence.ts'
-      && statement.importClause?.namedBindings && ts.isNamedImports(statement.importClause.namedBindings)
-      && statement.importClause.namedBindings.elements.some((element) => element.name.text === symbol && !element.propertyName));
+    const imported = (symbol) => exactImport(source, symbol, '../_shared/migrationWriteFence.ts');
+    const supportingSources = [];
+    const supportingModule = (path) => {
+      const supportingText = readSource(path);
+      supportingSources.push({ relativePath: path, sha256: digest(supportingText) });
+      return ts.createSourceFile(path, supportingText, ts.ScriptTarget.Latest, true);
+    };
     const ownerScoped = OWNER_SCOPED_BEARER_FUNCTIONS.includes(name)
       && imported('wrapMindManualSubjectHandler') && imported('verifiedBearerMindManualScope')
       && !imported('wrapMindManualHandler') && calls.length === 1 && call.arguments.length === 1
@@ -82,6 +130,32 @@ export function inspectEdgeFenceCoverage(root) {
       && wrapper.arguments[0].text === name && ts.isCallExpression(wrapper.arguments[1])
       && wrapper.arguments[1].expression.getText(source) === 'verifiedBearerMindManualScope'
       && wrapper.arguments[1].arguments.length === 1;
+    let mixedOwnerScoped = false;
+    if (OWNER_SCOPED_MIXED_FUNCTIONS.includes(name)) {
+      const [module, resolver] = mixedResolvers[name];
+      const resolverSource = supportingModule(`supabase/functions/_shared/${module.split('/').at(-1)}`);
+      mixedOwnerScoped = imported('wrapMindManualSubjectHandler')
+        && !imported('wrapMindManualHandler') && exactImport(source, resolver, module)
+        && calls.length === 1 && call.arguments.length === 1 && ts.isCallExpression(wrapper)
+        && wrapper.expression.getText(source) === 'wrapMindManualSubjectHandler'
+        && wrapper.arguments.length === 3 && ts.isStringLiteral(wrapper.arguments[0])
+        && wrapper.arguments[0].text === name && ts.isCallExpression(wrapper.arguments[1])
+        && wrapper.arguments[1].expression.getText(source) === resolver
+        && wrapper.arguments[1].arguments.length === 0
+        && resolverSource.parseDiagnostics.length === 0 && exportedFunction(resolverSource, resolver);
+    }
+    let scheduledOwnerScoped = false;
+    if (OWNER_SCOPED_SCHEDULED_FUNCTIONS.includes(name)) {
+      const helper = supportingModule('supabase/functions/watch-renewal-cron/watchRenewalHandler.ts');
+      scheduledOwnerScoped = !imported('wrapMindManualHandler') && !imported('wrapMindManualSubjectHandler')
+        && exactImport(source, 'createWatchRenewalHandler', './watchRenewalHandler.ts')
+        && calls.length === 1 && call.arguments.length === 1 && ts.isCallExpression(wrapper)
+        && wrapper.expression.getText(source) === 'createWatchRenewalHandler'
+        && wrapper.arguments.length === 1 && ts.isObjectLiteralExpression(wrapper.arguments[0])
+        && helper.parseDiagnostics.length === 0 && exportedFunction(helper, 'createWatchRenewalHandler')
+        && exactImport(helper, 'runMindManualSubjectWork', '../_shared/migrationWriteFence.ts')
+        && scheduledWorkIsAwaited(helper);
+    }
     const legacyGlobal = LEGACY_GLOBAL_ADMISSION_FUNCTIONS.includes(name)
       && imported('wrapMindManualHandler') && !imported('wrapMindManualSubjectHandler')
       && calls.length === 1 && call.arguments.length === 1 && ts.isCallExpression(wrapper)
@@ -93,6 +167,8 @@ export function inspectEdgeFenceCoverage(root) {
       && !imported('verifiedBearerMindManualScope') && calls.length === 1
       && call.arguments.length === 1 && !ts.isCallExpression(wrapper);
     const classification = ownerScoped ? 'owner_scoped_bearer'
+      : mixedOwnerScoped ? 'owner_scoped_mixed'
+      : scheduledOwnerScoped ? 'owner_scoped_scheduler'
       : legacyGlobal ? 'legacy_global_blocked'
       : retired ? 'retired_unwrapped'
       : 'invalid';
@@ -100,8 +176,9 @@ export function inspectEdgeFenceCoverage(root) {
       name,
       relativePath,
       classification,
-      covered: source.parseDiagnostics.length === 0 && (ownerScoped || retired),
+      covered: source.parseDiagnostics.length === 0 && (ownerScoped || mixedOwnerScoped || scheduledOwnerScoped || retired),
       sha256: digest(text),
+      supportingSources,
     };
   });
 }

@@ -192,7 +192,7 @@ export function parseGmailPubSubEnvelope(
 
   return {
     messageId,
-    publishTime,
+    publishTime: typeof publishTime === "string" ? publishTime : null,
     subscription,
     emailAddress: normalizeEmailAddress(payload.emailAddress),
     historyId: normalizeHistoryId(payload.historyId),

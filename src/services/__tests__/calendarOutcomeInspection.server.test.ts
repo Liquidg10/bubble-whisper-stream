@@ -150,9 +150,10 @@ describe('Calendar outcome observation failure remains distinct from original wr
   });
   it('routes the new action through POST-only gated handler before legacy write dispatch', () => {
     const source = readFileSync(resolve(process.cwd(), 'supabase/functions/calendar-sync/index.ts'), 'utf8');
-    const start = source.indexOf("if (requestBody?.action === 'prepare_reviewed_update'");
+    const start = source.indexOf("if (operation === 'prepare_reviewed_update'");
     const block = source.slice(start, source.indexOf('// Handle write operations', start));
-    expect(block).toContain("requestBody?.action === 'inspect_reviewed_outcome'"); expect(block).toContain("req.method !== 'POST'");
+    expect(start).toBeGreaterThan(0);
+    expect(block).toContain("operation === 'inspect_reviewed_outcome'"); expect(block).toContain("req.method !== 'POST'");
     expect(block).toContain('await handleCalendarOutcomeInspection(requestBody, reviewedDependencies)');
     const helper = readFileSync(resolve(process.cwd(), 'supabase/functions/calendar-sync/inspectCalendarOutcome.ts'), 'utf8');
     expect(helper).not.toMatch(/updateCache|loadEvent|mind_manual_release_edge|method: 'PATCH'|refresh_token/);

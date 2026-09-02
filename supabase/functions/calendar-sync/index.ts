@@ -1,4 +1,12 @@
-import { wrapMindManualHandler } from "../_shared/migrationWriteFence.ts";
+import {
+  type MindManualWorkLifecycle,
+  wrapMindManualSubjectHandler,
+} from "../_shared/migrationWriteFence.ts";
+import {
+  calendarSyncMigrationScope,
+  retainCalendarLeaseForUncertainCompletion,
+  type CalendarSyncMigrationContext,
+} from "../_shared/calendarMigrationScope.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.56.0";
 import { type ReviewedCalendarUpdateDependencies } from './reviewedCalendarUpdate.ts';
@@ -38,7 +46,7 @@ interface SyncRequest {
 }
 
 interface CalendarWriteRequest {
-  action: 'create_event' | 'update_event' | 'delete_event';
+  action: 'create_event' | 'delete_event';
   calendarAccountId: string;
   eventData?: any;
   eventId?: string;
@@ -140,14 +148,15 @@ async function refreshAccessToken(refreshToken: string): Promise<string | null> 
     });
 
     if (!response.ok) {
-      console.error('Token refresh failed:', await response.text());
+      void response.body?.cancel().catch(() => undefined);
+      console.error(`Calendar token refresh failed with status ${response.status}`);
       return null;
     }
 
     const data = await response.json();
     return data.access_token;
-  } catch (error) {
-    console.error('Error refreshing token:', error);
+  } catch {
+    console.error('Calendar token refresh transport failed');
     return null;
   }
 }
@@ -165,7 +174,7 @@ async function createCalendarEvent(
   
   const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?${params}`;
   
-  console.log('📅 Creating calendar event:', { calendarId, eventData, sendUpdates });
+  console.log('📅 Creating calendar event');
 
   const response = await fetch(url, {
     method: 'POST',
@@ -177,9 +186,9 @@ async function createCalendarEvent(
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
-    console.error('❌ Create event error:', response.status, errorText);
-    throw new Error(`Calendar API error: ${response.status} ${errorText}`);
+    void response.body?.cancel().catch(() => undefined);
+    console.error(`Calendar create failed with status ${response.status}`);
+    throw new Error('CALENDAR_PROVIDER_CREATE_FAILED');
   }
 
   return await response.json();
@@ -194,7 +203,7 @@ async function deleteCalendarEvent(
   const params = new URLSearchParams({ sendUpdates });
   const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}?${params}`;
   
-  console.log('🗑️ Deleting calendar event:', { calendarId, eventId, sendUpdates });
+  console.log('🗑️ Deleting calendar event');
 
   const response = await fetch(url, {
     method: 'DELETE',
@@ -204,9 +213,9 @@ async function deleteCalendarEvent(
   });
 
   if (!response.ok && response.status !== 404) {
-    const errorText = await response.text();
-    console.error('❌ Delete event error:', response.status, errorText);
-    throw new Error(`Calendar API error: ${response.status} ${errorText}`);
+    void response.body?.cancel().catch(() => undefined);
+    console.error(`Calendar delete failed with status ${response.status}`);
+    throw new Error('CALENDAR_PROVIDER_DELETE_FAILED');
   }
 }
 
@@ -251,7 +260,7 @@ async function syncCalendarEvents(
   });
 
   if (!result.success) {
-    console.error('❌ Sync error:', result.error);
+    console.error('Calendar provider sync failed');
     return result;
   }
 
@@ -294,6 +303,10 @@ async function persistEvents(calendarAccountId: string, userId: string, events: 
   });
 
   if (eventRows.length > 0) {
+    // The canonical database constraint is UNIQUE
+    // (calendar_account_id, external_event_id). The account was admitted and
+    // reloaded with this exact user_id, so every conflict belongs to that same
+    // canonical account owner; the payload repeats the resolved owner.
     const { error } = await supabase
       .from('calendar_events')
       .upsert(eventRows, {
@@ -302,7 +315,7 @@ async function persistEvents(calendarAccountId: string, userId: string, events: 
       });
 
     if (error) {
-      throw new Error(`Calendar event upsert failed: ${error.message}`);
+      throw new Error('CALENDAR_EVENT_UPSERT_FAILED');
     }
   }
 
@@ -315,7 +328,7 @@ async function persistEvents(calendarAccountId: string, userId: string, events: 
       .in('external_event_id', cancelledEventIds);
 
     if (error) {
-      throw new Error(`Cancelled Calendar event cleanup failed: ${error.message}`);
+      throw new Error('CALENDAR_EVENT_CLEANUP_FAILED');
     }
   }
 
@@ -326,6 +339,7 @@ async function persistEvents(calendarAccountId: string, userId: string, events: 
 
 async function updateSyncStatus(
   calendarAccountId: string,
+  ownerUserId: string,
   status: CalendarSyncStatus,
   options: CalendarSyncStatusOptions = {},
 ) {
@@ -334,10 +348,11 @@ async function updateSyncStatus(
   const { error } = await supabase
     .from('calendar_accounts')
     .update(updates)
-    .eq('id', calendarAccountId);
+    .eq('id', calendarAccountId)
+    .eq('user_id', ownerUserId);
 
   if (error) {
-    throw new Error(`Calendar sync status update failed: ${error.message}`);
+    throw new Error('CALENDAR_STATUS_UPDATE_FAILED');
   }
 }
 
@@ -365,20 +380,30 @@ async function logSyncOperation(
   });
 
   if (error) {
-    throw new Error(`Calendar sync receipt write failed: ${error.message}`);
+    throw new Error('CALENDAR_SYNC_RECEIPT_FAILED');
   }
 }
 
 async function cleanupCalendarEventWindow(
   calendarAccountId: string,
+  ownerUserId: string,
   windowDays: number,
 ): Promise<void> {
-  const { error } = await supabase.rpc('cleanup_old_calendar_events', {
-    account_id: calendarAccountId,
-    window_days: windowDays,
-  });
+  if (!Number.isFinite(windowDays) || windowDays <= 0) {
+    throw new Error('CALENDAR_WINDOW_INVALID');
+  }
+  const now = Date.now();
+  const span = Math.ceil(windowDays) * 24 * 60 * 60 * 1000;
+  const lowerBound = new Date(now - span).toISOString();
+  const upperBound = new Date(now + span).toISOString();
+  const { error } = await supabase
+    .from('calendar_events')
+    .delete()
+    .eq('calendar_account_id', calendarAccountId)
+    .eq('user_id', ownerUserId)
+    .or(`start_time.lt.${lowerBound},start_time.gt.${upperBound}`);
   if (error) {
-    throw new Error(`Calendar event window cleanup failed: ${error.message}`);
+    throw new Error('CALENDAR_WINDOW_CLEANUP_FAILED');
   }
 }
 
@@ -408,62 +433,40 @@ async function createDraftEvent(calendarAccountId: string, userId: string, event
     });
     
   if (error) {
-    console.error('❌ Failed to create draft event:', error);
+    console.error('Calendar draft persistence failed');
     throw new Error('Failed to create draft event');
   }
   
   return draftId;
 }
 
-const handler = async (req: Request): Promise<Response> => {
+const handler = async (
+  req: Request,
+  lifecycle: MindManualWorkLifecycle,
+  scope: CalendarSyncMigrationContext,
+): Promise<Response> => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    // ---- AUTHZ (added) --------------------------------------------------
-    // This function runs with the SERVICE ROLE key, which bypasses RLS, so the
-    // database will NOT scope rows for us. Every user-scoped lookup below must
-    // therefore be explicitly bound to the caller. Mirrors the pattern already
-    // used by gmail-sync / gmail-compose / plaid-get-accounts / plaid-get-transactions.
-    //
-    // Two legitimate caller classes:
-    //   1. an end user  -> bearer is a user JWT; scope every row to that user
-    //   2. an internal  -> bearer is the service-role key (calendar-watch's
-    //      webhook path and watch-renewal-cron invoke this function directly);
-    //      already trusted, so no user scoping is possible or required.
-    const authHeader = req.headers.get('Authorization') ?? req.headers.get('authorization');
-    if (!authHeader) {
-      return new Response(
-        JSON.stringify({ error: 'Missing authorization header' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-    const bearer = authHeader.replace('Bearer ', '').trim();
-    const isInternalCaller = bearer === (Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '\u0000');
+    // Authentication and service-account owner resolution happened before
+    // migration admission. Body fields never supply this subject.
+    const {
+      requestBody,
+      callerUserId,
+      isInternalCaller,
+      subjectId,
+      operation,
+    } = scope;
 
-    let callerUserId: string | null = null;
-    if (!isInternalCaller) {
-      const { data: { user }, error: authError } = await supabase.auth.getUser(bearer);
-      if (authError || !user) {
-        return new Response(
-          JSON.stringify({ error: 'Unauthorized' }),
-          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-      callerUserId = user.id;
-    }
-    // ---- end AUTHZ ------------------------------------------------------
-
-    const requestBody = await req.json();
-
-    if (requestBody?.action === 'prepare_reviewed_update' || requestBody?.action === 'confirm_reviewed_update' || requestBody?.action === 'inspect_reviewed_outcome' || requestBody?.action === 'read_reviewed_update_receipt') {
+    if (operation === 'prepare_reviewed_update' || operation === 'confirm_reviewed_update' || operation === 'inspect_reviewed_outcome' || operation === 'read_reviewed_update_receipt') {
       if (req.method !== 'POST') return new Response(JSON.stringify({ error: 'invalid_request' }), {
         status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
       });
       // Old clients must not bypass durable admission or create new v1 holds
       // after a preview. This neutral rejection is never a no-write receipt.
-      if ((requestBody.action === 'prepare_reviewed_update' || requestBody.action === 'confirm_reviewed_update') && requestBody.version !== 2) {
+      if ((operation === 'prepare_reviewed_update' || operation === 'confirm_reviewed_update') && requestBody.version !== 2) {
         return new Response(JSON.stringify({ error: 'unsupported_reviewed_update_version' }), {
           status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
         });
@@ -472,7 +475,7 @@ const handler = async (req: Request): Promise<Response> => {
         const { data, error } = await supabase.rpc(name, args);
         return { data, error };
       });
-      if (requestBody.action === 'read_reviewed_update_receipt') {
+      if (operation === 'read_reviewed_update_receipt') {
         // No activation flag, account/token lookup, cache mutation or provider
         // port is given to recovery. Disconnection cannot erase saved evidence.
         return await handleCalendarOperationReceiptRead(requestBody, {
@@ -520,17 +523,20 @@ const handler = async (req: Request): Promise<Response> => {
           return data;
         },
       };
-      return requestBody.action === 'inspect_reviewed_outcome'
+      return operation === 'inspect_reviewed_outcome'
         ? await handleCalendarOutcomeInspection(requestBody, reviewedDependencies)
         : await handleCalendarOperationUpdate(requestBody, { ...reviewedDependencies, ...operationRegistry });
     }
     
     // Handle write operations (create, update, delete events)
-    if ('action' in requestBody) {
-      const { action, calendarAccountId, eventData, eventId, sendUpdates = 'none', draft = false }: CalendarWriteRequest = requestBody;
+    if (operation === 'create_event' || operation === 'delete_event') {
+      const { eventData, eventId, sendUpdates = 'none', draft = false } =
+        requestBody as unknown as CalendarWriteRequest;
+      const action = operation;
+      const calendarAccountId = scope.calendarAccountId;
       
       // Get calendar account details
-      let writeAccountQuery = supabase
+      const writeAccountQuery = supabase
         .from('calendar_accounts')
         .select(`
           *,
@@ -540,13 +546,13 @@ const handler = async (req: Request): Promise<Response> => {
             token_expires_at
           )
         `)
-        .eq('id', calendarAccountId);
-      // AUTHZ: bind the row to the caller unless this is a trusted internal invoke
-      if (callerUserId) writeAccountQuery = writeAccountQuery.eq('user_id', callerUserId);
+        .eq('id', calendarAccountId)
+        .eq('user_id', subjectId)
+        .eq('oauth_tokens.user_id', subjectId);
       const { data: calendarAccount, error: accountError } = await writeAccountQuery.single();
 
       if (accountError || !calendarAccount) {
-        console.error('Calendar account not found:', accountError);
+        console.error('Calendar account unavailable for resolved owner');
         return new Response(
           JSON.stringify({ error: 'Calendar account not found' }),
           { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -572,6 +578,7 @@ const handler = async (req: Request): Promise<Response> => {
         const newToken = await refreshAccessToken(storedCredentials.refreshToken);
         
         if (!newToken) {
+          retainCalendarLeaseForUncertainCompletion(lifecycle, false);
           return new Response(
             JSON.stringify({ error: 'Token refresh failed' }),
             { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -590,9 +597,10 @@ const handler = async (req: Request): Promise<Response> => {
             ),
             token_expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
           })
-          .eq('id', calendarAccount.oauth_token_id);
+          .eq('id', calendarAccount.oauth_token_id)
+          .eq('user_id', subjectId);
         if (tokenUpdateError) {
-          throw new Error(`Refreshed Calendar token persistence failed: ${tokenUpdateError.message}`);
+          throw new Error('CALENDAR_TOKEN_PERSISTENCE_FAILED');
         }
       }
 
@@ -651,7 +659,7 @@ const handler = async (req: Request): Promise<Response> => {
             last_synced_at: new Date().toISOString(),
           });
           if (createdEventInsertError) {
-            throw new Error(`Created Calendar event cache write failed: ${createdEventInsertError.message}`);
+            throw new Error('CALENDAR_CREATED_EVENT_CACHE_FAILED');
           }
           
           return new Response(
@@ -682,7 +690,7 @@ const handler = async (req: Request): Promise<Response> => {
             .eq('calendar_account_id', calendarAccountId)
             .eq('user_id', calendarAccount.user_id);
           if (deletedEventCacheError) {
-            throw new Error(`Deleted Calendar event cache cleanup failed: ${deletedEventCacheError.message}`);
+            throw new Error('CALENDAR_DELETED_EVENT_CACHE_FAILED');
           }
           
           return new Response(
@@ -700,12 +708,14 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     // Handle sync operations
-    const { calendarAccountId, fullSync = false, simulate410 = false, timeWindow, boundedWindow = false }: SyncRequest = requestBody;
+    const { fullSync = false, simulate410 = false, timeWindow, boundedWindow = false } =
+      requestBody as unknown as SyncRequest;
+    const calendarAccountId = scope.calendarAccountId;
 
     console.log('📅 Calendar sync request:', { calendarAccountId, fullSync, simulate410, boundedWindow });
 
     // Get calendar account details
-    let syncAccountQuery = supabase
+    const syncAccountQuery = supabase
       .from('calendar_accounts')
       .select(`
         *,
@@ -715,13 +725,13 @@ const handler = async (req: Request): Promise<Response> => {
           token_expires_at
         )
       `)
-      .eq('id', calendarAccountId);
-    // AUTHZ: bind the row to the caller unless this is a trusted internal invoke
-    if (callerUserId) syncAccountQuery = syncAccountQuery.eq('user_id', callerUserId);
+      .eq('id', calendarAccountId)
+      .eq('user_id', subjectId)
+      .eq('oauth_tokens.user_id', subjectId);
     const { data: calendarAccount, error: accountError } = await syncAccountQuery.single();
 
     if (accountError || !calendarAccount) {
-      console.error('Calendar account not found:', accountError);
+      console.error('Calendar account unavailable for resolved owner');
       return new Response(
         JSON.stringify({ error: 'Calendar account not found' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -729,7 +739,7 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     // Update sync status to syncing
-    await updateSyncStatus(calendarAccountId, 'syncing');
+    await updateSyncStatus(calendarAccountId, subjectId, 'syncing');
 
     // Check if token needs refresh
     const storedCredentials = await loadStoredOAuthCredentials(
@@ -743,6 +753,7 @@ const handler = async (req: Request): Promise<Response> => {
       if (!storedCredentials.refreshToken) {
         await updateSyncStatus(
           calendarAccountId,
+          subjectId,
           'error',
           { error: 'Calendar authorization must be renewed' },
         );
@@ -755,7 +766,8 @@ const handler = async (req: Request): Promise<Response> => {
       const newToken = await refreshAccessToken(storedCredentials.refreshToken);
       
       if (!newToken) {
-        await updateSyncStatus(calendarAccountId, 'error', { error: 'Token refresh failed' });
+        retainCalendarLeaseForUncertainCompletion(lifecycle, false);
+        await updateSyncStatus(calendarAccountId, subjectId, 'error', { error: 'Token refresh failed' });
         await logSyncOperation(calendarAccountId, calendarAccount.user_id, 'sync', 'error', 0, 'Token refresh failed');
         
         return new Response(
@@ -776,9 +788,10 @@ const handler = async (req: Request): Promise<Response> => {
           ),
           token_expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
         })
-        .eq('id', calendarAccount.oauth_token_id);
+        .eq('id', calendarAccount.oauth_token_id)
+        .eq('user_id', subjectId);
       if (tokenUpdateError) {
-        throw new Error(`Refreshed Calendar token persistence failed: ${tokenUpdateError.message}`);
+        throw new Error('CALENDAR_TOKEN_PERSISTENCE_FAILED');
       }
     }
 
@@ -804,7 +817,7 @@ const handler = async (req: Request): Promise<Response> => {
       console.log('🔄 Sync token invalid, performing bounded re-sync...');
       
       // Clear the invalid sync token
-      await updateSyncStatus(calendarAccountId, 'syncing', {
+      await updateSyncStatus(calendarAccountId, subjectId, 'syncing', {
         syncToken: null,
         error: 'Sync token invalid, performing bounded re-sync',
       });
@@ -824,6 +837,7 @@ const handler = async (req: Request): Promise<Response> => {
       if (boundedSyncResult.success) {
         await cleanupCalendarEventWindow(
           calendarAccountId,
+          subjectId,
           calendarAccount.bounded_sync_window_days || 90,
         );
         await logSyncOperation(
@@ -833,7 +847,7 @@ const handler = async (req: Request): Promise<Response> => {
           'success',
           boundedSyncResult.itemsProcessed,
         );
-        await updateSyncStatus(calendarAccountId, 'complete', {
+        await updateSyncStatus(calendarAccountId, subjectId, 'complete', {
           syncToken: boundedSyncResult.syncToken,
           fullSyncCompleted: true,
         });
@@ -848,9 +862,9 @@ const handler = async (req: Request): Promise<Response> => {
           status: 200
         });
       } else {
-        await updateSyncStatus(calendarAccountId, 'error', {
+        await updateSyncStatus(calendarAccountId, subjectId, 'error', {
           syncToken: null,
-          error: boundedSyncResult.error || 'Bounded re-sync failed',
+          error: 'Calendar bounded synchronization failed',
         });
         await logSyncOperation(
           calendarAccountId,
@@ -858,12 +872,13 @@ const handler = async (req: Request): Promise<Response> => {
           'bounded-resync',
           'error',
           boundedSyncResult.itemsProcessed,
-          boundedSyncResult.error,
+          'Calendar bounded synchronization failed',
         );
         
         return new Response(JSON.stringify({
           success: false,
-          error: boundedSyncResult.error || 'Bounded re-sync failed'
+          error: 'CALENDAR_BOUNDED_SYNC_FAILED',
+          message: 'Calendar synchronization could not be completed.',
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           status: 500
@@ -876,6 +891,7 @@ const handler = async (req: Request): Promise<Response> => {
       if (fullSync || boundedWindow) {
         await cleanupCalendarEventWindow(
           calendarAccountId,
+          subjectId,
           calendarAccount.bounded_sync_window_days || 90,
         );
       }
@@ -886,7 +902,7 @@ const handler = async (req: Request): Promise<Response> => {
         'success', 
         syncResult.itemsProcessed,
       );
-      await updateSyncStatus(calendarAccountId, 'complete', {
+      await updateSyncStatus(calendarAccountId, subjectId, 'complete', {
         syncToken: syncResult.syncToken,
         fullSyncCompleted: fullSync || boundedWindow,
       });
@@ -900,32 +916,35 @@ const handler = async (req: Request): Promise<Response> => {
         status: 200
       });
     } else {
-      await updateSyncStatus(calendarAccountId, 'error', { error: syncResult.error });
+      await updateSyncStatus(calendarAccountId, subjectId, 'error', {
+        error: 'Calendar synchronization failed',
+      });
       await logSyncOperation(
         calendarAccountId,
         calendarAccount.user_id,
         'sync',
         'error',
         syncResult.itemsProcessed,
-        syncResult.error,
+        'Calendar synchronization failed',
       );
       
       return new Response(JSON.stringify({
         success: false,
-        error: syncResult.error
+        error: 'CALENDAR_SYNC_FAILED',
+        message: 'Calendar synchronization could not be completed.',
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 500
       });
     }
 
-  } catch (error: any) {
-    console.error('❌ Calendar sync handler error:', error);
+  } catch {
+    console.error('Calendar sync handler failed');
     
     return new Response(JSON.stringify({
       success: false,
-      error: 'Internal server error',
-      details: error.message
+      error: 'CALENDAR_SYNC_FAILED',
+      message: 'Calendar synchronization could not be completed.',
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 500
@@ -933,4 +952,8 @@ const handler = async (req: Request): Promise<Response> => {
   }
 };
 
-serve(wrapMindManualHandler("calendar-sync", handler));
+serve(wrapMindManualSubjectHandler(
+  "calendar-sync",
+  calendarSyncMigrationScope(),
+  handler,
+));

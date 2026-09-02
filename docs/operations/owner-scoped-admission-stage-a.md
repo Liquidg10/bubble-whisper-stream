@@ -1,5 +1,8 @@
 # Owner-scoped Edge admission — draft Stage A
 
+Historical Stage A receipt. The local continuation and current classification
+are documented in [Stage B](owner-scoped-admission-stage-b.md).
+
 Status: local draft implementation only. Do not deploy, merge as an activation,
 install the SQL remotely, configure a subject, drain, fence, or move data from
 this receipt.

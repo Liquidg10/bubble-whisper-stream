@@ -289,7 +289,7 @@ describe('reviewed update bounded transport and integration', () => {
   });
   it('routes new actions before legacy refresh and scopes every database stage', () => {
     const source = readFileSync(resolve(process.cwd(), 'supabase/functions/calendar-sync/index.ts'), 'utf8');
-    const start = source.indexOf("if (requestBody?.action === 'prepare_reviewed_update'");
+    const start = source.indexOf("if (operation === 'prepare_reviewed_update'");
     const end = source.indexOf('// Handle write operations', start);
     const routing = source.slice(start, end);
     expect(start).toBeGreaterThan(0); expect(end).toBeGreaterThan(start);
