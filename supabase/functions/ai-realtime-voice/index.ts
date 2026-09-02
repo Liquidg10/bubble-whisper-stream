@@ -1,3 +1,5 @@
+import { verifiedBearerMindManualScope, wrapMindManualSubjectHandler } from "../_shared/migrationWriteFence.ts";
+import { createSocketDrain } from "../_shared/socketDrain.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const corsHeaders = {
@@ -5,7 +7,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-serve(async (req) => {
+serve(wrapMindManualSubjectHandler("ai-realtime-voice", verifiedBearerMindManualScope("authenticated_request"), async (req, lifecycle) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -32,11 +34,18 @@ serve(async (req) => {
   console.log('🔗 Upgrading to WebSocket for realtime voice');
 
   const { socket, response } = Deno.upgradeWebSocket(req);
+  const drain = createSocketDrain();
+  drain.track(socket);
+  lifecycle.holdUntil(drain.completion);
+  // Closing the browser socket prevents future provider connections, but the
+  // lease remains held until the upstream socket has also confirmed closure.
+  socket.addEventListener('close', () => drain.seal(), { once: true });
   
   let openAISocket: WebSocket | null = null;
   let sessionConfigured = false;
 
   socket.onopen = () => {
+    if (drain.sealed) return;
     console.log('📱 Client WebSocket connected');
     
     // Connect to OpenAI Realtime API
@@ -49,6 +58,7 @@ serve(async (req) => {
         }
       }
     );
+    drain.track(openAISocket);
 
     openAISocket.onopen = () => {
       console.log('🤖 OpenAI WebSocket connected');
@@ -137,4 +147,4 @@ serve(async (req) => {
   };
 
   return response;
-});
+}));

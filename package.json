@@ -16,6 +16,8 @@
     "test:vitest:ci": "vitest run --pool=forks --maxWorkers=1 --no-file-parallelism --silent=passed-only",
     "calendar-watch:rotate": "node scripts/rotate-calendar-watch-channels.mjs",
     "test:isolation:schedulers": "vitest run src/services/__tests__/proactiveTokenRefresh.lifecycle.test.ts src/services/__tests__/oauthService.backgroundLifecycle.test.ts src/services/__tests__/watchRenewalService.lifecycle.test.ts src/services/__tests__/watchHealthProductionService.lifecycle.test.ts src/services/__tests__/watchRenewal.integrationLifecycle.test.ts --pool=forks --maxWorkers=1 --no-file-parallelism",
+    "test:isolation:edge-scopes": "vitest run src/security/__tests__ --pool=forks --maxWorkers=1 --no-file-parallelism --silent=passed-only",
+    "test:isolation:gmail-receipts": "node --test scripts/__tests__/gmail-scoped-admission.integration.test.mjs",
     "supabase-oauth:reset": "node scripts/reset-isolated-supabase-oauth-credentials.mjs",
     "test:isolation:calendar-sync": "vitest run src/services/__tests__/calendarTaskSyncManager.lifecycle.test.ts src/services/__tests__/taskStore.calendarImport.test.ts src/services/__tests__/calendarSync.pipeline.test.ts src/services/__tests__/storageBubbleCommit.test.ts src/providers/__tests__/AuthProvider.calendarLifecycle.test.tsx src/components/__tests__/CalendarSyncPanel.lifecycle.test.tsx src/services/__tests__/calendarImportRecovery.test.ts src/services/__tests__/calendarImportRecoveryEvidence.test.ts src/services/__tests__/calendarSyncCoordinator.test.ts src/services/__tests__/storageBubbleSnapshot.test.ts src/components/__tests__/CalendarImportRecoveryPanel.test.tsx src/services/__tests__/calendarOutboundTaskEvidence.test.ts src/services/__tests__/calendarOutboundWorkflow.test.ts src/services/__tests__/calendarOutboundJournal.test.ts src/services/__tests__/calendarReviewedUpdate.server.test.ts src/components/__tests__/CalendarOutboundReviewPanel.test.tsx src/services/__tests__/calendarOutboundHoldInventory.test.ts src/services/__tests__/calendarOutcomeInspection.server.test.ts src/components/__tests__/CalendarOutboundOutcomePanel.test.tsx --pool=forks --maxWorkers=1 --no-file-parallelism",
     "test:storage-browser": "playwright test --config tests/runtime/playwright.config.ts",
@@ -30,7 +32,12 @@
     "test:a11y": "playwright test tests/a11y/",
     "test:a11y:ci": "playwright test tests/a11y/ci-release.spec.ts tests/a11y/target-size.spec.ts tests/a11y/keyboard-access.spec.ts tests/a11y/reduced-motion.spec.ts --project=chromium-a11y",
     "test:e2e:ci": "playwright test tests/e2e/current-ui-smoke.spec.ts --project=chromium-e2e",
-    "test:e2e:legacy": "playwright test --project=chromium-e2e-legacy"
+    "test:e2e:legacy": "playwright test --project=chromium-e2e-legacy",
+    "supabase-freeze:readiness": "node scripts/check-source-write-fence-readiness.mjs",
+    "supabase-storage:readiness": "node scripts/check-storage-ingress-readiness.mjs",
+    "test:isolation:ingress": "node --test scripts/__tests__/migration-guard-catalog.integration.test.mjs scripts/__tests__/storage-ingress.integration.test.mjs scripts/__tests__/guarded-schema-export.test.mjs && vitest run src/security/__tests__/storagePhotoGateway.test.ts src/services/__tests__/photoService.gateway.test.ts --pool=forks --maxWorkers=1 --no-file-parallelism",
+    "test:isolation:freeze": "node --test scripts/__tests__/source-write-fence.integration.test.mjs && vitest run src/security/__tests__/migrationWriteFence.test.ts src/security/__tests__/migrationFenceEntrypoints.test.ts --pool=forks --maxWorkers=1 --no-file-parallelism",
+    "test:isolation:subjects": "node --test scripts/__tests__/migration-subject-scope.test.mjs scripts/__tests__/owner-only-migration-entrypoints.test.mjs scripts/__tests__/subject-source-export.integration.test.mjs scripts/__tests__/subject-storage-copy.test.mjs scripts/__tests__/subject-downstream-guards.test.mjs scripts/__tests__/subject-import.integration.test.mjs scripts/__tests__/subject-rollback-chain.test.mjs"
   },
   "dependencies": {
     "@automerge/automerge": "^3.1.2",

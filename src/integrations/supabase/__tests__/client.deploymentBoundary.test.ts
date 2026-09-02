@@ -31,10 +31,24 @@ describe('SDK initialization has an independent deployment guard', () => {
     expect(mocks.createClient).not.toHaveBeenCalled();
   });
 
+  it('rejects an invalid explicit profile before exporting a boundary or creating the SDK', async () => {
+    setup(false, SHARED_APP_ORIGIN);
+    vi.stubEnv('VITE_MIND_MANUAL_DEPLOYMENT_MODE', 'owner');
+    vi.stubEnv('VITE_MIND_MANUAL_DEPLOYMENT_ORIGIN', 'https://owner.example.test');
+    await expect(import('../client')).rejects.toThrow('invalid-profile');
+    expect(mocks.createClient).not.toHaveBeenCalled();
+  });
+
   it.each([false, true])('initializes exactly one correctly bound SDK (owner=%s)', async owner => {
     setup(owner, owner ? 'https://owner.example.test' : SHARED_APP_ORIGIN);
-    const { supabaseConfig } = await import('../client');
+    const { supabaseConfig, supabaseDeploymentBoundary } = await import('../client');
     expect(supabaseConfig.projectRef).toBe(owner ? ISOLATED_PROJECT_REF : SHARED_PROJECT_REF);
+    expect(supabaseDeploymentBoundary).toEqual({
+      mode: owner ? 'owner-isolated' : 'shared',
+      projectRef: owner ? ISOLATED_PROJECT_REF : SHARED_PROJECT_REF,
+      origin: owner ? 'https://owner.example.test' : null,
+    });
+    expect(Object.isFrozen(supabaseDeploymentBoundary)).toBe(true);
     expect(mocks.createClient).toHaveBeenCalledExactlyOnceWith(supabaseConfig.url, supabaseConfig.publishableKey, expect.any(Object));
   });
 });

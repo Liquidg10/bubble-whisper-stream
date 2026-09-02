@@ -12,6 +12,7 @@ import {
   type ReviewedCalendarUpdateCacheWrite,
   type ReviewedCalendarUpdateDependencies,
 } from '../../../supabase/functions/calendar-sync/reviewedCalendarUpdate.ts';
+import { wrapMindManualHandler } from '../../../supabase/functions/_shared/migrationWriteFence.ts';
 
 const OWNER = '10000000-0000-4000-8000-000000000001';
 const ACCOUNT = '10000000-0000-4000-8000-000000000002';
@@ -275,9 +276,20 @@ describe('reviewed update bounded transport and integration', () => {
     const result = await outcome(confirm(), f); expect(result.status).toBe(method === 'PATCH' ? 502 : 200);
     expect(result.body.outcome).toBe(method === 'PATCH' ? 'uncertain' : 'not_written');
   });
+  it('retains the existing migration lease after cache uncertainty', async () => {
+    const f = fixture(); f.updateCache.mockRejectedValue(new Error('cache unavailable'));
+    const rpc = vi.fn(async (_url: string | URL | Request, _options?: RequestInit) => json(true));
+    const wrapped = wrapMindManualHandler('calendar-sync', () => handleReviewedCalendarUpdate(confirm(), f.deps), {
+      env: name => ({ SUPABASE_URL: 'https://example.test', SUPABASE_SERVICE_ROLE_KEY: 'synthetic-service-key' })[name],
+      randomUUID: () => OPERATION, fetch: rpc,
+    });
+    const result = await wrapped(new Request('https://example.test/functions/v1/calendar-sync', { method: 'POST' }));
+    expect(result.status).toBe(502); await result.json();
+    expect(rpc).toHaveBeenCalledTimes(1); expect(rpc.mock.calls[0][0]).toContain('mind_manual_admit_edge');
+  });
   it('routes new actions before legacy refresh and scopes every database stage', () => {
     const source = readFileSync(resolve(process.cwd(), 'supabase/functions/calendar-sync/index.ts'), 'utf8');
-    const start = source.indexOf("if (requestBody?.action === 'prepare_reviewed_update'");
+    const start = source.indexOf("if (operation === 'prepare_reviewed_update'");
     const end = source.indexOf('// Handle write operations', start);
     const routing = source.slice(start, end);
     expect(start).toBeGreaterThan(0); expect(end).toBeGreaterThan(start);

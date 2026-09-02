@@ -1,3 +1,4 @@
+import { verifiedBearerMindManualScope, wrapMindManualSubjectHandler } from "../_shared/migrationWriteFence.ts";
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
@@ -14,7 +15,7 @@ function stripPII(text: string): string {
     .replace(/\b[A-Z][a-z]+ [A-Z][a-z]+\b/g, '[NAME]'); // Common name patterns
 }
 
-serve(async (req) => {
+serve(wrapMindManualSubjectHandler("ai-monthly-summary", verifiedBearerMindManualScope("authenticated_request"), async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -146,4 +147,4 @@ Create a gentle monthly reflection:`;
       status: 200,
     });
   }
-});
+}));

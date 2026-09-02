@@ -15,8 +15,10 @@ CREATE TRIGGER on_auth_user_created
 REVOKE ALL ON FUNCTION public.cleanup_expired_google_calendar_oauth_state() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.cleanup_expired_oauth_state() FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.cleanup_old_calendar_events(uuid, integer) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.claim_gmail_pubsub_message(uuid, text, text, text, timestamp with time zone) FROM PUBLIC, anon, authenticated;
-REVOKE ALL ON FUNCTION public.complete_gmail_pubsub_message(uuid, text, text, integer, integer, jsonb, text, text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.claim_gmail_pubsub_message(uuid, text, text, text, timestamp with time zone) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.complete_gmail_pubsub_message(uuid, text, text, integer, integer, jsonb, text, text) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.claim_gmail_pubsub_message_scoped(uuid, uuid, text, bigint, uuid, text, text, text, timestamp with time zone) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.complete_gmail_pubsub_message_scoped(uuid, uuid, text, bigint, uuid, text, integer, uuid, text, text, integer, integer, jsonb, text, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.consume_google_calendar_oauth_state(text, uuid) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.create_plaid_secret(text, text) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.get_expiring_watch_channels(integer) FROM PUBLIC, anon, authenticated;
@@ -29,8 +31,10 @@ REVOKE ALL ON FUNCTION public.upsert_google_calendar_connection(uuid, text, text
 GRANT EXECUTE ON FUNCTION public.cleanup_expired_google_calendar_oauth_state() TO service_role;
 GRANT EXECUTE ON FUNCTION public.cleanup_expired_oauth_state() TO service_role;
 GRANT EXECUTE ON FUNCTION public.cleanup_old_calendar_events(uuid, integer) TO service_role;
-GRANT EXECUTE ON FUNCTION public.claim_gmail_pubsub_message(uuid, text, text, text, timestamp with time zone) TO service_role;
-GRANT EXECUTE ON FUNCTION public.complete_gmail_pubsub_message(uuid, text, text, integer, integer, jsonb, text, text) TO service_role;
+-- Legacy Gmail receipt implementations are callable only by their function
+-- owner through the tuple-bound wrappers, never directly by old Edge versions.
+GRANT EXECUTE ON FUNCTION public.claim_gmail_pubsub_message_scoped(uuid, uuid, text, bigint, uuid, text, text, text, timestamp with time zone) TO service_role;
+GRANT EXECUTE ON FUNCTION public.complete_gmail_pubsub_message_scoped(uuid, uuid, text, bigint, uuid, text, integer, uuid, text, text, integer, integer, jsonb, text, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.consume_google_calendar_oauth_state(text, uuid) TO service_role;
 GRANT EXECUTE ON FUNCTION public.create_plaid_secret(text, text) TO service_role;
 GRANT EXECUTE ON FUNCTION public.get_expiring_watch_channels(integer) TO service_role, authenticated;

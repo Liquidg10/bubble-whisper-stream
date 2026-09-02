@@ -31,4 +31,5 @@ plaid-exchange-token	true
 plaid-get-accounts	true
 plaid-get-transactions	true
 plaid-webhook-handler	true
+storage-photo	true
 watch-renewal-cron	true
