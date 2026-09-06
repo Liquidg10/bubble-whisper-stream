@@ -90,13 +90,13 @@ test('exact isolated origin starts the actual application with no source-backend
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(ownerOrigin);
   try {
-    // A fresh profile opens onboarding and hides the underlying app from the
-    // accessibility tree. Close that real dialog before checking the app shell;
-    // racing its delayed appearance can otherwise produce a false startup pass.
-    const onboarding = page.getByRole('dialog', { name: 'Welcome', exact: true });
-    await expect(onboarding.getByRole('heading', { name: 'Welcome to Mind Manual', exact: true })).toBeVisible();
-    await onboarding.getByRole('button', { name: 'Close', exact: true }).click();
-    await expect(page.getByRole('heading', { name: 'Mind Manual', exact: true })).toBeVisible();
+    // Fresh root startup now teaches through editable guide bubbles instead
+    // of a modal. Exercise that actual local action before declaring startup.
+    await expect(page.getByRole('heading', { name: /^Small actions\.\s*Connected possibilities\.$/ })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Welcome', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Start with 3 guide bubbles', exact: true }).click();
+    await expect(page.getByRole('region', { name: 'Adaptive Bubble view', exact: true })).toBeVisible();
+    await expect(page.locator('[data-adaptive-bubble]')).toHaveCount(3);
   } finally {
     const diagnostics = {
       errors,

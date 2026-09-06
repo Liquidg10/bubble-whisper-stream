@@ -40,6 +40,7 @@ All gates passed locally. The final commit is recorded in the pull request and c
 - `PLAYWRIGHT_TEST_BASE_URL=http://127.0.0.1:4180 npm run test:e2e:ci -- --workers=2`.
 - `PLAYWRIGHT_TEST_BASE_URL=http://127.0.0.1:4180 npm run test:a11y:ci -- --workers=2`.
 - `npx playwright test --config tests/molecules/playwright.config.ts`: real IndexedDB creation, editable suggestions/undo, shared connections, task details and reload, desktop/mobile layouts, and untouched-position/caption geometry.
+- `npm run test:deployment:browser`: all 6 isolated-build browser checks pass, including a real guide-task creation on the exact owner origin and unchanged copied-origin/backend-traffic boundaries.
 
 Results: 2,289 Vitest tests passed across 142 files, with 52 inherited skipped tests across 3 files; 20 release E2E checks passed; 14 accessibility checks passed; all 6 new desktop/mobile workflow and geometric checks passed. TypeScript and the production build passed. ESLint ratchet passed with 856 current errors against the 1,077 inherited baseline; cohesion ratchet passed with 162 findings against 203, including 19 passing scanner tests. Neither baseline was changed. After final caption spacing adjustments, all 55 iridescent unit checks and all 6 desktop/mobile checks passed again.
 
