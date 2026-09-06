@@ -1,0 +1,187 @@
+.garden-welcome {
+  position: relative;
+  display: flex;
+  min-height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 1.25rem;
+  overflow: hidden;
+  text-align: center;
+  background: radial-gradient(
+    ellipse at 50% 18%,
+    hsl(var(--primary) / 0.09),
+    transparent 60%
+  );
+}
+.garden-welcome h2 {
+  font-size: clamp(2rem, 4vw, 3.5rem);
+  font-weight: 450;
+  line-height: 1.12;
+  letter-spacing: -0.045em;
+  margin: 0.7rem 0 1rem;
+}
+.garden-welcome h2 em {
+  font-family: Georgia, serif;
+  font-weight: 400;
+  color: hsl(var(--primary));
+}
+.garden-eyebrow {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.19em;
+  color: hsl(var(--muted-foreground));
+}
+.garden-intro {
+  max-width: 31rem;
+  font-size: 0.95rem;
+  line-height: 1.75;
+  color: hsl(var(--muted-foreground));
+}
+.garden-welcome-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin: 1.5rem 0 1rem;
+}
+.garden-small {
+  font-size: 0.7rem;
+  line-height: 1.8;
+  color: hsl(var(--muted-foreground));
+}
+.garden-features {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 1.5rem;
+  margin-top: 2rem;
+  font-size: 0.7rem;
+  color: hsl(var(--muted-foreground));
+}
+.garden-features span {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.garden-features svg {
+  height: 14px;
+  width: 14px;
+}
+.garden-preview {
+  width: 170px;
+  height: 130px;
+  position: relative;
+  margin-bottom: 1.2rem;
+  perspective: 400px;
+}
+.garden-orbit {
+  position: absolute;
+  inset: 14px 5px;
+  border: 1px solid hsl(var(--primary) / 0.25);
+  border-radius: 50%;
+  transform: rotate(-24deg) rotateX(50deg);
+}
+.orbit-two {
+  transform: rotate(40deg) rotateX(50deg);
+}
+.orbit-three {
+  transform: rotate(103deg) rotateX(50deg);
+}
+.garden-seed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: absolute;
+  left: 56px;
+  top: 39px;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  border: 1px solid hsl(var(--primary) / 0.5);
+  background: radial-gradient(
+    circle at 27% 20%,
+    #edfffbd9,
+    #86bab680 28%,
+    #4c827e66 62%,
+    #1b354cbb
+  );
+  box-shadow:
+    inset 0 2px 6px #ffffffa0,
+    inset -5px -8px 16px #19343980,
+    0 12px 25px #244d5920;
+  color: #fff;
+}
+.garden-satellite {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  box-shadow:
+    inset 1px 2px 3px #fffc,
+    0 2px 8px #57607c44;
+  background: radial-gradient(circle at 25% 20%, #fff, #89babb 35%, #397883);
+}
+.satellite-one {
+  top: 29px;
+  left: 14px;
+}
+.satellite-two {
+  right: 10px;
+  top: 75px;
+  background: radial-gradient(circle at 25% 20%, #fff, #dbbf91 35%, #b27457);
+}
+.satellite-three {
+  left: 80px;
+  bottom: 0;
+  background: radial-gradient(circle at 25% 20%, #fff, #b2a7d0 35%, #716589);
+}
+.garden-draft {
+  border: 1px solid hsl(var(--border));
+  background: hsl(var(--muted) / 0.2);
+  border-radius: 1rem;
+  padding: 1rem;
+}
+.garden-guide-legend {
+  display: grid;
+  gap: 0.65rem;
+  font-size: 0.85rem;
+  line-height: 1.65;
+  color: hsl(var(--muted-foreground));
+}
+.garden-guide-legend strong {
+  color: hsl(var(--foreground));
+}
+.garden-lesson {
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+  padding: 0.75rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.75rem;
+}
+.garden-lesson-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  height: 30px;
+  width: 30px;
+  border-radius: 50%;
+  background: hsl(var(--primary) / 0.1);
+  color: hsl(var(--primary));
+  font-size: 0.75rem;
+}
+@media (max-height: 650px) {
+  .garden-preview {
+    display: none;
+  }
+  .garden-welcome {
+    padding-block: 1.5rem;
+  }
+  .garden-features {
+    margin-top: 1rem;
+  }
+}

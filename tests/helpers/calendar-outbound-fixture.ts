@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 
 /** Real local app/storage; only synthetic auth and function responses. */
 export async function prepareOutboundFixture(page: Page, outcome: 'written' | 'lost' | 'disabled' | 'recover') {
@@ -63,7 +63,11 @@ export async function prepareOutboundFixture(page: Page, outcome: 'written' | 'l
   });
   await page.goto('/login');
   const onboarding = page.getByRole('dialog', { name: 'Welcome' });
-  if (await onboarding.waitFor({ state: 'visible', timeout: 2000 }).then(() => true, () => false)) await page.keyboard.press('Escape');
+  // This fixture always starts in a fresh browser context on a non-root route.
+  // Wait for the actual first-run wizard so it cannot race the form submission.
+  await expect(onboarding).toBeVisible({ timeout: 10_000 });
+  await onboarding.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(onboarding).toBeHidden();
   await page.getByLabel('Email', { exact: true }).fill('synthetic@example.test');
   await page.getByLabel('Password', { exact: true }).fill('synthetic-local-password');
   await page.getByRole('button', { name: 'Sign In', exact: true }).click();

@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import axe from 'axe-core';
 import type { Bubble } from '@/types/bubble';
 import { withBubbleDomainLinks } from '@/adapters/taskAdapter';
 import { createUserDomainLink } from '@/domain/lifeDomains';
 import { AtomicRenderer } from '../AtomicRendererUnified';
+import * as motion from '@/lib/motion';
 
 const toast = vi.hoisted(() => vi.fn());
 
@@ -526,28 +527,91 @@ describe('AtomicRenderer interaction geometry', () => {
     expect(onTimeHorizonUpdate).toHaveBeenCalledWith('owning-work', 0, 2);
   });
 
-  it('keeps destructive molecule fusion disabled and truthfully labeled', async () => {
+  it('shows bonds from confirmed shared tasks and opens the original task without merging', async () => {
     const onMoleculeMerge = vi.fn();
-    render(
-      <AtomicRenderer
-        bubbles={[
-          bubble('fusion-work', 'Fusion Work task', 'today', ['Work']),
-          bubble('fusion-health', 'Fusion Health task', 'today', ['Health']),
-        ]}
-        onMoleculeMerge={onMoleculeMerge}
-        reducedMotion
-      />,
+    const onBubbleSelect = vi.fn();
+    const shared = bubble('shared', 'Walk home together', 'today', ['Health', 'Family']);
+    const { container } = render(
+      <AtomicRenderer bubbles={[shared, bubble('work-only', 'Work separately', 'today', ['Work'])]}
+        onMoleculeMerge={onMoleculeMerge} onBubbleSelect={onBubbleSelect} reducedMotion />,
     );
-
-    const fuse = await screen.findByRole('button', {
-      name: 'Fuse unavailable until a non-destructive confirmed molecule contract exists',
-    });
-    expect(fuse).toBeDisabled();
-    fireEvent.click(fuse);
+    await screen.findByRole('button', { name: /Family molecule, 1 task/ });
+    expect(container.querySelectorAll('[data-bond-id]')).toHaveLength(1);
+    expect(container.querySelector('[data-bond-id]')).toHaveAttribute('data-shared-task-count', '1');
+    expect(screen.queryByRole('button', { name: /Fuse|Split molecule/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Connections (1)'));
+    fireEvent.click(screen.getByRole('button', { name: 'Open Walk home together, shared by Health and Family' }));
+    expect(onBubbleSelect).toHaveBeenCalledWith(shared);
     expect(onMoleculeMerge).not.toHaveBeenCalled();
-    expect(toast).not.toHaveBeenCalledWith(expect.objectContaining({
-      title: 'Molecules fused',
-    }));
+    expect(shared.x).toBe(10_000);
+    expect(shared.y).toBe(-10_000);
+  });
+
+  it('keeps a paused orbit at its visible phase and starts dragging from that position', async () => {
+    let step: (() => void) | undefined;
+    vi.spyOn(motion, 'startAnimation').mockImplementation(callback => { step = callback; return () => {}; });
+    vi.spyOn(motion, 'stopAnimation').mockImplementation(() => {});
+    let now = 100;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    render(<AtomicRenderer bubbles={[bubble('phase', 'Steady phase')]} />);
+    const electron = await screen.findByRole('button', { name: /Steady phase.*Today horizon/ });
+    const initialLeft = electron.style.left;
+    fireEvent.click(screen.getByRole('button', { name: 'Play optional Atomic motion' }));
+    act(() => { now += 40; step?.(); });
+    expect(electron.style.left).not.toBe(initialLeft);
+    const beforePause = { left: electron.style.left, top: electron.style.top };
+    fireEvent.click(screen.getByRole('button', { name: 'Pause Atomic motion' }));
+    expect(electron).toHaveStyle(beforePause);
+    fireEvent(electron, pointerEvent('pointerdown', { clientX: 464, clientY: 300 }));
+    expect(electron).toHaveStyle(beforePause);
+  });
+
+  it('retains the grab offset after zoom and pan and releases near the drop on the same orbit', async () => {
+    const onTimeHorizonUpdate = vi.fn();
+    render(<AtomicRenderer bubbles={[bubble('offset', 'Zoomed offset')]} onTimeHorizonUpdate={onTimeHorizonUpdate} reducedMotion />);
+    const electron = await screen.findByRole('button', { name: /Zoomed offset.*Today horizon/ });
+    const world = screen.getByTestId('atomic-world-layer');
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in on Atomic view' }));
+    const viewport = screen.getByTestId('atomic-viewport');
+    fireEvent(viewport, pointerEvent('pointerdown', { clientX: 50, clientY: 50 }));
+    fireEvent(viewport, pointerEvent('pointermove', { clientX: 85, clientY: 76 }));
+    fireEvent(viewport, pointerEvent('pointerup', { clientX: 85, clientY: 76 }));
+    const start = worldToClient({ x: 64, y: 0 }, world);
+    const destination = worldToClient({ x: 0, y: 64 }, world);
+    const initial = { left: electron.style.left, top: electron.style.top };
+    fireEvent(electron, pointerEvent('pointerdown', { clientX: start.x + 9, clientY: start.y - 5 }));
+    expect(electron).toHaveStyle(initial);
+    fireEvent(viewport, pointerEvent('pointermove', { clientX: destination.x + 9, clientY: destination.y - 5 }));
+    const beforeRelease = { left: electron.style.left, top: electron.style.top };
+    fireEvent(viewport, pointerEvent('pointerup', { clientX: destination.x + 9, clientY: destination.y - 5 }));
+    expect(Number.parseFloat(electron.style.left)).toBeCloseTo(Number.parseFloat(beforeRelease.left), 8);
+    expect(Number.parseFloat(electron.style.top)).toBeCloseTo(Number.parseFloat(beforeRelease.top), 8);
+    expect(onTimeHorizonUpdate).not.toHaveBeenCalled();
+  });
+
+  it('keeps every linked electron on the same horizon and preserves the shared bond', async () => {
+    const onTimeHorizonUpdate = vi.fn();
+    const shared = bubble('linked-move', 'One action, two areas', 'today', ['Career', 'Home']);
+    const { container } = render(<AtomicRenderer bubbles={[shared]} onTimeHorizonUpdate={onTimeHorizonUpdate} reducedMotion />);
+    fireEvent.click(await screen.findByRole('button', { name: /Career molecule, 1 task/ }));
+    const career = await screen.findByRole('button', { name: /One action, two areas.*Career.*Today horizon/ });
+    fireEvent.focus(career);
+    expect(container.querySelectorAll('[data-shared-electron-thread]')).toHaveLength(1);
+    fireEvent.keyDown(career, { key: 'ArrowRight' });
+    expect(screen.getByRole('button', { name: /One action, two areas.*Home.*Week horizon/ })).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-bond-id]')).toHaveLength(1);
+    expect(onTimeHorizonUpdate).toHaveBeenCalledExactlyOnceWith(shared.id, 0, 1);
+    expect(shared.x).toBe(10_000);
+    expect(shared.y).toBe(-10_000);
+  });
+
+  it('distinguishes actions, thoughts, and context with labeled particle flavors', async () => {
+    const thought = { ...bubble('idea', 'A new idea', 'week'), type: 'Thought' as const };
+    const memory = { ...bubble('remember', 'A memory', 'later'), type: 'Memory' as const };
+    render(<AtomicRenderer bubbles={[bubble('action', 'An action'), thought, memory]} reducedMotion />);
+    expect(await screen.findByRole('button', { name: /An action.*Electron/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /A new idea.*Proton/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /A memory.*Neutron/ })).toBeInTheDocument();
   });
 
   it('shows task identity on hover or focus and uses sufficient default contrast', async () => {

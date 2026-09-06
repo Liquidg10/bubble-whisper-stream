@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { motion, MotionConfig } from 'framer-motion';
+import { MotionConfig, type Variants } from 'framer-motion';
+import { calmModeService } from '@/services/calmModeService';
 
 interface ReducedMotionEnforcerProps {
   children: React.ReactNode;
@@ -95,18 +96,18 @@ export const ReducedMotionEnforcer: React.FC<ReducedMotionEnforcerProps> = ({ ch
 
 // Hook to check reduced motion preference
 export const useReducedMotion = () => {
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches || calmModeService.getAnimationPreferences().reduceMotion);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-    setPrefersReducedMotion(mediaQuery.matches);
+    const refresh = () => setPrefersReducedMotion(mediaQuery.matches || calmModeService.getAnimationPreferences().reduceMotion);
+    refresh();
 
-    const handleChange = (e: MediaQueryListEvent) => {
-      setPrefersReducedMotion(e.matches);
-    };
+    const handleChange = refresh;
 
     mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
+    window.addEventListener('calmModeChange', refresh);
+    return () => { mediaQuery.removeEventListener('change', handleChange); window.removeEventListener('calmModeChange', refresh); };
   }, []);
 
   return prefersReducedMotion;
@@ -114,8 +115,8 @@ export const useReducedMotion = () => {
 
 // Utility to create motion-aware variants
 export const createMotionVariants = (
-  normalVariants: any,
-  reducedVariants?: any
+  normalVariants: Variants,
+  reducedVariants?: Variants
 ) => {
   const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   
@@ -125,12 +126,12 @@ export const createMotionVariants = (
   
   if (prefersReducedMotion) {
     // Convert normal variants to instant versions
-    const instantVariants: any = {};
+    const instantVariants: Variants = {};
     Object.keys(normalVariants).forEach(key => {
-      instantVariants[key] = {
-        ...normalVariants[key],
-        transition: { duration: 0.01 }
-      };
+      const variant = normalVariants[key];
+      instantVariants[key] = typeof variant === 'function'
+        ? (...args) => { const resolved = variant(...args); return typeof resolved === 'object' ? { ...resolved, transition: { duration: 0.01 } } : resolved; }
+        : { ...variant, transition: { duration: 0.01 } };
     });
     return instantVariants;
   }

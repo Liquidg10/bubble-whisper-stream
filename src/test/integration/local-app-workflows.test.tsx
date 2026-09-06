@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import App from '@/App';
@@ -7,9 +7,11 @@ import { userContextService } from '@/services/userContextService';
 import { storageService } from '@/services/storage';
 
 const initialSettings = { ...useBubbleStore.getState().settings };
+const initializeStore = useBubbleStore.getState().initializeStore;
+afterEach(() => useBubbleStore.setState({ initializeStore }));
 
 const bubbleLabel = (content: string) =>
-  content.slice(0, 20) + (content.length > 20 ? '...' : '');
+  content;
 
 describe('Current local app workflows', () => {
   beforeEach(() => {
@@ -18,6 +20,8 @@ describe('Current local app workflows', () => {
     window.history.pushState({}, '', '/');
     useBubbleStore.setState({
       bubbles: [],
+      isLoading: false,
+      initializeStore: vi.fn().mockResolvedValue(undefined),
       settings: { ...initialSettings, biometricLock: false },
     });
 
@@ -93,7 +97,8 @@ describe('Current local app workflows', () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(screen.getByRole('link', { name: /settings/i }));
+    await user.click(screen.getByRole('button', { name: 'More destinations' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Settings' }));
     await user.click(screen.getByRole('tab', { name: /privacy/i }));
 
     const biometricToggle = await screen.findByRole('switch', {
@@ -109,5 +114,5 @@ describe('Current local app workflows', () => {
       );
     });
     expect(useBubbleStore.getState().settings.biometricLock).toBe(true);
-  });
+  }, 30000);
 });

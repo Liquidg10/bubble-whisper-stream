@@ -86,7 +86,7 @@ function createSymmetricLayoutSlots(count: number): Point[] {
   if (count <= 6) {
     return createSymmetricRingSlots(
       count,
-      MOLECULE_LAYOUT_CONFIG.minimumCenterSpacing,
+      MOLECULE_LAYOUT_CONFIG.minimumCenterSpacing / (2 * Math.sin(Math.PI / count)),
     );
   }
 

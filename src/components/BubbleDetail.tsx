@@ -21,6 +21,7 @@ import { AccessibleConfirmDialog } from '@/components/AccessibleConfirmDialog';
 import { LifeConnectionsEditor } from '@/components/LifeConnectionsEditor';
 import { bubbleToTask, withBubbleDomainLinks } from '@/adapters/taskAdapter';
 import { useTaskStore } from '@/stores/taskStore';
+import { getHorizon, setHorizon, type Horizon } from '@/lib/horizon';
 
 interface BubbleDetailProps {
   bubble: Bubble | null;
@@ -419,8 +420,9 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
 
           {/* Content */}
           <div>
-            <label className="text-sm font-medium" style={{ color: colorScheme.text }}>Content</label>
+            <label htmlFor="bubble-content" className="text-sm font-medium" style={{ color: colorScheme.text }}>Content</label>
             <Textarea
+              id="bubble-content"
               value={editedBubble.content || ''}
               onChange={(e) => setEditedBubble({ ...editedBubble, content: e.target.value })}
               placeholder="What's on your mind?"
@@ -433,6 +435,23 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
               rows={4}
             />
           </div>
+
+          {bubble.type === 'Task' && (
+            <>
+              <div>
+                <label htmlFor="bubble-notes" className="text-sm font-medium" style={{ color: colorScheme.text }}>Notes & small steps</label>
+                <Textarea id="bubble-notes" value={editedBubble.caption ?? ''} onChange={event => setEditedBubble({ ...editedBubble, caption: event.target.value })} rows={3} className="mt-1" placeholder="What would help you begin?" />
+              </div>
+              <label className="block text-sm font-medium" style={{ color: colorScheme.text }}>
+                Time horizon
+                <select aria-label="Time horizon" value={getHorizon(editedBubble) ?? 'today'} onChange={event => setEditedBubble(setHorizon(editedBubble, event.target.value as Horizon))} className="mt-1 block min-h-11 w-full rounded-lg border bg-background px-3 text-foreground">
+                  <option value="today">Today — close at hand</option>
+                  <option value="week">Week — room to plan</option>
+                  <option value="later">Later — keep the possibility</option>
+                </select>
+              </label>
+            </>
+          )}
 
           {/* Canonical task completion */}
           {bubble.type === 'Task' && (

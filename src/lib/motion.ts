@@ -1,6 +1,7 @@
 // Shared motion control state machine
 // Multiple animation steps register concurrently; one shared rAF loop drives them all.
 // Global Play/Pause (spacebar / MotionController) pauses every step at once.
+import { calmModeService } from '@/services/calmModeService';
 
 let rafId: number | null = null;
 let motionEnabled = true; // global play/pause
@@ -8,10 +9,11 @@ const steps = new Set<() => void>();
 const listeners = new Set<(enabled: boolean) => void>();
 
 const getReducedMotionPreference = (): boolean =>
-  window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  || calmModeService.getAnimationPreferences().reduceMotion;
 
 function notifyListeners() {
-  listeners.forEach((listener) => listener(motionEnabled));
+  listeners.forEach((listener) => listener(isMotionEnabled()));
 }
 
 function tick() {
@@ -31,21 +33,22 @@ function ensureLoop() {
 
 // Pause the loop when the OS switches to reduced motion; resume when it switches back.
 const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-motionQuery.addEventListener('change', (e) => {
-  if (e.matches) {
+function reconcileMotionPreference() {
+  if (getReducedMotionPreference()) {
     if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null; }
   } else {
     ensureLoop();
   }
-});
+  notifyListeners();
+}
+motionQuery.addEventListener('change', reconcileMotionPreference);
+window.addEventListener('calmModeChange', reconcileMotionPreference);
 
-// Register an animation step. Returns an unregister function. Registering implies "play".
+// Register a step without changing the user's play/pause decision across views.
 export function startAnimation(stepFn: () => void): () => void {
   steps.add(stepFn);
   if (!getReducedMotionPreference()) {
-    motionEnabled = true;
     ensureLoop();
-    notifyListeners();
   }
   return () => stopAnimation(stepFn);
 }
@@ -86,7 +89,7 @@ export function isReducedMotionPreferred(): boolean {
 
 export function subscribeToMotionState(listener: (enabled: boolean) => void): () => void {
   listeners.add(listener);
-  listener(motionEnabled);
+  listener(isMotionEnabled());
   return () => { listeners.delete(listener); };
 }
 
@@ -94,12 +97,10 @@ export function setupGlobalKeyboardHandler(): () => void {
   const handleKeyDown = (event: KeyboardEvent) => {
     if (event.code === 'Space' && !event.repeat) {
       const activeElement = document.activeElement;
-      const isInputFocused = activeElement && (
-        activeElement.tagName === 'INPUT' ||
-        activeElement.tagName === 'TEXTAREA' ||
-        activeElement.getAttribute('contenteditable') === 'true'
+      const isInteractiveFocused = activeElement?.closest(
+        'input, textarea, select, button, a, summary, [contenteditable="true"], [role="button"], [role="checkbox"], [role="switch"], [role="slider"], [role="tab"], [role="menuitem"]',
       );
-      if (!isInputFocused) {
+      if (!isInteractiveFocused && !event.defaultPrevented) {
         event.preventDefault();
         toggleAnimation();
       }

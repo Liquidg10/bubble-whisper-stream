@@ -179,6 +179,8 @@ export function separateSeverelyOverlappingBubbles(
   options: {
     separateAllOverlaps?: boolean;
     insets?: ViewportInsets;
+    fixedIds?: ReadonlySet<string>;
+    minimumClearanceRadius?: number;
   } = {},
 ): Map<string, { x: number; y: number }> {
   const placed: Array<{
@@ -190,12 +192,16 @@ export function separateSeverelyOverlappingBubbles(
   const repairs = new Map<string, { x: number; y: number }>();
 
   bubbles.forEach((bubble, bubbleIndex) => {
+    const radius = Math.max(getSafeBubbleRadius(bubble.size), options.minimumClearanceRadius ?? 0);
+    if (options.fixedIds?.has(bubble.id)) {
+      placed.push({ id: bubble.id, x: bubble.x, y: bubble.y, radius });
+      return;
+    }
     const recovered = recoverPersistedBubblePosition(
       bubble,
       viewport,
       options.insets,
     );
-    const radius = getSafeBubbleRadius(bubble.size);
     const original = {
       id: bubble.id,
       x: recovered.x,
