@@ -292,6 +292,7 @@ async function proveNativeParticleMoves(page: Page, touch: boolean, beforeTasks:
   // Undo is a time-limited user action. Capture its trusted input before doing
   // screenshot work that can consume the notification's five-second lifetime.
   const undo = page.getByRole('button', { name: 'Undo moving Try moving this bubble to Week', exact: true });
+  if (touch) await undo.tap({ trial: true });
   const beforeTap = await undo.evaluate(button => {
     const probe = (window as typeof window & { spatialUndoProbe: SpatialUndoProbe }).spatialUndoProbe;
     const rect = button.getBoundingClientRect();
@@ -305,7 +306,19 @@ async function proveNativeParticleMoves(page: Page, touch: boolean, beforeTasks:
       buttons: Array.from(toast.querySelectorAll('button')).map(item => ({ label: item.getAttribute('aria-label'), text: item.textContent, rect: item.getBoundingClientRect().toJSON() })) };
   });
   try {
-    await press(undo, touch);
+    if (touch) {
+      expect(beforeTap.receivesPointer).toBe(true);
+      const session = await page.context().newCDPSession(page);
+      try {
+        // Playwright's Chromium tap sends start/end concurrently. Use the
+        // browser's native 50ms touch gesture so Linux synthesizes its click.
+        await session.send('Input.synthesizeTapGesture', {
+          x: beforeTap.rect.x + beforeTap.rect.width / 2,
+          y: beforeTap.rect.y + beforeTap.rect.height / 2,
+          duration: 50, tapCount: 1, gestureSourceType: 'touch',
+        });
+      } finally { await session.detach(); }
+    } else await press(undo, false);
     await expect.poll(() => page.evaluate(() => (window as typeof window & { spatialUndoProbe: SpatialUndoProbe }).spatialUndoProbe.inputs
       .filter(input => input.phase === 'capture' && input.type === 'click' && input.label === 'Undo moving Try moving this bubble to Week').length),
     { message: 'The native Undo gesture must synthesize exactly one click on its button' }).toBe(1);
