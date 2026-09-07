@@ -38,6 +38,27 @@ async function connections(page:Page,touch:boolean) {
   return page.getByTestId('atomic-relationship-panel');
 }
 async function scopedAxe(page:Page,selector:string,testInfo:TestInfo,label:string) {
+  // Grow opens while the previous dialog exits. Visibility alone can sample
+  // composited fade colors rather than the finished dialog's actual contrast.
+  await expect(page.locator('[role="dialog"][data-state="closed"]')).toHaveCount(0);
+  await expect(page.locator(selector).first()).toBeVisible();
+  await expect.poll(async () => page.locator(selector).evaluateAll(elements => {
+    const surfaces = new Set<Element>();
+    const animations = new Set<Animation>();
+    for (const element of elements) {
+      for (let ancestor: Element | null = element; ancestor; ancestor = ancestor.parentElement) {
+        surfaces.add(ancestor);
+        ancestor.getAnimations().forEach(animation => animations.add(animation));
+      }
+      element.getAnimations({ subtree: true }).forEach(animation => animations.add(animation));
+    }
+    const activeFiniteAnimations = [...animations].filter(animation =>
+      Number.isFinite(animation.effect?.getComputedTiming().endTime) &&
+      (animation.pending || animation.playState === 'running'),
+    );
+    return elements.length > 0 && activeFiniteAnimations.length === 0 &&
+      [...surfaces].every(element => getComputedStyle(element).opacity === '1');
+  }), { message: 'The scanned surface and its ancestors have finished fading and animating' }).toBe(true);
   const results=await new AxeBuilder({page}).include(selector).analyze();
   await testInfo.attach(`${label}-accessibility`,{body:JSON.stringify({violations:results.violations.map(v=>({id:v.id,impact:v.impact,nodes:v.nodes.map(n=>n.target)}))}),contentType:'application/json'});
   expect(results.violations).toEqual([]);
