@@ -21,10 +21,11 @@ const props = () => ({ molecules: [molecule()], bonds: [], onMoveMolecule: vi.fn
 let scheduled = new Map<number, FrameRequestCallback>(); let nextId = 1;
 const captureDescriptors = ['setPointerCapture', 'releasePointerCapture', 'hasPointerCapture'].map(name => [name, Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, name)] as const);
 function flushFrame(time = 16) { act(() => { const current = [...scheduled]; scheduled.clear(); for (const [, callback] of current) callback(time); }); }
-function pointer(canvas: HTMLCanvasElement, type: string, x: number, y: number) {
+function pointer(canvas: HTMLCanvasElement, type: string, x: number, y: number, pointerType: 'mouse' | 'touch' = 'mouse') {
   const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 });
-  Object.defineProperties(event, { pointerId: { value: 7 }, pointerType: { value: 'mouse' }, isPrimary: { value: true } });
+  Object.defineProperties(event, { pointerId: { value: 7 }, pointerType: { value: pointerType }, isPrimary: { value: true } });
   act(() => canvas.dispatchEvent(event));
+  return event;
 }
 function center(selector: string): { x: number; y: number } {
   const element = document.querySelector<HTMLElement>(selector)!;
@@ -113,6 +114,42 @@ describe('demand-driven WebGL lifecycle', () => {
 });
 
 describe('camera-plane object input and saved-state boundary', () => {
+  it.each(['mouse', 'touch'] as const)('keeps %s object gestures isolated from camera controls while preserving their native defaults', async pointerType => {
+    const current = props(); const onCameraChange = vi.fn();
+    render(<SpatialAtomicScene {...current} onCameraChange={onCameraChange} />); flushFrame();
+    const canvas = screen.getByTestId('spatial-atomic-canvas') as HTMLCanvasElement;
+    const captured = new Set<number>();
+    vi.mocked(canvas.setPointerCapture).mockImplementation(id => { captured.add(id); });
+    vi.mocked(canvas.releasePointerCapture).mockImplementation(id => { captured.delete(id); });
+    vi.mocked(canvas.hasPointerCapture).mockImplementation(id => captured.has(id));
+    const scene = screen.getByTestId('atomic-spatial-scene');
+    const cameraBefore = scene.getAttribute('data-camera-position');
+    const start = center('[data-molecule-label="area"]');
+    const competingPointerDown = vi.fn(); canvas.addEventListener('pointerdown', competingPointerDown);
+    const down = pointer(canvas, 'pointerdown', start.x + 3, start.y + 2, pointerType);
+    const move = pointer(canvas, 'pointermove', start.x + 43, start.y + 22, pointerType); flushFrame();
+    expect(center('[data-molecule-label="area"]').x).toBeCloseTo(start.x + 40, 2);
+    const up = pointer(canvas, 'pointerup', start.x + 43, start.y + 22, pointerType);
+    await act(async () => {}); flushFrame();
+    expect([down, move, up].map(event => event.defaultPrevented)).toEqual(Array(3).fill(pointerType === 'mouse'));
+    expect(competingPointerDown).not.toHaveBeenCalled();
+    expect(onCameraChange).not.toHaveBeenCalled();
+    expect(scene.getAttribute('data-camera-position')).toBe(cameraBefore);
+    expect(current.onMoveMolecule).toHaveBeenCalledOnce(); expect(current.onMoveElectron).not.toHaveBeenCalled();
+
+    pointer(canvas, 'pointerdown', start.x, start.y, pointerType);
+    pointer(canvas, 'pointermove', start.x + 20, start.y, pointerType);
+    pointer(canvas, 'pointercancel', start.x + 20, start.y, pointerType); flushFrame();
+    expect(center('[data-molecule-label="area"]').x).toBeCloseTo(start.x, 2);
+    expect(current.onMoveMolecule).toHaveBeenCalledOnce();
+    expect(canvas.releasePointerCapture).toHaveBeenCalledWith(7); expect(captured.size).toBe(0);
+    expect(scene.getAttribute('data-camera-position')).toBe(cameraBefore);
+    // This checks that scene listeners do not swallow later DOM activation.
+    // Native touch-to-click synthesis remains covered by the browser workflow.
+    fireEvent.click(screen.getByRole('button', { name: 'Creativity' }));
+    expect(current.onSelectMolecule).toHaveBeenCalledExactlyOnceWith('area');
+  });
+
   it('preserves a nucleus grab offset after camera rotation and cancels without writes', () => {
     const current = props(); render(<SpatialAtomicScene {...current} camera={orbitSpatialCamera(fitSpatialCamera(current.molecules, 800 / 600), 0.5, 0.2)} />); flushFrame();
     const canvas = screen.getByTestId('spatial-atomic-canvas') as HTMLCanvasElement;

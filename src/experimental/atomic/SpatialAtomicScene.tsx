@@ -301,7 +301,10 @@ export function SpatialAtomicScene(props: SpatialAtomicSceneProps) {
       const original = particle ? appPoint(particle.mesh.getWorldPosition(new THREE.Vector3())) : { ...molecule.position };
       const plane = createSpatialDragPlane(rayFor(event), original, appPoint(camera.getWorldDirection(new THREE.Vector3())));
       if (!plane) return;
-      event.preventDefault(); event.stopImmediatePropagation();
+      // CSS touch-action owns touch manipulation. Keep its native event stream
+      // intact so a later tap on an ordinary control can synthesize its click.
+      if (event.pointerType !== 'touch') event.preventDefault();
+      event.stopImmediatePropagation();
       controls.enabled = false; hover = true;
       drag = { ...hit, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY,
         original, current: original, moleculePosition: { ...molecule.position }, electron: particle?.electron, plane, moved: false };
@@ -311,13 +314,17 @@ export function SpatialAtomicScene(props: SpatialAtomicSceneProps) {
     }
     function move(event: PointerEvent) {
       if (disposed || unavailable) return;
-      if (drag) { event.preventDefault(); event.stopImmediatePropagation(); moveDrag(event); return; }
+      if (drag) {
+        if (event.pointerType !== 'touch') event.preventDefault();
+        event.stopImmediatePropagation(); moveDrag(event); return;
+      }
       const next = hitAt(event); const changed = hovered?.moleculeId !== next?.moleculeId || hovered?.electronId !== next?.electronId;
       if (hover !== !!next || changed) { hovered = next; hover = !!next; requestRender(); }
     }
     async function up(event: PointerEvent) {
       if (!drag || drag.pointerId !== event.pointerId) return;
-      event.preventDefault(); event.stopImmediatePropagation();
+      if (event.pointerType !== 'touch') event.preventDefault();
+      event.stopImmediatePropagation();
       moveDrag(event); // Pointer-up may contain a final position with no pointermove.
       const current = drag; drag = null; releaseCapture(current.pointerId);
       if (!current.moved) {
