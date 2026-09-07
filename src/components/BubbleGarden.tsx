@@ -21,6 +21,7 @@ import { useTaskStore } from '@/stores/taskStore';
 import { bubbleToTask } from '@/adapters/taskAdapter';
 import {
   STARTER_LESSONS,
+  bubbleGrowthSourceFingerprint,
   canGrowBubble,
   createStarterTask,
   starterLessonKey,
@@ -28,6 +29,8 @@ import {
   type BubbleSprout,
 } from '@/domain/bubbleGarden';
 import './bubble-garden.css';
+import type { Task } from '@/types/task';
+import { ProactiveGrowthControls } from '@/components/ProactiveGrowth';
 import { BubbleFamily } from '@/components/BubbleFamily';
 import { addSproutOnce, persistSproutDismissal, readDismissedSproutKeys } from '@/domain/bubbleGardenState';
 import { useProgressiveOnboarding } from '@/providers/ProgressiveOnboardingProvider';
@@ -168,7 +171,7 @@ function SproutDraft({
         className="block text-xs font-medium text-muted-foreground"
         htmlFor={`sprout-${sprout.key}`}
       >
-        Suggested bubble · {sprout.origin === 'notes' ? 'from your notes' : 'local starting idea'} · about {sprout.minutes} minutes
+        Suggested bubble · {sprout.origin === 'notes' ? 'from your notes' : sprout.origin === 'ai' ? 'AI idea · review before adding' : 'local starting idea'} · about {sprout.minutes} minutes
       </label>
       <textarea
         id={`sprout-${sprout.key}`}
@@ -203,7 +206,7 @@ function SproutDraft({
                     )
                   }
                 />
-                {link.label ?? link.domainId}
+                {link.label ?? link.domainId}{link.effect === 'tradeoff' ? ' · Tradeoff' : link.effect === undefined || link.effect === 'supports' ? ' · Supports' : ' · Review connection'}
               </label>
             ))}
           </div>
@@ -253,18 +256,30 @@ function SproutDraft({
   );
 }
 
+export interface GardenAiSuggestions {
+  sourceTaskId: string;
+  sourceFingerprint: string;
+  sprouts: BubbleSprout[];
+  status: 'idle' | 'loading' | 'ready' | 'error';
+  message?: string;
+  onRequest: (source: Task) => void;
+  onDismiss?: () => void;
+}
+
 export function BubbleGardenDialog({
   mode,
   onClose,
   onOpenTask,
   starter,
   sourceTaskId,
+  aiSuggestions,
 }: {
   mode: 'guide' | 'grow' | null;
   onClose: () => void;
   onOpenTask: (id: string) => void;
   starter: ReturnType<typeof useStarterBubbles>;
   sourceTaskId?: string;
+  aiSuggestions?: GardenAiSuggestions;
 }) {
   const {
     state: learning,
@@ -298,7 +313,8 @@ export function BubbleGardenDialog({
   const source = sourceId ? tasks.find(task => task.id === sourceId) : (sources.find(canGrowBubble) ?? sources[0]);
   const canGrowSource = Boolean(source && canGrowBubble(source));
   const dismissed = source ? readDismissedSproutKeys(source) : [];
-  const suggestions = source ? suggestBubbleSprouts(source, tasks).filter(item => !dismissed.includes(item.key)) : [];
+  const matchingAi = source && aiSuggestions?.sourceTaskId === source.id && aiSuggestions.sourceFingerprint === bubbleGrowthSourceFingerprint(source) ? aiSuggestions : undefined;
+  const suggestions = source ? [...(matchingAi?.status === 'ready' ? matchingAi.sprouts : []), ...suggestBubbleSprouts(source, tasks)].filter(item => !dismissed.includes(item.key) && !tasks.some(task => task.metadata?.bubbleGarden?.sproutKey === item.key)) : [];
   const saveReview = async (id: string, action: Parameters<typeof persistSproutDismissal>[1]) => {
     setReviewPending(count => count + 1);
     try {
@@ -453,7 +469,7 @@ export function BubbleGardenDialog({
                     className="mt-2 block min-h-11 w-full rounded-lg border bg-background px-3 text-sm"
                     value={source?.id ?? sourceId}
                     disabled={reviewPending > 0 || undoing}
-                    onChange={event => { setSourceId(event.target.value); setReviewError(''); setStatus(''); }}
+                    onChange={event => { aiSuggestions?.onDismiss?.(); setSourceId(event.target.value); setReviewError(''); setStatus(''); }}
                   >
                     {!source && sourceId && <option value={sourceId}>Source bubble unavailable</option>}
                     {source && !sources.some(task => task.id === source.id) && <option value={source.id}>{source.title || 'Untitled bubble'}</option>}
@@ -461,6 +477,14 @@ export function BubbleGardenDialog({
                   </select>
                 </label>
                 {source && <BubbleFamily taskId={source.id} onOpenTask={openFamilyTask} />}
+                {source && <ProactiveGrowthControls key={source.id} source={source} tasks={tasks} />}
+                {source && canGrowSource && aiSuggestions && <div className="space-y-2 rounded-lg border p-3">
+                  <p className="text-sm font-medium">Explore with AI</p>
+                  <p className="text-xs text-muted-foreground">When you ask, OpenAI receives up to the first 300 characters of this bubble’s title and 4,000 characters of its notes. You review every suggested task before adding it.</p>
+                  <Button variant="outline" className="min-h-11 hover:bg-muted hover:text-foreground transition-none" disabled={matchingAi?.status === 'loading' || reviewPending > 0 || undoing} onClick={() => aiSuggestions.onRequest(source)}>{matchingAi?.status === 'loading' ? 'Finding ideas…' : 'Ask AI for ideas'}</Button>
+                  {matchingAi?.message && <p role={matchingAi.status === 'error' ? 'alert' : 'status'} className="text-sm text-muted-foreground">{matchingAi.message}</p>}
+                  {matchingAi?.status === 'ready' && matchingAi.onDismiss && <Button variant="ghost" className="min-h-11 hover:bg-muted hover:text-foreground transition-none" onClick={matchingAi.onDismiss}>Clear AI ideas</Button>}
+                </div>}
                 {source?.type === 'thought' && canGrowSource && <p className="rounded-lg bg-muted p-4 text-sm">Explore this thought at your own pace. Adding a step creates a separate task and keeps your original thought intact.</p>}
                 {source?.completed && <p className="rounded-lg bg-muted p-4 text-sm">This bubble is complete. Its connected steps are still available; choose an unfinished bubble for new suggestions.</p>}
                 {source && !source.completed && source.actionability === 'reference' && <p className="rounded-lg bg-muted p-4 text-sm">This is a reference bubble. Its connected steps remain available.</p>}

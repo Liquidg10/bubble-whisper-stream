@@ -10,6 +10,8 @@ import { BubbleDetail } from '@/components/BubbleDetail';
 import { SmartTaskQuickAdd } from '@/components/SmartTaskQuickAdd';
 import { Button } from '@/components/ui/button';
 import { isFeatureEnabled } from '@/config/flags';
+import { ProactiveGrowthShelf } from '@/components/ProactiveGrowth';
+import { useBubbleAiSuggestions } from '@/hooks/useBubbleAiSuggestions';
 import {
   Dialog,
   DialogContent,
@@ -32,6 +34,7 @@ export default function Index() {
   const [gardenSourceId, setGardenSourceId] = useState<string | undefined>();
   const [showAdd, setShowAdd] = useState(false);
   const [gardenMode, setGardenMode] = useState<'guide' | 'grow' | null>(null);
+  const aiSuggestions = useBubbleAiSuggestions(gardenMode);
   const starter = useStarterBubbles();
   const currentViewMode = settings.viewMode || 'bubble';
   const selectedBubble =
@@ -129,6 +132,7 @@ export default function Index() {
           <BookOpen className="h-4 w-4" />
           <span>Guide</span>
         </Button>
+        {!isLoading && bubbles.length > 0 && <ProactiveGrowthShelf onReviewSource={growTask} onOpenTask={openTask} />}
       </div>
       <Dialog open={showAdd} onOpenChange={setShowAdd}>
         <DialogContent className="w-[calc(100%-1.5rem)] max-w-xl max-h-[85dvh] overflow-y-auto rounded-2xl">
@@ -153,6 +157,7 @@ export default function Index() {
         sourceTaskId={gardenSourceId}
         onClose={() => setGardenMode(null)}
         onOpenTask={openTask}
+        aiSuggestions={aiSuggestions}
       />
       <BubbleDetail
         bubble={selectedBubble}

@@ -77,12 +77,12 @@ describe('Garden review continuity', () => {
     facade.saveBubble.mockRejectedValueOnce(new Error('Storage full'));
     mountGarden();
     fireEvent.change(drafts()[0], { target: { value: 'My reviewed next step' } });
-    fireEvent.click(within(firstCard()).getByRole('checkbox', { name: 'Home' }));
+    fireEvent.click(within(firstCard()).getByRole('checkbox', { name: 'Home · Supports' }));
     fireEvent.click(within(firstCard()).getByRole('button', { name: 'Dismiss' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('could not be dismissed');
     expect(drafts()).toHaveLength(3);
     expect(drafts()[0]).toHaveValue('My reviewed next step');
-    expect(within(firstCard()).getByRole('checkbox', { name: 'Home' })).not.toBeChecked();
+    expect(within(firstCard()).getByRole('checkbox', { name: 'Home · Supports' })).not.toBeChecked();
     expect(readDismissedSproutKeys(facade.getTasks()[0])).toEqual([]);
     fireEvent.click(within(firstCard()).getByRole('button', { name: 'Dismiss' }));
     await waitFor(() => expect(drafts()).toHaveLength(2));
@@ -142,7 +142,7 @@ describe('Garden review continuity', () => {
     expect(drafts()[0]).toHaveAccessibleName(/from your notes/);
     expect(facade.addTask).not.toHaveBeenCalled();
     fireEvent.change(drafts()[0], { target: { value: 'Check the kitchen window for light' } });
-    fireEvent.click(within(firstCard()).getByRole('checkbox', { name: 'Home' }));
+    fireEvent.click(within(firstCard()).getByRole('checkbox', { name: 'Home · Supports' }));
     fireEvent.click(within(firstCard()).getByRole('button', { name: 'Add this bubble' }));
     await waitFor(() => expect(facade.getTasks()).toHaveLength(2));
     const child = facade.getTasks()[1];
@@ -211,5 +211,57 @@ describe('Bubble family navigation', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
     expect(screen.getByText(/original bubble is no longer available/)).toBeInTheDocument();
     expect(facade.saveBubble).not.toHaveBeenCalled();
+  });
+});
+
+describe('Explicit AI ideas in Grow', () => {
+  it('discloses selected text, waits for an explicit request and routes reviewed AI additions through ordinary history', async () => {
+    const { createAiSprouts, bubbleGrowthSourceFingerprint } = await import('@/domain/bubbleGarden');
+    const source = parent();
+    const onRequest = vi.fn();
+    const sourceFingerprint = bubbleGrowthSourceFingerprint(source);
+    const aiSuggestions = { sourceTaskId: source.id, sourceFingerprint, sprouts: [], status: 'idle' as const, onRequest };
+    const mounted = render(<BubbleGardenDialog mode="grow" sourceTaskId={source.id} onClose={vi.fn()} onOpenTask={openTask} starter={starter} aiSuggestions={aiSuggestions} />);
+    expect(screen.getByText(/OpenAI receives up to the first 300 characters of this bubble’s title and 4,000 characters of its notes/)).toBeInTheDocument();
+    expect(onRequest).not.toHaveBeenCalled();
+    expect(facade.addTask).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Ask AI for ideas' }));
+    expect(onRequest).toHaveBeenCalledWith(expect.objectContaining({ id: source.id, title: source.title }));
+    const sprouts = createAiSprouts(source, [{ title: 'An idea to review', reason: 'Try if it fits', estimatedMinutes: 2 }], [source], { sourceFingerprint, model: 'test-model' });
+    mounted.rerender(<BubbleGardenDialog mode="grow" sourceTaskId={source.id} onClose={vi.fn()} onOpenTask={openTask} starter={starter} aiSuggestions={{ ...aiSuggestions, status: 'ready', sprouts }} />);
+    const aiDraft = screen.getByRole('textbox', { name: /AI idea/ });
+    fireEvent.change(aiDraft, { target: { value: 'My edited AI step' } });
+    fireEvent.click(within(aiDraft.closest('article')!).getByRole('button', { name: 'Add this bubble' }));
+    await screen.findByRole('button', { name: 'Open grown bubble: My edited AI step' });
+    expect(facade.getTasks()[1]).toMatchObject({ title: 'My edited AI step', metadata: { bubbleGarden: { origin: 'ai' } } });
+    expect(screen.queryByRole('textbox', { name: /AI idea/ })).not.toBeInTheDocument();
+  });
+
+  it('hides stale AI ideas after the source changes while retaining local suggestions', async () => {
+    const { createAiSprouts, bubbleGrowthSourceFingerprint } = await import('@/domain/bubbleGarden');
+    const source = parent();
+    const sourceFingerprint = bubbleGrowthSourceFingerprint(source);
+    const sprouts = createAiSprouts(source, [{ title: 'Old AI idea', reason: '', estimatedMinutes: 2 }], [source], { sourceFingerprint });
+    render(<BubbleGardenDialog mode="grow" sourceTaskId={source.id} onClose={vi.fn()} onOpenTask={openTask} starter={starter} aiSuggestions={{ sourceTaskId: source.id, sourceFingerprint, sprouts, status: 'ready', onRequest: vi.fn() }} />);
+    expect(screen.getByRole('textbox', { name: /AI idea/ })).toBeInTheDocument();
+    act(() => useBubbleStore.setState({ bubbles: [taskToBubble({ ...source, title: 'A changed thought' })] }));
+    expect(screen.queryByRole('textbox', { name: /AI idea/ })).not.toBeInTheDocument();
+    expect(drafts()).toHaveLength(3);
+    expect(facade.addTask).not.toHaveBeenCalled();
+  });
+
+  it('cancels the previous AI request when switching source bubbles without requesting another', async () => {
+    const { bubbleGrowthSourceFingerprint } = await import('@/domain/bubbleGarden');
+    const source = parent();
+    const second = { ...parent(), id: 'second', title: 'A different source' };
+    useBubbleStore.setState({ bubbles: [taskToBubble(source), taskToBubble(second)] });
+    const onDismiss = vi.fn(); const onRequest = vi.fn();
+    render(<BubbleGardenDialog mode="grow" sourceTaskId={source.id} onClose={vi.fn()} onOpenTask={openTask} starter={starter}
+      aiSuggestions={{ sourceTaskId: source.id, sourceFingerprint: bubbleGrowthSourceFingerprint(source), sprouts: [], status: 'loading', onRequest, onDismiss }} />);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Bubble to grow' }), { target: { value: second.id } });
+    expect(onDismiss).toHaveBeenCalledOnce(); expect(onRequest).not.toHaveBeenCalled();
+    expect(screen.getByRole('combobox', { name: 'Bubble to grow' })).toHaveValue(second.id);
+    expect(screen.getByRole('button', { name: 'Ask AI for ideas' })).toBeEnabled();
+    expect(facade.addTask).not.toHaveBeenCalled();
   });
 });

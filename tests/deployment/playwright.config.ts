@@ -5,7 +5,7 @@ import { defineConfig, devices } from '@playwright/test';
 const output = 'node_modules/.cache/mind-manual-owner-fixture';
 export default defineConfig({
   testDir: '.',
-  testMatch: ['deployment-boundary.spec.ts', 'environment-exposure.spec.ts', 'molecule-workflows.spec.ts', 'native-orbit.spec.ts', 'thought-growth.spec.ts'],
+  testMatch: ['deployment-boundary.spec.ts', 'environment-exposure.spec.ts', 'molecule-workflows.spec.ts', 'native-orbit.spec.ts', 'thought-growth.spec.ts', 'connected-actions.spec.ts'],
   outputDir: '../../test-results/deployment-boundary',
   workers: 1,
   retries: 0,

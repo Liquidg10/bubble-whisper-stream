@@ -38,9 +38,16 @@ export function buildMoleculeBonds(molecules: BondMolecule[]): MoleculeBond[] {
 
 export function getConfirmedDomainLinks(bubble: Bubble): TaskDomainLink[] {
   const seen = new Set<string>();
-  return (bubbleToTask(bubble).domainLinks ?? []).flatMap(link => {
+  const links = bubbleToTask(bubble).domainLinks;
+  if (!Array.isArray(links)) return [];
+  return links.flatMap(link => {
+    if (!link || typeof link !== 'object' || Array.isArray(link)
+      || link.userConfirmed !== true || typeof link.domainId !== 'string'
+      || typeof link.id !== 'string' || !link.id.trim()
+      || (link.label !== undefined && typeof link.label !== 'string')
+      || (link.reason !== undefined && typeof link.reason !== 'string')) return [];
     const domainId = link.domainId.trim();
-    if (!link.userConfirmed || !domainId || seen.has(domainId)) return [];
+    if (!domainId || seen.has(domainId)) return [];
     seen.add(domainId);
     return [{ ...link, domainId }];
   });

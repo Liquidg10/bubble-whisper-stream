@@ -1,7 +1,10 @@
 import { bubbleToTask, mergeTaskIntoBubble } from '@/adapters/taskAdapter';
 import type { Bubble } from '@/types/bubble';
 import type { Task } from '@/types/task';
-import { canGrowBubble, createSproutTask, type BubbleSprout } from './bubbleGarden';
+import { bubbleGrowthSourceFingerprint, canGrowBubble, createSproutTask, suggestBubbleSprouts, type BubbleSprout } from './bubbleGarden';
+
+import { automaticGrowthCandidate } from './proactiveGrowth';
+import { getConfirmedTaskDomainEffects } from './taskRelationships';
 
 export interface BubbleGardenReviewV1 {
   version: 1;
@@ -68,26 +71,31 @@ export function deriveBubbleFamily(taskId: string, tasks: readonly Task[]): Bubb
   };
 }
 
-interface ReviewPersistence {
+export interface ReviewPersistence {
   getBubble: (id: string) => Bubble | undefined;
   saveBubble: (bubble: Bubble) => Promise<void>;
 }
 const reviewWrites = new Map<string, Promise<void>>();
 
 /** Queue each source's preference changes and reread it immediately before writing. */
-export function persistSproutDismissal(sourceId: string, action: SproutDismissal, persistence: ReviewPersistence): Promise<void> {
+export function queueGardenSourceOperation<T>(sourceId: string, action: () => Promise<T>): Promise<T> {
   const previous = reviewWrites.get(sourceId) ?? Promise.resolve();
-  const operation = previous.catch(() => undefined).then(async () => {
+  const operation = previous.catch(() => undefined).then(action);
+  const settled = operation.then(() => undefined, () => undefined);
+  reviewWrites.set(sourceId, settled);
+  void settled.then(() => { if (reviewWrites.get(sourceId) === settled) reviewWrites.delete(sourceId); });
+  return operation;
+}
+
+export function persistSproutDismissal(sourceId: string, action: SproutDismissal, persistence: ReviewPersistence): Promise<void> {
+  return queueGardenSourceOperation(sourceId, async () => {
     const source = persistence.getBubble(sourceId);
     if (!source) throw new Error('The source bubble is no longer available.');
     await persistence.saveBubble(patchSproutDismissal(source, action));
   });
-  reviewWrites.set(sourceId, operation);
-  void operation.finally(() => { if (reviewWrites.get(sourceId) === operation) reviewWrites.delete(sourceId); }).catch(() => undefined);
-  return operation;
 }
 
-interface SproutPersistence {
+export interface SproutPersistence {
   getTasks: () => Task[];
   addTask: (task: Omit<Task, 'id'>) => Promise<Task>;
 }
@@ -98,7 +106,7 @@ const additions = new Map<string, Promise<SproutAddition>>();
 export function addSproutOnce(sprout: BubbleSprout, title: string, domains: readonly string[], persistence: SproutPersistence): Promise<SproutAddition> {
   const pending = additions.get(sprout.key);
   if (pending) return pending.then(result => ({ ...result, created: false }));
-  const operation = Promise.resolve().then(async () => {
+  const operation = queueGardenSourceOperation(sprout.sourceTaskId, async () => {
     const tasks = persistence.getTasks();
     const existing = tasks.find(task => gardenMetadata(task).sproutKey === sprout.key);
     if (existing) return { task: existing, created: false };
@@ -106,7 +114,18 @@ export function addSproutOnce(sprout: BubbleSprout, title: string, domains: read
     if (!source || !canGrowBubble(source)) {
       throw new Error('Choose an unfinished task or thought before adding a new step.');
     }
-    const task = await persistence.addTask(createSproutTask(sprout, title, domains));
+    if (readDismissedSproutKeys(source).includes(sprout.key)) throw new Error('This suggestion was dismissed. Restore it before adding it.');
+    if (sprout.origin === 'ai' && (!sprout.provenance || sprout.provenance.sourceFingerprint !== bubbleGrowthSourceFingerprint(source))) {
+      throw new Error('This source changed. Ask for fresh suggestions before adding a step.');
+    }
+    if (sprout.automatic && automaticGrowthCandidate(source, tasks)?.key !== sprout.key) {
+      throw new Error('Automatic steps are paused or this step is no longer available.');
+    }
+    if (sprout.origin !== 'ai' && !suggestBubbleSprouts(source, tasks).some(item => item.key === sprout.key)) {
+      throw new Error('This note changed. Review its current suggestions before adding a step.');
+    }
+    const currentLinks = getConfirmedTaskDomainEffects(source).map(({ link }) => link).filter(link => domains.includes(link.domainId));
+    const task = await persistence.addTask(createSproutTask({ ...sprout, domainLinks: currentLinks }, title, domains));
     return { task, created: true };
   });
   additions.set(sprout.key, operation);

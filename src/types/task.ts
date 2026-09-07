@@ -12,6 +12,7 @@ import type {
   TaskId,
   TaskMetadata,
   TaskReadiness,
+  TaskRelationship,
   TaskTag,
   TaskType,
   TaskUrgency,
@@ -26,6 +27,7 @@ export type {
   CanonicalTaskContractV1,
   TaskActionability,
   TaskDomainLink,
+  TaskDomainEffect,
   TaskEnergyFit,
   TaskFinanceMetadata,
   TaskFocusSessionMetadata,
@@ -36,6 +38,8 @@ export type {
   TaskReadinessBand,
   TaskReadinessFactor,
   TaskReadinessFactorKey,
+  TaskRelationship,
+  TaskRelationshipKind,
   TaskTag,
   TaskType,
   TaskUrgency,
@@ -62,6 +66,7 @@ export interface Task {
 
   // Only user-confirmed links may contribute to Ripple/Molecule projections.
   domainLinks?: TaskDomainLink[];
+  relationships?: TaskRelationship[];
   
   // Tagging and categorization
   tags: TaskTag[];
@@ -104,6 +109,7 @@ export function createTask(
     urgency: options.urgency,
     readiness: options.readiness,
     domainLinks: options.domainLinks,
+    relationships: options.relationships,
     tags: options.tags ?? [],
     createdAt: now,
     updatedAt: now,

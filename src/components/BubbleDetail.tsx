@@ -19,11 +19,12 @@ import { TaskOutliner } from './TaskOutliner';
 import { isFeatureEnabled } from '@/config/flags';
 import { AccessibleConfirmDialog } from '@/components/AccessibleConfirmDialog';
 import { LifeConnectionsEditor } from '@/components/LifeConnectionsEditor';
-import { bubbleToTask, withBubbleDomainLinks } from '@/adapters/taskAdapter';
+import { bubbleToTask, withBubbleDomainLinks, withBubbleRelationships } from '@/adapters/taskAdapter';
 import { useTaskStore } from '@/stores/taskStore';
 import { getHorizon, setHorizon, type Horizon } from '@/lib/horizon';
 import { BubbleFamily } from '@/components/BubbleFamily';
 import { canGrowBubble } from '@/domain/bubbleGarden';
+import { SavedTaskConnections, TaskRelationshipsEditor } from '@/components/TaskRelationshipsEditor';
 
 interface BubbleDetailProps {
   bubble: Bubble | null;
@@ -142,7 +143,9 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
 
   // Auto-save when editedBubble changes
   React.useEffect(() => {
-    if (editedBubble && bubble && editedBubble !== bubble) {
+    // A store refresh may replace the selected prop after a different task is
+    // saved. Only an actual editor snapshot change should queue this draft.
+    if (editedBubble && loadedBubbleIdRef.current === editedBubble.id) {
       if (skipNextAutoSave.current) {
         skipNextAutoSave.current = false;
         return;
@@ -150,7 +153,7 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
       dirtyBubbleRef.current = editedBubble;
       debouncedSave(editedBubble);
     }
-  }, [editedBubble, bubble, debouncedSave]);
+  }, [editedBubble, debouncedSave]);
 
   React.useEffect(() => {
     isMountedRef.current = true;
@@ -520,6 +523,8 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
             </div>
           )}
 
+          <SavedTaskConnections taskId={bubble.id} onOpenTask={onOpenTask ? (id) => void handleNavigate(() => onOpenTask(id)) : undefined} />
+
           {/* Size/Priority */}
           <div>
             <label className="text-sm font-medium flex items-center justify-between" style={{ color: colorScheme.text }}>
@@ -563,6 +568,17 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
                   setSaveError('This task was created by a newer data version and cannot be safely changed here.');
                 }
               }}
+            />
+            <TaskRelationshipsEditor key={canonicalTask.id} task={canonicalTask}
+              onChange={relationships => {
+                try {
+                  setEditedBubble(withBubbleRelationships(editedBubble, relationships));
+                  setSaveError(null);
+                } catch {
+                  setSaveError('These connections could not be changed safely. Your previous connections are still here.');
+                }
+              }}
+              onOpenTask={onOpenTask ? (id) => void handleNavigate(() => onOpenTask(id)) : undefined}
             />
             </div>
           )}
