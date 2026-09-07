@@ -1,7 +1,7 @@
 import { bubbleToTask, mergeTaskIntoBubble } from '@/adapters/taskAdapter';
 import type { Bubble } from '@/types/bubble';
 import type { Task } from '@/types/task';
-import { createSproutTask, type BubbleSprout } from './bubbleGarden';
+import { canGrowBubble, createSproutTask, type BubbleSprout } from './bubbleGarden';
 
 export interface BubbleGardenReviewV1 {
   version: 1;
@@ -103,8 +103,8 @@ export function addSproutOnce(sprout: BubbleSprout, title: string, domains: read
     const existing = tasks.find(task => gardenMetadata(task).sproutKey === sprout.key);
     if (existing) return { task: existing, created: false };
     const source = tasks.find(task => task.id === sprout.sourceTaskId);
-    if (!source || source.completed || source.type !== 'task' || source.actionability === 'reference') {
-      throw new Error('Choose an unfinished task before adding a new step.');
+    if (!source || !canGrowBubble(source)) {
+      throw new Error('Choose an unfinished task or thought before adding a new step.');
     }
     const task = await persistence.addTask(createSproutTask(sprout, title, domains));
     return { task, created: true };

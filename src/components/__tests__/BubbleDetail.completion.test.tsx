@@ -146,16 +146,20 @@ describe('BubbleDetail canonical completion', () => {
     });
   });
 
-  it('saves the current draft before opening its source-specific grow flow', async () => {
+  it.each(['task', 'thought'] as const)('saves the current %s draft before opening its source-specific grow flow', async type => {
+    bubble = taskToBubble({ ...task, type });
+    useBubbleStore.setState({ bubbles: [bubble] });
     const user = userEvent.setup();
     const saving = deferred<void>();
     updateBubble.mockImplementationOnce(() => saving.promise);
     const onGrowIdeas = vi.fn();
     render(<BubbleDetail bubble={bubble} isOpen onClose={vi.fn()} onGrowIdeas={onGrowIdeas} />);
-    await user.type(screen.getByLabelText('Notes & small steps'), '- Read the brief');
+    await user.type(screen.getByLabelText(type === 'thought' ? 'Content' : 'Notes & small steps'), '\n- Read the brief');
     await user.click(screen.getByRole('button', { name: 'Grow ideas from this bubble' }));
     expect(onGrowIdeas).not.toHaveBeenCalled();
-    await waitFor(() => expect(updateBubble).toHaveBeenCalledWith(expect.objectContaining({ caption: '- Read the brief' })));
+    await waitFor(() => expect(updateBubble).toHaveBeenCalledWith(expect.objectContaining(type === 'thought'
+      ? { type: 'Thought', content: `${bubble.content}\n- Read the brief` }
+      : { type: bubble.type, content: bubble.content, caption: '\n- Read the brief' })));
     await act(async () => saving.resolve());
     await waitFor(() => expect(onGrowIdeas).toHaveBeenCalledWith(bubble.id));
     expect(onGrowIdeas).toHaveBeenCalledTimes(1);

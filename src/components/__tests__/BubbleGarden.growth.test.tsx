@@ -24,6 +24,14 @@ const openTask = vi.fn();
 function parent(): Task {
   return { ...createTask('Explore an idea', 'task', { domainLinks: [createUserDomainLink('Home')], metadata: { preserved: 'yes' } }), id: 'parent' };
 }
+function capturedThought(): Bubble {
+  return {
+    ...taskToBubble({ ...parent(), type: 'thought', title: 'Maybe grow something\n- Check the light\n- Choose one herb', description: 'Keep this idea for later.' }),
+    audioUri: 'local-recording',
+    x: 64,
+    y: 120,
+  };
+}
 function mountGarden(id = 'parent') {
   return render(<BubbleGardenDialog mode="grow" sourceTaskId={id} onClose={vi.fn()} onOpenTask={openTask} starter={starter} />);
 }
@@ -41,6 +49,7 @@ beforeEach(() => {
   facade.getTasks.mockImplementation(() => useBubbleStore.getState().bubbles.map(bubbleToTask));
   facade.saveBubble.mockImplementation(async bubble => useBubbleStore.setState(state => ({ bubbles: state.bubbles.map(item => item.id === bubble.id ? bubble : item) })));
   facade.addTask.mockImplementation(async data => commitTask(data));
+  facade.deleteBubble.mockImplementation(async id => useBubbleStore.setState(state => ({ bubbles: state.bubbles.filter(item => item.id !== id) })));
 });
 afterEach(cleanup);
 
@@ -120,6 +129,69 @@ describe('Garden review continuity', () => {
     await waitFor(() => expect(facade.getTasks()).toHaveLength(2));
     expect(facade.addTask).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('list', { name: 'Steps grown from this bubble' }).children).toHaveLength(1);
+  });
+
+  it('opens Grow from a thought-only collection and deliberately saves, links and undoes a reviewed task', async () => {
+    const thought = capturedThought();
+    useBubbleStore.setState({ bubbles: [thought] });
+    render(<BubbleGardenDialog mode="grow" onClose={vi.fn()} onOpenTask={openTask} starter={starter} />);
+    expect(screen.getByRole('combobox', { name: 'Bubble to grow' })).toHaveValue(thought.id);
+    expect(screen.getByRole('option')).toHaveTextContent('Thought');
+    expect(screen.getByText(/keeps your original thought intact/)).toBeInTheDocument();
+    expect(drafts()).toHaveLength(2);
+    expect(drafts()[0]).toHaveAccessibleName(/from your notes/);
+    expect(facade.addTask).not.toHaveBeenCalled();
+    fireEvent.change(drafts()[0], { target: { value: 'Check the kitchen window for light' } });
+    fireEvent.click(within(firstCard()).getByRole('checkbox', { name: 'Home' }));
+    fireEvent.click(within(firstCard()).getByRole('button', { name: 'Add this bubble' }));
+    await waitFor(() => expect(facade.getTasks()).toHaveLength(2));
+    const child = facade.getTasks()[1];
+    expect(child).toMatchObject({ type: 'task', title: 'Check the kitchen window for light', domainLinks: [], metadata: { bubbleGarden: { sourceTaskId: thought.id } } });
+    expect(useBubbleStore.getState().bubbles[0]).toBe(thought);
+    fireEvent.click(screen.getByRole('button', { name: 'Open grown bubble: Check the kitchen window for light' }));
+    expect(openTask).toHaveBeenCalledWith(child.id);
+    fireEvent.click(screen.getByRole('button', { name: 'Undo last addition' }));
+    await waitFor(() => expect(facade.getTasks()).toHaveLength(1));
+    expect(drafts()).toHaveLength(2);
+    expect(useBubbleStore.getState().bubbles[0]).toBe(thought);
+    expect(facade.saveBubble).not.toHaveBeenCalled();
+    expect(facade.updateTask).not.toHaveBeenCalled();
+  });
+
+  it('preserves a thought draft and source through a failed save, then retries only the deliberate addition', async () => {
+    const thought = capturedThought();
+    useBubbleStore.setState({ bubbles: [thought] });
+    facade.addTask.mockRejectedValueOnce(new Error('Storage full'));
+    mountGarden();
+    fireEvent.change(drafts()[0], { target: { value: 'Keep this exact reviewed step' } });
+    fireEvent.click(within(firstCard()).getByRole('button', { name: 'Add this bubble' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('was not saved');
+    expect(drafts()[0]).toHaveValue('Keep this exact reviewed step');
+    expect(useBubbleStore.getState().bubbles).toEqual([thought]);
+    fireEvent.click(within(firstCard()).getByRole('button', { name: 'Add this bubble' }));
+    await screen.findByRole('button', { name: 'Open grown bubble: Keep this exact reviewed step' });
+    expect(facade.addTask).toHaveBeenCalledTimes(2);
+    expect(facade.getTasks()).toHaveLength(2);
+    expect(useBubbleStore.getState().bubbles[0]).toBe(thought);
+  });
+
+  it('labels local thought prompts accurately and does not offer drafts for memory or reference sources', () => {
+    const thought = { ...parent(), type: 'thought' as const, title: 'Maybe a window garden' };
+    const memory = { ...parent(), id: 'memory', type: 'memory' as const };
+    const reference = { ...thought, id: 'reference', actionability: 'reference' as const };
+    useBubbleStore.setState({ bubbles: [taskToBubble(memory), taskToBubble(reference), taskToBubble(thought)] });
+    const mounted = render(<BubbleGardenDialog mode="grow" onClose={vi.fn()} onOpenTask={openTask} starter={starter} />);
+    expect(screen.getByRole('combobox')).toHaveValue(thought.id);
+    expect(drafts()[0]).toHaveAccessibleName(/local starting idea/);
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: reference.id } });
+    expect(drafts()).toHaveLength(0);
+    expect(screen.getByText(/This is a reference bubble/)).toBeInTheDocument();
+    mounted.unmount();
+    mountGarden(memory.id);
+    expect(drafts()).toHaveLength(0);
+    expect(screen.getByText(/Grow offers drafts for tasks and thoughts/)).toBeInTheDocument();
+    expect(screen.queryByText(/You have explored these suggestions/)).not.toBeInTheDocument();
+    expect(facade.addTask).not.toHaveBeenCalled();
   });
 });
 

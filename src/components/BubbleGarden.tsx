@@ -21,6 +21,7 @@ import { useTaskStore } from '@/stores/taskStore';
 import { bubbleToTask } from '@/adapters/taskAdapter';
 import {
   STARTER_LESSONS,
+  canGrowBubble,
   createStarterTask,
   starterLessonKey,
   suggestBubbleSprouts,
@@ -167,7 +168,7 @@ function SproutDraft({
         className="block text-xs font-medium text-muted-foreground"
         htmlFor={`sprout-${sprout.key}`}
       >
-        Suggested bubble · about {sprout.minutes} minutes
+        Suggested bubble · {sprout.origin === 'notes' ? 'from your notes' : 'local starting idea'} · about {sprout.minutes} minutes
       </label>
       <textarea
         id={`sprout-${sprout.key}`}
@@ -273,7 +274,7 @@ export function BubbleGardenDialog({
   } = useProgressiveOnboarding();
   const bubbles = useBubbleStore((state) => state.bubbles);
   const tasks = useMemo(() => bubbles.map(bubbleToTask), [bubbles]);
-  const sources = tasks.filter(task => task.type === 'task');
+  const sources = tasks.filter(task => task.type === 'task' || task.type === 'thought');
   const [sourceId, setSourceId] = useState(sourceTaskId ?? '');
   const [added, setAdded] = useState<{ id: string; sourceId: string } | null>(null);
   const [status, setStatus] = useState('');
@@ -294,7 +295,8 @@ export function BubbleGardenDialog({
     setReviewError('');
     setStatus('');
   }, [mode, sourceTaskId]);
-  const source = sourceId ? tasks.find(task => task.id === sourceId) : sources[0];
+  const source = sourceId ? tasks.find(task => task.id === sourceId) : (sources.find(canGrowBubble) ?? sources[0]);
+  const canGrowSource = Boolean(source && canGrowBubble(source));
   const dismissed = source ? readDismissedSproutKeys(source) : [];
   const suggestions = source ? suggestBubbleSprouts(source, tasks).filter(item => !dismissed.includes(item.key)) : [];
   const saveReview = async (id: string, action: Parameters<typeof persistSproutDismissal>[1]) => {
@@ -324,7 +326,7 @@ export function BubbleGardenDialog({
           <DialogDescription>
             {mode === 'guide'
               ? 'Explore at your own pace. Your examples are ordinary bubbles you can edit, complete or delete.'
-              : 'Pick a bubble to find a smaller next step. These local suggestions are editable drafts; you choose what becomes a task.'}
+              : 'Choose a task or thought to explore a smaller next step. Suggestions use your unfinished lists or local templates; you review what becomes a task.'}
           </DialogDescription>
         </DialogHeader>
         {mode === 'guide' ? (
@@ -442,7 +444,7 @@ export function BubbleGardenDialog({
           </div>
         ) : (
           <div ref={reviewRef} data-garden-source-id={source?.id} className="space-y-4">
-            {sources.length > 0 || source ? (
+            {sources.length > 0 || source || sourceId ? (
               <>
                 <label className="block text-sm font-medium">
                   Start from this bubble
@@ -454,13 +456,15 @@ export function BubbleGardenDialog({
                     onChange={event => { setSourceId(event.target.value); setReviewError(''); setStatus(''); }}
                   >
                     {!source && sourceId && <option value={sourceId}>Source bubble unavailable</option>}
-                    {source && source.type !== 'task' && <option value={source.id}>{source.title}</option>}
-                    {sources.map(task => <option key={task.id} value={task.id}>{task.title}{task.completed ? ' · Complete' : ''}</option>)}
+                    {source && !sources.some(task => task.id === source.id) && <option value={source.id}>{source.title || 'Untitled bubble'}</option>}
+                    {sources.map(task => <option key={task.id} value={task.id}>{task.title || 'Untitled bubble'}{task.type === 'thought' ? ' · Thought' : ''}{task.completed ? ' · Complete' : task.actionability === 'reference' ? ' · Reference' : ''}</option>)}
                   </select>
                 </label>
                 {source && <BubbleFamily taskId={source.id} onOpenTask={openFamilyTask} />}
+                {source?.type === 'thought' && canGrowSource && <p className="rounded-lg bg-muted p-4 text-sm">Explore this thought at your own pace. Adding a step creates a separate task and keeps your original thought intact.</p>}
                 {source?.completed && <p className="rounded-lg bg-muted p-4 text-sm">This bubble is complete. Its connected steps are still available; choose an unfinished bubble for new suggestions.</p>}
                 {source && !source.completed && source.actionability === 'reference' && <p className="rounded-lg bg-muted p-4 text-sm">This is a reference bubble. Its connected steps remain available.</p>}
+                {source && !source.completed && source.actionability !== 'reference' && !canGrowSource && <p className="rounded-lg bg-muted p-4 text-sm">{source.type === 'task' || source.type === 'thought' ? 'Add some words to this bubble before exploring a next step.' : 'Grow offers drafts for tasks and thoughts. This bubble stays available with any connected steps.'}</p>}
                 {suggestions.map(sprout => (
                   <SproutDraft
                     key={sprout.key}
@@ -482,7 +486,7 @@ export function BubbleGardenDialog({
                     }}
                   />
                 ))}
-                {source && dismissed.length > 0 && <div className="space-y-2 rounded-lg border p-3">
+                {source && canGrowSource && dismissed.length > 0 && <div className="space-y-2 rounded-lg border p-3">
                   <p className="text-xs text-muted-foreground">Dismissed suggestions stay hidden for this bubble, including after you return.</p>
                   <Button data-garden-restore variant="outline" className="min-h-11" disabled={reviewPending > 0 || undoing} onClick={async () => {
                     setReviewError('');
@@ -490,10 +494,10 @@ export function BubbleGardenDialog({
                     catch { setReviewError('Suggestions could not be restored. Please try again.'); }
                   }}>Restore suggestions</Button>
                 </div>}
-                {source && !source.completed && source.actionability !== 'reference' && suggestions.length === 0 && <p className="rounded-lg bg-muted p-4 text-sm">You have explored these suggestions. Your saved steps remain in Connected steps{dismissed.length ? ', or you can restore dismissed suggestions.' : '.'}</p>}
+                {source && canGrowSource && suggestions.length === 0 && <p className="rounded-lg bg-muted p-4 text-sm">You have explored these suggestions. Your saved steps remain in Connected steps{dismissed.length ? ', or you can restore dismissed suggestions.' : '.'}</p>}
                 {!source && <p role="status" className="rounded-lg bg-muted p-4 text-sm">That source bubble is no longer available. Choose another bubble to continue.</p>}
               </>
-            ) : <p className="rounded-lg bg-muted p-4 text-sm">Add a task first, then return here to help it grow into smaller steps.</p>}
+            ) : <p className="rounded-lg bg-muted p-4 text-sm">Capture a thought or add a task, then return here to explore a smaller next step.</p>}
             {reviewError && <p role="alert" className="text-sm text-destructive">{reviewError}</p>}
             {added && source?.id === added.sourceId && bubbles.some(bubble => bubble.id === added.id) && <Button variant="ghost" className="min-h-11" disabled={undoing || reviewPending > 0} onClick={async () => {
               const target = added;

@@ -8,6 +8,7 @@ import {
   starterLessonKey,
   suggestBubbleSprouts,
   createSproutTask,
+  canGrowBubble,
 } from '../bubbleGarden';
 
 function task(overrides: Partial<Task> = {}): Task {
@@ -75,6 +76,15 @@ describe('guide and suggested bubble contract', () => {
     expect(
       suggestBubbleSprouts(parent, [restored]).map((item) => item.key),
     ).not.toContain(draft.key);
+  });
+
+  it('retains the exact identity of an inherited life area when growing a task', () => {
+    const link = { ...createUserDomainLink('Creativity'), domainId: 'custom_creativity' };
+    const thought = task({ type: 'thought', domainLinks: [link] });
+    const draft = suggestBubbleSprouts(thought, [thought])[0];
+    const child = bubbleToTask(taskToBubble({ ...createSproutTask(draft, 'Sketch one small idea', [link.domainId]), id: 'child' }));
+    expect(child.domainLinks).toEqual([expect.objectContaining({ domainId: 'custom_creativity', label: link.label, userConfirmed: true, source: 'user' })]);
+    expect(child.domainLinks?.[0].id).not.toBe(link.id);
   });
 
   it('does not grow completed or reference bubbles and rejects blank accepted titles', () => {
@@ -156,5 +166,50 @@ describe('guide and suggested bubble contract', () => {
     );
     expect(drafts).toHaveLength(3);
     expect(drafts[0].key).toBe('parent:first-step');
+  });
+
+  it('offers optional local prompts for a captured thought without changing its type or content', () => {
+    const thought = task({ type: 'thought', title: 'Maybe a window herb garden would be nice', description: 'Just an idea, no deadline.' });
+    const before = structuredClone(thought);
+    const drafts = suggestBubbleSprouts(thought, [thought]);
+    expect(canGrowBubble(thought)).toBe(true);
+    expect(drafts).toHaveLength(3);
+    expect(drafts[0].title).toContain('Write one question to explore');
+    expect(drafts.every(draft => draft.origin === 'local')).toBe(true);
+    const child = bubbleToTask(taskToBubble({ ...createSproutTask(drafts[0], 'Look at the window light', ['home-personal']), id: 'step' }));
+    expect(child.type).toBe('task');
+    expect(child.metadata?.bubbleGarden.sourceTaskId).toBe(thought.id);
+    expect(thought).toEqual(before);
+  });
+
+  it('prioritizes unfinished notes and captured checklists together while keeping stable item keys', () => {
+    const thought = task({ type: 'thought', title: 'Maybe try a garden\n- [x] Completed research\n- Buy one pot\n- Check the light', description: 'My next ideas:\n- Check the light\n- Choose one herb' });
+    const drafts = suggestBubbleSprouts(thought, []);
+    expect(drafts.map(draft => draft.title)).toEqual(['Check the light', 'Choose one herb', 'Buy one pot']);
+    expect(drafts.every(draft => draft.origin === 'notes')).toBe(true);
+    const reordered = suggestBubbleSprouts({ ...thought, description: '', title: '1. Buy one pot\n2. Choose one herb\n3. Check the light' }, []);
+    expect(reordered.map(draft => draft.key).sort()).toEqual(drafts.map(draft => draft.key).sort());
+    const saved = { ...createSproutTask(drafts[0], 'My edited light check', []), id: 'child' };
+    expect(suggestBubbleSprouts(thought, [saved]).map(draft => draft.title)).toEqual(['Choose one herb', 'Buy one pot']);
+  });
+
+  it('keeps protected captures out of suggestions, including reference thoughts and empty text', () => {
+    const excluded: Partial<Task>[] = [
+      ...(['memory', 'mood', 'photo', 'event', 'reminder'] as const).map(type => ({ type })),
+      { type: 'thought', actionability: 'reference' },
+      { type: 'thought', completed: true },
+      { type: 'thought', title: '  ', description: '\n' },
+    ];
+    for (const overrides of excluded) {
+      const source = task(overrides);
+      expect(canGrowBubble(source)).toBe(false);
+      expect(suggestBubbleSprouts(source, [])).toEqual([]);
+    }
+    expect(suggestBubbleSprouts(task({ type: 'thought', title: '', description: '- Find one pot' }), [])[0].title).toBe('Find one pot');
+  });
+
+  it('honors a completed note over an older unchecked copy in the captured thought', () => {
+    const thought = task({ type: 'thought', title: '- [ ] Check the light\n- Choose one herb', description: '- [x] CHECK THE LIGHT' });
+    expect(suggestBubbleSprouts(thought, []).map(draft => draft.title)).toEqual(['Choose one herb']);
   });
 });

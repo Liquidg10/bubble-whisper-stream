@@ -15,8 +15,8 @@ function deferred() {
 }
 
 describe('Durable Garden review choices', () => {
-  it('round-trips arbitrary dismissal keys while preserving source words, lineage, links and visual fields', () => {
-    const original = { ...taskToBubble(source()), x: 12.34, y: -44.2, size: 0.37321, imageUri: 'local-image', audioUri: 'local-audio' };
+  it.each(['task', 'thought'] as const)('round-trips arbitrary dismissal keys while preserving %s words, type, lineage, links and visual fields', type => {
+    const original = { ...taskToBubble({ ...source(), type }), x: 12.34, y: -44.2, size: 0.37321, imageUri: 'local-image', audioUri: 'local-audio' };
     const before = structuredClone(original);
     const key = `parent:note:${encodeURIComponent('A detailed note '.repeat(35))}`;
     const dismissed = patchSproutDismissal(original, { type: 'dismiss', key }, original.updatedAt);
@@ -24,7 +24,7 @@ describe('Durable Garden review choices', () => {
     expect({ ...dismissed, metadata: original.metadata, updatedAt: original.updatedAt }).toEqual(original);
     const restored = bubbleToTask(dismissed);
     expect(readDismissedSproutKeys(restored)).toEqual([key]);
-    expect(restored).toMatchObject({ title: before.content, description: before.caption, domainLinks: source().domainLinks?.map(link => expect.objectContaining({ domainId: link.domainId })), metadata: { custom: { preserved: true }, bubbleGarden: { sourceTaskId: 'older-parent', pack: 'living-bubbles-v1', lesson: 'connect' } } });
+    expect(restored).toMatchObject({ type, title: before.content, description: before.caption, domainLinks: source().domainLinks?.map(link => expect.objectContaining({ domainId: link.domainId })), metadata: { custom: { preserved: true }, bubbleGarden: { sourceTaskId: 'older-parent', pack: 'living-bubbles-v1', lesson: 'connect' } } });
     expect(dismissed.updatedAt).toBeGreaterThan(original.updatedAt);
     expect(readDismissedSproutKeys(bubbleToTask(patchSproutDismissal(dismissed, { type: 'restore' })))).toEqual([]);
   });
@@ -82,8 +82,9 @@ describe('Saved bubble family and creation admission', () => {
     expect(deriveBubbleFamily(child.id, [child])).toMatchObject({ parentId: parent.id, parent: undefined, children: [] });
   });
 
-  it('joins concurrent/remounted requests and returns a saved child without duplicating it', async () => {
-    const parent = source('admission');
+  it.each(['task', 'thought'] as const)('joins concurrent/remounted requests from a %s and returns a saved child without duplicating it', async type => {
+    const parent = { ...source(`admission-${type}`), type };
+    const before = structuredClone(parent);
     const tasks = [parent];
     const gate = deferred();
     const draft = suggestBubbleSprouts(parent, tasks)[0];
@@ -93,6 +94,7 @@ describe('Saved bubble family and creation admission', () => {
     const joined = addSproutOnce(draft, 'Second attempt', [], persistence);
     await Promise.resolve();
     expect(addTask).toHaveBeenCalledTimes(1);
+    expect(parent).toEqual(before);
     gate.resolve();
     const results = await Promise.all([first, joined]);
     expect(results.map(result => result.created)).toEqual([true, false]);
@@ -111,5 +113,14 @@ describe('Saved bubble family and creation admission', () => {
     parent.completed = true;
     await expect(addSproutOnce(draft, 'No longer eligible', [], persistence)).rejects.toThrow('unfinished task');
     expect(addTask).toHaveBeenCalledTimes(2);
+  });
+
+  it('rechecks a thought made reference before adding a previously reviewed draft', async () => {
+    const parent = { ...source('protected-thought'), type: 'thought' as const };
+    const draft = suggestBubbleSprouts(parent, [parent])[0];
+    parent.actionability = 'reference';
+    const addTask = vi.fn();
+    await expect(addSproutOnce(draft, 'A stale draft', [], { getTasks: () => [parent], addTask })).rejects.toThrow('unfinished task or thought');
+    expect(addTask).not.toHaveBeenCalled();
   });
 });

@@ -149,9 +149,9 @@ export function proposeLifeDomainLinks(
 
   const proposals: LifeDomainProposal[] = [];
   for (const domain of candidates) {
-    const domainId = normalizeDomainId(domain.id || domain.label);
+    const domainId = domain.id.trim() || normalizeDomainId(domain.label);
     const labelKey = normalizeDomainId(domain.label);
-    if (existingKeys.has(domainId) || existingKeys.has(labelKey)) continue;
+    if (existingKeys.has(normalizeDomainId(domainId)) || existingKeys.has(labelKey)) continue;
 
     const evidence = findEvidence(text, domain);
     if (!evidence) continue;

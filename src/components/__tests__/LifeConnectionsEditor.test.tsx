@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LifeConnectionsEditor } from '@/components/LifeConnectionsEditor';
 import type { Task, TaskDomainLink } from '@/types/task';
+import { useTaskStore } from '@/stores/taskStore';
 
 const task: Task = {
   id: 'task-1',
@@ -39,6 +40,7 @@ function Harness({
 describe('LifeConnectionsEditor', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useTaskStore.setState({ tasks: [] });
   });
 
   it('keeps local hypotheses hidden until explicitly requested', async () => {
@@ -222,5 +224,64 @@ describe('LifeConnectionsEditor', () => {
     expect(screen.queryByRole('button', { name: 'Undo linking Creativity' })).not.toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Add your own connection' })).toHaveValue('');
     expect(onTaskBChange).not.toHaveBeenCalled();
+  });
+
+  it('reuses a confirmed area from another bubble, with undo and no copied personal reason', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const existingLink: TaskDomainLink = { id: 'existing', domainId: 'education', label: 'Learning', userConfirmed: true, source: 'user', reason: 'A reason specific to the other bubble' };
+    useTaskStore.setState({ tasks: [{ ...task, id: 'other', title: 'Read something interesting', domainLinks: [existingLink] }] });
+    render(<Harness onChange={onChange} />);
+    await user.click(screen.getByRole('button', { name: 'Choose an existing life area' }));
+    await user.type(screen.getByRole('textbox', { name: 'Find a life area' }), 'learning');
+    await user.click(screen.getByRole('button', { name: 'Use life area Learning' }));
+    expect(onChange).toHaveBeenLastCalledWith([expect.objectContaining({ domainId: 'education', label: 'Learning', userConfirmed: true })]);
+    const saved = onChange.mock.lastCall![0][0];
+    expect(saved.id).not.toBe(existingLink.id);
+    expect(saved.reason).toBeUndefined();
+    await user.click(screen.getByRole('button', { name: 'Undo linking Learning' }));
+    expect(onChange).toHaveBeenLastCalledWith([]);
+  });
+
+  it('typing a known label uses its stable ID and prevents a renamed duplicate', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    useTaskStore.setState({ tasks: [{ ...task, id: 'other', domainLinks: [{ id: 'existing', domainId: 'education', label: 'Learning', userConfirmed: true, source: 'user' }] }] });
+    render(<Harness onChange={onChange} />);
+    const input = screen.getByRole('textbox', { name: 'Add your own connection' });
+    await user.type(input, 'Learning');
+    await user.click(screen.getByRole('button', { name: 'Add connection' }));
+    expect(onChange.mock.lastCall![0][0].domainId).toBe('education');
+    await user.type(input, 'Education');
+    await user.click(screen.getByRole('button', { name: 'Add connection' }));
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('alert')).toHaveTextContent('already connected');
+  });
+
+  it('asks for an explicit choice when two existing areas share a name', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    useTaskStore.setState({ tasks: [{ ...task, id: 'other', domainLinks: ['one', 'two'].map(id => ({ id, domainId: id, label: 'Creativity', userConfirmed: true, source: 'user' as const })) }] });
+    render(<Harness onChange={onChange} />);
+    await user.type(screen.getByRole('textbox', { name: 'Add your own connection' }), 'Creativity');
+    await user.click(screen.getByRole('button', { name: 'Add connection' }));
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toHaveTextContent('More than one life area');
+    expect(screen.getByRole('button', { name: 'Use life area Creativity (area 1 of 2)' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Use life area Creativity (area 2 of 2)' })).toBeVisible();
+  });
+
+  it('keeps normalized ambiguous names visible in the chooser and waits for a selection', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    useTaskStore.setState({ tasks: [{ ...task, id: 'other', domainLinks: ['one', 'two'].map(id => ({ id, domainId: id, label: 'Creative practice', userConfirmed: true, source: 'user' as const })) }] });
+    render(<Harness onChange={onChange} />);
+    await user.type(screen.getByRole('textbox', { name: 'Add your own connection' }), 'creative-practice');
+    await user.click(screen.getByRole('button', { name: 'Add connection' }));
+    expect(onChange).not.toHaveBeenCalled();
+    const second = screen.getByRole('button', { name: 'Use life area Creative practice (area 2 of 2)' });
+    expect(second).toBeVisible();
+    await user.click(second);
+    expect(onChange.mock.lastCall![0][0]).toMatchObject({ domainId: 'two', label: 'Creative practice' });
   });
 });
