@@ -9,6 +9,7 @@ import React, {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -20,9 +21,13 @@ import { Card } from '@/components/ui/card';
 import {
   Pause,
   Play,
-  Shuffle,
+  Atom,
+  Link2,
+  Info,
+  ArrowLeft,
+  Plus,
+  X,
   Target,
-  Zap,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
@@ -42,7 +47,6 @@ import {
   stopAnimation,
   subscribeToMotionState,
 } from '@/lib/motion';
-import { bubbleToTask } from '@/adapters/taskAdapter';
 import {
   getHorizon,
   getHorizonDisplayName,
@@ -50,6 +54,10 @@ import {
 } from '@/lib/horizon';
 import { calculateMoleculePositions } from '@/experimental/atomic/positioning';
 import { hapticsService } from '@/services/haptics';
+import { interpolateOrbit, nearestFreeOrbitSlot, ORBIT_SETTLE_DURATION } from './orbitalMechanics';
+import './atomic.css';
+import { MoleculeBonds } from './MoleculeBonds';
+import { buildMoleculeBonds, getConfirmedDomainLinks, getSharedTaskConnections, type MoleculeTracePoint } from './moleculeBondModel';
 
 interface Electron {
   id: string;
@@ -59,6 +67,8 @@ interface Electron {
   canvasSlot: number | null;
   content: string;
   originalBubble?: Bubble;
+  settleFrom?: CanvasPoint;
+  settleStartedAt?: number;
 }
 
 interface Molecule {
@@ -66,8 +76,6 @@ interface Molecule {
   x: number;
   y: number;
   nucleus: {
-    protons: number;
-    neutrons: number;
     domain: string;
   };
   electrons: Electron[];
@@ -107,7 +115,6 @@ const SHELL_CONFIG = [
     radius: 64,
     color: '#B91C1C',
     highContrastColor: '#7F1D1D',
-    maxElectrons: 8,
     canvasSlots: 8,
   },
   {
@@ -115,7 +122,6 @@ const SHELL_CONFIG = [
     radius: 116,
     color: '#92400E',
     highContrastColor: '#78350F',
-    maxElectrons: 18,
     canvasSlots: 14,
   },
   {
@@ -123,7 +129,6 @@ const SHELL_CONFIG = [
     radius: 168,
     color: '#047857',
     highContrastColor: '#065F46',
-    maxElectrons: 32,
     canvasSlots: 21,
   },
 ] as const;
@@ -140,7 +145,7 @@ const WIDE_VIEWPORT_WIDTH = 768;
 const SHORT_WIDE_VERTICAL_OFFSET = 24;
 
 const ANIMATION_CONFIG = {
-  electronSpeed: 0.012,
+  electronSpeed: 0.00014,
   shellSpeedMultipliers: [1.2, 1, 0.8],
   maxElectronsForFastAnimation: 50,
 } as const;
@@ -148,6 +153,7 @@ const ANIMATION_CONFIG = {
 interface AtomicRendererProps {
   bubbles?: Bubble[];
   onBubbleSelect?: (bubble: Bubble) => void;
+  onEditConnections?: (bubble: Bubble) => void;
   onTimeHorizonUpdate?: (
     bubbleId: string,
     fromRing: number,
@@ -163,18 +169,6 @@ interface AtomicRendererProps {
 function shellIndexForBubble(bubble: Bubble): number {
   const index = HORIZONS.indexOf(getHorizon(bubble) ?? 'today');
   return index < 0 ? 0 : index;
-}
-
-function getConfirmedDomainLinks(bubble: Bubble) {
-  const seenDomainIds = new Set<string>();
-  return (bubbleToTask(bubble).domainLinks ?? []).flatMap((link) => {
-    const domainId = link.domainId.trim();
-    if (!link.userConfirmed || !domainId || seenDomainIds.has(domainId)) {
-      return [];
-    }
-    seenDomainIds.add(domainId);
-    return [{ ...link, domainId }];
-  });
 }
 
 function angleForCanvasSlot(shell: number, canvasSlot: number | null): number {
@@ -213,6 +207,12 @@ function moveCanonicalTaskToShell(
   bubbleId: string,
   targetShell: number,
   preferredSlots = new Map<string, number | null>(),
+  transition: {
+    phase?: number;
+    fromOffsets?: Map<string, CanvasPoint>;
+    now?: number;
+    animate?: boolean;
+  } = {},
 ): Molecule[] {
   return molecules.map((molecule) => {
     if (!molecule.electrons.some(
@@ -235,9 +235,17 @@ function moveCanonicalTaskToShell(
       ...molecule,
       electrons: molecule.electrons.map((electron) => {
         if (electron.originalBubble?.id !== bubbleId) return electron;
+        const fromOffset = transition.fromOffsets?.get(electron.id);
         const preferredSlot = preferredSlots.has(electron.id)
           ? preferredSlots.get(electron.id)
-          : electron.canvasSlot;
+          : fromOffset
+            ? nearestFreeOrbitSlot(
+                Math.atan2(fromOffset.y, fromOffset.x),
+                SHELL_CONFIG[targetShell].canvasSlots,
+                occupiedSlots,
+                (transition.phase ?? 0) * ANIMATION_CONFIG.shellSpeedMultipliers[targetShell],
+              )
+            : electron.canvasSlot;
         const canvasSlot = nextAvailableCanvasSlot(
           targetShell,
           occupiedSlots,
@@ -248,6 +256,8 @@ function moveCanonicalTaskToShell(
           shell: targetShell,
           canvasSlot,
           angle: angleForCanvasSlot(targetShell, canvasSlot),
+          settleFrom: transition.animate ? fromOffset : undefined,
+          settleStartedAt: transition.animate ? transition.now : undefined,
         };
       }),
     };
@@ -313,8 +323,6 @@ function buildMolecules(
       x: domainSetChanged ? layout[domainIndex].x : previous?.x ?? layout[domainIndex].x,
       y: domainSetChanged ? layout[domainIndex].y : previous?.y ?? layout[domainIndex].y,
       nucleus: {
-        protons: domainIndex + 3,
-        neutrons: domainIndex + 3,
         domain: domainGroup.label,
       },
       selected: previous?.selected ?? false,
@@ -335,6 +343,10 @@ function buildMolecules(
           canvasSlot,
           content: bubble.content || '',
           originalBubble: bubble,
+          settleFrom: previousElectrons.get(electronId)?.shell === shell
+            ? previousElectrons.get(electronId)?.settleFrom : undefined,
+          settleStartedAt: previousElectrons.get(electronId)?.shell === shell
+            ? previousElectrons.get(electronId)?.settleStartedAt : undefined,
         };
       }),
     };
@@ -344,15 +356,20 @@ function buildMolecules(
 function getElectronOrbitOffset(
   electron: Electron,
   animationStep: number,
-  motionEnabled: boolean,
+  frameTime: number,
 ): CanvasPoint {
   const shell = SHELL_CONFIG[electron.shell] ?? SHELL_CONFIG[0];
   const speed = ANIMATION_CONFIG.shellSpeedMultipliers[electron.shell] ?? 1;
-  const angle = electron.angle + (motionEnabled ? animationStep * speed : 0);
-  return {
+  // A paused orbit keeps its accumulated phase; pausing must never reset a task.
+  const angle = electron.angle + animationStep * speed;
+  const target = {
     x: Math.cos(angle) * shell.radius,
     y: Math.sin(angle) * shell.radius,
   };
+  return electron.settleFrom && electron.settleStartedAt !== undefined
+    ? interpolateOrbit(electron.settleFrom, target,
+        (frameTime - electron.settleStartedAt) / ORBIT_SETTLE_DURATION)
+    : target;
 }
 
 function getMoleculeBounds(molecules: Molecule[]) {
@@ -396,13 +413,21 @@ function pointerMoved(
   return worldDistance * Math.max(0.01, viewportScale) >= DRAG_THRESHOLD;
 }
 
+function particleFlavor(bubble?: Bubble) {
+  if (bubble?.type === 'Thought') return { name: 'Proton', symbol: '+', kind: 'proton', color: '#9A3E42' };
+  if (bubble?.type === 'Memory' || bubble?.type === 'Mood') return { name: 'Neutron', symbol: '•', kind: 'neutron', color: '#555579' };
+  return { name: 'Electron', symbol: '−', kind: 'electron', color: undefined };
+}
+
 interface AtomicTaskNavigatorProps {
+  panelGroup: string;
   bubbles: readonly Bubble[];
   onOpenTask: (bubble: Bubble) => void;
   onHorizonChange: (bubble: Bubble, targetShell: number) => void;
 }
 
 function AtomicTaskNavigator({
+  panelGroup,
   bubbles,
   onOpenTask,
   onHorizonChange,
@@ -411,16 +436,17 @@ function AtomicTaskNavigator({
 
   return (
     <details
+      name={panelGroup}
       data-panel
       data-testid="atomic-task-navigator"
-      className="absolute right-4 top-4 z-40 max-w-[min(20rem,calc(100%-7rem))] rounded-md border bg-card/95 text-card-foreground shadow-lg backdrop-blur-sm"
+      className="absolute right-3 top-3 z-40 max-w-[min(23rem,calc(100%-7rem))] rounded-2xl border bg-card/95 text-card-foreground shadow-sm backdrop-blur-md"
     >
       <summary className="flex min-h-11 cursor-pointer select-none items-center px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         Tasks ({taskCount})
       </summary>
       <ul
         aria-label="Atomic tasks by life domain and time horizon"
-        className="max-h-64 space-y-1 overflow-y-auto border-t p-2"
+        className="max-h-[min(50vh,24rem)] space-y-1 overflow-y-auto border-t p-2"
       >
         {bubbles.map((bubble) => {
           const label = bubble.content || 'Untitled task';
@@ -432,7 +458,7 @@ function AtomicTaskNavigator({
           return (
             <li
               key={bubble.id}
-              className="flex min-w-64 items-center gap-2 rounded-md p-1 hover:bg-muted"
+              className="flex min-w-0 flex-wrap items-center gap-1 rounded-xl p-1 hover:bg-muted"
             >
               <button
                 type="button"
@@ -476,11 +502,13 @@ function AtomicTaskNavigator({
 export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
   bubbles = [],
   onBubbleSelect,
+  onEditConnections,
   onTimeHorizonUpdate,
   reducedMotion = false,
   highContrast = false,
   className,
 }) => {
+  const panelGroup = useId();
   const viewportRef = useRef<HTMLDivElement>(null);
   const atomicStateRef = useRef<AtomicState>({
     molecules: [],
@@ -508,7 +536,51 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     isReducedMotionPreferred(),
   );
   const [animationStep, setAnimationStep] = useState(0);
+  const [frameTime, setFrameTime] = useState(() => performance.now());
+  const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
+  const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
+  const [tracedTaskId, setTracedTaskId] = useState<string | null>(null);
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const [choosingConnectionTask, setChoosingConnectionTask] = useState(false);
+  const [connectionSearch, setConnectionSearch] = useState('');
+  const connectionSearchRef = useRef<HTMLInputElement>(null);
+  const connectionsSummaryRef = useRef<HTMLElement>(null);
+  const clearTraceRef = useRef<HTMLButtonElement>(null);
+  const sharedConnections = useMemo(() => getSharedTaskConnections(bubbles), [bubbles]);
+  const tracedConnection = sharedConnections.find(connection => connection.task.id === tracedTaskId);
+  const activeTaskId = tracedConnection?.task.id ?? hoveredTaskId ?? focusedTaskId;
+  const interactionPaused = Boolean(activeTaskId);
   const [movementAnnouncement, setMovementAnnouncement] = useState('');
+  const connectionTasks = useMemo(() => [...new Map(bubbles.map(bubble => [bubble.id, bubble])).values()], [bubbles]);
+  const filteredConnectionTasks = useMemo(() => connectionTasks.filter(task =>
+    (task.content || 'Untitled task').toLocaleLowerCase().includes(connectionSearch.trim().toLocaleLowerCase())),
+  [connectionSearch, connectionTasks]);
+
+  useEffect(() => {
+    if (tracedTaskId && !tracedConnection) {
+      setTracedTaskId(null);
+      setMovementAnnouncement('Trace cleared because this task no longer has shared life connections.');
+    }
+  }, [tracedConnection, tracedTaskId]);
+
+  useEffect(() => {
+    if (tracedTaskId) clearTraceRef.current?.focus();
+  }, [tracedTaskId]);
+
+  useEffect(() => {
+    if (connectionsOpen && choosingConnectionTask) connectionSearchRef.current?.focus();
+  }, [choosingConnectionTask, connectionsOpen]);
+
+  const chooseConnectionTask = () => {
+    setConnectionSearch('');
+    setChoosingConnectionTask(true);
+    setConnectionsOpen(true);
+  };
+
+  const editConnections = (bubble: Bubble) => {
+    setConnectionsOpen(false);
+    onEditConnections?.(bubble);
+  };
 
   const updateAtomicState = useCallback((
     updater: (previous: AtomicState) => AtomicState,
@@ -593,10 +665,11 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
 
   useEffect(() => {
     const query = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const updatePreference = () => setSystemReducedMotion(query.matches);
+    const updatePreference = () => setSystemReducedMotion(isReducedMotionPreferred());
     updatePreference();
     query.addEventListener('change', updatePreference);
-    return () => query.removeEventListener('change', updatePreference);
+    window.addEventListener('calmModeChange', updatePreference);
+    return () => { query.removeEventListener('change', updatePreference); window.removeEventListener('calmModeChange', updatePreference); };
   }, []);
 
   const prefersReducedMotion = reducedMotion || systemReducedMotion;
@@ -614,21 +687,29 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     [atomicState.molecules],
   );
 
-  useEffect(() => {
-    if (!motionEnabled) return;
-    const speedMultiplier = electronCount
-      > ANIMATION_CONFIG.maxElectronsForFastAnimation
-      ? 0.5
-      : 1;
-    const animate = () => {
-      setAnimationStep(previous => (
-        previous + (ANIMATION_CONFIG.electronSpeed * speedMultiplier)
-      ));
-    };
+  const hasSettlingElectrons = !prefersReducedMotion && motionState
+    && atomicState.molecules.some(molecule => molecule.electrons.some(electron => (
+      electron.settleStartedAt !== undefined
+      && frameTime < electron.settleStartedAt + ORBIT_SETTLE_DURATION
+    )));
 
+  useEffect(() => {
+    const canOrbit = motionEnabled && !interactionPaused && !atomicState.dragState.isDragging;
+    if (!canOrbit && !hasSettlingElectrons) return;
+    const speedMultiplier = electronCount > ANIMATION_CONFIG.maxElectronsForFastAnimation ? 0.5 : 1;
+    let lastFrame = performance.now();
+    const animate = () => {
+      const now = performance.now();
+      const delta = Math.min(48, Math.max(0, now - lastFrame));
+      lastFrame = now;
+      setFrameTime(now);
+      if (canOrbit && !hasSettlingElectrons) {
+        setAnimationStep(previous => previous + delta * ANIMATION_CONFIG.electronSpeed * speedMultiplier);
+      }
+    };
     startAnimation(animate);
     return () => stopAnimation(animate);
-  }, [electronCount, motionEnabled]);
+  }, [atomicState.dragState.isDragging, electronCount, hasSettlingElectrons, interactionPaused, motionEnabled]);
 
   const fitMolecules = useCallback(() => {
     const currentDimensions = dimensionsRef.current;
@@ -656,6 +737,11 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
 
     setViewportTransform({ ...fittedTransform, y });
   }, [setViewportTransform]);
+
+  const moleculeBonds = useMemo(
+    () => buildMoleculeBonds(atomicState.molecules),
+    [atomicState.molecules],
+  );
 
   const moleculeLayoutKey = useMemo(
     () => atomicState.molecules.map(molecule => molecule.id).join('|'),
@@ -697,7 +783,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
   ) => {
     const safeTarget = Math.max(0, Math.min(SHELL_CONFIG.length - 1, targetShell));
     const originalShell = electron.shell;
-    if (safeTarget === originalShell) {
+    if (safeTarget === originalShell && source !== 'drag') {
       setMovementAnnouncement(
         `${electron.content || 'Task'} is already in ${SHELL_CONFIG[originalShell].name}.`,
       );
@@ -716,12 +802,31 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       });
     }
 
+    const fromOffsets = new Map<string, CanvasPoint>();
+    atomicStateRef.current.molecules.forEach((molecule) => {
+      molecule.electrons.forEach((candidate) => {
+        if (candidate.originalBubble?.id !== bubbleId) return;
+        const drag = dragStateRef.current;
+        fromOffsets.set(candidate.id, drag.electronId === candidate.id && drag.currentWorld
+          ? { x: drag.currentWorld.x - molecule.x, y: drag.currentWorld.y - molecule.y }
+          : getElectronOrbitOffset(candidate, animationStep, frameTime));
+      });
+    });
+    const now = performance.now();
+    setFrameTime(now);
     updateAtomicState(previous => ({
       ...previous,
       molecules: bubbleId
-        ? moveCanonicalTaskToShell(previous.molecules, bubbleId, safeTarget)
+        ? moveCanonicalTaskToShell(previous.molecules, bubbleId, safeTarget, new Map(), {
+            phase: animationStep, fromOffsets, now,
+            animate: !prefersReducedMotion && motionState,
+          })
         : previous.molecules,
     }));
+    if (safeTarget === originalShell) {
+      setMovementAnnouncement(`${electron.content || 'Task'} placed on its ${SHELL_CONFIG[safeTarget].name} orbit.`);
+      return;
+    }
 
     if (electron.originalBubble) {
       onTimeHorizonUpdate?.(
@@ -772,7 +877,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         </Button>
       ),
     });
-  }, [onTimeHorizonUpdate, toast, updateAtomicState]);
+  }, [animationStep, frameTime, motionState, onTimeHorizonUpdate, prefersReducedMotion, toast, updateAtomicState]);
 
   const startElectronDrag = useCallback((
     molecule: Molecule,
@@ -798,7 +903,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     const orbit = getElectronOrbitOffset(
       electron,
       animationStep,
-      motionEnabled,
+      frameTime,
     );
     const electronWorld = {
       x: molecule.x + orbit.x,
@@ -825,7 +930,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     if (event.pointerType === 'touch' && hapticsService.isAvailable()) {
       hapticsService.trigger('light');
     }
-  }, [animationStep, clientPointToWorld, motionEnabled, setDragState]);
+  }, [animationStep, clientPointToWorld, frameTime, setDragState]);
 
   const startMoleculeDrag = useCallback((
     molecule: Molecule,
@@ -1036,6 +1141,10 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     moleculeId: string,
     additive = false,
   ) => {
+    const chosen = atomicStateRef.current.molecules.find(molecule => molecule.id === moleculeId);
+    if (chosen && !additive && viewportTransformRef.current.scale < ELECTRON_WORKING_SCALE) {
+      setViewportTransform({ x: -chosen.x, y: -chosen.y, scale: 1 });
+    }
     updateAtomicState((previous) => {
       const selectedMolecules = additive
         ? previous.selectedMolecules.includes(moleculeId)
@@ -1051,7 +1160,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         })),
       };
     });
-  }, [updateAtomicState]);
+  }, [setViewportTransform, updateAtomicState]);
 
   const moveMoleculeWithKeyboard = useCallback((
     molecule: Molecule,
@@ -1120,10 +1229,29 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
   const nucleusVisualSize = 48 * visualScaleCompensation;
   const nucleusTargetSize = Math.max(nucleusVisualSize, minimumWorldTargetSize);
   const showElectronControls = panZoomState.scale >= ELECTRON_WORKING_SCALE;
+  const activeTaskPoints = activeTaskId ? atomicState.molecules.flatMap<MoleculeTracePoint>(molecule => {
+    const electron = molecule.electrons.find(candidate => candidate.originalBubble?.id === activeTaskId);
+    if (!electron) return [];
+    // A dense orbit may keep a task in the navigator. Trace its area without
+    // inventing a visible particle or changing the task's canvas slot.
+    if (electron.canvasSlot === null) return [{ x: molecule.x, y: molecule.y, anchor: 'area' as const }];
+    const drag = atomicState.dragState;
+    if (drag.electronId === electron.id && drag.currentWorld) return [{ ...drag.currentWorld, anchor: 'particle' as const }];
+    const orbit = getElectronOrbitOffset(electron, animationStep, frameTime);
+    const radius = showElectronControls ? SHELL_CONFIG[electron.shell].radius
+      : Math.max(SHELL_CONFIG[electron.shell].radius, (36 + electron.shell * 6) * visualScaleCompensation);
+    const ratio = radius / SHELL_CONFIG[electron.shell].radius;
+    return [{ x: molecule.x + orbit.x * ratio, y: molecule.y + orbit.y * ratio, anchor: 'particle' as const }];
+  }) : [];
   const compactControls = isMobile || (
     dimensions.height > 0
     && dimensions.height < COMPACT_VIEWPORT_HEIGHT
   );
+  // Reserve the view toolbar and bottom summaries inside the measured canvas,
+  // which can be much shorter than the browser viewport on phones.
+  const bottomPanelStyle = {
+    maxHeight: `max(0px, min(30rem, calc(${dimensions.height - (compactControls ? 68 : 124) - 72}px - env(safe-area-inset-bottom))))`,
+  };
   const motionStatus = prefersReducedMotion
     ? 'Motion off: reduced-motion preference'
     : !motionState
@@ -1140,7 +1268,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         : 'Play optional Atomic motion';
   const atomicControlCards = (
     <>
-      <Card className="flex gap-1 p-2">
+      <Card className="flex w-fit gap-1 rounded-2xl bg-card/90 p-1 shadow-sm backdrop-blur-md">
         <Button
           variant="outline"
           className="h-11 w-11 p-0"
@@ -1182,32 +1310,13 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           <Target aria-hidden="true" className="h-4 w-4" />
         </Button>
       </Card>
-      <Card className="flex gap-1 p-2">
-        <Button
-          variant="outline"
-          className="h-11 w-11 p-0"
-          disabled
-          aria-label="Fuse unavailable until a non-destructive confirmed molecule contract exists"
-          title="Fusion is unavailable until it can preserve every canonical task"
-        >
-          <Zap aria-hidden="true" className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="outline"
-          className="h-11 w-11 p-0"
-          disabled
-          aria-label="Split molecule unavailable in experimental Atomic view"
-          title="Molecule splitting is not implemented yet"
-        >
-          <Shuffle aria-hidden="true" className="h-4 w-4" />
-        </Button>
-      </Card>
+
     </>
   );
 
   return (
     <div
-      className={`relative h-full w-full overflow-hidden bg-background ${className ?? ''}`}
+      className={`atomic-scene relative h-full w-full overflow-hidden bg-background ${className ?? ''}`}
       data-reduced-motion={prefersReducedMotion}
       data-high-contrast={highContrast}
     >
@@ -1230,13 +1339,14 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         style={{ cursor, touchAction: 'none' }}
       >
         <p id="atomic-view-instructions" className="sr-only">
+          Your life, connected. Each nucleus is a life area you chose. A bond means the same task belongs to both areas, without duplicating the task.
           Experimental Atomic view. Drag empty space to pan and use the zoom
           controls to change scale. At overview scale, use the Tasks navigator
           to open a task or change its Today, Week, or Later horizon. When
           zoomed in, electron buttons open tasks with Enter or Space and arrow
           keys change horizon. Molecule buttons select a life domain; arrow
           keys move its view-only position. Molecule positions are not saved,
-          and orbit motion is off until you explicitly play it.
+          and orbit motion is off until you explicitly play it. Hover or focus a particle to pause the orbits. Electrons are actions, protons are thoughts, and neutrons are memories or moods; this is a personal metaphor.
         </p>
         <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
           {movementAnnouncement}
@@ -1251,6 +1361,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
             willChange: 'transform',
           }}
         >
+          <MoleculeBonds bonds={moleculeBonds} scale={panZoomState.scale} selectedIds={atomicState.selectedMolecules} activeTaskPoints={activeTaskPoints} activeTaskId={activeTaskId} />
           {atomicState.molecules.map((molecule) => (
             <div
               key={molecule.id}
@@ -1260,11 +1371,13 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                 top: `calc(50% + ${molecule.y}px)`,
               }}
             >
-              {showElectronControls ? SHELL_CONFIG.map((shell, shellIndex) => {
+              {SHELL_CONFIG.map((shell, shellIndex) => {
                 const count = molecule.electrons.filter(
                   electron => electron.shell === shellIndex,
                 ).length;
                 const shownCount = Math.min(count, shell.canvasSlots);
+                const displayRadius = showElectronControls ? shell.radius
+                  : Math.max(shell.radius, (36 + shellIndex * 6) * visualScaleCompensation);
                 const shellColor = highContrast
                   ? shell.highContrastColor
                   : shell.color;
@@ -1272,26 +1385,42 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                   <div
                     key={shell.name}
                     aria-hidden="true"
-                    className={`pointer-events-none absolute rounded-full border-2 ${
-                      motionEnabled ? 'transition-colors duration-200' : ''
-                    }`}
+                    data-drop-target={atomicState.dragState.moleculeId === molecule.id
+                      && atomicState.dragState.type === 'electron'
+                      && !!atomicState.dragState.currentWorld
+                      && closestShellIndex(Math.hypot(
+                        atomicState.dragState.currentWorld.x - molecule.x,
+                        atomicState.dragState.currentWorld.y - molecule.y,
+                      )) === shellIndex}
+                    className="atomic-orbit pointer-events-none absolute rounded-full"
                     style={{
-                      width: shell.radius * 2,
-                      height: shell.radius * 2,
-                      left: -shell.radius,
-                      top: -shell.radius,
-                      borderColor: shellColor,
-                      borderStyle: 'dashed',
-                      opacity: highContrast ? 1 : 0.7,
-                    }}
+                      width: displayRadius * 2,
+                      height: displayRadius * 2,
+                      left: -displayRadius,
+                      top: -displayRadius,
+                      '--orbit-color': shellColor,
+                      '--orbit-glow': `${shellColor}0c`,
+                    } as React.CSSProperties}
                   >
-                    <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap text-xs text-muted-foreground">
-                      {count > shell.canvasSlots
-                        ? `${shownCount} shown · ${count - shownCount} in Tasks`
-                        : `${count}/${shell.maxElectrons}`}
-                    </span>
+                    {showElectronControls ? <span className="absolute -top-3 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-background px-2 py-0.5 text-[10px] font-medium text-foreground">
+                      {shell.name}{count > shell.canvasSlots ? ` · +${count - shownCount} in Tasks` : ''}
+                    </span> : null}
                   </div>
                 );
+              })}
+
+              {!showElectronControls ? molecule.electrons.filter(electron => electron.canvasSlot !== null).map(electron => {
+                const orbit = getElectronOrbitOffset(electron, animationStep, frameTime);
+                const displayRadius = Math.max(SHELL_CONFIG[electron.shell].radius, (36 + electron.shell * 6) * visualScaleCompensation);
+                const radiusRatio = displayRadius / SHELL_CONFIG[electron.shell].radius;
+                const dotSize = Math.max(14, 7 * visualScaleCompensation);
+                const flavor = particleFlavor(electron.originalBubble);
+                return <span key={electron.id} aria-hidden="true" data-overview-particle
+                  className="atomic-particle pointer-events-none absolute rounded-full border border-white/60"
+                  data-particle={flavor.kind}
+                  data-traced={activeTaskId === electron.originalBubble?.id}
+                  style={{ left: orbit.x * radiusRatio - dotSize / 2, top: orbit.y * radiusRatio - dotSize / 2, width: dotSize, height: dotSize,
+                    backgroundColor: flavor.color ?? SHELL_CONFIG[electron.shell].color }} />;
               }) : null}
 
               {showElectronControls ? molecule.electrons
@@ -1303,7 +1432,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                 const orbit = getElectronOrbitOffset(
                   electron,
                   animationStep,
-                  motionEnabled,
+                  frameTime,
                 );
                 const electronWorld = isDragging
                   && atomicState.dragState.currentWorld
@@ -1321,6 +1450,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                   ? shell.highContrastColor
                   : shell.color;
                 const label = electron.content || 'Untitled task';
+                const flavor = particleFlavor(electron.originalBubble);
                 const visualSize = (
                   electron.originalBubble?.type === 'Task' ? 32 : 26
                 ) * visualScaleCompensation;
@@ -1333,7 +1463,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                     data-electron-id={electron.id}
                     data-minimum-screen-target={MINIMUM_TARGET_SIZE}
                     className={`group/electron absolute z-10 flex cursor-grab items-center justify-center rounded-full bg-transparent !p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                      isDragging ? 'z-50 cursor-grabbing' : ''
+                      isDragging ? 'z-50 cursor-grabbing' : 'z-30'
                     }`}
                     style={{
                       left: localPosition.x - (electronTargetSize / 2),
@@ -1341,9 +1471,13 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                       width: electronTargetSize,
                       height: electronTargetSize,
                     }}
-                    aria-label={`${label}. ${molecule.nucleus.domain} molecule. ${shell.name} horizon. Open with Enter; use arrow keys to change horizon.`}
+                    aria-label={`${label}. ${molecule.nucleus.domain} molecule. ${shell.name} horizon. ${flavor.name}. Open with Enter; use arrow keys to change horizon.`}
                     aria-keyshortcuts="Enter Space ArrowUp ArrowDown ArrowLeft ArrowRight"
                     title={label}
+                    onMouseEnter={() => setHoveredTaskId(electron.originalBubble?.id ?? null)}
+                    onMouseLeave={() => setHoveredTaskId(null)}
+                    onFocus={() => setFocusedTaskId(electron.originalBubble?.id ?? null)}
+                    onBlur={() => setFocusedTaskId(null)}
                     onPointerDown={event => startElectronDrag(molecule, electron, event)}
                     onClick={() => {
                       if (shouldSuppressClick(`electron:${electron.id}`)) return;
@@ -1376,24 +1510,26 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                   >
                     <span
                       aria-hidden="true"
-                      className={`flex items-center justify-center rounded-full border-2 border-white text-xs font-bold text-white shadow-sm ${
+                      data-particle={flavor.kind}
+                      data-traced={activeTaskId === electron.originalBubble?.id}
+                      className={`atomic-particle flex items-center justify-center rounded-full border-2 border-white/75 text-xs font-bold text-white ${
                         motionEnabled ? 'transition-transform hover:scale-110' : ''
                       } ${isDragging ? 'scale-110 shadow-lg' : ''}`}
                       style={{
                         width: visualSize,
                         height: visualSize,
-                        backgroundColor: shellColor,
-                        fontSize: 12 * visualScaleCompensation,
+                        backgroundColor: flavor.color ?? shellColor,
+                        fontSize: 16 * visualScaleCompensation,
                       }}
                     >
-                      {label.charAt(0).toUpperCase()}
+                      {flavor.symbol}
                     </span>
                     <span
                       aria-hidden="true"
                       className={`pointer-events-none absolute left-1/2 top-full z-50 mt-1 max-w-40 -translate-x-1/2 whitespace-nowrap rounded bg-foreground px-2 py-1 text-xs font-medium text-background opacity-0 shadow-lg group-hover/electron:opacity-100 group-focus-visible/electron:opacity-100 ${
                         motionEnabled ? 'transition-opacity' : ''
                       }`}
-                      style={{ fontSize: 12 * visualScaleCompensation }}
+                      style={{ fontSize: 12 * visualScaleCompensation, lineHeight: 1.35, whiteSpace: 'normal', width: 160 * visualScaleCompensation }}
                     >
                       {label}
                     </span>
@@ -1413,7 +1549,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                   width: nucleusTargetSize,
                   height: nucleusTargetSize,
                 }}
-                aria-label={`${molecule.nucleus.domain} molecule, ${molecule.electrons.length} ${molecule.electrons.length === 1 ? 'task' : 'tasks'}${molecule.selected ? ', selected' : ''}. Press Enter to select; use arrow keys to move the view-only position.`}
+                aria-label={`${molecule.nucleus.domain} molecule, ${molecule.electrons.length} ${molecule.electrons.length === 1 ? 'task' : 'tasks'}${molecule.selected ? ', selected' : ''}. Press Enter to select and focus; use arrow keys to move the view-only position.`}
                 aria-pressed={molecule.selected}
                 aria-keyshortcuts="Enter Space ArrowUp ArrowDown ArrowLeft ArrowRight"
                 onPointerDown={event => startMoleculeDrag(molecule, event)}
@@ -1432,36 +1568,26 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
               >
                 <span
                   aria-hidden="true"
-                  className={`flex items-center justify-center rounded-full border-2 border-white/70 font-bold text-white ${
-                    molecule.selected
-                      ? 'bg-yellow-500 shadow-lg shadow-yellow-500/50'
-                      : 'bg-blue-600'
-                  } ${motionEnabled ? 'transition-transform hover:scale-110' : ''}`}
-                  style={{
-                    width: nucleusVisualSize,
-                    height: nucleusVisualSize,
-                    fontSize: 12 * visualScaleCompensation,
-                  }}
+                  data-selected={molecule.selected}
+                  className="atomic-nucleus flex items-center justify-center rounded-full border border-white/70 font-bold text-white"
+                  style={{ width: nucleusVisualSize, height: nucleusVisualSize }}
                 >
-                  {molecule.nucleus.protons}p
+                  {[{ x: 13, y: 10 }, { x: 46, y: 15 }, { x: 5, y: 43 }, { x: 38, y: 46 }, { x: 30, y: 30 }].map((particle, index) => (
+                    <span key={index} className="atomic-nucleon" data-kind={index % 2 ? 'neutron' : 'proton'}
+                      style={{ left: `${particle.x}%`, top: `${particle.y}%` }} />
+                  ))}
                 </span>
                 <span
                   aria-hidden="true"
-                  className="pointer-events-none absolute top-full mt-1 whitespace-nowrap text-xs text-muted-foreground"
-                  style={{ fontSize: 12 * visualScaleCompensation }}
+                  className="atomic-nucleus-label pointer-events-none absolute rounded-full px-3 py-1 text-center text-xs font-semibold"
+                  style={{ fontSize: 12 * visualScaleCompensation, lineHeight: 1.3,
+                    top: nucleusTargetSize / 2 + Math.max(MAX_SHELL_RADIUS, showElectronControls ? 0 : 48 * visualScaleCompensation) + 8 * visualScaleCompensation,
+                    width: 'max-content', maxWidth: 160 * visualScaleCompensation }}
                 >
                   {molecule.nucleus.domain}
                 </span>
               </button>
 
-              {molecule.selected ? (
-                <div
-                  aria-hidden="true"
-                  className={`pointer-events-none absolute -inset-4 rounded-full border-2 border-yellow-400 ${
-                    motionEnabled ? 'animate-pulse' : ''
-                  }`}
-                />
-              ) : null}
             </div>
           ))}
         </div>
@@ -1469,16 +1595,17 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
 
       {compactControls ? (
         <details
+          name={panelGroup}
           data-panel
           data-testid="atomic-mobile-view-controls"
-          className="absolute left-4 top-4 z-40 rounded-md border bg-card/95 text-card-foreground shadow-lg backdrop-blur-sm"
+          className="absolute left-3 top-3 z-40 rounded-2xl border bg-card/95 text-card-foreground shadow-sm backdrop-blur-md"
         >
           <summary className="flex min-h-11 cursor-pointer select-none items-center px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             {showElectronControls ? 'View' : 'Overview'}
           </summary>
           <div className="absolute left-0 top-14 flex w-max max-w-[calc(100vw-2rem)] flex-col gap-2 rounded-md border bg-card/95 p-2 shadow-xl backdrop-blur-sm">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline">Experimental Atomic view</Badge>
+              <Badge variant="outline" className="gap-1.5 bg-background/90"><Atom className="h-3 w-3" aria-hidden="true" /> Life molecules</Badge>
               <Badge variant="secondary" aria-live="polite">
                 {motionStatus}
               </Badge>
@@ -1490,10 +1617,10 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         <div
           data-panel
           data-testid="atomic-desktop-view-controls"
-          className="absolute left-4 top-4 z-30 flex max-w-[calc(100%-2rem)] flex-col gap-2"
+          className="absolute left-3 top-3 z-30 flex max-w-[calc(100%-9rem)] flex-col gap-2"
         >
-          <div className="flex items-center gap-2">
-            <Badge variant="outline">Experimental Atomic view</Badge>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline" className="gap-1.5 bg-background/90"><Atom className="h-3 w-3" aria-hidden="true" /> Life molecules</Badge>
             <Badge variant="secondary" aria-live="polite">
               {motionStatus}
             </Badge>
@@ -1503,6 +1630,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       )}
 
       <AtomicTaskNavigator
+        panelGroup={panelGroup}
         bubbles={bubbles}
         onOpenTask={(bubble) => onBubbleSelect?.(bubble)}
         onHorizonChange={(bubble, targetShell) => {
@@ -1521,43 +1649,115 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         }}
       />
 
-      {atomicState.selectedMolecules.length > 0 ? (
-        <Badge className="absolute right-4 top-16 z-30" variant="outline">
-          {atomicState.selectedMolecules.length} selected
-        </Badge>
-      ) : null}
-
       {!showElectronControls && electronCount > 0 ? (
         <p data-testid="atomic-overview-hint" className="sr-only" role="status">
           Overview. Zoom in to move task electrons, or use the Tasks navigator.
         </p>
       ) : null}
 
-      {!compactControls ? (
-        <Card
-          data-panel
-          className="absolute bottom-[calc(env(safe-area-inset-bottom)+7rem)] right-4 z-30 p-3"
-          aria-label="Time horizon legend"
-        >
-          <h3 className="mb-2 text-sm font-medium">Time horizons</h3>
-          <ul className="space-y-1">
-            {SHELL_CONFIG.map(shell => (
-              <li key={shell.name} className="flex items-center gap-2 text-sm">
-                <span
-                  aria-hidden="true"
-                  className="h-3 w-3 rounded-full border"
-                  style={{
-                    backgroundColor: highContrast
-                      ? shell.highContrastColor
-                      : shell.color,
-                  }}
-                />
-                <span>{shell.name}</span>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      ) : null}
+      <div data-panel className="atomic-bottom-panels absolute bottom-[calc(env(safe-area-inset-bottom)+1rem)] left-3 right-3 z-30 flex items-end justify-between gap-2">
+        <details name={panelGroup} className="relative max-w-[min(22rem,calc(100%-8rem))] rounded-2xl border bg-card/95 text-card-foreground shadow-sm backdrop-blur-md">
+          <summary className="flex min-h-11 cursor-pointer items-center gap-2 px-3 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><Info className="h-4 w-4" aria-hidden="true" /> How it works</summary>
+          <div className="absolute bottom-14 left-0 w-[min(22rem,calc(100vw-2rem))] space-y-3 overflow-y-auto rounded-2xl border bg-card p-4 text-sm shadow-lg" style={bottomPanelStyle} data-testid="atomic-metaphor-guide">
+            <p><strong>Your life, connected.</strong> A nucleus is a life area you chose. Link one task to several areas to see a molecule form.</p>
+            <ul className="space-y-2 text-xs">
+              <li><strong>− Electrons:</strong> tasks and reminders; things you can act on.</li>
+              <li><strong>+ Protons:</strong> thoughts; ideas with a little spark.</li>
+              <li><strong>• Neutrons:</strong> memories and moods; context worth holding.</li>
+            </ul>
+            <p className="text-xs text-muted-foreground">A personal metaphor. Drag a particle to Today, Week, or Later. The highlighted ring shows where it will land. Hover or focus to steady the scene.</p>
+            <p className="text-xs text-muted-foreground">Bonds show your confirmed connections. A shared task stays one task everywhere. Open Connections and choose Trace this task to follow it at any zoom. Dragging a nucleus changes this view only.</p>
+          </div>
+        </details>
+        <details name={panelGroup} open={connectionsOpen}
+          onToggle={event => setConnectionsOpen(event.currentTarget.open)}
+          className="relative max-w-[min(23rem,55%)] rounded-2xl border bg-card/95 text-card-foreground shadow-sm backdrop-blur-md">
+          <summary ref={connectionsSummaryRef} className="flex min-h-11 cursor-pointer items-center gap-2 px-3 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><Link2 className="h-4 w-4" aria-hidden="true" /> Connections ({moleculeBonds.length})</summary>
+          <div className="atomic-connections-content absolute bottom-14 right-0 w-[min(23rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl border bg-card p-3 shadow-lg" style={bottomPanelStyle} data-testid="atomic-connections-panel">
+            {choosingConnectionTask && onEditConnections ? (
+              <div className="space-y-3">
+                <button type="button" onClick={() => setChoosingConnectionTask(false)} className="flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back to connections</button>
+                <h3 className="px-2 text-base font-semibold">Connect a task</h3>
+                <p className="px-2 text-sm text-muted-foreground">Choose a bubble to open its life connections. You decide which areas it touches.</p>
+                <label className="block space-y-1 px-2 text-xs font-medium">
+                  Find a task to connect
+                  <input ref={connectionSearchRef} type="search" value={connectionSearch} onChange={event => setConnectionSearch(event.target.value)}
+                    className="block min-h-11 w-full rounded-xl border bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+                </label>
+                <ul aria-label="Tasks available to connect" className="space-y-1">
+                  {filteredConnectionTasks.map(task => {
+                    const labels = getConfirmedDomainLinks(task).map(link => link.label?.trim() || link.domainId);
+                    return <li key={task.id}><button type="button" onClick={() => editConnections(task)}
+                      className="min-h-11 w-full rounded-xl px-2 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      aria-label={`Edit connections for ${task.content || 'Untitled task'}`}>
+                      <span className="block font-medium">{task.content || 'Untitled task'}</span>
+                      <span className="mt-1 block text-xs text-muted-foreground">{labels.join(' · ') || 'No life connections yet'}</span>
+                    </button></li>;
+                  })}
+                </ul>
+                {filteredConnectionTasks.length === 0 ? <p role="status" className="px-2 text-sm text-muted-foreground">{connectionTasks.length === 0 ? 'Add a bubble to begin.' : 'No matching tasks. Try another word.'}</p> : null}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+                  <h3 className="text-sm font-semibold">{sharedConnections.length} shared {sharedConnections.length === 1 ? 'task' : 'tasks'}</h3>
+                  {onEditConnections ? <button type="button" onClick={chooseConnectionTask} className="flex min-h-11 items-center gap-1 rounded-xl border px-3 text-xs font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><Plus className="h-3.5 w-3.5" aria-hidden="true" /> Connect a task</button> : null}
+                </div>
+                <p className="px-1 text-xs text-muted-foreground">One task can support several life areas. Trace it to see them together.</p>
+                {sharedConnections.length === 0 ? <p className="p-2 text-sm text-muted-foreground">No shared tasks yet. Choose a task and connect it to the areas that matter to you.</p> : (
+                  <ul aria-label="Shared tasks connecting life areas" className="space-y-3">
+                    {sharedConnections.map(({ task, links }) => {
+                      const label = task.content || 'Untitled task';
+                      const areas = links.map(link => link.label?.trim() || link.domainId);
+                      return <li key={task.id} data-shared-task-id={task.id} className="space-y-3 rounded-xl border bg-background/50 p-3">
+                        <button type="button" onClick={() => onBubbleSelect?.(task)}
+                          className="min-h-11 w-full rounded-lg text-left text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          aria-label={`Open ${label}, shared by ${areas.join(' and ')}`}>{label}</button>
+                        <ul aria-label={`Life areas for ${label}`} className="space-y-2">
+                          {links.map(link => <li key={link.domainId} className="border-l-2 border-primary/30 pl-3">
+                            <p className="text-xs font-medium">{link.label?.trim() || link.domainId}{link.strength ? <span className="ml-2 text-muted-foreground">{link.strength === 'primary' ? 'Primary' : 'Supporting'}</span> : null}</p>
+                            {link.reason?.trim() ? <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">{link.reason}</p> : null}
+                          </li>)}
+                        </ul>
+                        <div className="flex flex-wrap gap-2">
+                          <button type="button" onClick={() => {
+                            setTracedTaskId(task.id);
+                            setHoveredTaskId(null);
+                            setFocusedTaskId(null);
+                            setConnectionsOpen(false);
+                            fitMolecules();
+                            setMovementAnnouncement(`Tracing ${label} across ${areas.join(', ')}. This is one shared task.`);
+                          }} className="flex min-h-11 items-center gap-2 rounded-xl border px-3 text-xs font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            aria-label={`Trace ${label} across its life areas`}><Target className="h-3.5 w-3.5" aria-hidden="true" /> Trace this task</button>
+                          {onEditConnections ? <button type="button" onClick={() => editConnections(task)} className="min-h-11 rounded-xl px-2 text-xs font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            aria-label={`Edit connections for ${label}`}>Edit connections</button> : null}
+                        </div>
+                      </li>;
+                    })}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
+        </details>
+      </div>
+      {tracedConnection ? <div data-panel data-testid="atomic-trace-status" className="absolute left-3 z-40 flex max-w-[min(25rem,calc(100%-1.5rem))] items-center gap-3 rounded-2xl border bg-card/95 p-3 shadow-sm backdrop-blur-md" style={{ top: compactControls ? 68 : 124 }}>
+        <div className="min-w-0 space-y-1">
+          <p className="text-xs font-semibold text-foreground">One task, {tracedConnection.links.length} life areas</p>
+          <p className="line-clamp-2 break-words text-xs text-muted-foreground">{tracedConnection.task.content || 'Untitled task'}</p>
+          {activeTaskPoints.some(point => point.anchor === 'area') ? <p className="text-xs text-muted-foreground">Some particles are tucked away; their life areas are highlighted.</p> : null}
+        </div>
+        <button ref={clearTraceRef} type="button" onClick={() => { setTracedTaskId(null); connectionsSummaryRef.current?.focus(); setMovementAnnouncement('Trace cleared.'); }}
+          aria-label="Clear trace" className="flex min-h-11 shrink-0 items-center gap-1 rounded-xl px-2 text-xs font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><X className="h-4 w-4" aria-hidden="true" /> Clear trace</button>
+      </div> : null}
+      {atomicState.molecules.length === 0 ? <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-8">
+        <div className="max-w-sm text-center">
+          <Atom className="mx-auto mb-4 h-12 w-12 text-primary" aria-hidden="true" />
+          <h2 className="text-xl font-semibold">Make room for connections</h2>
+          <p className="mt-2 text-sm text-muted-foreground">Choose the life areas a bubble touches. Your first nucleus appears here. A task linked to two areas brings them together.</p>
+          {onEditConnections && connectionTasks.length > 0 ? <Button type="button" onClick={chooseConnectionTask} className="pointer-events-auto mt-4 min-h-11 rounded-full">Choose a task to connect</Button> : null}
+        </div>
+      </div> : null}
     </div>
   );
 };

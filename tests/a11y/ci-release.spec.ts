@@ -9,6 +9,10 @@ const CURRENT_ROUTES = [
 ] as const;
 
 async function closeFirstRunOnboarding(page: import('@playwright/test').Page) {
+  if (new URL(page.url()).pathname === '/') {
+    await expect(page.getByRole('heading', { name: 'Small actions. Connected possibilities.' })).toBeVisible();
+    return;
+  }
   const dialog = page.getByRole('dialog', { name: 'Welcome' });
   // Every test starts with a fresh profile. Startup now imports the app lazily,
   // and onboarding also checks IndexedDB asynchronously, so network idle does
@@ -45,15 +49,17 @@ test.describe('bounded accessibility release gate', () => {
     test(`onboarding and current shell pass WCAG automated checks in ${theme} mode`, async ({ page }) => {
       await page.emulateMedia({ colorScheme: theme });
       await page.goto('/');
-      await expect(page.getByRole('dialog', { name: 'Welcome' })).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Small actions. Connected possibilities.' })).toBeVisible();
       await page.evaluate((value) => {
         document.documentElement.classList.remove('light', 'dark');
         document.documentElement.classList.add(value);
       }, theme);
 
+      await expectNoWcagViolations(page);
+      // The optional personalization wizard is deferred off the playable canvas.
+      await page.goto('/list');
       await expect(page.getByRole('dialog', { name: 'Welcome' })).toBeVisible();
       await expectNoWcagViolations(page);
-
       await closeFirstRunOnboarding(page);
       await expectNoWcagViolations(page);
     });
@@ -94,7 +100,7 @@ test.describe('bounded accessibility release gate', () => {
       }
     });
 
-    await page.goto('/');
+    await page.goto('/list');
 
     const dialog = page.getByRole('dialog');
     const status = dialog.getByRole('status');

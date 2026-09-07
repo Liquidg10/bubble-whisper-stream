@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Slider } from '@/components/ui/slider';
 import { Badge } from '@/components/ui/badge';
 import { TagPicker } from './TagPicker';
-import { Play, Trash2, Plus, Calendar, Image as ImageIcon, Target } from 'lucide-react';
+import { Play, Trash2, Plus, Calendar, Image as ImageIcon, Target, Sprout } from 'lucide-react';
 import { ttsService } from '@/services/tts';
 import { hapticsService } from '@/services/haptics';
 import { getBubbleColorScheme, getBubbleTypeIcon } from '@/utils/bubbleColors';
@@ -21,17 +21,25 @@ import { AccessibleConfirmDialog } from '@/components/AccessibleConfirmDialog';
 import { LifeConnectionsEditor } from '@/components/LifeConnectionsEditor';
 import { bubbleToTask, withBubbleDomainLinks } from '@/adapters/taskAdapter';
 import { useTaskStore } from '@/stores/taskStore';
+import { getHorizon, setHorizon, type Horizon } from '@/lib/horizon';
+import { BubbleFamily } from '@/components/BubbleFamily';
 
 interface BubbleDetailProps {
   bubble: Bubble | null;
   isOpen: boolean;
   onClose: () => void;
+  initialSection?: 'connections';
+  onGrowIdeas?: (id: string) => void;
+  onOpenTask?: (id: string) => void;
 }
 
 export const BubbleDetail: React.FC<BubbleDetailProps> = ({
   bubble,
   isOpen,
   onClose,
+  initialSection,
+  onGrowIdeas,
+  onOpenTask,
 }) => {
   const { updateBubbleStrict, deleteBubble, addReminder } = useBubbleStore();
   const updateTask = useTaskStore(state => state.updateTask);
@@ -59,6 +67,8 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
   const dirtyBubbleRef = React.useRef<Bubble | null>(null);
   const loadedBubbleIdRef = React.useRef<string | null>(null);
   const wasOpenRef = React.useRef(false);
+  const connectionsRef = React.useRef<HTMLDivElement>(null);
+  const navigationPendingRef = React.useRef(false);
   const { toast } = useToast();
 
   const enqueueWrite = React.useCallback(<T,>(operation: () => Promise<T>): Promise<T> => {
@@ -120,6 +130,15 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
     editedBubbleRef.current = editedBubble;
   }, [editedBubble]);
 
+  React.useEffect(() => {
+    if (!isOpen || initialSection !== 'connections' || !editedBubble?.id) return;
+    const frame = requestAnimationFrame(() => {
+      connectionsRef.current?.focus({ preventScroll: true });
+      connectionsRef.current?.scrollIntoView?.({ block: 'start', behavior: 'instant' });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [isOpen, initialSection, editedBubble?.id]);
+
   // Auto-save when editedBubble changes
   React.useEffect(() => {
     if (editedBubble && bubble && editedBubble !== bubble) {
@@ -158,18 +177,24 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
     hapticsService.trigger('warning');
   };
 
-  const handleClose = async () => {
-    if (isClosing) return;
+  const handleNavigate = async (next: () => void) => {
+    if (isEditorBusy || navigationPendingRef.current) return;
+    navigationPendingRef.current = true;
     setIsClosing(true);
-    if (dirtyBubbleRef.current) debouncedSave(dirtyBubbleRef.current);
-    const didSave = await debouncedSave.flush();
-    await writeQueueRef.current;
-    if (didSave === false || dirtyBubbleRef.current) {
-      setIsClosing(false);
-      return;
+    try {
+      if (dirtyBubbleRef.current) debouncedSave(dirtyBubbleRef.current);
+      const didSave = await debouncedSave.flush();
+      await writeQueueRef.current;
+      if (didSave === false || dirtyBubbleRef.current) {
+        setIsClosing(false);
+        return;
+      }
+      next();
+    } finally {
+      navigationPendingRef.current = false;
     }
-    onClose();
   };
+  const handleClose = () => handleNavigate(onClose);
 
   const handlePlayTTS = async () => {
     if (!bubble.content) return;
@@ -419,8 +444,9 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
 
           {/* Content */}
           <div>
-            <label className="text-sm font-medium" style={{ color: colorScheme.text }}>Content</label>
+            <label htmlFor="bubble-content" className="text-sm font-medium" style={{ color: colorScheme.text }}>Content</label>
             <Textarea
+              id="bubble-content"
               value={editedBubble.content || ''}
               onChange={(e) => setEditedBubble({ ...editedBubble, content: e.target.value })}
               placeholder="What's on your mind?"
@@ -433,6 +459,23 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
               rows={4}
             />
           </div>
+
+          {bubble.type === 'Task' && (
+            <>
+              <div>
+                <label htmlFor="bubble-notes" className="text-sm font-medium" style={{ color: colorScheme.text }}>Notes & small steps</label>
+                <Textarea id="bubble-notes" value={editedBubble.caption ?? ''} onChange={event => setEditedBubble({ ...editedBubble, caption: event.target.value })} rows={3} className="mt-1" placeholder="What would help you begin?" />
+              </div>
+              <label className="block text-sm font-medium" style={{ color: colorScheme.text }}>
+                Time horizon
+                <select aria-label="Time horizon" value={getHorizon(editedBubble) ?? 'today'} onChange={event => setEditedBubble(setHorizon(editedBubble, event.target.value as Horizon))} className="mt-1 block min-h-11 w-full rounded-lg border bg-background px-3 text-foreground">
+                  <option value="today">Today — close at hand</option>
+                  <option value="week">Week — room to plan</option>
+                  <option value="later">Later — keep the possibility</option>
+                </select>
+              </label>
+            </>
+          )}
 
           {/* Canonical task completion */}
           {bubble.type === 'Task' && (
@@ -507,6 +550,7 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
           </div>
 
           {isFeatureEnabled('meaningLinks') && (
+            <div ref={connectionsRef} role="group" aria-label="Life connections editor" tabIndex={-1} className="rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             <LifeConnectionsEditor
               task={canonicalTask}
               links={canonicalTask.domainLinks ?? []}
@@ -519,7 +563,16 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
                 }
               }}
             />
+            </div>
           )}
+
+          {onGrowIdeas && canonicalTask.type === 'task' && !canonicalTask.completed && canonicalTask.actionability !== 'reference' && (
+            <Button type="button" variant="outline" className="min-h-11 gap-2" onClick={() => void handleNavigate(() => onGrowIdeas(bubble.id))}>
+              <Sprout aria-hidden="true" className="h-4 w-4" />
+              Grow ideas from this bubble
+            </Button>
+          )}
+          {onOpenTask && <BubbleFamily taskId={bubble.id} onOpenTask={(id) => void handleNavigate(() => onOpenTask(id))} />}
 
           {/* Tags */}
           <div>

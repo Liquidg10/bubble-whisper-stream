@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import axe from 'axe-core';
 import type { Bubble } from '@/types/bubble';
 import { withBubbleDomainLinks } from '@/adapters/taskAdapter';
 import { createUserDomainLink } from '@/domain/lifeDomains';
 import { AtomicRenderer } from '../AtomicRendererUnified';
+import * as motion from '@/lib/motion';
 
 const toast = vi.hoisted(() => vi.fn());
 
@@ -526,28 +527,189 @@ describe('AtomicRenderer interaction geometry', () => {
     expect(onTimeHorizonUpdate).toHaveBeenCalledWith('owning-work', 0, 2);
   });
 
-  it('keeps destructive molecule fusion disabled and truthfully labeled', async () => {
+  it('shows bonds from confirmed shared tasks and opens the original task without merging', async () => {
     const onMoleculeMerge = vi.fn();
-    render(
-      <AtomicRenderer
-        bubbles={[
-          bubble('fusion-work', 'Fusion Work task', 'today', ['Work']),
-          bubble('fusion-health', 'Fusion Health task', 'today', ['Health']),
-        ]}
-        onMoleculeMerge={onMoleculeMerge}
-        reducedMotion
-      />,
+    const onBubbleSelect = vi.fn();
+    const shared = bubble('shared', 'Walk home together', 'today', ['Health', 'Family']);
+    const { container } = render(
+      <AtomicRenderer bubbles={[shared, bubble('work-only', 'Work separately', 'today', ['Work'])]}
+        onMoleculeMerge={onMoleculeMerge} onBubbleSelect={onBubbleSelect} reducedMotion />,
     );
-
-    const fuse = await screen.findByRole('button', {
-      name: 'Fuse unavailable until a non-destructive confirmed molecule contract exists',
-    });
-    expect(fuse).toBeDisabled();
-    fireEvent.click(fuse);
+    await screen.findByRole('button', { name: /Family molecule, 1 task/ });
+    expect(container.querySelectorAll('[data-bond-id]')).toHaveLength(1);
+    expect(container.querySelector('[data-bond-id]')).toHaveAttribute('data-shared-task-count', '1');
+    expect(screen.queryByRole('button', { name: /Fuse|Split molecule/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Connections (1)'));
+    fireEvent.click(screen.getByRole('button', { name: 'Open Walk home together, shared by Health and Family' }));
+    expect(onBubbleSelect).toHaveBeenCalledWith(shared);
     expect(onMoleculeMerge).not.toHaveBeenCalled();
-    expect(toast).not.toHaveBeenCalledWith(expect.objectContaining({
-      title: 'Molecules fused',
-    }));
+    expect(shared.x).toBe(10_000);
+    expect(shared.y).toBe(-10_000);
+  });
+
+  it('shows one shared-task card with literal confirmed reasons instead of repeating domain pairs', async () => {
+    const shared = withBubbleDomainLinks(bubble('meaning', 'Prepare for work', 'today', []), [
+      { ...createUserDomainLink('Career', { id: 'career', now: 1 }), reason: 'I want to feel prepared.', strength: 'primary' },
+      { ...createUserDomainLink('Home', { id: 'home', now: 1 }), reason: 'Protect our evening together.', strength: 'secondary' },
+      { ...createUserDomainLink('Meaning', { id: 'meaning', now: 1 }), suggestionReason: 'This is only a keyword guess.' },
+      { ...createUserDomainLink('Status', { id: 'pending', now: 1 }), userConfirmed: false, reason: 'Unconfirmed private interpretation.' },
+    ], 1);
+    const onEditConnections = vi.fn();
+    const { container } = render(<AtomicRenderer bubbles={[shared]} onEditConnections={onEditConnections} reducedMotion />);
+    await screen.findByRole('button', { name: /Career molecule/ });
+    fireEvent.click(screen.getByText('Connections (3)'));
+    const panel = screen.getByTestId('atomic-connections-panel');
+    expect(container.querySelectorAll('[data-shared-task-id]')).toHaveLength(1);
+    expect(within(panel).getByText('I want to feel prepared.')).toBeVisible();
+    expect(within(panel).getByText('Protect our evening together.')).toBeVisible();
+    expect(within(panel).getByText('Primary')).toBeVisible();
+    expect(within(panel).getByText('Supporting')).toBeVisible();
+    expect(within(panel).queryByText('This is only a keyword guess.')).not.toBeInTheDocument();
+    expect(within(panel).queryByText('Unconfirmed private interpretation.')).not.toBeInTheDocument();
+    fireEvent.click(within(panel).getByRole('button', { name: 'Edit connections for Prepare for work' }));
+    expect(onEditConnections).toHaveBeenCalledExactlyOnceWith(shared);
+  });
+
+  it('traces matching visible overview particles without hover or data mutations and clears accessibly', async () => {
+    const shared = bubble('touch-trace', 'One small action', 'today', ['Career', 'Home', 'Meaning']);
+    const before = JSON.stringify(shared);
+    const onTimeHorizonUpdate = vi.fn();
+    const onBubbleSelect = vi.fn();
+    const { container } = render(<AtomicRenderer bubbles={[shared]} onBubbleSelect={onBubbleSelect} onTimeHorizonUpdate={onTimeHorizonUpdate} reducedMotion />);
+    const world = screen.getByTestId('atomic-world-layer');
+    await waitFor(() => expect(getWorldScale(world)).toBeLessThan(0.9));
+    expect(container.querySelectorAll('[data-electron]')).toHaveLength(0);
+    fireEvent.click(screen.getByText('Connections (3)'));
+    fireEvent.click(screen.getByRole('button', { name: 'Trace One small action across its life areas' }));
+    const clear = screen.getByRole('button', { name: 'Clear trace' });
+    expect(clear).toHaveFocus();
+    expect(screen.getByTestId('atomic-trace-status')).toHaveTextContent('One task, 3 life areas');
+    expect(screen.getByTestId('atomic-molecule-bonds')).toHaveAttribute('data-traced-task-id', shared.id);
+    expect(container.querySelectorAll('[data-shared-electron-thread]')).toHaveLength(2);
+    const dots = [...container.querySelectorAll<HTMLElement>('[data-overview-particle]')];
+    const anchors = [...container.querySelectorAll<SVGCircleElement>('[data-trace-anchor="particle"]')];
+    expect(anchors).toHaveLength(3);
+    dots.forEach((dot, index) => {
+      const wrapper = dot.parentElement!;
+      expect(Number(anchors[index].getAttribute('cx'))).toBeCloseTo(
+        getWorldOffset(wrapper.style.left) + Number.parseFloat(dot.style.left) + Number.parseFloat(dot.style.width) / 2, 7);
+      expect(Number(anchors[index].getAttribute('cy'))).toBeCloseTo(
+        getWorldOffset(wrapper.style.top) + Number.parseFloat(dot.style.top) + Number.parseFloat(dot.style.height) / 2, 7);
+    });
+    fireEvent.click(clear);
+    expect(container.querySelectorAll('[data-trace-anchor]')).toHaveLength(0);
+    expect(screen.getByText('Connections (3)')).toHaveFocus();
+    expect(onTimeHorizonUpdate).not.toHaveBeenCalled();
+    expect(onBubbleSelect).not.toHaveBeenCalled();
+    expect(JSON.stringify(shared)).toBe(before);
+  });
+
+  it('clears a pinned trace when an external edit removes its shared connections', async () => {
+    const shared = bubble('updated-trace', 'A changing connection', 'today', ['Career', 'Home']);
+    const { container, rerender } = render(<AtomicRenderer bubbles={[shared]} reducedMotion />);
+    await screen.findByRole('button', { name: /Career molecule/ });
+    fireEvent.click(screen.getByText('Connections (1)'));
+    fireEvent.click(screen.getByRole('button', { name: 'Trace A changing connection across its life areas' }));
+    expect(screen.getByRole('button', { name: 'Clear trace' })).toBeVisible();
+    rerender(<AtomicRenderer bubbles={[bubble(shared.id, shared.content!, 'today', ['Home'])]} reducedMotion />);
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Clear trace' })).not.toBeInTheDocument());
+    expect(container.querySelectorAll('[data-shared-electron-thread]')).toHaveLength(0);
+  });
+
+  it('offers every task to connect, including unlinked tasks, and forwards only the chosen identity', async () => {
+    const unlinked = bubble('unlinked', 'An unlinked thought', 'today', []);
+    const linked = bubble('linked', 'An existing connection', 'today', ['Home', 'Work']);
+    const onEditConnections = vi.fn();
+    const before = JSON.stringify([unlinked, linked]);
+    render(<AtomicRenderer bubbles={[unlinked, linked]} onEditConnections={onEditConnections} reducedMotion />);
+    await screen.findByRole('button', { name: /Home molecule/ });
+    fireEvent.click(screen.getByText('Connections (1)'));
+    fireEvent.click(screen.getByRole('button', { name: 'Connect a task' }));
+    const picker = screen.getByRole('list', { name: 'Tasks available to connect' });
+    expect(within(picker).getAllByRole('button')).toHaveLength(2);
+    const search = screen.getByRole('searchbox', { name: 'Find a task to connect' });
+    expect(search).toHaveFocus();
+    fireEvent.change(search, { target: { value: 'unlinked' } });
+    expect(within(picker).getAllByRole('button')).toHaveLength(1);
+    fireEvent.click(within(picker).getByRole('button', { name: 'Edit connections for An unlinked thought' }));
+    expect(onEditConnections).toHaveBeenCalledExactlyOnceWith(unlinked);
+    expect(JSON.stringify([unlinked, linked])).toBe(before);
+  });
+
+  it('makes the unlinked empty state actionable only when connection editing is available', async () => {
+    const unlinked = bubble('only-unlinked', 'Something to connect', 'today', []);
+    const { rerender } = render(<AtomicRenderer bubbles={[unlinked]} reducedMotion />);
+    expect(screen.queryByRole('button', { name: 'Choose a task to connect' })).not.toBeInTheDocument();
+    rerender(<AtomicRenderer bubbles={[unlinked]} onEditConnections={vi.fn()} reducedMotion />);
+    fireEvent.click(screen.getByRole('button', { name: 'Choose a task to connect' }));
+    expect(screen.getByRole('button', { name: 'Edit connections for Something to connect' })).toBeVisible();
+  });
+
+  it('keeps a paused orbit at its visible phase and starts dragging from that position', async () => {
+    let step: (() => void) | undefined;
+    vi.spyOn(motion, 'startAnimation').mockImplementation(callback => { step = callback; return () => {}; });
+    vi.spyOn(motion, 'stopAnimation').mockImplementation(() => {});
+    let now = 100;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    render(<AtomicRenderer bubbles={[bubble('phase', 'Steady phase')]} />);
+    const electron = await screen.findByRole('button', { name: /Steady phase.*Today horizon/ });
+    const initialLeft = electron.style.left;
+    fireEvent.click(screen.getByRole('button', { name: 'Play optional Atomic motion' }));
+    act(() => { now += 40; step?.(); });
+    expect(electron.style.left).not.toBe(initialLeft);
+    const beforePause = { left: electron.style.left, top: electron.style.top };
+    fireEvent.click(screen.getByRole('button', { name: 'Pause Atomic motion' }));
+    expect(electron).toHaveStyle(beforePause);
+    fireEvent(electron, pointerEvent('pointerdown', { clientX: 464, clientY: 300 }));
+    expect(electron).toHaveStyle(beforePause);
+  });
+
+  it('retains the grab offset after zoom and pan and releases near the drop on the same orbit', async () => {
+    const onTimeHorizonUpdate = vi.fn();
+    render(<AtomicRenderer bubbles={[bubble('offset', 'Zoomed offset')]} onTimeHorizonUpdate={onTimeHorizonUpdate} reducedMotion />);
+    const electron = await screen.findByRole('button', { name: /Zoomed offset.*Today horizon/ });
+    const world = screen.getByTestId('atomic-world-layer');
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in on Atomic view' }));
+    const viewport = screen.getByTestId('atomic-viewport');
+    fireEvent(viewport, pointerEvent('pointerdown', { clientX: 50, clientY: 50 }));
+    fireEvent(viewport, pointerEvent('pointermove', { clientX: 85, clientY: 76 }));
+    fireEvent(viewport, pointerEvent('pointerup', { clientX: 85, clientY: 76 }));
+    const start = worldToClient({ x: 64, y: 0 }, world);
+    const destination = worldToClient({ x: 0, y: 64 }, world);
+    const initial = { left: electron.style.left, top: electron.style.top };
+    fireEvent(electron, pointerEvent('pointerdown', { clientX: start.x + 9, clientY: start.y - 5 }));
+    expect(electron).toHaveStyle(initial);
+    fireEvent(viewport, pointerEvent('pointermove', { clientX: destination.x + 9, clientY: destination.y - 5 }));
+    const beforeRelease = { left: electron.style.left, top: electron.style.top };
+    fireEvent(viewport, pointerEvent('pointerup', { clientX: destination.x + 9, clientY: destination.y - 5 }));
+    expect(Number.parseFloat(electron.style.left)).toBeCloseTo(Number.parseFloat(beforeRelease.left), 8);
+    expect(Number.parseFloat(electron.style.top)).toBeCloseTo(Number.parseFloat(beforeRelease.top), 8);
+    expect(onTimeHorizonUpdate).not.toHaveBeenCalled();
+  });
+
+  it('keeps every linked electron on the same horizon and preserves the shared bond', async () => {
+    const onTimeHorizonUpdate = vi.fn();
+    const shared = bubble('linked-move', 'One action, two areas', 'today', ['Career', 'Home']);
+    const { container } = render(<AtomicRenderer bubbles={[shared]} onTimeHorizonUpdate={onTimeHorizonUpdate} reducedMotion />);
+    fireEvent.click(await screen.findByRole('button', { name: /Career molecule, 1 task/ }));
+    const career = await screen.findByRole('button', { name: /One action, two areas.*Career.*Today horizon/ });
+    fireEvent.focus(career);
+    expect(container.querySelectorAll('[data-shared-electron-thread]')).toHaveLength(1);
+    fireEvent.keyDown(career, { key: 'ArrowRight' });
+    expect(screen.getByRole('button', { name: /One action, two areas.*Home.*Week horizon/ })).toBeInTheDocument();
+    expect(container.querySelectorAll('[data-bond-id]')).toHaveLength(1);
+    expect(onTimeHorizonUpdate).toHaveBeenCalledExactlyOnceWith(shared.id, 0, 1);
+    expect(shared.x).toBe(10_000);
+    expect(shared.y).toBe(-10_000);
+  });
+
+  it('distinguishes actions, thoughts, and context with labeled particle flavors', async () => {
+    const thought = { ...bubble('idea', 'A new idea', 'week'), type: 'Thought' as const };
+    const memory = { ...bubble('remember', 'A memory', 'later'), type: 'Memory' as const };
+    render(<AtomicRenderer bubbles={[bubble('action', 'An action'), thought, memory]} reducedMotion />);
+    expect(await screen.findByRole('button', { name: /An action.*Electron/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /A new idea.*Proton/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /A memory.*Neutron/ })).toBeInTheDocument();
   });
 
   it('shows task identity on hover or focus and uses sufficient default contrast', async () => {

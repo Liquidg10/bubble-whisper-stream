@@ -86,6 +86,13 @@ function pointerEvent(
   return event;
 }
 
+function renderedCenter(element: HTMLElement) {
+  return {
+    clientX: Number.parseFloat(element.style.left) + Number.parseFloat(element.style.width) / 2,
+    clientY: Number.parseFloat(element.style.top) + Number.parseFloat(element.style.height) / 2,
+  };
+}
+
 describe('Adaptive Bubble renderer accessibility slice', () => {
   beforeEach(() => {
     resetMockBubbleStore();
@@ -359,7 +366,7 @@ describe('Adaptive Bubble renderer accessibility slice', () => {
     })).toHaveClass('h-11', 'sm:h-6');
   });
 
-  it('keeps the smallest rendered bubble at least 44px across zoom levels', () => {
+  it('gives small tasks a 72px normal target and preserves 44px targets when zoomed out', () => {
     setTasks([
       task({
         id: 'minimum-target-task',
@@ -380,6 +387,13 @@ describe('Adaptive Bubble renderer accessibility slice', () => {
       '[data-task-id="minimum-target-task"]',
     );
 
+    expect(bubble).toHaveStyle({
+      width: '72px',
+      height: '72px',
+    });
+    for (let step = 0; step < 5; step++) {
+      fireEvent.click(screen.getByRole('button', { name: 'Zoom out' }));
+    }
     expect(bubble).toHaveStyle({
       width: '44px',
       height: '44px',
@@ -459,7 +473,8 @@ describe('Adaptive Bubble renderer accessibility slice', () => {
       const restored = container.querySelector<HTMLElement>(
         '[data-task-id="restored-position-task"]',
       );
-      expect(restored).toHaveStyle({ left: '340px' });
+      expect(Number.parseFloat(restored!.style.left) + Number.parseFloat(restored!.style.width))
+        .toBe(390 - 32);
       expect(Number.parseFloat(restored?.style.top ?? '0'))
         .toBeGreaterThanOrEqual(136);
     });
@@ -996,20 +1011,19 @@ describe('Adaptive Bubble renderer accessibility slice', () => {
     const bubble = container.querySelector(
       '[data-task-id="merge-a"]',
     ) as HTMLButtonElement;
+    const start = renderedCenter(bubble);
+    const destination = renderedCenter(container.querySelector<HTMLElement>('[data-task-id="merge-b"]')!);
 
     fireEvent(bubble, pointerEvent('pointerdown', {
-      clientX: 140,
-      clientY: 200,
+      ...start,
       pointerId: 31,
     }));
     fireEvent(canvas, pointerEvent('pointermove', {
-      clientX: 260,
-      clientY: 200,
+      ...destination,
       pointerId: 31,
     }));
     fireEvent(canvas, pointerEvent('pointerup', {
-      clientX: 260,
-      clientY: 200,
+      ...destination,
       pointerId: 31,
     }));
 
@@ -1025,8 +1039,8 @@ describe('Adaptive Bubble renderer accessibility slice', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Merge' }));
 
     expect(mergeBubbles).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'merge-a', x: 60, y: 0 }),
-      expect.objectContaining({ id: 'merge-b', x: 60, y: 0 }),
+      expect.objectContaining({ id: 'merge-a', x: destination.clientX - 200, y: destination.clientY - 200 }),
+      expect.objectContaining({ id: 'merge-b', x: destination.clientX - 200, y: destination.clientY - 200 }),
     );
     expect(updateBubble).not.toHaveBeenCalled();
     const mergedButton = await waitFor(() => {
@@ -1081,21 +1095,20 @@ describe('Adaptive Bubble renderer accessibility slice', () => {
     ) as HTMLButtonElement;
     const originalLeft = bubble.style.left;
     const originalTop = bubble.style.top;
+    const start = renderedCenter(bubble);
+    const destination = renderedCenter(container.querySelector<HTMLElement>('[data-task-id="separate-b"]')!);
     bubble.focus();
 
     fireEvent(bubble, pointerEvent('pointerdown', {
-      clientX: 140,
-      clientY: 200,
+      ...start,
       pointerId: 41,
     }));
     fireEvent(canvas, pointerEvent('pointermove', {
-      clientX: 260,
-      clientY: 200,
+      ...destination,
       pointerId: 41,
     }));
     fireEvent(canvas, pointerEvent('pointerup', {
-      clientX: 260,
-      clientY: 200,
+      ...destination,
       pointerId: 41,
     }));
 

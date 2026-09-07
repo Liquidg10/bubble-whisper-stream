@@ -32,6 +32,7 @@ test.describe('A11Y P11: Keyboard Accessibility @a11y', () => {
 
   test('should have proper focus indicators', async ({ page }) => {
     await page.goto('/');
+    await expect(page.getByRole('link', { name: 'Mind Manual home' })).toBeVisible();
     
     await page.keyboard.press('Tab');
     const focusedElement = page.locator(':focus');

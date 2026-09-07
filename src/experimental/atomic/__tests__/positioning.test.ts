@@ -79,9 +79,14 @@ describe('calculateMoleculePositions', () => {
       expect(centroid.y / domainCount).toBeCloseTo(0, 5);
       positions.forEach(({ x, y }) => {
         expect(Math.hypot(x, y)).toBeCloseTo(
-          MOLECULE_LAYOUT_CONFIG.minimumCenterSpacing,
+          MOLECULE_LAYOUT_CONFIG.minimumCenterSpacing / (2 * Math.sin(Math.PI / domainCount)),
           5,
         );
+      });
+      positions.forEach((position, index) => {
+        const next = positions[(index + 1) % positions.length];
+        expect(Math.hypot(position.x - next.x, position.y - next.y))
+          .toBeCloseTo(MOLECULE_LAYOUT_CONFIG.minimumCenterSpacing, 5);
       });
     },
   );

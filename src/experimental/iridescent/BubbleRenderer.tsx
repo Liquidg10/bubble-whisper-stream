@@ -17,6 +17,7 @@ import { MergeConfirmPortal } from '@/components/MergeConfirmPortal';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useReducedMotion } from '@/components/ReducedMotionEnforcer';
+import { isMotionEnabled, subscribeToMotionState, toggleAnimation } from '@/lib/motion';
 import { bubbleToTask } from '@/adapters/taskAdapter';
 import {
   projectAdaptiveBubbles,
@@ -43,6 +44,7 @@ import {
   planBubbleVisibility,
   type BubbleDensity,
 } from './bubbleCapacity';
+import './bubble-surface.css';
 
 import {
   ZoomIn,
@@ -52,6 +54,8 @@ import {
   Filter,
   Focus,
   Layers,
+  Pause,
+  Play,
 } from 'lucide-react';
 
 interface IridescentNode {
@@ -87,7 +91,23 @@ type BubbleVisualProperties = React.CSSProperties & {
   '--cy': string;
   '--hx': string;
   '--hy': string;
+  '--bubble-glow': string;
 };
+
+// Appearance belongs to the task identity, never its current readiness rank.
+function bubbleMotionPhase(id: string): number {
+  let hash = 2166136261;
+  for (const character of id) {
+    hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
+  }
+  return hash >>> 0;
+}
+
+// Visual scale is independent of task priority. Zooming out retains the
+// existing 44px minimum target, while a normal-view bubble starts at 72px.
+function presentationBubble<T extends { size: number }>(bubble: T): T {
+  return { ...bubble, size: Math.max(0.72, Number.isFinite(bubble.size) ? bubble.size : 0) };
+}
 
 const COMPACT_ICON_BUTTON_CLASSES = [
   'h-11',
@@ -134,8 +154,7 @@ export function AdaptiveTaskNavigator({
         aria-label={`All tasks (${projections.length})`}
         className="flex min-h-11 cursor-pointer select-none items-center whitespace-nowrap px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
-        <span className={compact ? 'sr-only' : undefined}>All </span>
-        tasks ({projections.length})
+        {compact ? 'Tasks' : 'All tasks'} ({projections.length})
       </summary>
       {isOpen && (
         <>
@@ -275,6 +294,14 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
   const isMobile = useIsMobile();
   const lodConfig = getLODConfig();
   const reducedMotion = settings.reducedMotion || systemPrefersReducedMotion;
+  const [globalMotionEnabled, setGlobalMotionEnabled] = useState(isMotionEnabled);
+  const [releasedBubble, setReleasedBubble] = useState({ id: '', sequence: 0 });
+
+  useEffect(() => subscribeToMotionState(setGlobalMotionEnabled), []);
+  const motionEnabled = globalMotionEnabled && !reducedMotion;
+  const motionControlLabel = reducedMotion
+    ? 'Motion reduced by accessibility settings'
+    : globalMotionEnabled ? 'Pause bubble motion' : 'Resume bubble motion';
   
   const [dragging, setDragging] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
@@ -324,6 +351,10 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
   const mergeReturnFocusRef = useRef<HTMLElement | null>(null);
   const panPointerIdRef = useRef<number | null>(null);
   const autoPlacedIdsRef = useRef(new Set<string>());
+  const presentationLayoutRef = useRef(new Map<string, {
+    sourceX: number; sourceY: number; x: number; y: number;
+  }>());
+  const layoutDimensionsRef = useRef('');
 
   // BubbleStore hydrates settings from IndexedDB after the first render. Keep
   // this view state aligned with the persisted density once hydration lands.
@@ -418,29 +449,6 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
       return;
     }
 
-    const currentIds = new Set(bubbles.map(bubble => bubble.id));
-    autoPlacedIdsRef.current.forEach((id) => {
-      if (!currentIds.has(id)) autoPlacedIdsRef.current.delete(id);
-    });
-    bubbles.forEach((bubble) => {
-      const isAtCanonicalOrigin = (
-        Number.isFinite(bubble.x)
-        && Number.isFinite(bubble.y)
-        && bubble.x === 0
-        && bubble.y === 0
-      );
-      if (isAtCanonicalOrigin) {
-        autoPlacedIdsRef.current.add(bubble.id);
-      } else {
-        // Coordinates can change through sync or another view. Stop applying
-        // the local first-layout plan as soon as canonical data becomes
-        // explicitly positioned.
-        autoPlacedIdsRef.current.delete(bubble.id);
-      }
-    });
-    const placementBubbles = bubbles.filter((bubble) => (
-      autoPlacedIdsRef.current.has(bubble.id)
-    ));
     const dimensions = {
       width: viewport.width,
       height: viewport.height,
@@ -449,51 +457,68 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
       top: compactControls
         ? COMPACT_CONTROL_SAFE_TOP_INSET
         : DESKTOP_CONTROL_SAFE_TOP_INSET,
+      bottom: 72,
+      left: 32,
+      right: 32,
     };
-    const placementRadius = placementBubbles.length > 0
-      ? Math.max(
-        ...placementBubbles.map(bubble => getSafeBubbleRadius(bubble.size)),
-      )
-      : 0;
-    const originPlan = placementBubbles.length > 1
-      ? new Map(placementBubbles.map((bubble, index) => [
-        bubble.id,
-        placeOriginBubble(
-          bubble,
-          index,
-          placementBubbles.length,
+    const dimensionKey = `${dimensions.width}:${dimensions.height}:${compactControls}`;
+    const resized = layoutDimensionsRef.current !== dimensionKey;
+    const previousLayout = presentationLayoutRef.current;
+    const fixedIds = new Set<string>();
+    const newOrigins = bubbles.filter(bubble => (
+      !previousLayout.has(bubble.id) && bubble.x === 0 && bubble.y === 0
+    ));
+    const initialOrigins = new Map(newOrigins.map((bubble, index) => [
+      bubble.id,
+      placeOriginBubble(presentationBubble(bubble), index, newOrigins.length,
+        dimensions, 80, presentationInsets),
+    ]));
+    const known: Bubble[] = [];
+    const incoming: Bubble[] = [];
+    for (const bubble of bubbles) {
+      const previous = previousLayout.get(bubble.id);
+      const visual = presentationBubble(bubble);
+      if (previous) {
+        const sameSource = Object.is(previous.sourceX, bubble.x)
+          && Object.is(previous.sourceY, bubble.y);
+        const position = recoverPersistedBubblePosition(
+          sameSource ? { ...visual, x: previous.x, y: previous.y } : visual,
           dimensions,
-          placementRadius,
-          presentationInsets,
-        ),
-      ]))
-      : new Map<string, { x: number; y: number }>();
+        );
+        known.push({ ...visual, x: position.x, y: position.y });
+        if (!resized) fixedIds.add(bubble.id);
+      } else {
+        incoming.push({ ...visual, ...initialOrigins.get(bubble.id) });
+      }
+    }
 
-    // Preserve user-arranged tasks first, then fit new origin tasks around
-    // them. A single unified clearance pass prevents the two cohorts from
-    // producing a visually overlapping layout while keeping all repairs
-    // presentation-only.
-    const arrangedBubbles = bubbles.filter(
-      bubble => !autoPlacedIdsRef.current.has(bubble.id),
-    );
-    const layoutCandidates = [
-      ...arrangedBubbles,
-      ...placementBubbles.map((bubble) => {
-        const planned = originPlan.get(bubble.id);
-        return planned ? { ...bubble, ...planned } : bubble;
-      }),
-    ];
+    // A move, completion, or readiness change must not repack untouched
+    // tasks. Only newly encountered tasks enter the placement search; a real
+    // resize can repair the presentation again without saving coordinates.
+    const layoutCandidates = [...known, ...incoming];
     const repairs = separateSeverelyOverlappingBubbles(
       layoutCandidates,
       dimensions,
       {
         separateAllOverlaps: true,
         insets: presentationInsets,
+        fixedIds,
+        minimumClearanceRadius: 80,
       },
     );
-
-    setOriginPlacementById(originPlan);
-    setLegacyRecoveryById(repairs);
+    const nextLayout = new Map<string, { sourceX: number; sourceY: number; x: number; y: number }>();
+    const nextPositions = new Map<string, { x: number; y: number }>();
+    const sourcesById = new Map(bubbles.map(bubble => [bubble.id, bubble]));
+    for (const candidate of layoutCandidates) {
+      const position = repairs.get(candidate.id) ?? { x: candidate.x, y: candidate.y };
+      const source = sourcesById.get(candidate.id)!;
+      nextLayout.set(candidate.id, { sourceX: source.x, sourceY: source.y, ...position });
+      nextPositions.set(candidate.id, position);
+    }
+    presentationLayoutRef.current = nextLayout;
+    layoutDimensionsRef.current = dimensionKey;
+    setOriginPlacementById(new Map());
+    setLegacyRecoveryById(nextPositions);
   }, [
     bubbles,
     compactControls,
@@ -511,7 +536,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
     const planned = legacyRecoveryById.get(bubble.id)
       ?? originPlacementById.get(bubble.id);
     return recoverPersistedBubblePosition(
-      planned ? { ...bubble, ...planned } : bubble,
+      presentationBubble(planned ? { ...bubble, ...planned } : bubble),
       viewport,
     );
   }, [legacyRecoveryById, originPlacementById, viewport]);
@@ -531,7 +556,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
         id: bubble.id,
         x: screenPosition.x,
         y: screenPosition.y,
-        r: getSafeBubbleRadius(bubble.size, viewport.scale),
+        r: getSafeBubbleRadius(presentationBubble(bubble).size, viewport.scale),
         label: bubble.content?.slice(0, 20) + (bubble.content?.length > 20 ? '...' : '') || `${bubble.type} bubble`,
         type: String(bubble.type || '').toLowerCase(),
         glow: getGlowColor(bubble, theme?.tokens.auraMapping),
@@ -684,6 +709,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
         mergeReturnFocusRef.current = dragCaptureTargetRef.current;
         setConfirm(pendingMerge);
       } else {
+        setReleasedBubble(previous => ({ id: activeId, sequence: previous.sequence + 1 }));
         autoPlacedIdsRef.current.delete(activeId);
         setOriginPlacementById((currentPlan) => {
           if (!currentPlan.has(activeId)) return currentPlan;
@@ -1107,6 +1133,7 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
       aria-label="Adaptive Bubble view"
       aria-describedby="adaptive-bubble-view-description"
       data-reduced-motion={reducedMotion}
+      data-bubble-motion={motionEnabled ? 'running' : 'paused'}
       data-viewport-scale={viewport.scale}
       onPointerDown={handleCanvasPointerDown}
       onPointerMove={(e) => {
@@ -1161,13 +1188,18 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
               onPointerDown={(e) => handlePointerDown(node.id, e)}
               onClick={() => handleBubbleClick(node.id)}
               onKeyDown={(event) => handleBubbleKeyDown(node.id, event)}
-              phase={index}
+              phase={bubbleMotionPhase(node.id)}
               lod={!lodConfig.enableSpecular || dragging === node.id}
+              dragging={dragging === node.id}
+              releaseSequence={releasedBubble.id === node.id ? releasedBubble.sequence : 0}
               zIndex={index}
               bubble={node.bubble}
               readiness={node.readiness}
               semantics={node.semantics}
               reducedMotion={reducedMotion}
+              motionEnabled={motionEnabled}
+              canvasWidth={viewport.width}
+              canvasHeight={viewport.height}
             />
           </div>
           );
@@ -1309,6 +1341,9 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
           >
             <Layers className="h-4 w-4" />
           </Button>
+          <Button variant="outline" size="sm" onClick={toggleAnimation} disabled={reducedMotion} className={COMPACT_ICON_BUTTON_CLASSES} aria-label={motionControlLabel} title={motionControlLabel} aria-pressed={!motionEnabled}>
+            {motionEnabled ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+          </Button>
         </div>
       </details>
       )}
@@ -1391,6 +1426,9 @@ export default function IridescentCanvas({ onBubbleSelect, onBubbleEdit, classNa
           aria-label={`Change bubble density. Current density: ${bubbleDensity}`}
         >
           <Layers className="h-4 w-4" />
+        </Button>
+        <Button variant="outline" size="sm" onClick={toggleAnimation} disabled={reducedMotion} className={COMPACT_ICON_BUTTON_CLASSES} aria-label={motionControlLabel} title={motionControlLabel} aria-pressed={!motionEnabled}>
+          {motionEnabled ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
         </Button>
       </div>
       )}
@@ -1491,6 +1529,11 @@ function IridescentBubble({
   readiness,
   semantics,
   reducedMotion,
+  motionEnabled,
+  dragging,
+  releaseSequence,
+  canvasWidth,
+  canvasHeight,
 }: {
   x: number;
   y: number;
@@ -1508,17 +1551,44 @@ function IridescentBubble({
   readiness: TaskReadiness;
   semantics: AdaptiveBubbleSemantics;
   reducedMotion: boolean;
+  motionEnabled: boolean;
+  dragging: boolean;
+  releaseSequence: number;
+  canvasWidth: number;
+  canvasHeight: number;
 }) {
   const [cx, setCx] = useState(35);
   const [cy, setCy] = useState(28);
   const [hx, setHx] = useState(18);
   const [hy, setHy] = useState(12);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const elasticRef = useRef<HTMLDivElement>(null);
+  const lastReleaseRef = useRef(0);
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const motionPaused = !motionEnabled || hovered || focused || selected || dragging;
+
+  // Settle only the decorative skin after an intentional drop. Coordinates,
+  // labels, and the button's hit target never take part in this animation.
+  useEffect(() => {
+    if (releaseSequence === 0 || releaseSequence === lastReleaseRef.current) return;
+    lastReleaseRef.current = releaseSequence;
+    if (!motionEnabled) return;
+    const animation = elasticRef.current?.animate?.([
+      { transform: 'scale(0.97, 1.03)' },
+      { transform: 'scale(1.015, 0.985)', offset: 0.4 },
+      { transform: 'scale(0.995, 1.005)', offset: 0.72 },
+      { transform: 'scale(1)' },
+    ], { duration: 520, easing: 'ease-out' });
+    return () => animation?.cancel();
+  }, [releaseSequence, motionEnabled]);
 
   function handleMove(e: React.PointerEvent) {
+    if (!motionEnabled || dragging) return;
     const el = wrapRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
     const px = ((e.clientX - rect.left) / rect.width) * 100;
     const py = ((e.clientY - rect.top) / rect.height) * 100;
     setCx(20 + px * 0.6);
@@ -1539,15 +1609,21 @@ function IridescentBubble({
     '--cy': `${cy}%`,
     '--hx': `${hx}%`,
     '--hy': `${hy}%`,
+    '--bubble-glow': glow,
   };
 
   const floatDuration = 16 + ((phase % 5) * 2);
-  const floatDelay = -((phase % 7) * 0.7);
+  const floatDelay = -((phase % 101) / 101 * floatDuration);
+  const captionWidth = Math.max(120, Math.min(160, r * 2.8));
+  const captionCenter = canvasWidth > 0
+    ? Math.max(captionWidth / 2 + 8, Math.min(canvasWidth - captionWidth / 2 - 8, x))
+    : x;
+  const captionAbove = canvasHeight > 0 && y + r + 80 > canvasHeight && y - r > 80;
 
   return (
     <button
       type="button"
-      className="rounded-full bg-transparent !p-0 text-inherit focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background"
+      className="living-bubble rounded-full bg-transparent !p-0 text-inherit focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-4 focus-visible:ring-offset-background"
       aria-label={semantics.accessibleSummary}
       aria-pressed={selected}
       data-adaptive-bubble
@@ -1555,32 +1631,43 @@ function IridescentBubble({
       data-readiness-band={readiness.band}
       data-urgency={semantics.urgencyLabel}
       data-motion-independent={semantics.motionIndependent}
+      data-surface-motion={motionPaused ? 'paused' : 'running'}
+      data-dragging={dragging}
+      title={bubble.content || label}
       style={{
         position: 'absolute',
         left: x - r,
         top: y - r,
         width: r * 2,
         height: r * 2,
-        zIndex: zIndex
+        zIndex: hovered || focused || selected || dragging ? 1000 : zIndex,
+        cursor: dragging ? 'grabbing' : 'grab',
       }}
       onPointerDown={onPointerDown}
       onClick={onClick}
       onKeyDown={onKeyDown}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => { setHovered(false); handleLeave(); }}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
     >
+      <div ref={elasticRef} className="soap-elastic" aria-hidden="true">
       <div
         ref={wrapRef}
         className={`soap ${selected ? 'ring-selected' : ''} ${lod ? 'lod' : ''}`}
-        onPointerMove={reducedMotion ? undefined : handleMove}
+        onPointerMove={motionEnabled ? handleMove : undefined}
         onPointerLeave={handleLeave}
         style={{
           width: '100%',
           height: '100%',
           animation: reducedMotion
             ? 'none'
-            : `driftFloat ${floatDuration}s ease-in-out ${floatDelay}s infinite`,
+            : `livingSoapFloat ${floatDuration}s ease-in-out ${floatDelay}s infinite`,
+          animationPlayState: motionPaused ? 'paused' : 'running',
           ...varStyle
         }}
       >
+        <div className="soap-film" />
         {/* Photo renderer first - as the base layer */}
         {bubble.imageUri ? (
           <PhotoBubbleIridescent
@@ -1601,7 +1688,7 @@ function IridescentBubble({
           style={{
             WebkitMask: 'radial-gradient(circle, transparent 66.2%, black 66.22%)',
             mask: 'radial-gradient(circle, transparent 66.2%, black 66.22%)',
-            background: `conic-gradient(${glow} 0 130deg, rgba(255,255,255,.9) 180deg, ${glow} 230deg 360deg)`,
+            background: `conic-gradient(#daf5ff, ${glow} 45deg, #dfb7ff 110deg, #9ef8f1 170deg, #ffcadf 235deg, ${glow} 285deg, #daf5ff)`,
             position: 'absolute',
             inset: '-0.05%',
             borderRadius: '999px',
@@ -1651,24 +1738,31 @@ function IridescentBubble({
         <div
           className="soap-aura"
           style={{
-            boxShadow: `0 0 12px ${glow}40, inset 0 0 6px ${glow}20`,
             zIndex: 2, // Behind colored rim but above photo
             pointerEvents: 'none'
           }}
         />
       </div>
+      </div>
+      <div
+        data-bubble-caption
+        className="pointer-events-none absolute"
+        style={{
+          width: captionWidth,
+          left: captionCenter - x + r,
+          transform: 'translateX(-50%)',
+          top: captionAbove ? undefined : 'calc(100% + 6px)',
+          bottom: captionAbove ? 'calc(100% + 6px)' : undefined,
+        }}
+      >
       {label && (
         <div
-          className="pointer-events-none mt-1 rounded bg-card/95 px-1.5 py-0.5 text-center text-xs font-medium text-card-foreground shadow-sm"
-          style={{
-            maxWidth: Math.max(96, r * 2.5),
-            marginInline: 'auto',
-          }}
+          className="rounded-md bg-card/95 px-2 py-1 text-center text-xs font-medium leading-4 text-card-foreground shadow-sm"
         >
-          {label}
+          <span className="line-clamp-2">{bubble.content || label}</span>
         </div>
       )}
-      <div className="pointer-events-none mt-1 flex min-w-max flex-wrap justify-center gap-1 text-[10px]">
+      <div className="mt-1 flex flex-wrap justify-center gap-1 text-[10px] leading-4">
         <span className="rounded-full border bg-card/90 px-2 py-0.5 text-card-foreground">
           {semantics.readinessLabel}
         </span>
@@ -1677,6 +1771,7 @@ function IridescentBubble({
             {semantics.urgencyLabel}
           </span>
         ) : null}
+      </div>
       </div>
     </button>
   );

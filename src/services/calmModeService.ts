@@ -117,15 +117,15 @@ class CalmModeService {
       classes.push('calm-mode');
     }
 
-    if (this.settings.reduceAnimations || this.accessibilitySettings.reducedMotion) {
+    if ((this.settings.enabled && this.settings.reduceAnimations) || this.accessibilitySettings.reducedMotion) {
       classes.push('reduce-motion');
     }
 
-    if (this.settings.increaseContrast || this.accessibilitySettings.highContrast) {
+    if ((this.settings.enabled && this.settings.increaseContrast) || this.accessibilitySettings.highContrast) {
       classes.push('high-contrast');
     }
 
-    if (this.settings.largeTargets) {
+    if (this.settings.enabled && this.settings.largeTargets) {
       classes.push('large-targets');
     }
 
@@ -133,9 +133,9 @@ class CalmModeService {
       classes.push('large-text');
     }
 
-    if (this.settings.focusRingStyle === 'high-contrast') {
+    if (this.settings.enabled && this.settings.focusRingStyle === 'high-contrast') {
       classes.push('focus-high-contrast');
-    } else if (this.settings.focusRingStyle === 'prominent') {
+    } else if (this.settings.enabled && this.settings.focusRingStyle === 'prominent') {
       classes.push('focus-prominent');
     }
 
@@ -151,7 +151,7 @@ class CalmModeService {
     enableTransitions: boolean;
     animationDuration: 'fast' | 'normal' | 'slow' | 'none';
   } {
-    const isReduced = this.settings.reduceAnimations || this.accessibilitySettings.reducedMotion;
+    const isReduced = (this.settings.enabled && this.settings.reduceAnimations) || this.accessibilitySettings.reducedMotion;
     
     return {
       reduceMotion: isReduced,
@@ -165,7 +165,7 @@ class CalmModeService {
    * Check if feature should be limited due to stimuli reduction
    */
   shouldLimitStimuli(feature: 'notifications' | 'parallax' | 'autoplay' | 'flashing'): boolean {
-    if (!this.settings.limitConcurrentStimuli) return false;
+    if (!this.settings.enabled || !this.settings.limitConcurrentStimuli) return false;
 
     switch (feature) {
       case 'notifications':
@@ -185,7 +185,7 @@ class CalmModeService {
    * Get button size preference
    */
   getButtonSize(): 'sm' | 'default' | 'lg' | 'xl' {
-    if (this.settings.largeTargets) return 'xl';
+    if (this.settings.enabled && this.settings.largeTargets) return 'xl';
     if (this.accessibilitySettings.largeText) return 'lg';
     return 'default';
   }
@@ -243,6 +243,8 @@ class CalmModeService {
       root.style.setProperty('--transition-duration', this.settings.reduceAnimations ? '0ms' : '150ms');
       root.style.setProperty('--button-min-height', this.settings.largeTargets ? '48px' : '36px');
       root.style.setProperty('--touch-target-size', this.settings.largeTargets ? '48px' : '40px');
+    } else {
+      ['--animation-duration', '--transition-duration', '--button-min-height', '--touch-target-size'].forEach(property => root.style.removeProperty(property));
     }
   }
 

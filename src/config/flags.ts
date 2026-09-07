@@ -27,8 +27,9 @@ export const flags = {
   // Task System (P1 - Non-destructive)
   taskAdapter: process.env.NODE_ENV === 'development',
 
-  // Confirmable meaning links (AI/rules propose; the user decides)
-  meaningLinks: process.env.NODE_ENV === 'development',
+  // The guide and molecule view both use this local, person-confirmed editor.
+  // Keep it reachable in built apps; explicit local opt-outs still apply.
+  meaningLinks: true,
   
   // ViewSDK (P2 - View contracts and event bus)
   viewSdk: process.env.NODE_ENV === 'development',
