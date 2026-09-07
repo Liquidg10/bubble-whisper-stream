@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight,
   Atom,
@@ -24,10 +24,11 @@ import {
   createStarterTask,
   starterLessonKey,
   suggestBubbleSprouts,
-  createSproutTask,
   type BubbleSprout,
 } from '@/domain/bubbleGarden';
 import './bubble-garden.css';
+import { BubbleFamily } from '@/components/BubbleFamily';
+import { addSproutOnce, persistSproutDismissal, readDismissedSproutKeys } from '@/domain/bubbleGardenState';
 import { useProgressiveOnboarding } from '@/providers/ProgressiveOnboardingProvider';
 
 export function StarterWelcome({
@@ -143,6 +144,7 @@ function SproutDraft({
   sprout,
   onAdd,
   onDismiss,
+  disabled = false,
 }: {
   sprout: BubbleSprout;
   onAdd: (
@@ -150,7 +152,8 @@ function SproutDraft({
     title: string,
     domains: string[],
   ) => Promise<void>;
-  onDismiss: () => void;
+  onDismiss: () => Promise<void>;
+  disabled?: boolean;
 }) {
   const [title, setTitle] = useState(sprout.title);
   const [domains, setDomains] = useState(
@@ -169,6 +172,7 @@ function SproutDraft({
       <textarea
         id={`sprout-${sprout.key}`}
         value={title}
+        disabled={saving || disabled}
         onChange={(event) => setTitle(event.target.value)}
         rows={2}
         maxLength={300}
@@ -188,6 +192,7 @@ function SproutDraft({
               >
                 <input
                   type="checkbox"
+                  disabled={saving || disabled}
                   checked={domains.includes(link.domainId)}
                   onChange={(event) =>
                     setDomains((current) =>
@@ -205,7 +210,8 @@ function SproutDraft({
       )}
       <div className="flex flex-wrap gap-2">
         <Button
-          disabled={saving || !title.trim()}
+          disabled={saving || disabled || !title.trim()}
+          data-garden-add
           className="min-h-11 gap-2"
           onClick={async () => {
             setSaving(true);
@@ -225,8 +231,14 @@ function SproutDraft({
         <Button
           variant="ghost"
           className="min-h-11"
-          disabled={saving}
-          onClick={onDismiss}
+          disabled={saving || disabled}
+          onClick={async () => {
+            setSaving(true);
+            setError('');
+            try { await onDismiss(); }
+            catch { setError('This suggestion could not be dismissed. Your draft is still here; please try again.'); }
+            finally { setSaving(false); }
+          }}
         >
           Dismiss
         </Button>
@@ -245,11 +257,13 @@ export function BubbleGardenDialog({
   onClose,
   onOpenTask,
   starter,
+  sourceTaskId,
 }: {
   mode: 'guide' | 'grow' | null;
   onClose: () => void;
   onOpenTask: (id: string) => void;
   starter: ReturnType<typeof useStarterBubbles>;
+  sourceTaskId?: string;
 }) {
   const {
     state: learning,
@@ -259,22 +273,40 @@ export function BubbleGardenDialog({
   } = useProgressiveOnboarding();
   const bubbles = useBubbleStore((state) => state.bubbles);
   const tasks = useMemo(() => bubbles.map(bubbleToTask), [bubbles]);
-  const eligible = tasks.filter(
-    (task) =>
-      !task.completed &&
-      task.type === 'task' &&
-      task.actionability !== 'reference',
-  );
-  const [sourceId, setSourceId] = useState('');
-  const [dismissed, setDismissed] = useState<string[]>([]);
-  const [addedId, setAddedId] = useState<string | null>(null);
+  const sources = tasks.filter(task => task.type === 'task');
+  const [sourceId, setSourceId] = useState(sourceTaskId ?? '');
+  const [added, setAdded] = useState<{ id: string; sourceId: string } | null>(null);
   const [status, setStatus] = useState('');
-  const source = eligible.find((task) => task.id === sourceId) ?? eligible[0];
-  const suggestions = source
-    ? suggestBubbleSprouts(source, tasks).filter(
-        (item) => !dismissed.includes(item.key),
-      )
-    : [];
+  const [reviewPending, setReviewPending] = useState(0);
+  const [reviewError, setReviewError] = useState('');
+  const [undoing, setUndoing] = useState(false);
+  const reviewRef = useRef<HTMLDivElement>(null);
+  const focusAfterReview = (sourceId: string, addedId?: string) => {
+    window.setTimeout(() => {
+      const region = reviewRef.current;
+      if (!region || region.dataset.gardenSourceId !== sourceId) return;
+      const addedButton = addedId ? Array.from(region.querySelectorAll<HTMLButtonElement>('[data-family-task-id]')).find(button => button.dataset.familyTaskId === addedId) : undefined;
+      (addedButton ?? region.querySelector<HTMLButtonElement>('[data-garden-add]:not(:disabled), [data-garden-restore]:not(:disabled)') ?? region.querySelector<HTMLSelectElement>('select'))?.focus();
+    }, 0);
+  };
+  useEffect(() => {
+    if (mode === 'grow' && sourceTaskId) setSourceId(sourceTaskId);
+    setReviewError('');
+    setStatus('');
+  }, [mode, sourceTaskId]);
+  const source = sourceId ? tasks.find(task => task.id === sourceId) : sources[0];
+  const dismissed = source ? readDismissedSproutKeys(source) : [];
+  const suggestions = source ? suggestBubbleSprouts(source, tasks).filter(item => !dismissed.includes(item.key)) : [];
+  const saveReview = async (id: string, action: Parameters<typeof persistSproutDismissal>[1]) => {
+    setReviewPending(count => count + 1);
+    try {
+      await persistSproutDismissal(id, action, {
+        getBubble: targetId => useBubbleStore.getState().bubbles.find(bubble => bubble.id === targetId),
+        saveBubble: bubble => useBubbleStore.getState().updateBubbleStrict(bubble),
+      });
+    } finally { setReviewPending(count => count - 1); }
+  };
+  const openFamilyTask = (id: string) => { onClose(); onOpenTask(id); };
   const lessons = tasks.filter((task) => starterLessonKey(task));
   return (
     <Dialog
@@ -409,89 +441,72 @@ export function BubbleGardenDialog({
               )}
           </div>
         ) : (
-          <div className="space-y-4">
-            {eligible.length ? (
+          <div ref={reviewRef} data-garden-source-id={source?.id} className="space-y-4">
+            {sources.length > 0 || source ? (
               <>
                 <label className="block text-sm font-medium">
                   Start from this bubble
                   <select
                     aria-label="Bubble to grow"
                     className="mt-2 block min-h-11 w-full rounded-lg border bg-background px-3 text-sm"
-                    value={source?.id ?? ''}
-                    onChange={(event) => setSourceId(event.target.value)}
+                    value={source?.id ?? sourceId}
+                    disabled={reviewPending > 0 || undoing}
+                    onChange={event => { setSourceId(event.target.value); setReviewError(''); setStatus(''); }}
                   >
-                    {eligible.map((task) => (
-                      <option key={task.id} value={task.id}>
-                        {task.title}
-                      </option>
-                    ))}
+                    {!source && sourceId && <option value={sourceId}>Source bubble unavailable</option>}
+                    {source && source.type !== 'task' && <option value={source.id}>{source.title}</option>}
+                    {sources.map(task => <option key={task.id} value={task.id}>{task.title}{task.completed ? ' · Complete' : ''}</option>)}
                   </select>
                 </label>
-                {suggestions.map((sprout) => (
+                {source && <BubbleFamily taskId={source.id} onOpenTask={openFamilyTask} />}
+                {source?.completed && <p className="rounded-lg bg-muted p-4 text-sm">This bubble is complete. Its connected steps are still available; choose an unfinished bubble for new suggestions.</p>}
+                {source && !source.completed && source.actionability === 'reference' && <p className="rounded-lg bg-muted p-4 text-sm">This is a reference bubble. Its connected steps remain available.</p>}
+                {suggestions.map(sprout => (
                   <SproutDraft
                     key={sprout.key}
                     sprout={sprout}
-                    onDismiss={() =>
-                      setDismissed((current) => [...current, sprout.key])
-                    }
+                    disabled={reviewPending > 0 || undoing}
+                    onDismiss={async () => {
+                      await saveReview(sprout.sourceTaskId, { type: 'dismiss', key: sprout.key });
+                      setStatus('Suggestion dismissed. You can restore it here.');
+                      focusAfterReview(sprout.sourceTaskId);
+                    }}
                     onAdd={async (draft, title, domains) => {
-                      const task = await useTaskStore
-                        .getState()
-                        .addTask(createSproutTask(draft, title, domains));
-                      setAddedId(task.id);
-                      setStatus(`Added “${task.title}”.`);
+                      const result = await addSproutOnce(draft, title, domains, {
+                        getTasks: () => useTaskStore.getState().getTasks(),
+                        addTask: task => useTaskStore.getState().addTask(task),
+                      });
+                      setAdded(result.created ? { id: result.task.id, sourceId: draft.sourceTaskId } : null);
+                      setStatus(result.created ? `Added “${result.task.title}”. Find it in Connected steps.` : `“${result.task.title}” is already saved in Connected steps.`);
+                      focusAfterReview(draft.sourceTaskId, result.task.id);
                     }}
                   />
                 ))}
-                {suggestions.length === 0 && (
-                  <p className="rounded-lg bg-muted p-4 text-sm">
-                    You've explored these suggestions. Choose another bubble
-                    when you're ready.
-                  </p>
-                )}
+                {source && dismissed.length > 0 && <div className="space-y-2 rounded-lg border p-3">
+                  <p className="text-xs text-muted-foreground">Dismissed suggestions stay hidden for this bubble, including after you return.</p>
+                  <Button data-garden-restore variant="outline" className="min-h-11" disabled={reviewPending > 0 || undoing} onClick={async () => {
+                    setReviewError('');
+                    try { await saveReview(source.id, { type: 'restore' }); setStatus('Dismissed suggestions restored. Already-created steps remain in Connected steps.'); }
+                    catch { setReviewError('Suggestions could not be restored. Please try again.'); }
+                  }}>Restore suggestions</Button>
+                </div>}
+                {source && !source.completed && source.actionability !== 'reference' && suggestions.length === 0 && <p className="rounded-lg bg-muted p-4 text-sm">You have explored these suggestions. Your saved steps remain in Connected steps{dismissed.length ? ', or you can restore dismissed suggestions.' : '.'}</p>}
+                {!source && <p role="status" className="rounded-lg bg-muted p-4 text-sm">That source bubble is no longer available. Choose another bubble to continue.</p>}
               </>
-            ) : (
-              <p className="rounded-lg bg-muted p-4 text-sm">
-                Add an unfinished task first, then return here to help it grow
-                into smaller steps.
-              </p>
-            )}
-            {addedId && (
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  variant="outline"
-                  className="min-h-11"
-                  onClick={() => {
-                    onClose();
-                    onOpenTask(addedId);
-                  }}
-                >
-                  Open new bubble
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="min-h-11"
-                  onClick={async () => {
-                    await useBubbleStore.getState().deleteBubble(addedId);
-                    if (
-                      useBubbleStore
-                        .getState()
-                        .bubbles.some((bubble) => bubble.id === addedId)
-                    ) {
-                      setStatus('Could not undo. Please try again.');
-                      return;
-                    }
-                    setAddedId(null);
-                    setStatus('New bubble removed.');
-                  }}
-                >
-                  Undo last addition
-                </Button>
-              </div>
-            )}
-            <p role="status" className="text-sm text-muted-foreground">
-              {status}
-            </p>
+            ) : <p className="rounded-lg bg-muted p-4 text-sm">Add a task first, then return here to help it grow into smaller steps.</p>}
+            {reviewError && <p role="alert" className="text-sm text-destructive">{reviewError}</p>}
+            {added && source?.id === added.sourceId && bubbles.some(bubble => bubble.id === added.id) && <Button variant="ghost" className="min-h-11" disabled={undoing || reviewPending > 0} onClick={async () => {
+              const target = added;
+              setUndoing(true);
+              try {
+                await useBubbleStore.getState().deleteBubble(target.id);
+                if (useBubbleStore.getState().bubbles.some(bubble => bubble.id === target.id)) { setStatus('Could not undo. Please try again.'); return; }
+                setAdded(current => current?.id === target.id ? null : current);
+                setStatus('New bubble removed.');
+              } catch { setStatus('Could not undo. Please try again.'); }
+              finally { setUndoing(false); }
+            }}>{undoing ? 'Removing…' : 'Undo last addition'}</Button>}
+            <p role="status" className="text-sm text-muted-foreground">{status}</p>
           </div>
         )}
       </DialogContent>

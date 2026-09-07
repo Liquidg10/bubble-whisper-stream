@@ -1,4 +1,7 @@
 import type { Bubble } from '@/types/bubble';
+import type { TaskDomainLink } from '@/types/task';
+import type { CanvasPoint } from '@/lib/canvasGeometry';
+import { bubbleToTask } from '@/adapters/taskAdapter';
 
 export interface BondMolecule {
   id: string;
@@ -31,4 +34,34 @@ export function buildMoleculeBonds(molecules: BondMolecule[]): MoleculeBond[] {
     });
   });
   return result;
+}
+
+export function getConfirmedDomainLinks(bubble: Bubble): TaskDomainLink[] {
+  const seen = new Set<string>();
+  return (bubbleToTask(bubble).domainLinks ?? []).flatMap(link => {
+    const domainId = link.domainId.trim();
+    if (!link.userConfirmed || !domainId || seen.has(domainId)) return [];
+    seen.add(domainId);
+    return [{ ...link, domainId }];
+  });
+}
+
+export interface SharedTaskConnection {
+  task: Bubble;
+  links: TaskDomainLink[];
+}
+
+/** One readable card per canonical task, independent of its pairwise edges. */
+export function getSharedTaskConnections(bubbles: readonly Bubble[]): SharedTaskConnection[] {
+  const seen = new Set<string>();
+  return bubbles.flatMap(task => {
+    if (seen.has(task.id)) return [];
+    seen.add(task.id);
+    const links = getConfirmedDomainLinks(task);
+    return links.length > 1 ? [{ task, links }] : [];
+  });
+}
+
+export interface MoleculeTracePoint extends CanvasPoint {
+  anchor: 'area' | 'particle';
 }

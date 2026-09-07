@@ -9,6 +9,7 @@ import { useBubbleStore } from '@/stores/bubbleStore';
 import { BubbleDetail } from '@/components/BubbleDetail';
 import { SmartTaskQuickAdd } from '@/components/SmartTaskQuickAdd';
 import { Button } from '@/components/ui/button';
+import { isFeatureEnabled } from '@/config/flags';
 import {
   Dialog,
   DialogContent,
@@ -25,12 +26,25 @@ import {
 export default function Index() {
   const { isLoading, bubbles, settings } = useBubbleStore();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detailSection, setDetailSection] = useState<
+    'connections' | undefined
+  >();
+  const [gardenSourceId, setGardenSourceId] = useState<string | undefined>();
   const [showAdd, setShowAdd] = useState(false);
   const [gardenMode, setGardenMode] = useState<'guide' | 'grow' | null>(null);
   const starter = useStarterBubbles();
   const currentViewMode = settings.viewMode || 'bubble';
   const selectedBubble =
     bubbles.find((bubble) => bubble.id === selectedId) ?? null;
+  const openTask = (id: string, section?: 'connections') => {
+    setDetailSection(section);
+    setSelectedId(id);
+  };
+  const growTask = (id?: string) => {
+    setSelectedId(null);
+    setGardenSourceId(id);
+    setGardenMode('grow');
+  };
 
   return (
     <div className="relative flex h-full min-h-0 flex-col bg-background">
@@ -53,13 +67,18 @@ export default function Index() {
           </div>
         ) : currentViewMode === 'bubble' ? (
           <BubbleCanvas
-            onBubbleSelect={(bubble) => setSelectedId(bubble.id)}
-            onBubbleEdit={(bubble) => setSelectedId(bubble.id)}
+            onBubbleSelect={(bubble) => openTask(bubble.id)}
+            onBubbleEdit={(bubble) => openTask(bubble.id)}
           />
         ) : (
           <AtomicView
-            onBubbleSelect={setSelectedId}
-            onBubbleEdit={setSelectedId}
+            onBubbleSelect={openTask}
+            onBubbleEdit={openTask}
+            onEditConnections={
+              isFeatureEnabled('meaningLinks')
+                ? (id) => openTask(id, 'connections')
+                : undefined
+            }
           />
         )}
       </div>
@@ -97,7 +116,7 @@ export default function Index() {
         <Button
           variant="ghost"
           className="min-h-11 gap-2 rounded-full px-3"
-          onClick={() => setGardenMode('grow')}
+          onClick={() => growTask()}
         >
           <Sprout className="h-4 w-4" />
           <span>Grow ideas</span>
@@ -123,7 +142,7 @@ export default function Index() {
           <SmartTaskQuickAdd
             onCreated={(id) => {
               setShowAdd(false);
-              setSelectedId(id);
+              openTask(id);
             }}
           />
         </DialogContent>
@@ -131,13 +150,17 @@ export default function Index() {
       <BubbleGardenDialog
         starter={starter}
         mode={gardenMode}
+        sourceTaskId={gardenSourceId}
         onClose={() => setGardenMode(null)}
-        onOpenTask={setSelectedId}
+        onOpenTask={openTask}
       />
       <BubbleDetail
         bubble={selectedBubble}
         isOpen={!!selectedBubble}
         onClose={() => setSelectedId(null)}
+        initialSection={detailSection}
+        onGrowIdeas={growTask}
+        onOpenTask={openTask}
       />
       <NotificationSystem />
       <JoyMomentumIntegration />

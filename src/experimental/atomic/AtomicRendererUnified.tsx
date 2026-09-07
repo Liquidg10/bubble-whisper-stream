@@ -24,6 +24,9 @@ import {
   Atom,
   Link2,
   Info,
+  ArrowLeft,
+  Plus,
+  X,
   Target,
   ZoomIn,
   ZoomOut,
@@ -44,7 +47,6 @@ import {
   stopAnimation,
   subscribeToMotionState,
 } from '@/lib/motion';
-import { bubbleToTask } from '@/adapters/taskAdapter';
 import {
   getHorizon,
   getHorizonDisplayName,
@@ -55,7 +57,7 @@ import { hapticsService } from '@/services/haptics';
 import { interpolateOrbit, nearestFreeOrbitSlot, ORBIT_SETTLE_DURATION } from './orbitalMechanics';
 import './atomic.css';
 import { MoleculeBonds } from './MoleculeBonds';
-import { buildMoleculeBonds } from './moleculeBondModel';
+import { buildMoleculeBonds, getConfirmedDomainLinks, getSharedTaskConnections, type MoleculeTracePoint } from './moleculeBondModel';
 
 interface Electron {
   id: string;
@@ -151,6 +153,7 @@ const ANIMATION_CONFIG = {
 interface AtomicRendererProps {
   bubbles?: Bubble[];
   onBubbleSelect?: (bubble: Bubble) => void;
+  onEditConnections?: (bubble: Bubble) => void;
   onTimeHorizonUpdate?: (
     bubbleId: string,
     fromRing: number,
@@ -166,18 +169,6 @@ interface AtomicRendererProps {
 function shellIndexForBubble(bubble: Bubble): number {
   const index = HORIZONS.indexOf(getHorizon(bubble) ?? 'today');
   return index < 0 ? 0 : index;
-}
-
-function getConfirmedDomainLinks(bubble: Bubble) {
-  const seenDomainIds = new Set<string>();
-  return (bubbleToTask(bubble).domainLinks ?? []).flatMap((link) => {
-    const domainId = link.domainId.trim();
-    if (!link.userConfirmed || !domainId || seenDomainIds.has(domainId)) {
-      return [];
-    }
-    seenDomainIds.add(domainId);
-    return [{ ...link, domainId }];
-  });
 }
 
 function angleForCanvasSlot(shell: number, canvasSlot: number | null): number {
@@ -511,6 +502,7 @@ function AtomicTaskNavigator({
 export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
   bubbles = [],
   onBubbleSelect,
+  onEditConnections,
   onTimeHorizonUpdate,
   reducedMotion = false,
   highContrast = false,
@@ -547,9 +539,48 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
   const [frameTime, setFrameTime] = useState(() => performance.now());
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
-  const activeTaskId = hoveredTaskId ?? focusedTaskId;
+  const [tracedTaskId, setTracedTaskId] = useState<string | null>(null);
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const [choosingConnectionTask, setChoosingConnectionTask] = useState(false);
+  const [connectionSearch, setConnectionSearch] = useState('');
+  const connectionSearchRef = useRef<HTMLInputElement>(null);
+  const connectionsSummaryRef = useRef<HTMLElement>(null);
+  const clearTraceRef = useRef<HTMLButtonElement>(null);
+  const sharedConnections = useMemo(() => getSharedTaskConnections(bubbles), [bubbles]);
+  const tracedConnection = sharedConnections.find(connection => connection.task.id === tracedTaskId);
+  const activeTaskId = tracedConnection?.task.id ?? hoveredTaskId ?? focusedTaskId;
   const interactionPaused = Boolean(activeTaskId);
   const [movementAnnouncement, setMovementAnnouncement] = useState('');
+  const connectionTasks = useMemo(() => [...new Map(bubbles.map(bubble => [bubble.id, bubble])).values()], [bubbles]);
+  const filteredConnectionTasks = useMemo(() => connectionTasks.filter(task =>
+    (task.content || 'Untitled task').toLocaleLowerCase().includes(connectionSearch.trim().toLocaleLowerCase())),
+  [connectionSearch, connectionTasks]);
+
+  useEffect(() => {
+    if (tracedTaskId && !tracedConnection) {
+      setTracedTaskId(null);
+      setMovementAnnouncement('Trace cleared because this task no longer has shared life connections.');
+    }
+  }, [tracedConnection, tracedTaskId]);
+
+  useEffect(() => {
+    if (tracedTaskId) clearTraceRef.current?.focus();
+  }, [tracedTaskId]);
+
+  useEffect(() => {
+    if (connectionsOpen && choosingConnectionTask) connectionSearchRef.current?.focus();
+  }, [choosingConnectionTask, connectionsOpen]);
+
+  const chooseConnectionTask = () => {
+    setConnectionSearch('');
+    setChoosingConnectionTask(true);
+    setConnectionsOpen(true);
+  };
+
+  const editConnections = (bubble: Bubble) => {
+    setConnectionsOpen(false);
+    onEditConnections?.(bubble);
+  };
 
   const updateAtomicState = useCallback((
     updater: (previous: AtomicState) => AtomicState,
@@ -1191,15 +1222,6 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     onTouchEnd(event);
   }, [onTouchEnd]);
 
-  const activeTaskPoints = activeTaskId ? atomicState.molecules.flatMap(molecule => {
-    const electron = molecule.electrons.find(candidate => candidate.originalBubble?.id === activeTaskId && candidate.canvasSlot !== null);
-    if (!electron) return [];
-    const drag = atomicState.dragState;
-    if (drag.electronId === electron.id && drag.currentWorld) return [drag.currentWorld];
-    const orbit = getElectronOrbitOffset(electron, animationStep, frameTime);
-    return [{ x: molecule.x + orbit.x, y: molecule.y + orbit.y }];
-  }) : [];
-
   const minimumWorldTargetSize = MINIMUM_TARGET_SIZE
     / Math.max(0.01, panZoomState.scale);
   const visualScaleCompensation = 1 / Math.min(1, panZoomState.scale);
@@ -1207,10 +1229,29 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
   const nucleusVisualSize = 48 * visualScaleCompensation;
   const nucleusTargetSize = Math.max(nucleusVisualSize, minimumWorldTargetSize);
   const showElectronControls = panZoomState.scale >= ELECTRON_WORKING_SCALE;
+  const activeTaskPoints = activeTaskId ? atomicState.molecules.flatMap<MoleculeTracePoint>(molecule => {
+    const electron = molecule.electrons.find(candidate => candidate.originalBubble?.id === activeTaskId);
+    if (!electron) return [];
+    // A dense orbit may keep a task in the navigator. Trace its area without
+    // inventing a visible particle or changing the task's canvas slot.
+    if (electron.canvasSlot === null) return [{ x: molecule.x, y: molecule.y, anchor: 'area' as const }];
+    const drag = atomicState.dragState;
+    if (drag.electronId === electron.id && drag.currentWorld) return [{ ...drag.currentWorld, anchor: 'particle' as const }];
+    const orbit = getElectronOrbitOffset(electron, animationStep, frameTime);
+    const radius = showElectronControls ? SHELL_CONFIG[electron.shell].radius
+      : Math.max(SHELL_CONFIG[electron.shell].radius, (36 + electron.shell * 6) * visualScaleCompensation);
+    const ratio = radius / SHELL_CONFIG[electron.shell].radius;
+    return [{ x: molecule.x + orbit.x * ratio, y: molecule.y + orbit.y * ratio, anchor: 'particle' as const }];
+  }) : [];
   const compactControls = isMobile || (
     dimensions.height > 0
     && dimensions.height < COMPACT_VIEWPORT_HEIGHT
   );
+  // Reserve the view toolbar and bottom summaries inside the measured canvas,
+  // which can be much shorter than the browser viewport on phones.
+  const bottomPanelStyle = {
+    maxHeight: `max(0px, min(30rem, calc(${dimensions.height - (compactControls ? 68 : 124) - 72}px - env(safe-area-inset-bottom))))`,
+  };
   const motionStatus = prefersReducedMotion
     ? 'Motion off: reduced-motion preference'
     : !motionState
@@ -1320,7 +1361,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
             willChange: 'transform',
           }}
         >
-          <MoleculeBonds bonds={moleculeBonds} scale={panZoomState.scale} selectedIds={atomicState.selectedMolecules} activeTaskPoints={activeTaskPoints} />
+          <MoleculeBonds bonds={moleculeBonds} scale={panZoomState.scale} selectedIds={atomicState.selectedMolecules} activeTaskPoints={activeTaskPoints} activeTaskId={activeTaskId} />
           {atomicState.molecules.map((molecule) => (
             <div
               key={molecule.id}
@@ -1377,6 +1418,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                 return <span key={electron.id} aria-hidden="true" data-overview-particle
                   className="atomic-particle pointer-events-none absolute rounded-full border border-white/60"
                   data-particle={flavor.kind}
+                  data-traced={activeTaskId === electron.originalBubble?.id}
                   style={{ left: orbit.x * radiusRatio - dotSize / 2, top: orbit.y * radiusRatio - dotSize / 2, width: dotSize, height: dotSize,
                     backgroundColor: flavor.color ?? SHELL_CONFIG[electron.shell].color }} />;
               }) : null}
@@ -1469,6 +1511,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                     <span
                       aria-hidden="true"
                       data-particle={flavor.kind}
+                      data-traced={activeTaskId === electron.originalBubble?.id}
                       className={`atomic-particle flex items-center justify-center rounded-full border-2 border-white/75 text-xs font-bold text-white ${
                         motionEnabled ? 'transition-transform hover:scale-110' : ''
                       } ${isDragging ? 'scale-110 shadow-lg' : ''}`}
@@ -1612,10 +1655,10 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         </p>
       ) : null}
 
-      <div data-panel className="absolute bottom-[calc(env(safe-area-inset-bottom)+1rem)] left-3 right-3 z-30 flex items-end justify-between gap-2">
+      <div data-panel className="atomic-bottom-panels absolute bottom-[calc(env(safe-area-inset-bottom)+1rem)] left-3 right-3 z-30 flex items-end justify-between gap-2">
         <details name={panelGroup} className="relative max-w-[min(22rem,calc(100%-8rem))] rounded-2xl border bg-card/95 text-card-foreground shadow-sm backdrop-blur-md">
           <summary className="flex min-h-11 cursor-pointer items-center gap-2 px-3 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><Info className="h-4 w-4" aria-hidden="true" /> How it works</summary>
-          <div className="absolute bottom-14 left-0 w-[min(22rem,calc(100vw-2rem))] space-y-3 rounded-2xl border bg-card p-4 text-sm shadow-lg" data-testid="atomic-metaphor-guide">
+          <div className="absolute bottom-14 left-0 w-[min(22rem,calc(100vw-2rem))] space-y-3 overflow-y-auto rounded-2xl border bg-card p-4 text-sm shadow-lg" style={bottomPanelStyle} data-testid="atomic-metaphor-guide">
             <p><strong>Your life, connected.</strong> A nucleus is a life area you chose. Link one task to several areas to see a molecule form.</p>
             <ul className="space-y-2 text-xs">
               <li><strong>− Electrons:</strong> tasks and reminders; things you can act on.</li>
@@ -1623,32 +1666,96 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
               <li><strong>• Neutrons:</strong> memories and moods; context worth holding.</li>
             </ul>
             <p className="text-xs text-muted-foreground">A personal metaphor. Drag a particle to Today, Week, or Later. The highlighted ring shows where it will land. Hover or focus to steady the scene.</p>
-            <p className="text-xs text-muted-foreground">Bonds show your confirmed connections. A shared task stays one task everywhere. Hover or focus it to trace its matching particles. Dragging a nucleus changes this view only.</p>
+            <p className="text-xs text-muted-foreground">Bonds show your confirmed connections. A shared task stays one task everywhere. Open Connections and choose Trace this task to follow it at any zoom. Dragging a nucleus changes this view only.</p>
           </div>
         </details>
-        <details name={panelGroup} className="relative max-w-[min(23rem,55%)] rounded-2xl border bg-card/95 text-card-foreground shadow-sm backdrop-blur-md">
-          <summary className="flex min-h-11 cursor-pointer items-center gap-2 px-3 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><Link2 className="h-4 w-4" aria-hidden="true" /> Connections ({moleculeBonds.length})</summary>
-          <div className="absolute bottom-14 right-0 max-h-[min(50vh,24rem)] w-[min(23rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl border bg-card p-3 shadow-lg" data-testid="atomic-connections-panel">
-            {moleculeBonds.length === 0 ? <p className="p-2 text-sm text-muted-foreground">Open a task and add more than one life connection. Its areas will be joined here.</p> : (
-              <ul aria-label="Shared tasks connecting life areas" className="space-y-3">
-                {moleculeBonds.map(bond => <li key={bond.id}>
-                  <p className="px-2 text-xs font-semibold text-muted-foreground">{bond.from.nucleus.domain} ↔ {bond.to.nucleus.domain}</p>
-                  {bond.tasks.map(task => <button key={task.id} type="button" onClick={() => onBubbleSelect?.(task)}
-                    className="min-h-11 w-full rounded-xl px-2 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    aria-label={`Open ${task.content || 'Untitled task'}, shared by ${bond.from.nucleus.domain} and ${bond.to.nucleus.domain}`}>
-                    {task.content || 'Untitled task'}
-                  </button>)}
-                </li>)}
-              </ul>
+        <details name={panelGroup} open={connectionsOpen}
+          onToggle={event => setConnectionsOpen(event.currentTarget.open)}
+          className="relative max-w-[min(23rem,55%)] rounded-2xl border bg-card/95 text-card-foreground shadow-sm backdrop-blur-md">
+          <summary ref={connectionsSummaryRef} className="flex min-h-11 cursor-pointer items-center gap-2 px-3 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><Link2 className="h-4 w-4" aria-hidden="true" /> Connections ({moleculeBonds.length})</summary>
+          <div className="atomic-connections-content absolute bottom-14 right-0 w-[min(23rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl border bg-card p-3 shadow-lg" style={bottomPanelStyle} data-testid="atomic-connections-panel">
+            {choosingConnectionTask && onEditConnections ? (
+              <div className="space-y-3">
+                <button type="button" onClick={() => setChoosingConnectionTask(false)} className="flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back to connections</button>
+                <h3 className="px-2 text-base font-semibold">Connect a task</h3>
+                <p className="px-2 text-sm text-muted-foreground">Choose a bubble to open its life connections. You decide which areas it touches.</p>
+                <label className="block space-y-1 px-2 text-xs font-medium">
+                  Find a task to connect
+                  <input ref={connectionSearchRef} type="search" value={connectionSearch} onChange={event => setConnectionSearch(event.target.value)}
+                    className="block min-h-11 w-full rounded-xl border bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+                </label>
+                <ul aria-label="Tasks available to connect" className="space-y-1">
+                  {filteredConnectionTasks.map(task => {
+                    const labels = getConfirmedDomainLinks(task).map(link => link.label?.trim() || link.domainId);
+                    return <li key={task.id}><button type="button" onClick={() => editConnections(task)}
+                      className="min-h-11 w-full rounded-xl px-2 py-2 text-left text-sm hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      aria-label={`Edit connections for ${task.content || 'Untitled task'}`}>
+                      <span className="block font-medium">{task.content || 'Untitled task'}</span>
+                      <span className="mt-1 block text-xs text-muted-foreground">{labels.join(' · ') || 'No life connections yet'}</span>
+                    </button></li>;
+                  })}
+                </ul>
+                {filteredConnectionTasks.length === 0 ? <p role="status" className="px-2 text-sm text-muted-foreground">{connectionTasks.length === 0 ? 'Add a bubble to begin.' : 'No matching tasks. Try another word.'}</p> : null}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+                  <h3 className="text-sm font-semibold">{sharedConnections.length} shared {sharedConnections.length === 1 ? 'task' : 'tasks'}</h3>
+                  {onEditConnections ? <button type="button" onClick={chooseConnectionTask} className="flex min-h-11 items-center gap-1 rounded-xl border px-3 text-xs font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><Plus className="h-3.5 w-3.5" aria-hidden="true" /> Connect a task</button> : null}
+                </div>
+                <p className="px-1 text-xs text-muted-foreground">One task can support several life areas. Trace it to see them together.</p>
+                {sharedConnections.length === 0 ? <p className="p-2 text-sm text-muted-foreground">No shared tasks yet. Choose a task and connect it to the areas that matter to you.</p> : (
+                  <ul aria-label="Shared tasks connecting life areas" className="space-y-3">
+                    {sharedConnections.map(({ task, links }) => {
+                      const label = task.content || 'Untitled task';
+                      const areas = links.map(link => link.label?.trim() || link.domainId);
+                      return <li key={task.id} data-shared-task-id={task.id} className="space-y-3 rounded-xl border bg-background/50 p-3">
+                        <button type="button" onClick={() => onBubbleSelect?.(task)}
+                          className="min-h-11 w-full rounded-lg text-left text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          aria-label={`Open ${label}, shared by ${areas.join(' and ')}`}>{label}</button>
+                        <ul aria-label={`Life areas for ${label}`} className="space-y-2">
+                          {links.map(link => <li key={link.domainId} className="border-l-2 border-primary/30 pl-3">
+                            <p className="text-xs font-medium">{link.label?.trim() || link.domainId}{link.strength ? <span className="ml-2 text-muted-foreground">{link.strength === 'primary' ? 'Primary' : 'Supporting'}</span> : null}</p>
+                            {link.reason?.trim() ? <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">{link.reason}</p> : null}
+                          </li>)}
+                        </ul>
+                        <div className="flex flex-wrap gap-2">
+                          <button type="button" onClick={() => {
+                            setTracedTaskId(task.id);
+                            setHoveredTaskId(null);
+                            setFocusedTaskId(null);
+                            setConnectionsOpen(false);
+                            fitMolecules();
+                            setMovementAnnouncement(`Tracing ${label} across ${areas.join(', ')}. This is one shared task.`);
+                          }} className="flex min-h-11 items-center gap-2 rounded-xl border px-3 text-xs font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            aria-label={`Trace ${label} across its life areas`}><Target className="h-3.5 w-3.5" aria-hidden="true" /> Trace this task</button>
+                          {onEditConnections ? <button type="button" onClick={() => editConnections(task)} className="min-h-11 rounded-xl px-2 text-xs font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            aria-label={`Edit connections for ${label}`}>Edit connections</button> : null}
+                        </div>
+                      </li>;
+                    })}
+                  </ul>
+                )}
+              </div>
             )}
           </div>
         </details>
       </div>
+      {tracedConnection ? <div data-panel data-testid="atomic-trace-status" className="absolute left-3 z-40 flex max-w-[min(25rem,calc(100%-1.5rem))] items-center gap-3 rounded-2xl border bg-card/95 p-3 shadow-sm backdrop-blur-md" style={{ top: compactControls ? 68 : 124 }}>
+        <div className="min-w-0 space-y-1">
+          <p className="text-xs font-semibold text-foreground">One task, {tracedConnection.links.length} life areas</p>
+          <p className="line-clamp-2 break-words text-xs text-muted-foreground">{tracedConnection.task.content || 'Untitled task'}</p>
+          {activeTaskPoints.some(point => point.anchor === 'area') ? <p className="text-xs text-muted-foreground">Some particles are tucked away; their life areas are highlighted.</p> : null}
+        </div>
+        <button ref={clearTraceRef} type="button" onClick={() => { setTracedTaskId(null); connectionsSummaryRef.current?.focus(); setMovementAnnouncement('Trace cleared.'); }}
+          aria-label="Clear trace" className="flex min-h-11 shrink-0 items-center gap-1 rounded-xl px-2 text-xs font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><X className="h-4 w-4" aria-hidden="true" /> Clear trace</button>
+      </div> : null}
       {atomicState.molecules.length === 0 ? <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-8">
         <div className="max-w-sm text-center">
           <Atom className="mx-auto mb-4 h-12 w-12 text-primary" aria-hidden="true" />
           <h2 className="text-xl font-semibold">Make room for connections</h2>
-          <p className="mt-2 text-sm text-muted-foreground">Add a bubble, then choose the life areas it touches. Your first nucleus appears here. A task linked to two areas brings them together.</p>
+          <p className="mt-2 text-sm text-muted-foreground">Choose the life areas a bubble touches. Your first nucleus appears here. A task linked to two areas brings them together.</p>
+          {onEditConnections && connectionTasks.length > 0 ? <Button type="button" onClick={chooseConnectionTask} className="pointer-events-auto mt-4 min-h-11 rounded-full">Choose a task to connect</Button> : null}
         </div>
       </div> : null}
     </div>

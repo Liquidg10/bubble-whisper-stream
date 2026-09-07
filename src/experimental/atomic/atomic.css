@@ -64,3 +64,10 @@
 .atomic-scene[data-reduced-motion="true"] *::after { animation: none !important; transition: none !important; }
 
 .atomic-shared-electron-thread { fill: none; stroke: hsl(var(--accent-flow)); filter: drop-shadow(0 0 3px hsl(var(--accent-flow) / 0.4)); }
+
+.atomic-connections-content { overflow-wrap: anywhere; }
+.atomic-bottom-panels:has(> details[open]) { z-index: 50; }
+.atomic-trace-anchor { fill: hsl(var(--accent-flow) / 0.08); stroke: hsl(var(--accent-flow)); }
+.atomic-particle[data-traced="true"] { outline: 2px solid hsl(var(--accent-flow)); outline-offset: 3px; }
+.atomic-scene[data-high-contrast="true"] .atomic-trace-anchor,
+.atomic-scene[data-high-contrast="true"] .atomic-shared-electron-thread { stroke: hsl(var(--foreground)); }

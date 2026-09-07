@@ -1,9 +1,8 @@
-import type { MoleculeBond } from './moleculeBondModel';
-import type { CanvasPoint } from '@/lib/canvasGeometry';
+import type { MoleculeBond, MoleculeTracePoint } from './moleculeBondModel';
 
 export function MoleculeBonds({
-  bonds, scale, selectedIds, activeTaskPoints,
-}: { bonds: MoleculeBond[]; scale: number; selectedIds: string[]; activeTaskPoints: CanvasPoint[] }) {
+  bonds, scale, selectedIds, activeTaskPoints, activeTaskId,
+}: { bonds: MoleculeBond[]; scale: number; selectedIds: string[]; activeTaskPoints: MoleculeTracePoint[]; activeTaskId?: string | null }) {
   return (
     <svg
       aria-hidden="true"
@@ -11,6 +10,7 @@ export function MoleculeBonds({
       width="1"
       height="1"
       data-testid="atomic-molecule-bonds"
+      data-traced-task-id={activeTaskId ?? undefined}
     >
       {bonds.map(({ id, from, to, tasks }) => {
         const distance = Math.hypot(to.x - from.x, to.y - from.y) || 1;
@@ -20,7 +20,8 @@ export function MoleculeBonds({
         const bend = Math.min(48, distance / 10);
         const midpoint = { x: (from.x + to.x) / 2 - ny * bend, y: (from.y + to.y) / 2 + nx * bend };
         const path = `M ${from.x + nx * clearance} ${from.y + ny * clearance} Q ${midpoint.x} ${midpoint.y} ${to.x - nx * clearance} ${to.y - ny * clearance}`;
-        const selected = selectedIds.length === 0 || selectedIds.includes(from.id) || selectedIds.includes(to.id);
+        const selected = activeTaskId ? tasks.some(task => task.id === activeTaskId)
+          : selectedIds.length === 0 || selectedIds.includes(from.id) || selectedIds.includes(to.id);
         return (
           <g key={id} data-bond-id={id} data-shared-task-count={tasks.length} opacity={selected ? 1 : 0.18}>
             <path d={path} className="atomic-bond-halo" strokeWidth={9 / scale} />
@@ -29,6 +30,9 @@ export function MoleculeBonds({
           </g>
         );
       })}
+      {activeTaskPoints.map((point, index) => <circle key={`anchor-${index}`} data-trace-anchor={point.anchor}
+        cx={point.x} cy={point.y} r={(point.anchor === 'area' ? 28 : 12) / scale}
+        className="atomic-trace-anchor" strokeWidth={1.5 / scale} />)}
       {activeTaskPoints.slice(1).map((point, index) => (
         <path key={index} data-shared-electron-thread
           d={`M ${activeTaskPoints[0].x} ${activeTaskPoints[0].y} Q ${(activeTaskPoints[0].x + point.x) / 2 + 24} ${(activeTaskPoints[0].y + point.y) / 2 - 24} ${point.x} ${point.y}`}

@@ -87,4 +87,74 @@ describe('guide and suggested bubble contract', () => {
       createSproutTask(suggestBubbleSprouts(task(), [])[0], ' ', []),
     ).toThrow();
   });
+
+  it('offers unfinished steps from the notes in their own words and skips checked or duplicate items', () => {
+    const parent = task({
+      description:
+        'My outline:\n- [x] Already done\n- [ ] Open the brief\n2. Write a heading\n* OPEN THE BRIEF\n• Ask one question\n- Review the answer',
+    });
+    const before = structuredClone(parent);
+    const drafts = suggestBubbleSprouts(parent, []);
+    expect(drafts.map((draft) => draft.title)).toEqual([
+      'Open the brief',
+      'Write a heading',
+      'Ask one question',
+    ]);
+    expect(drafts.every((draft) => draft.reason.includes('your notes'))).toBe(
+      true,
+    );
+    expect(parent).toEqual(before);
+    const first = {
+      ...createSproutTask(drafts[0], 'Read the brief', []),
+      id: 'child',
+    };
+    expect(
+      suggestBubbleSprouts(parent, [first]).map((draft) => draft.title),
+    ).toEqual(['Write a heading', 'Ask one question', 'Review the answer']);
+  });
+
+  it('keeps note identities stable when list items are reordered or numbered differently', () => {
+    const before = suggestBubbleSprouts(
+      task({ description: '- Read the résumé\n- Write a note' }),
+      [],
+    );
+    const after = suggestBubbleSprouts(
+      task({ description: '1. Write a note\n2. Read the résumé' }),
+      [],
+    );
+    expect(after[1].key).toBe(before[0].key);
+    expect(after[0].key).toBe(before[1].key);
+  });
+
+  it('uses bounded concrete patterns without turning a substring into a task category', () => {
+    const project = suggestBubbleSprouts(
+      task({ title: 'Finish the project report' }),
+      [],
+    );
+    expect(project[0].title).toContain(
+      'Write one sentence describing the finished result',
+    );
+    expect(project[1].title).toContain('Open the notes or file');
+    expect(
+      suggestBubbleSprouts(task({ title: 'Study on the train' }), [])[0].title,
+    ).toContain('Choose one question');
+    expect(
+      suggestBubbleSprouts(
+        task({ title: 'Think about messaging patterns' }),
+        [],
+      )[0].title,
+    ).toContain('Choose the first small step');
+  });
+
+  it('does not turn ordinary prose, completed lists or oversized notes into quoted steps', () => {
+    const drafts = suggestBubbleSprouts(
+      task({
+        title: 'A new idea',
+        description: `A sentence to consider.\n- [X] Already done\n- ${'long '.repeat(80)}`,
+      }),
+      [],
+    );
+    expect(drafts).toHaveLength(3);
+    expect(drafts[0].key).toBe('parent:first-step');
+  });
 });

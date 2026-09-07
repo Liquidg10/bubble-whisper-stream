@@ -146,6 +146,35 @@ describe('BubbleDetail canonical completion', () => {
     });
   });
 
+  it('saves the current draft before opening its source-specific grow flow', async () => {
+    const user = userEvent.setup();
+    const saving = deferred<void>();
+    updateBubble.mockImplementationOnce(() => saving.promise);
+    const onGrowIdeas = vi.fn();
+    render(<BubbleDetail bubble={bubble} isOpen onClose={vi.fn()} onGrowIdeas={onGrowIdeas} />);
+    await user.type(screen.getByLabelText('Notes & small steps'), '- Read the brief');
+    await user.click(screen.getByRole('button', { name: 'Grow ideas from this bubble' }));
+    expect(onGrowIdeas).not.toHaveBeenCalled();
+    await waitFor(() => expect(updateBubble).toHaveBeenCalledWith(expect.objectContaining({ caption: '- Read the brief' })));
+    await act(async () => saving.resolve());
+    await waitFor(() => expect(onGrowIdeas).toHaveBeenCalledWith(bubble.id));
+    expect(onGrowIdeas).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the draft open when saving before Grow fails', async () => {
+    const user = userEvent.setup();
+    updateBubble.mockRejectedValueOnce(new Error('Storage unavailable'));
+    const onGrowIdeas = vi.fn();
+    render(<BubbleDetail bubble={bubble} isOpen onClose={vi.fn()} onGrowIdeas={onGrowIdeas} />);
+    await user.type(screen.getByLabelText('Notes & small steps'), 'Keep this note');
+    await user.click(screen.getByRole('button', { name: 'Grow ideas from this bubble' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('could not be saved'));
+    expect(onGrowIdeas).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Notes & small steps')).toHaveValue('Keep this note');
+    await user.click(screen.getByRole('button', { name: 'Grow ideas from this bubble' }));
+    await waitFor(() => expect(onGrowIdeas).toHaveBeenCalledWith(bubble.id));
+  });
+
   it('uses TaskStore and keeps a delayed detail autosave from reverting completion', async () => {
     const user = userEvent.setup();
     render(

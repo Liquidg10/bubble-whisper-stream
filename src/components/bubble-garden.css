@@ -185,3 +185,15 @@
     margin-top: 1rem;
   }
 }
+
+.garden-family { min-width: 0; padding: 1rem; border: 1px solid hsl(var(--border)); border-radius: 1rem; background: hsl(var(--muted)/.15); }
+.garden-family-link { display: flex; width: 100%; min-height: 44px; height: auto; justify-content: flex-start; gap: .65rem; padding: .6rem .4rem; white-space: normal; }
+
+.garden-family-link .garden-family-title { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.garden-family-link .garden-family-status { flex-shrink: 0; white-space: nowrap; }
+/* A task's decorative detail colors must not recolor its navigation links. */
+.garden-family { background: hsl(var(--card)); color: hsl(var(--card-foreground)); }
+.garden-family .garden-family-link { background: hsl(var(--card)); color: hsl(var(--card-foreground)); }
+.garden-family .garden-family-link:is(:hover, :focus-visible, :active) { background: hsl(var(--muted)); color: hsl(var(--foreground)); }
+.garden-family-link .garden-family-title,
+.garden-family-link .garden-family-status { color: inherit; }
