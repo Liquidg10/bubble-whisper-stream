@@ -66,6 +66,7 @@ import { AtomicRelationshipPanel } from './AtomicRelationshipPanel';
 import { taskRelationshipLabel, taskRelationshipTraceKey } from './relationshipLabels';
 import { useAuth } from '@/contexts/AuthContext';
 import { AtomicLayoutPanel } from './AtomicLayoutPanel';
+import { AtomicUndoButton } from './AtomicUndoButton';
 import { AtomicSpatialBoundary } from './AtomicSpatialBoundary';
 import { useAtomicLayout } from './useAtomicLayout';
 import { atomicOrbitKey, emptyAtomicLayout, getMoleculePose, getOrbitPlacement, type AtomicLayoutSnapshot } from './atomicLayout';
@@ -1057,11 +1058,11 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         title: `Moved to ${getHorizonDisplayName(targetHorizon)}`,
         description: `${electron.content || 'Task'} moved from ${getHorizonDisplayName(originalHorizon)}.`,
         action: source === 'undo' ? undefined : (
-          <Button
+          <AtomicUndoButton
             variant="outline"
             size="sm"
             aria-label={`Undo moving ${electron.content || 'task'} to ${getHorizonDisplayName(targetHorizon)}`}
-            onClick={() => {
+            onActivate={() => {
               if (acceptedGeneration !== layoutGenerationRef.current.generation || !bubbleId || pendingMovesRef.current.has(bubbleId)) return;
               const current = atomicStateRef.current.molecules.flatMap(molecule => molecule.electrons)
                 .find(candidate => candidate.originalBubble?.id === bubbleId);
@@ -1080,7 +1081,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
             }}
           >
             Undo
-          </Button>
+          </AtomicUndoButton>
         ),
       });
     }, () => restoreShell(originalShell, originalSlots));

@@ -13,6 +13,7 @@ interface SpatialUndoInput {
   time: number; defaultPrevented: boolean; x: number | null; y: number | null;
   path: string[]; swipe: string | null;
   pointerId: number | null; isPrimary: boolean | null;
+  insideButton: boolean | null;
 }
 interface SpatialUndoProbe { inputs: SpatialUndoInput[]; startedAt: number; toastShownAt: number | null }
 interface Layout {
@@ -272,10 +273,14 @@ async function proveNativeParticleMoves(page: Page, touch: boolean, beforeTasks:
       for (const capture of [true, false]) window.addEventListener(type, event => {
         const target = event.target as Element;
         const pointer = event as PointerEvent;
+        const buttonBounds = target.closest('button')?.getBoundingClientRect();
         undo.inputs.push({ type, phase: capture ? 'capture' : 'bubble', trusted: event.isTrusted,
           pointerType: pointer.pointerType ?? '', label: target.closest('button')?.getAttribute('aria-label') ?? null,
           pointerId: Number.isFinite(pointer.pointerId) ? pointer.pointerId : null,
           isPrimary: typeof pointer.isPrimary === 'boolean' ? pointer.isPrimary : null,
+          insideButton: buttonBounds && Number.isFinite(pointer.clientX) && Number.isFinite(pointer.clientY)
+            ? pointer.clientX >= buttonBounds.left && pointer.clientX <= buttonBounds.right
+              && pointer.clientY >= buttonBounds.top && pointer.clientY <= buttonBounds.bottom : null,
           target: target.tagName, time: performance.now(), defaultPrevented: event.defaultPrevented,
           x: Number.isFinite(pointer.clientX) ? pointer.clientX : null, y: Number.isFinite(pointer.clientY) ? pointer.clientY : null,
           path: event.composedPath().filter(item => item instanceof Element).slice(0, 6).map(item => (item as Element).tagName),
@@ -323,21 +328,30 @@ async function proveNativeParticleMoves(page: Page, touch: boolean, beforeTasks:
         });
       } finally { await session.detach(); }
     } else await press(undo, false);
-    await expect.poll(() => page.evaluate(() => (window as typeof window & { spatialUndoProbe: SpatialUndoProbe }).spatialUndoProbe.inputs
-      .filter(input => input.phase === 'capture' && input.type === 'click' && input.label === 'Undo moving Try moving this bubble to Week').length),
-    { message: 'The native Undo gesture must synthesize exactly one click on its button' }).toBe(1);
     const undoInputs = (await page.evaluate(() => (window as typeof window & { spatialUndoProbe: SpatialUndoProbe }).spatialUndoProbe)).inputs
       .filter(input => input.phase === 'capture' && input.label === 'Undo moving Try moving this bubble to Week');
-    expect(undoInputs.filter(input => input.type === 'click')).toHaveLength(1);
+    // Touch activates on its completed native release. Chromium may omit the
+    // later compatibility click; if it arrives, the button consumes it once.
+    expect(undoInputs.filter(input => input.type === 'click').length).toBeLessThanOrEqual(1);
     expect(undoInputs.every(input => input.trusted && input.toastState === 'open')).toBe(true);
-    expect(undoInputs.filter(input => input.type === 'pointerdown' || input.type === 'pointerup').map(input => input.pointerType))
+    const pointers = undoInputs.filter(input => input.type === 'pointerdown' || input.type === 'pointerup');
+    expect(pointers.map(input => input.type)).toEqual(['pointerdown', 'pointerup']);
+    expect(pointers.map(input => input.pointerType))
       .toEqual([touch ? 'touch' : 'mouse', touch ? 'touch' : 'mouse']);
+    expect(pointers.every(input => input.isPrimary === true && input.insideButton === true)).toBe(true);
+    expect(pointers[0].pointerId).not.toBeNull();
+    expect(pointers[1].pointerId).toBe(pointers[0].pointerId);
+    expect(undoInputs.filter(input => input.type === 'pointercancel' || input.type === 'touchcancel')).toHaveLength(0);
     await expect.poll(async () => (await tasks(page)).find(task => task.id === source.id)?.tags.filter(tag => ['today', 'week', 'later'].includes(tag.name)).map(tag => tag.name)).toEqual(['today']);
   } finally {
     const probe = await page.evaluate(() => (window as typeof window & { spatialUndoProbe: SpatialUndoProbe }).spatialUndoProbe);
+    const gesture = probe.inputs.filter(input => input.phase === 'capture' && input.label === 'Undo moving Try moving this bubble to Week');
+    const nativeClickCount = gesture.filter(input => input.type === 'click').length;
     const path = testInfo.outputPath('spatial-native-undo-input.json');
-    await writeFile(path, JSON.stringify({ beforeTap, ...probe }, null, 2));
+    await writeFile(path, JSON.stringify({ beforeTap, ...probe, nativeClickCount,
+      pointerGesture: gesture.filter(input => input.type === 'pointerdown' || input.type === 'pointerup') }, null, 2));
     await testInfo.attach('spatial-native-undo-input', { contentType: 'application/json', path });
+    expect(nativeClickCount).toBeLessThanOrEqual(1);
   }
   expect((await tasks(page)).map(taskMeaning)).toEqual(beforeTasks.map(taskMeaning));
   await page.screenshot({ path: testInfo.outputPath('spatial-native-electron-undone.png') });
