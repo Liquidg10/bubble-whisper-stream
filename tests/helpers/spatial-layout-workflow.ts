@@ -12,6 +12,7 @@ interface SpatialUndoInput {
   label: string | null; target: string; toastState: string | null;
   time: number; defaultPrevented: boolean; x: number | null; y: number | null;
   path: string[]; swipe: string | null;
+  pointerId: number | null; isPrimary: boolean | null;
 }
 interface SpatialUndoProbe { inputs: SpatialUndoInput[]; startedAt: number; toastShownAt: number | null }
 interface Layout {
@@ -273,6 +274,8 @@ async function proveNativeParticleMoves(page: Page, touch: boolean, beforeTasks:
         const pointer = event as PointerEvent;
         undo.inputs.push({ type, phase: capture ? 'capture' : 'bubble', trusted: event.isTrusted,
           pointerType: pointer.pointerType ?? '', label: target.closest('button')?.getAttribute('aria-label') ?? null,
+          pointerId: Number.isFinite(pointer.pointerId) ? pointer.pointerId : null,
+          isPrimary: typeof pointer.isPrimary === 'boolean' ? pointer.isPrimary : null,
           target: target.tagName, time: performance.now(), defaultPrevented: event.defaultPrevented,
           x: Number.isFinite(pointer.clientX) ? pointer.clientX : null, y: Number.isFinite(pointer.clientY) ? pointer.clientY : null,
           path: event.composedPath().filter(item => item instanceof Element).slice(0, 6).map(item => (item as Element).tagName),
@@ -292,7 +295,8 @@ async function proveNativeParticleMoves(page: Page, touch: boolean, beforeTasks:
   // Undo is a time-limited user action. Capture its trusted input before doing
   // screenshot work that can consume the notification's five-second lifetime.
   const undo = page.getByRole('button', { name: 'Undo moving Try moving this bubble to Week', exact: true });
-  if (touch) await undo.tap({ trial: true });
+  await expect(undo).toBeVisible();
+  await expect(undo).toBeEnabled();
   const beforeTap = await undo.evaluate(button => {
     const probe = (window as typeof window & { spatialUndoProbe: SpatialUndoProbe }).spatialUndoProbe;
     const rect = button.getBoundingClientRect();
@@ -310,8 +314,8 @@ async function proveNativeParticleMoves(page: Page, touch: boolean, beforeTasks:
       expect(beforeTap.receivesPointer).toBe(true);
       const session = await page.context().newCDPSession(page);
       try {
-        // Playwright's Chromium tap sends start/end concurrently. Use the
-        // browser's native 50ms touch gesture so Linux synthesizes its click.
+        // Use one browser-native touch gesture with a realistic contact time.
+        // A Playwright trial tap would inject another, canceled touch first.
         await session.send('Input.synthesizeTapGesture', {
           x: beforeTap.rect.x + beforeTap.rect.width / 2,
           y: beforeTap.rect.y + beforeTap.rect.height / 2,
