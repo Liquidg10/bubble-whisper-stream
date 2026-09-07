@@ -1,11 +1,19 @@
 import { expect, type Locator, type Page, type TestInfo } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import { writeFile } from 'node:fs/promises';
 import { PerspectiveCamera, Raycaster, Vector2, Vector3 } from 'three';
 import { prepareAnonymousGuide, savedBubbles } from '../molecules/native-orbit-workflow';
 import { closestSpatialOrbit, createSpatialDragPlane, moveOnSpatialDragPlane, SPATIAL_FIELD_OF_VIEW, type SpatialPoint, type SpatialShell } from '../../src/experimental/atomic/spatialGeometry';
 
 const guestKey = 'mind-manual:atomic-layout:v1:guest';
 interface Pose { x: number; y: number; z: number }
+interface SpatialUndoInput {
+  type: string; phase: string; trusted: boolean; pointerType: string;
+  label: string | null; target: string; toastState: string | null;
+  time: number; defaultPrevented: boolean; x: number | null; y: number | null;
+  path: string[]; swipe: string | null;
+}
+interface SpatialUndoProbe { inputs: SpatialUndoInput[]; startedAt: number; toastShownAt: number | null }
 interface Layout {
   version: 1;
   molecules: Record<string, Pose>;
@@ -251,14 +259,27 @@ async function proveNativeParticleMoves(page: Page, touch: boolean, beforeTasks:
       }, { capture: true, once: true });
     });
     (window as typeof window & { spatialDropProbe: Promise<number[]> }).spatialDropProbe = probe;
-    const inputs: Array<{ type: string; trusted: boolean; pointerType: string; toastState: string | null }> = [];
-    (window as typeof window & { spatialUndoInputs: typeof inputs }).spatialUndoInputs = inputs;
-    for (const type of ['pointerdown', 'pointerup', 'click']) document.addEventListener(type, event => {
-      const target = event.target as Element;
-      if (target.closest('button')?.getAttribute('aria-label') !== 'Undo moving Try moving this bubble to Week') return;
-      inputs.push({ type, trusted: event.isTrusted, pointerType: (event as PointerEvent).pointerType,
-        toastState: target.closest('[data-swipe-direction]')?.getAttribute('data-state') ?? null });
-    }, { capture: true });
+    const undo: SpatialUndoProbe = { inputs: [], startedAt: performance.now(), toastShownAt: null };
+    (window as typeof window & { spatialUndoProbe: SpatialUndoProbe }).spatialUndoProbe = undo;
+    const observer = new MutationObserver(() => {
+      if (document.querySelector('[aria-label="Undo moving Try moving this bubble to Week"]')) {
+        undo.toastShownAt = performance.now(); observer.disconnect();
+      }
+    });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    for (const type of ['pointerdown', 'pointerup', 'pointercancel', 'gotpointercapture', 'lostpointercapture', 'touchstart', 'touchend', 'touchcancel', 'mousedown', 'mouseup', 'click']) {
+      for (const capture of [true, false]) window.addEventListener(type, event => {
+        const target = event.target as Element;
+        const pointer = event as PointerEvent;
+        undo.inputs.push({ type, phase: capture ? 'capture' : 'bubble', trusted: event.isTrusted,
+          pointerType: pointer.pointerType ?? '', label: target.closest('button')?.getAttribute('aria-label') ?? null,
+          target: target.tagName, time: performance.now(), defaultPrevented: event.defaultPrevented,
+          x: Number.isFinite(pointer.clientX) ? pointer.clientX : null, y: Number.isFinite(pointer.clientY) ? pointer.clientY : null,
+          path: event.composedPath().filter(item => item instanceof Element).slice(0, 6).map(item => (item as Element).tagName),
+          swipe: target.closest('[data-swipe-direction]')?.getAttribute('data-swipe') ?? null,
+          toastState: target.closest('[data-swipe-direction]')?.getAttribute('data-state') ?? null });
+      }, { capture });
+    }
   }, { taskId: source.id, pose: week.pose });
   await nativeDrag(page, touch, week.from, week.to);
   await expect.poll(async () => (await tasks(page)).find(task => task.id === source.id)?.tags.filter(tag => ['today', 'week', 'later'].includes(tag.name)).map(tag => tag.name)).toEqual(['week']);
@@ -270,18 +291,37 @@ async function proveNativeParticleMoves(page: Page, touch: boolean, beforeTasks:
   expect(Math.min(...samples), 'The 3D electron must never detour through its nucleus after release').toBeGreaterThan(30);
   // Undo is a time-limited user action. Capture its trusted input before doing
   // screenshot work that can consume the notification's five-second lifetime.
-  await press(page.getByRole('button', { name: 'Undo moving Try moving this bubble to Week', exact: true }), touch);
-  let undoInputs: Array<{ type: string; trusted: boolean; pointerType: string; toastState: string | null }> = [];
+  const undo = page.getByRole('button', { name: 'Undo moving Try moving this bubble to Week', exact: true });
+  const beforeTap = await undo.evaluate(button => {
+    const probe = (window as typeof window & { spatialUndoProbe: SpatialUndoProbe }).spatialUndoProbe;
+    const rect = button.getBoundingClientRect();
+    const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+    const toast = button.closest('[data-swipe-direction]')!;
+    return { time: performance.now(), toastAge: probe.toastShownAt === null ? null : performance.now() - probe.toastShownAt,
+      rect: rect.toJSON(), receivesPointer: hit === button || (hit !== null && button.contains(hit)),
+      hit: { tag: hit?.tagName, label: hit?.closest('button')?.getAttribute('aria-label') },
+      toastState: toast.getAttribute('data-state'), toastOpacity: getComputedStyle(toast).opacity,
+      toastTransform: getComputedStyle(toast).transform,
+      buttons: Array.from(toast.querySelectorAll('button')).map(item => ({ label: item.getAttribute('aria-label'), text: item.textContent, rect: item.getBoundingClientRect().toJSON() })) };
+  });
   try {
+    await press(undo, touch);
+    await expect.poll(() => page.evaluate(() => (window as typeof window & { spatialUndoProbe: SpatialUndoProbe }).spatialUndoProbe.inputs
+      .filter(input => input.phase === 'capture' && input.type === 'click' && input.label === 'Undo moving Try moving this bubble to Week').length),
+    { message: 'The native Undo gesture must synthesize exactly one click on its button' }).toBe(1);
+    const undoInputs = (await page.evaluate(() => (window as typeof window & { spatialUndoProbe: SpatialUndoProbe }).spatialUndoProbe)).inputs
+      .filter(input => input.phase === 'capture' && input.label === 'Undo moving Try moving this bubble to Week');
+    expect(undoInputs.filter(input => input.type === 'click')).toHaveLength(1);
+    expect(undoInputs.every(input => input.trusted && input.toastState === 'open')).toBe(true);
+    expect(undoInputs.filter(input => input.type === 'pointerdown' || input.type === 'pointerup').map(input => input.pointerType))
+      .toEqual([touch ? 'touch' : 'mouse', touch ? 'touch' : 'mouse']);
     await expect.poll(async () => (await tasks(page)).find(task => task.id === source.id)?.tags.filter(tag => ['today', 'week', 'later'].includes(tag.name)).map(tag => tag.name)).toEqual(['today']);
   } finally {
-    undoInputs = await page.evaluate(() => (window as typeof window & { spatialUndoInputs: typeof undoInputs }).spatialUndoInputs);
-    await testInfo.attach('spatial-native-undo-input', { contentType: 'application/json', body: JSON.stringify(undoInputs) });
+    const probe = await page.evaluate(() => (window as typeof window & { spatialUndoProbe: SpatialUndoProbe }).spatialUndoProbe);
+    const path = testInfo.outputPath('spatial-native-undo-input.json');
+    await writeFile(path, JSON.stringify({ beforeTap, ...probe }, null, 2));
+    await testInfo.attach('spatial-native-undo-input', { contentType: 'application/json', path });
   }
-  expect(undoInputs.filter(input => input.type === 'click')).toHaveLength(1);
-  expect(undoInputs.every(input => input.trusted && input.toastState === 'open')).toBe(true);
-  expect(undoInputs.filter(input => input.type === 'pointerdown' || input.type === 'pointerup').map(input => input.pointerType))
-    .toEqual([touch ? 'touch' : 'mouse', touch ? 'touch' : 'mouse']);
   expect((await tasks(page)).map(taskMeaning)).toEqual(beforeTasks.map(taskMeaning));
   await page.screenshot({ path: testInfo.outputPath('spatial-native-electron-undone.png') });
   await testInfo.attach('spatial-native-particle-receipt', { contentType: 'application/json', body: JSON.stringify({ nativeSameShell: true, nativeCrossHorizon: 'week', undoneHorizon: 'today', canonicalIdentityAndLinksPreserved: true, otherTasksUnchanged: true, radialSamplesAfterRelease: samples }) });
