@@ -390,13 +390,15 @@ async function proveNativeParticleMoves(page: Page, touch: boolean, beforeTasks:
       expect(beforeTap.receivesPointer).toBe(true);
       const session = await page.context().newCDPSession(page);
       try {
-        // Use one browser-native touch gesture with a realistic contact time.
-        // A Playwright trial tap would inject another, canceled touch first.
-        await session.send('Input.synthesizeTapGesture', {
+        // Use the same touch input pipeline as the scene drags. Chromium 151's
+        // Linux synthesizeTapGesture path bypasses gesture recognition.
+        await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{
           x: beforeTap.rect.x + beforeTap.rect.width / 2,
           y: beforeTap.rect.y + beforeTap.rect.height / 2,
-          duration: 50, tapCount: 1, gestureSourceType: 'touch',
-        });
+          id: 0, radiusX: 4, radiusY: 4,
+        }] });
+        await new Promise(resolve => setTimeout(resolve, 50));
+        await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
       } finally { await session.detach(); }
     } else await press(undo, false);
     const undoInputs = (await page.evaluate(() => (window as typeof window & { spatialUndoProbe: SpatialUndoProbe }).spatialUndoProbe)).inputs
@@ -471,12 +473,14 @@ async function verify3dTraceControls(page: Page, touch: boolean, testInfo: TestI
       expect(before.receivesPointer).toBe(true);
       const session = await page.context().newCDPSession(page);
       try {
-        // Dispatch one native gesture with a real contact interval. The installed
-        // raw tap queues touchStart/touchEnd together and does not prove a click.
-        await session.send('Input.synthesizeTapGesture', {
+        // Keep the scene's touch input pipeline and one real contact interval.
+        // The browser must still produce its own click and native disclosure.
+        await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{
           x: before.rect.x + before.rect.width / 2, y: before.rect.y + before.rect.height / 2,
-          duration: 50, tapCount: 1, gestureSourceType: 'touch',
-        });
+          id: 0, radiusX: 4, radiusY: 4,
+        }] });
+        await new Promise(resolve => setTimeout(resolve, 50));
+        await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
       } finally { await session.detach(); }
       // Observe completion; never retry the gesture or force the native state.
       await expect.poll(() => page.evaluate(() => (window as typeof window & { spatialConnectionsProbe: SpatialConnectionsProbe })
