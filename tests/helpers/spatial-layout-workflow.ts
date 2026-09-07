@@ -16,6 +16,12 @@ interface SpatialUndoInput {
   insideButton: boolean | null;
 }
 interface SpatialUndoProbe { inputs: SpatialUndoInput[]; startedAt: number; toastShownAt: number | null }
+interface SpatialConnectionsInput {
+  type: string; phase: string; trusted: boolean; defaultPrevented: boolean;
+  time: number; target: string; pointerType: string; pointerId: number | null;
+  isPrimary: boolean | null; x: number | null; y: number | null; open: boolean;
+}
+interface SpatialConnectionsProbe { inputs: SpatialConnectionsInput[]; cleanup: () => void }
 interface Layout {
   version: 1;
   molecules: Record<string, Pose>;
@@ -360,7 +366,80 @@ async function proveNativeParticleMoves(page: Page, touch: boolean, beforeTasks:
 
 async function verify3dTraceControls(page: Page, touch: boolean, testInfo: TestInfo) {
   const connections = page.locator('summary').filter({ hasText: /Connections \(/ });
-  await press(connections, touch);
+  if (touch) {
+    await expect(connections).toBeVisible();
+    const before = await connections.evaluate(summary => {
+      const details = summary.parentElement;
+      if (!(details instanceof HTMLDetailsElement)) throw new Error('Connections must retain native details/summary semantics.');
+      const rect = summary.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+      const inputs: SpatialConnectionsInput[] = [];
+      const record = (event: Event, phase: string) => {
+        if (event.type !== 'toggle' && !event.composedPath().includes(summary)) return;
+        const pointer = event as PointerEvent;
+        inputs.push({ type: event.type, phase, trusted: event.isTrusted, defaultPrevented: event.defaultPrevented,
+          time: performance.now(), target: event.target instanceof Element ? event.target.tagName : '',
+          pointerType: pointer.pointerType ?? '', pointerId: Number.isFinite(pointer.pointerId) ? pointer.pointerId : null,
+          isPrimary: typeof pointer.isPrimary === 'boolean' ? pointer.isPrimary : null,
+          x: Number.isFinite(pointer.clientX) ? pointer.clientX : null,
+          y: Number.isFinite(pointer.clientY) ? pointer.clientY : null, open: details.open });
+      };
+      const types = ['touchstart', 'touchend', 'touchcancel', 'pointerdown', 'pointerup', 'pointercancel', 'mousedown', 'mouseup', 'click'];
+      const capture = (event: Event) => record(event, 'capture');
+      const bubble = (event: Event) => record(event, 'bubble');
+      const toggle = (event: Event) => record(event, 'toggle');
+      types.forEach(type => { document.addEventListener(type, capture, true); document.addEventListener(type, bubble); });
+      details.addEventListener('toggle', toggle);
+      (window as typeof window & { spatialConnectionsProbe: SpatialConnectionsProbe }).spatialConnectionsProbe = {
+        inputs, cleanup: () => {
+          types.forEach(type => { document.removeEventListener(type, capture, true); document.removeEventListener(type, bubble); });
+          details.removeEventListener('toggle', toggle);
+        },
+      };
+      return { time: performance.now(), rect: rect.toJSON(), open: details.open,
+        receivesPointer: hit === summary || (hit !== null && summary.contains(hit)),
+        hit: hit?.tagName ?? null, inViewport: rect.left >= 0 && rect.top >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight };
+    });
+    try {
+      expect(before.open, 'Connections must start closed so one gesture opens it').toBe(false);
+      expect(before.inViewport).toBe(true);
+      expect(before.receivesPointer).toBe(true);
+      const session = await page.context().newCDPSession(page);
+      try {
+        // Dispatch one native gesture with a real contact interval. The installed
+        // raw tap queues touchStart/touchEnd together and does not prove a click.
+        await session.send('Input.synthesizeTapGesture', {
+          x: before.rect.x + before.rect.width / 2, y: before.rect.y + before.rect.height / 2,
+          duration: 50, tapCount: 1, gestureSourceType: 'touch',
+        });
+      } finally { await session.detach(); }
+      // Observe completion; never retry the gesture or force the native state.
+      await expect.poll(() => page.evaluate(() => (window as typeof window & { spatialConnectionsProbe: SpatialConnectionsProbe })
+        .spatialConnectionsProbe.inputs.filter(input => input.phase === 'capture' && input.type === 'click').length),
+      { message: 'One native Connections touch must produce exactly one browser click' }).toBe(1);
+      await expect(connections.locator('..')).toHaveJSProperty('open', true);
+      const inputs = await page.evaluate(() => (window as typeof window & { spatialConnectionsProbe: SpatialConnectionsProbe }).spatialConnectionsProbe.inputs);
+      const capture = inputs.filter(input => input.phase === 'capture');
+      const clicks = capture.filter(input => input.type === 'click');
+      expect(clicks).toHaveLength(1);
+      expect(capture.every(input => input.trusted && !input.defaultPrevented)).toBe(true);
+      const pointers = capture.filter(input => input.type === 'pointerdown' || input.type === 'pointerup');
+      expect(pointers.map(input => input.type)).toEqual(['pointerdown', 'pointerup']);
+      expect(pointers.every(input => input.pointerType === 'touch' && input.isPrimary === true)).toBe(true);
+      expect(pointers[0].pointerId).not.toBeNull();
+      expect(pointers[1].pointerId).toBe(pointers[0].pointerId);
+      expect(capture.filter(input => input.type === 'pointercancel' || input.type === 'touchcancel')).toHaveLength(0);
+    } finally {
+      const after = await connections.evaluate(summary => {
+        const probe = (window as typeof window & { spatialConnectionsProbe: SpatialConnectionsProbe }).spatialConnectionsProbe;
+        probe.cleanup();
+        return { time: performance.now(), open: (summary.parentElement as HTMLDetailsElement).open, inputs: probe.inputs };
+      });
+      const path = testInfo.outputPath('spatial-connections-touch-input.json');
+      await writeFile(path, JSON.stringify({ before, after }, null, 2));
+      await testInfo.attach('spatial-connections-touch-input', { contentType: 'application/json', path });
+    }
+  } else await press(connections, false);
   await press(page.getByRole('button', { name: 'Trace See how one action connects your life across its life areas', exact: true }), touch);
   const trace = page.getByTestId('atomic-trace-status');
   await expect(trace).toBeVisible();
