@@ -183,7 +183,9 @@ async function nativeDrag(page: Page, touch: boolean, from: { x: number; y: numb
           id: 0, radiusX: 4, radiusY: 4,
         }] });
       }
-      await new Promise(resolve => setTimeout(resolve, 30));
+      // Chromium retains release velocity until 80 ms after the last move.
+      // Hold the intended placement still before lifting the finger.
+      await new Promise(resolve => setTimeout(resolve, 100));
       await session.send('Input.dispatchTouchEvent', { type: cancel ? 'touchCancel' : 'touchEnd', touchPoints: [] });
     } finally { await session.detach(); }
   } else {
@@ -193,6 +195,59 @@ async function nativeDrag(page: Page, touch: boolean, from: { x: number; y: numb
     if (cancel) await page.keyboard.press('Escape');
     await page.mouse.up();
   }
+}
+
+async function startChromiumInputTrace(page: Page, testInfo: TestInfo) {
+  const session = await page.context().newCDPSession(page);
+  const traceEvents: Record<string, unknown>[] = [];
+  const path = testInfo.outputPath('spatial-chromium-input-trace.json');
+  const receiptPath = testInfo.outputPath('spatial-chromium-input-trace-receipt.json');
+  const startedAt = new Date().toISOString();
+  session.on('Tracing.dataCollected', ({ value }: { value: Record<string, unknown>[] }) => {
+    traceEvents.push(...value);
+  });
+  const complete = new Promise<{ dataLossOccurred: boolean }>(resolve => {
+    session.once('Tracing.tracingComplete', resolve);
+  });
+  try {
+    // These input-category events include GestureTapDown, fling velocity,
+    // FilterTapSuppression and gesture routing before the renderer sees them.
+    await session.send('Tracing.start', {
+      transferMode: 'ReportEvents',
+      traceConfig: { recordMode: 'recordUntilFull', traceBufferSizeInKb: 8192,
+        includedCategories: ['input'], excludedCategories: ['*'] },
+    });
+  } catch (error) {
+    await writeFile(receiptPath, JSON.stringify({ startedAt, completed: false, error: String(error) }, null, 2));
+    await testInfo.attach('spatial-chromium-input-trace-receipt', { contentType: 'application/json', path: receiptPath });
+    await session.detach().catch(() => undefined);
+    throw error;
+  }
+  return async () => {
+    let completion: { dataLossOccurred: boolean } | undefined;
+    let failure: unknown;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await session.send('Tracing.end');
+      completion = await Promise.race([complete, new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error('Chromium input trace did not finish within 5 seconds')), 5000);
+      })]);
+    } catch (error) {
+      failure = error;
+    } finally {
+      clearTimeout(timeout);
+      // Keep the trace as a file even when a click/open assertion has failed.
+      await writeFile(path, JSON.stringify({ traceEvents }));
+      await writeFile(receiptPath, JSON.stringify({ startedAt, endedAt: new Date().toISOString(),
+        completed: completion !== undefined, dataLossOccurred: completion?.dataLossOccurred ?? null,
+        eventCount: traceEvents.length, error: failure ? String(failure) : null }, null, 2));
+      await testInfo.attach('spatial-chromium-input-trace', { contentType: 'application/json', path });
+      await testInfo.attach('spatial-chromium-input-trace-receipt', { contentType: 'application/json', path: receiptPath });
+      await session.detach().catch(() => undefined);
+    }
+    if (failure) throw failure;
+    expect(completion?.dataLossOccurred, 'The bounded Chromium input trace must be complete').toBe(false);
+  };
 }
 
 function taskMeaning(task: Awaited<ReturnType<typeof tasks>>[number]) {
@@ -539,21 +594,27 @@ export async function spatial3dWorkflow(page: Page, origin: string, production: 
   const cameraBeforeGesture = await scene.getAttribute('data-camera-position');
   const background = await backgroundPoint(page);
   expect(background, 'A visible empty canvas area must be available for camera gestures').not.toBeNull();
-  await nativeDrag(page, touch, background!, { x: background!.x - 28, y: background!.y + 16 });
-  await expect.poll(() => scene.getAttribute('data-camera-position')).not.toBe(cameraBeforeGesture);
-  expect(await savedLayout(page)).toEqual(beforeDrag);
-  let point = await pickPoint(page, 'mol-education');
-  await nativeDrag(page, touch, point, { x: point.x + 36, y: point.y + 24 }, true);
-  expect(await savedLayout(page)).toEqual(beforeDrag);
-  point = await pickPoint(page, 'mol-education');
-  await nativeDrag(page, touch, point, { x: point.x + 42, y: point.y + 24 });
-  await expect.poll(() => savedLayout(page)).not.toEqual(beforeDrag);
-  let moved = await savedLayout(page);
-  expect(Object.keys(moved.molecules)).toEqual(['education']);
-  expect(await tasks(page)).toEqual(beforeTasks);
-  await proveNativeParticleMoves(page, touch, beforeTasks, testInfo);
-  moved = await savedLayout(page);
-  await verify3dTraceControls(page, touch, testInfo);
+  const stopInputTrace = touch ? await startChromiumInputTrace(page, testInfo) : undefined;
+  let moved = beforeDrag;
+  try {
+    await nativeDrag(page, touch, background!, { x: background!.x - 28, y: background!.y + 16 });
+    await expect.poll(() => scene.getAttribute('data-camera-position')).not.toBe(cameraBeforeGesture);
+    expect(await savedLayout(page)).toEqual(beforeDrag);
+    let point = await pickPoint(page, 'mol-education');
+    await nativeDrag(page, touch, point, { x: point.x + 36, y: point.y + 24 }, true);
+    expect(await savedLayout(page)).toEqual(beforeDrag);
+    point = await pickPoint(page, 'mol-education');
+    await nativeDrag(page, touch, point, { x: point.x + 42, y: point.y + 24 });
+    await expect.poll(() => savedLayout(page)).not.toEqual(beforeDrag);
+    moved = await savedLayout(page);
+    expect(Object.keys(moved.molecules)).toEqual(['education']);
+    expect(await tasks(page)).toEqual(beforeTasks);
+    await proveNativeParticleMoves(page, touch, beforeTasks, testInfo);
+    moved = await savedLayout(page);
+    await verify3dTraceControls(page, touch, testInfo);
+  } finally {
+    await stopInputTrace?.();
+  }
   await accessible(page, '[data-reduced-motion]', testInfo, 'spatial-3d-controls');
   await page.screenshot({ path: testInfo.outputPath('spatial-3d-rotated-layout.png') });
   const flat = page.getByRole('button', { name: 'Flat view', exact: true });
