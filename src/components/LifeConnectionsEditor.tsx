@@ -126,6 +126,18 @@ function ConfirmedLinkRow({ link, onUpdate, onRemove }: ConfirmedLinkRowProps) {
       </div>
 
       <div className="space-y-1.5">
+        <Label htmlFor={`${labelId}-effect`}>How this connects to {strengthLabel}</Label>
+        <select id={`${labelId}-effect`}
+          className="min-h-11 w-full rounded-lg border bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          value={link.effect === undefined ? 'supports' : link.effect === 'supports' || link.effect === 'tradeoff' ? link.effect : ''}
+          onChange={event => onUpdate({ ...link, effect: event.target.value as NonNullable<TaskDomainLink['effect']>, updatedAt: Date.now() })}>
+          <option value="" disabled>Choose how this connects</option>
+          <option value="supports">Supports this area</option>
+          <option value="tradeoff">Involves a tradeoff</option>
+        </select>
+      </div>
+
+      <div className="space-y-1.5">
         <Label htmlFor={reasonId}>Why {strengthLabel} matters (optional)</Label>
         <Input
           id={reasonId}
@@ -141,7 +153,7 @@ function ConfirmedLinkRow({ link, onUpdate, onRemove }: ConfirmedLinkRowProps) {
               setDraftReason(link.reason ?? '');
             }
           }}
-          placeholder={`How does this support ${strengthLabel}?`}
+          placeholder={link.effect === 'tradeoff' ? `What is the tradeoff for ${strengthLabel}?` : `How does this support ${strengthLabel}?`}
         />
       </div>
 
@@ -181,6 +193,7 @@ function LifeConnectionsEditorContent({ task, links, onChange, availableDomains 
   const [inputError, setInputError] = useState('');
   const [areaPickerOpen, setAreaPickerOpen] = useState(false);
   const [areaSearch, setAreaSearch] = useState('');
+  const [proposalEffects, setProposalEffects] = useState<Record<string, NonNullable<TaskDomainLink['effect']>>>({});
   const areaSearchId = useId();
   const areaPickerId = useId();
   const areaSearchRef = useRef<HTMLInputElement>(null);
@@ -265,6 +278,8 @@ function LifeConnectionsEditorContent({ task, links, onChange, availableDomains 
   };
 
   const acceptProposal = (proposal: LifeDomainProposal) => {
+    const effect = proposalEffects[proposal.id] ?? proposal.effect;
+    if (proposal.effectRequiresReview && !effect) return;
     let nextLinks: TaskDomainLink[];
 
     if (proposal.pendingLinkId) {
@@ -272,13 +287,14 @@ function LifeConnectionsEditorContent({ task, links, onChange, availableDomains 
         ? {
             ...link,
             userConfirmed: true,
+            ...(effect ? { effect } : {}),
             updatedAt: Date.now(),
           }
         : link);
     } else {
       nextLinks = [
         ...links,
-        { ...createConfirmedDomainLink(proposal), domainId: proposal.domainId },
+        { ...createConfirmedDomainLink({ ...proposal, effect }), domainId: proposal.domainId },
       ];
     }
 
@@ -476,12 +492,20 @@ function LifeConnectionsEditorContent({ task, links, onChange, availableDomains 
               <li key={proposal.id} className="rounded-lg border border-border bg-card p-3 text-card-foreground">
                 <p className="font-medium text-foreground">Possible connection: {proposal.label}</p>
                 <p className="mt-1 text-sm text-muted-foreground">{proposal.explanation}</p>
+                {proposal.effect === 'tradeoff' && <p className="mt-1 text-xs text-muted-foreground">Suggested as a tradeoff for this area.</p>}
+                {proposal.effectRequiresReview && <label className="mt-2 block space-y-1 text-sm">
+                  Choose how this connects to {proposal.label}
+                  <select value={proposalEffects[proposal.id] ?? ''} onChange={event => setProposalEffects(current => ({ ...current, [proposal.id]: event.target.value as NonNullable<TaskDomainLink['effect']> }))} className="min-h-11 w-full rounded-md border bg-background px-2 text-foreground">
+                    <option value="" disabled>Review the connection</option><option value="supports">Supports this area</option><option value="tradeoff">Involves a tradeoff</option>
+                  </select>
+                </label>}
                 <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                   <Button
                     type="button"
                     size="sm"
                     className="h-auto min-h-11 whitespace-normal break-words text-center"
                     data-life-proposal-accept
+                    disabled={proposal.effectRequiresReview && !proposalEffects[proposal.id]}
                     onClick={() => acceptProposal(proposal)}
                   >
                     Link to {proposal.label}

@@ -58,6 +58,10 @@ import { interpolateOrbit, nearestFreeOrbitSlot, ORBIT_SETTLE_DURATION } from '.
 import './atomic.css';
 import { MoleculeBonds } from './MoleculeBonds';
 import { buildMoleculeBonds, getConfirmedDomainLinks, getSharedTaskConnections, type MoleculeTracePoint } from './moleculeBondModel';
+import { bubbleToTask } from '@/adapters/taskAdapter';
+import { getCompletedLifeContributions, getConfirmedTaskRelationships } from '@/domain/taskRelationships';
+import { AtomicRelationshipPanel } from './AtomicRelationshipPanel';
+import { taskRelationshipLabel, taskRelationshipTraceKey } from './relationshipLabels';
 
 interface Electron {
   id: string;
@@ -565,16 +569,23 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
   const [hoveredTaskId, setHoveredTaskId] = useState<string | null>(null);
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
   const [tracedTaskId, setTracedTaskId] = useState<string | null>(null);
+  const [tracedRelationshipKey, setTracedRelationshipKey] = useState<string | null>(null);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
   const [choosingConnectionTask, setChoosingConnectionTask] = useState(false);
   const [connectionSearch, setConnectionSearch] = useState('');
   const connectionSearchRef = useRef<HTMLInputElement>(null);
   const connectionsSummaryRef = useRef<HTMLElement>(null);
   const clearTraceRef = useRef<HTMLButtonElement>(null);
+  const clearRelationshipTraceRef = useRef<HTMLButtonElement>(null);
   const sharedConnections = useMemo(() => getSharedTaskConnections(bubbles), [bubbles]);
+  const canonicalTasks = useMemo(() => bubbles.map(bubbleToTask), [bubbles]);
+  const completedContributions = useMemo(() => getCompletedLifeContributions(canonicalTasks), [canonicalTasks]);
+  const contributionsByArea = useMemo(() => new Map(completedContributions.map(area => [area.domainId, area])), [completedContributions]);
+  const taskRelationships = useMemo(() => getConfirmedTaskRelationships(canonicalTasks), [canonicalTasks]);
+  const tracedRelationship = taskRelationships.find(connection => taskRelationshipTraceKey(connection) === tracedRelationshipKey);
   const tracedConnection = sharedConnections.find(connection => connection.task.id === tracedTaskId);
   const activeTaskId = tracedConnection?.task.id ?? hoveredTaskId ?? focusedTaskId;
-  const interactionPaused = Boolean(activeTaskId);
+  const interactionPaused = Boolean(activeTaskId || tracedRelationship);
   const [movementAnnouncement, setMovementAnnouncement] = useState('');
   const connectionTasks = useMemo(() => [...new Map(bubbles.map(bubble => [bubble.id, bubble])).values()], [bubbles]);
   const filteredConnectionTasks = useMemo(() => connectionTasks.filter(task =>
@@ -589,8 +600,19 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
   }, [tracedConnection, tracedTaskId]);
 
   useEffect(() => {
+    if (tracedRelationshipKey && !tracedRelationship) {
+      setTracedRelationshipKey(null);
+      setMovementAnnouncement('Task connection trace cleared because the connection changed.');
+    }
+  }, [tracedRelationship, tracedRelationshipKey]);
+
+  useEffect(() => {
     if (tracedTaskId) clearTraceRef.current?.focus();
   }, [tracedTaskId]);
+
+  useEffect(() => {
+    if (tracedRelationshipKey) clearRelationshipTraceRef.current?.focus();
+  }, [tracedRelationshipKey]);
 
   useEffect(() => {
     if (connectionsOpen && choosingConnectionTask) connectionSearchRef.current?.focus();
@@ -1316,8 +1338,8 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
   const nucleusVisualSize = 48 * visualScaleCompensation;
   const nucleusTargetSize = Math.max(nucleusVisualSize, minimumWorldTargetSize);
   const showElectronControls = panZoomState.scale >= ELECTRON_WORKING_SCALE;
-  const activeTaskPoints = activeTaskId ? atomicState.molecules.flatMap<MoleculeTracePoint>(molecule => {
-    const electron = molecule.electrons.find(candidate => candidate.originalBubble?.id === activeTaskId);
+  const pointsForTask = (taskId: string) => atomicState.molecules.flatMap<MoleculeTracePoint>(molecule => {
+    const electron = molecule.electrons.find(candidate => candidate.originalBubble?.id === taskId);
     if (!electron) return [];
     // A dense orbit may keep a task in the navigator. Trace its area without
     // inventing a visible particle or changing the task's canvas slot.
@@ -1329,7 +1351,9 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       : Math.max(SHELL_CONFIG[electron.shell].radius, (36 + electron.shell * 6) * visualScaleCompensation);
     const ratio = radius / SHELL_CONFIG[electron.shell].radius;
     return [{ x: molecule.x + orbit.x * ratio, y: molecule.y + orbit.y * ratio, anchor: 'particle' as const }];
-  }) : [];
+  });
+  const activeTaskPoints = activeTaskId ? pointsForTask(activeTaskId) : [];
+  const relationshipPoints = tracedRelationship ? [pointsForTask(tracedRelationship.source.id)[0], pointsForTask(tracedRelationship.target.id)[0]].filter(Boolean) : [];
   const compactControls = isMobile || (
     dimensions.height > 0
     && dimensions.height < COMPACT_VIEWPORT_HEIGHT
@@ -1466,6 +1490,10 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           }}
         >
           <MoleculeBonds bonds={moleculeBonds} scale={panZoomState.scale} selectedIds={atomicState.selectedMolecules} activeTaskPoints={activeTaskPoints} activeTaskId={activeTaskId} />
+          {tracedRelationship && relationshipPoints.length === 2 && <svg aria-hidden="true" className="pointer-events-none absolute left-1/2 top-1/2 overflow-visible" width="1" height="1" data-testid="atomic-task-relationship-trace" data-relationship-kind={tracedRelationship.relationship.kind}>
+            <path d={`M ${relationshipPoints[0].x} ${relationshipPoints[0].y} Q ${(relationshipPoints[0].x + relationshipPoints[1].x) / 2 + 32} ${(relationshipPoints[0].y + relationshipPoints[1].y) / 2 - 42} ${relationshipPoints[1].x} ${relationshipPoints[1].y}`} className="atomic-task-relationship-line" strokeWidth={3 / panZoomState.scale} strokeDasharray={tracedRelationship.relationship.kind === 'depends-on' ? `${8 / panZoomState.scale} ${5 / panZoomState.scale}` : tracedRelationship.relationship.kind === 'tradeoff' ? `${2 / panZoomState.scale} ${5 / panZoomState.scale}` : undefined} />
+            {relationshipPoints.map((point, index) => <circle key={index} cx={point.x} cy={point.y} r={14 / panZoomState.scale} className="atomic-trace-anchor" strokeWidth={2 / panZoomState.scale} />)}
+          </svg>}
           {atomicState.molecules.map((molecule) => (
             <div
               key={molecule.id}
@@ -1518,6 +1546,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                   className="atomic-particle pointer-events-none absolute rounded-full border border-white/60"
                   data-particle={flavor.kind}
                   data-traced={activeTaskId === electron.originalBubble?.id}
+                  data-completed={electron.originalBubble?.completed === true}
                   style={{ left: orbit.x * radiusRatio - dotSize / 2, top: orbit.y * radiusRatio - dotSize / 2, width: dotSize, height: dotSize,
                     backgroundColor: flavor.color ?? SHELL_CONFIG[electron.shell].color }} />;
               }) : null}
@@ -1570,7 +1599,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                       width: electronTargetSize,
                       height: electronTargetSize,
                     }}
-                    aria-label={`${label}. ${molecule.nucleus.domain} molecule. ${shell.name} horizon. ${flavor.name}. Open with Enter; use arrow keys to change horizon.`}
+                    aria-label={`${label}. ${molecule.nucleus.domain} molecule. ${shell.name} horizon. ${flavor.name}.${electron.originalBubble?.completed ? ' Complete.' : ''} Open with Enter; use arrow keys to change horizon.`}
                     aria-keyshortcuts="Enter Space ArrowUp ArrowDown ArrowLeft ArrowRight"
                     aria-busy={!!electron.originalBubble && pendingTaskIds.has(electron.originalBubble.id)}
                     title={label}
@@ -1613,6 +1642,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                       aria-hidden="true"
                       data-particle={flavor.kind}
                       data-traced={activeTaskId === electron.originalBubble?.id}
+                      data-completed={electron.originalBubble?.completed === true}
                       className={`atomic-particle flex items-center justify-center rounded-full border-2 border-white/75 text-xs font-bold text-white ${
                         motionEnabled ? 'transition-transform hover:scale-110' : ''
                       } ${isDragging ? 'scale-110 shadow-lg' : ''}`}
@@ -1623,7 +1653,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                         fontSize: 16 * visualScaleCompensation,
                       }}
                     >
-                      {flavor.symbol}
+                      {electron.originalBubble?.completed ? '✓' : flavor.symbol}
                     </span>
                     <span
                       aria-hidden="true"
@@ -1650,7 +1680,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                   width: nucleusTargetSize,
                   height: nucleusTargetSize,
                 }}
-                aria-label={`${molecule.nucleus.domain} molecule, ${molecule.electrons.length} ${molecule.electrons.length === 1 ? 'task' : 'tasks'}${molecule.selected ? ', selected' : ''}. Press Enter to select and focus; use arrow keys to move the view-only position.`}
+                aria-label={`${molecule.nucleus.domain} molecule, ${molecule.electrons.length} ${molecule.electrons.length === 1 ? 'task' : 'tasks'}${molecule.selected ? ', selected' : ''}.${contributionsByArea.has(molecule.id.slice(4)) ? ` ${contributionsByArea.get(molecule.id.slice(4))!.supports.length} completed supporting actions, ${contributionsByArea.get(molecule.id.slice(4))!.tradeoffs.length} completed tradeoffs.` : ''} Press Enter to select and focus; use arrow keys to move the view-only position.`}
                 aria-pressed={molecule.selected}
                 aria-keyshortcuts="Enter Space ArrowUp ArrowDown ArrowLeft ArrowRight"
                 onPointerDown={event => startMoleculeDrag(molecule, event)}
@@ -1686,6 +1716,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                     width: 'max-content', maxWidth: 160 * visualScaleCompensation }}
                 >
                   {molecule.nucleus.domain}
+                  {contributionsByArea.has(molecule.id.slice(4)) && <span className="mt-0.5 block font-normal" data-completed-area={molecule.id.slice(4)}>{contributionsByArea.get(molecule.id.slice(4))!.supports.length} support · {contributionsByArea.get(molecule.id.slice(4))!.tradeoffs.length} tradeoff complete</span>}
                 </span>
               </button>
 
@@ -1793,7 +1824,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         <details name={panelGroup} open={connectionsOpen}
           onToggle={event => setConnectionsOpen(event.currentTarget.open)}
           className="relative max-w-[min(23rem,55%)] rounded-2xl border bg-card/95 text-card-foreground shadow-sm backdrop-blur-md">
-          <summary ref={connectionsSummaryRef} className="flex min-h-11 cursor-pointer items-center gap-2 px-3 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><Link2 className="h-4 w-4" aria-hidden="true" /> Connections ({moleculeBonds.length})</summary>
+          <summary ref={connectionsSummaryRef} className="flex min-h-11 cursor-pointer items-center gap-2 px-3 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><Link2 className="h-4 w-4" aria-hidden="true" /> Connections ({moleculeBonds.length + taskRelationships.length})</summary>
           <div className="atomic-connections-content absolute bottom-14 right-0 w-[min(23rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl border bg-card p-3 shadow-lg" style={bottomPanelStyle} data-testid="atomic-connections-panel">
             {choosingConnectionTask && onEditConnections ? (
               <div className="space-y-3">
@@ -1820,11 +1851,20 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
               </div>
             ) : (
               <div className="space-y-3">
+                <AtomicRelationshipPanel tasks={canonicalTasks}
+                  onOpenTask={id => { const selected = bubbles.find(bubble => bubble.id === id); if (selected) onBubbleSelect?.(selected); }}
+                  canTrace={connection => pointsForTask(connection.source.id).length > 0 && pointsForTask(connection.target.id).length > 0}
+                  onTrace={connection => {
+                    setTracedTaskId(null);
+                    setTracedRelationshipKey(taskRelationshipTraceKey(connection));
+                    setHoveredTaskId(null); setFocusedTaskId(null); setConnectionsOpen(false); fitMolecules();
+                    setMovementAnnouncement(`${connection.source.title} ${taskRelationshipLabel(connection.relationship.kind)} ${connection.target.title}.`);
+                  }} />
                 <div className="flex flex-wrap items-center justify-between gap-2 px-1">
                   <h3 className="text-sm font-semibold">{sharedConnections.length} shared {sharedConnections.length === 1 ? 'task' : 'tasks'}</h3>
                   {onEditConnections ? <button type="button" onClick={chooseConnectionTask} className="flex min-h-11 items-center gap-1 rounded-xl border px-3 text-xs font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"><Plus className="h-3.5 w-3.5" aria-hidden="true" /> Connect a task</button> : null}
                 </div>
-                <p className="px-1 text-xs text-muted-foreground">One task can support several life areas. Trace it to see them together.</p>
+                <p className="px-1 text-xs text-muted-foreground">One task can touch several life areas, with support or tradeoffs you choose. Trace it to see them together.</p>
                 {sharedConnections.length === 0 ? <p className="p-2 text-sm text-muted-foreground">No shared tasks yet. Choose a task and connect it to the areas that matter to you.</p> : (
                   <ul aria-label="Shared tasks connecting life areas" className="space-y-3">
                     {sharedConnections.map(({ task, links }) => {
@@ -1836,13 +1876,14 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                           aria-label={`Open ${label}, shared by ${areas.join(' and ')}`}>{label}</button>
                         <ul aria-label={`Life areas for ${label}`} className="space-y-2">
                           {links.map(link => <li key={link.domainId} className="border-l-2 border-primary/30 pl-3">
-                            <p className="text-xs font-medium">{link.label?.trim() || link.domainId}{link.strength ? <span className="ml-2 text-muted-foreground">{link.strength === 'primary' ? 'Primary' : 'Supporting'}</span> : null}</p>
+                            <p className="text-xs font-medium">{link.label?.trim() || link.domainId}<span className="ml-2 text-muted-foreground">{link.effect === 'tradeoff' ? 'Tradeoff' : link.effect === undefined || link.effect === 'supports' ? 'Supports' : 'Needs review'}{task.completed === true ? ' · Complete' : ''}</span>{link.strength ? <span className="ml-2 text-muted-foreground">{link.strength === 'primary' ? 'Primary' : 'Supporting'}</span> : null}</p>
                             {link.reason?.trim() ? <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">{link.reason}</p> : null}
                           </li>)}
                         </ul>
                         <div className="flex flex-wrap gap-2">
                           <button type="button" onClick={() => {
                             setTracedTaskId(task.id);
+                            setTracedRelationshipKey(null);
                             setHoveredTaskId(null);
                             setFocusedTaskId(null);
                             setConnectionsOpen(false);
@@ -1862,6 +1903,10 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           </div>
         </details>
       </div>
+      {tracedRelationship && !atomicState.dragState.isDragging && <div data-panel data-testid="atomic-task-trace-status" className="absolute left-3 z-40 flex max-w-[min(25rem,calc(100%-1.5rem))] items-center gap-3 rounded-2xl border bg-card/95 p-3 text-card-foreground shadow-sm" style={{ top: compactControls ? 68 : 124 }}>
+        <div className="min-w-0 text-xs"><p className="font-semibold">Task connection</p><p className="mt-1 line-clamp-3 break-words">{tracedRelationship.source.title} <strong>{taskRelationshipLabel(tracedRelationship.relationship.kind)}</strong> {tracedRelationship.target.title}</p>{relationshipPoints.length < 2 && <p className="mt-1 text-muted-foreground">Some tasks have no visible life area. Open their details to review this connection.</p>}</div>
+        <button ref={clearRelationshipTraceRef} type="button" className="min-h-11 shrink-0 rounded-lg px-2 text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="Clear task connection trace" onClick={() => { setTracedRelationshipKey(null); connectionsSummaryRef.current?.focus(); setMovementAnnouncement('Task connection trace cleared.'); }}>Clear trace</button>
+      </div>}
       {tracedConnection && !atomicState.dragState.isDragging ? <div data-panel data-testid="atomic-trace-status" className="absolute left-3 z-40 flex max-w-[min(25rem,calc(100%-1.5rem))] items-center gap-3 rounded-2xl border bg-card/95 p-3 shadow-sm backdrop-blur-md" style={{ top: compactControls ? 68 : 124 }}>
         <div className="min-w-0 space-y-1">
           <p className="text-xs font-semibold text-foreground">One task, {tracedConnection.links.length} life areas</p>

@@ -74,5 +74,8 @@
 }
 .atomic-trace-anchor { fill: hsl(var(--accent-flow) / 0.08); stroke: hsl(var(--accent-flow)); }
 .atomic-particle[data-traced="true"] { outline: 2px solid hsl(var(--accent-flow)); outline-offset: 3px; }
+.atomic-particle[data-completed="true"] { border-style: double; box-shadow: inset 0 0 0 2px hsl(var(--background) / 0.7), 0 0 0 2px hsl(var(--accent-flow) / 0.6); }
+.atomic-task-relationship-line { fill: none; stroke: hsl(var(--accent-flow)); }
+.atomic-scene[data-high-contrast="true"] .atomic-task-relationship-line { stroke: hsl(var(--foreground)); }
 .atomic-scene[data-high-contrast="true"] .atomic-trace-anchor,
 .atomic-scene[data-high-contrast="true"] .atomic-shared-electron-thread { stroke: hsl(var(--foreground)); }

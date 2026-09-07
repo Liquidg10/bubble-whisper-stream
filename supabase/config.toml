@@ -75,3 +75,8 @@ verify_jwt = true
 # separately authenticates every control request.
 [functions.calendar-watch]
 verify_jwt = false
+
+# Explicit selected-bubble suggestions also independently verify a signed-in
+# user in-handler before reading the request or contacting the model provider.
+[functions.ai-bubble-suggest]
+verify_jwt = true

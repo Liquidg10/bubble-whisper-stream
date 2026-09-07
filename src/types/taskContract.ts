@@ -79,9 +79,27 @@ export interface TaskDomainLink {
   userConfirmed: boolean;
   source: 'user' | 'rule' | 'assistant' | 'import';
   strength?: 'primary' | 'secondary';
+  /** Missing values retain the original supportive connection semantics. */
+  effect?: TaskDomainEffect;
   /** User-editable explanation of how this task supports the domain. */
   reason?: string;
   /** Grounding shown before confirmation; never treated as user-authored meaning. */
+  suggestionReason?: string;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
+export type TaskDomainEffect = 'supports' | 'tradeoff';
+export type TaskRelationshipKind = 'supports' | 'depends-on' | 'tradeoff';
+
+/** An edge belongs to its source Task once; incoming views are derived. */
+export interface TaskRelationship {
+  id: string;
+  targetTaskId: TaskId;
+  kind: TaskRelationshipKind;
+  userConfirmed: boolean;
+  source: TaskDomainLink['source'];
+  reason?: string;
   suggestionReason?: string;
   createdAt?: number;
   updatedAt?: number;
@@ -236,6 +254,7 @@ export interface CanonicalTaskContractV1 {
   urgency?: TaskUrgency;
   readiness?: TaskReadiness;
   domainLinks?: TaskDomainLink[];
+  relationships?: TaskRelationship[];
   view?: TaskViewMetadata;
   metadata?: TaskMetadata;
 }

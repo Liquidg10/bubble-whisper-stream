@@ -302,6 +302,31 @@ describe('BubbleDetail canonical completion', () => {
     }));
   });
 
+  it('closes with one Done after saved completion and an unrelated child refresh without rewriting the saved task', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    function StoreConnectedDetail() {
+      const current = useBubbleStore(state => state.bubbles.find(candidate => candidate.id === bubble.id));
+      return <BubbleDetail bubble={current ?? null} isOpen onClose={onClose} />;
+    }
+    render(<StoreConnectedDetail />);
+    await user.click(screen.getByRole('checkbox', { name: 'Completed' }));
+    await waitFor(() => expect(screen.getByText('Completion status saved')).toBeInTheDocument());
+    expect(updateBubble).toHaveBeenCalledTimes(1);
+
+    const child = taskToBubble({ ...task, id: 'unrelated-reviewed-child', title: 'A new reviewed step', completed: false });
+    act(() => useBubbleStore.setState(state => ({
+      bubbles: [...state.bubbles.map(saved => JSON.parse(JSON.stringify(saved)) as Bubble), child],
+    })));
+    await user.click(screen.getByRole('button', { name: 'Done' }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(updateBubble).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(useBubbleStore.getState().bubbles.find(saved => saved.id === bubble.id)?.completed).toBe(true);
+    expect(useBubbleStore.getState().bubbles.find(saved => saved.id === child.id)).toEqual(child);
+  });
+
   it('retries a previously failed dirty autosave before Done closes', async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();

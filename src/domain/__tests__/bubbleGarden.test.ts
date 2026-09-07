@@ -9,6 +9,8 @@ import {
   suggestBubbleSprouts,
   createSproutTask,
   canGrowBubble,
+  createAiSprouts,
+  bubbleGrowthSourceFingerprint,
 } from '../bubbleGarden';
 
 function task(overrides: Partial<Task> = {}): Task {
@@ -58,6 +60,35 @@ describe('guide and suggested bubble contract', () => {
     expect(drafts).toHaveLength(3);
     expect(parent).toEqual(before);
     expect(drafts.every((draft) => draft.domainLinks.length === 2)).toBe(true);
+  });
+
+  it.each(['task', 'thought'] as const)('uses only strictly confirmed, unambiguous areas in local and AI %s drafts', type => {
+    const valid = { ...createUserDomainLink('Creativity', { effect: 'tradeoff' }), domainId: 'custom_creativity' };
+    const parent = task({ type, domainLinks: [null, 'future record', {}, valid,
+      { ...createUserDomainLink('Home'), userConfirmed: 1 },
+      { ...createUserDomainLink('Learning'), effect: 'future-effect' },
+      createUserDomainLink('Career'), createUserDomainLink('Career', { effect: 'tradeoff' }),
+    ] as unknown as Task['domainLinks'] });
+    const before = structuredClone(parent);
+    const local = suggestBubbleSprouts(parent, [parent]);
+    const ai = createAiSprouts(parent, [{ title: 'Draw one shape', reason: 'A draft to review.', estimatedMinutes: 2 }], [parent], { sourceFingerprint: bubbleGrowthSourceFingerprint(parent) });
+    expect([...local, ...ai].every(draft => draft.domainLinks.length === 1 && draft.domainLinks[0].domainId === valid.domainId)).toBe(true);
+    expect(ai[0].domainLinks[0]).toMatchObject({ userConfirmed: true, effect: 'tradeoff' });
+    expect(parent).toEqual(before);
+  });
+
+  it.each([null, { future: 'not an array' }, 'future links'])('keeps malformed area collections out of growth without crashing', domainLinks => {
+    const parent = task({ domainLinks: domainLinks as unknown as Task['domainLinks'] });
+    const local = suggestBubbleSprouts(parent, [parent]);
+    const ai = createAiSprouts(parent, [{ title: 'Draw one shape', reason: 'A draft to review.', estimatedMinutes: 2 }], [parent], { sourceFingerprint: bubbleGrowthSourceFingerprint(parent) });
+    expect([...local, ...ai].every(draft => draft.domainLinks.length === 0)).toBe(true);
+  });
+
+  it('does not promote a malformed or truthy-confirmed draft area into a saved confirmation', () => {
+    const parent = task();
+    const draft = suggestBubbleSprouts(parent, [parent])[0];
+    draft.domainLinks = [null, { ...createUserDomainLink('Home'), userConfirmed: 'yes' }] as unknown as Task['domainLinks'];
+    expect(createSproutTask(draft, 'Reviewed title', ['home-personal']).domainLinks).toEqual([]);
   });
 
   it('persists only reviewed domains, edited wording and the source relation', () => {

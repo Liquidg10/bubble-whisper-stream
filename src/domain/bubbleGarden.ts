@@ -1,5 +1,6 @@
 import { createTask, type Task, type TaskDomainLink } from '@/types/task';
 import { createConfirmedDomainLink } from '@/domain/lifeDomains';
+import { getConfirmedTaskDomainEffects } from '@/domain/taskRelationships';
 
 export const STARTER_PACK = 'living-bubbles-v1';
 
@@ -73,7 +74,9 @@ export interface BubbleSprout {
   sourceTitle: string;
   minutes: number;
   domainLinks: TaskDomainLink[];
-  origin: 'notes' | 'local';
+  origin: 'notes' | 'local' | 'ai';
+  provenance?: { sourceFingerprint: string; model?: string };
+  automatic?: boolean;
 }
 
 interface SuggestedStep {
@@ -162,7 +165,7 @@ export function suggestBubbleSprouts(
   const created = new Set(
     existing.map((task) => task.metadata?.bubbleGarden?.sproutKey),
   );
-  const links = (source.domainLinks ?? []).filter((link) => link.userConfirmed);
+  const links = getConfirmedTaskDomainEffects(source).map(({ link }) => link);
   const title = source.title.trim() || source.description!.trim();
   const singleLineTitle = title.replace(/\s+/g, ' ');
   const shortTitle = singleLineTitle.length > 85 ? `${singleLineTitle.slice(0, 82)}…` : singleLineTitle;
@@ -232,6 +235,33 @@ export function suggestBubbleSprouts(
     .slice(0, 3);
 }
 
+export function bubbleGrowthSourceFingerprint(source: Pick<Task, 'title' | 'description'>): string {
+  return JSON.stringify([source.title, source.description ?? '']);
+}
+
+export function createAiSprouts(
+  source: Task,
+  steps: readonly { title: string; reason: string; estimatedMinutes: number }[],
+  existing: readonly Task[],
+  provenance: { sourceFingerprint: string; model?: string },
+): BubbleSprout[] {
+  if (!canGrowBubble(source) || provenance.sourceFingerprint !== bubbleGrowthSourceFingerprint(source)) return [];
+  const created = new Set(existing.map(task => task.metadata?.bubbleGarden?.sproutKey));
+  const seen = new Set<string>();
+  return steps.flatMap(step => {
+    if (typeof step.title !== 'string' || !step.title.trim() || step.title.trim().length > 300 ||
+      typeof step.reason !== 'string' || step.reason.length > 600 || !Number.isFinite(step.estimatedMinutes) || step.estimatedMinutes < 1 || step.estimatedMinutes > 120) return [];
+    const title = step.title.trim();
+    const normalized = title.normalize('NFKC').toLocaleLowerCase().replace(/\s+/g, ' ');
+    const key = `${source.id}:ai:${encodeURIComponent(normalized)}`;
+    if (seen.has(normalized) || created.has(key)) return [];
+    seen.add(normalized);
+    return [{ key, title, reason: step.reason, minutes: Math.round(step.estimatedMinutes), sourceTaskId: source.id,
+      sourceTitle: source.title.trim() || source.description || '', origin: 'ai' as const,
+      domainLinks: getConfirmedTaskDomainEffects(source).map(({ link }) => link), provenance }];
+  }).slice(0, 3);
+}
+
 export function createSproutTask(
   sprout: BubbleSprout,
   title: string,
@@ -244,7 +274,7 @@ export function createSproutTask(
     actionability: 'actionable',
     energyFit: 'low',
     estimatedMinutes: sprout.minutes,
-    domainLinks: sprout.domainLinks
+    domainLinks: getConfirmedTaskDomainEffects({ domainLinks: sprout.domainLinks }).map(({ link }) => link)
       .filter((link) => selectedDomainIds.includes(link.domainId))
       .map((link) => ({
         ...createConfirmedDomainLink({
@@ -255,11 +285,15 @@ export function createSproutTask(
         // Reuse the saved area's exact identity, including imported punctuation.
         domainId: link.domainId,
         reason: link.reason,
+        effect: link.effect,
       })),
     metadata: {
       bubbleGarden: {
         sourceTaskId: sprout.sourceTaskId,
         sproutKey: sprout.key,
+        origin: sprout.origin,
+        ...(sprout.provenance ? { provenance: sprout.provenance } : {}),
+        ...(sprout.automatic ? { automatic: true } : {}),
       },
     },
     view: { atomic: { shell: 'today' } },

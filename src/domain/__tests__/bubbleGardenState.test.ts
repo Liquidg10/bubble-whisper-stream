@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { bubbleToTask, taskToBubble } from '@/adapters/taskAdapter';
 import { createTask, type Task } from '@/types/task';
 import { createUserDomainLink } from '@/domain/lifeDomains';
-import { createSproutTask, suggestBubbleSprouts } from '@/domain/bubbleGarden';
+import { bubbleGrowthSourceFingerprint, createAiSprouts, createSproutTask, suggestBubbleSprouts } from '@/domain/bubbleGarden';
 import { addSproutOnce, deriveBubbleFamily, patchSproutDismissal, persistSproutDismissal, readDismissedSproutKeys } from '../bubbleGardenState';
 
 function source(id = 'parent'): Task {
@@ -72,6 +72,35 @@ describe('Durable Garden review choices', () => {
 });
 
 describe('Saved bubble family and creation admission', () => {
+  it.each(['task', 'thought'] as const)('revalidates current %s links at local and AI admission without promoting malformed links', async type => {
+    for (const origin of ['local', 'ai'] as const) {
+      const parent = { ...source(`strict-links-${type}-${origin}`), type };
+      const draft = origin === 'local' ? suggestBubbleSprouts(parent, [parent])[0] : createAiSprouts(parent,
+        [{ title: 'One reviewed idea', reason: 'Review this draft.', estimatedMinutes: 2 }], [parent], { sourceFingerprint: bubbleGrowthSourceFingerprint(parent) })[0];
+      const valid = { ...createUserDomainLink('Creativity', { effect: 'tradeoff' }), domainId: 'custom_creativity' };
+      parent.domainLinks = [null, {}, valid,
+        { ...createUserDomainLink('Home'), userConfirmed: 1 },
+        { ...createUserDomainLink('Learning'), effect: 'future-effect' },
+        createUserDomainLink('Career'), createUserDomainLink('Career', { effect: 'tradeoff' }),
+      ] as unknown as Task['domainLinks'];
+      const before = structuredClone(parent);
+      const addTask = vi.fn(async data => ({ ...data, id: `strict-child-${type}-${origin}` }));
+      const result = await addSproutOnce(draft, 'Reviewed step', ['custom_creativity', 'home-personal', 'education', 'career'], { getTasks: () => [parent], addTask });
+      expect(result.task.domainLinks).toEqual([expect.objectContaining({ domainId: 'custom_creativity', userConfirmed: true, effect: 'tradeoff' })]);
+      expect(parent).toEqual(before);
+    }
+  });
+
+  it('admits a reviewed step without areas if the current area collection is malformed', async () => {
+    const parent = source('malformed-links-admission');
+    const draft = suggestBubbleSprouts(parent, [parent])[0];
+    parent.domainLinks = { future: 'not an array' } as unknown as Task['domainLinks'];
+    const result = await addSproutOnce(draft, 'Reviewed step', ['home-personal'], {
+      getTasks: () => [parent], addTask: async data => ({ ...data, id: 'no-area-child' }),
+    });
+    expect(result.task.domainLinks).toEqual([]);
+  });
+
   it('derives live parent and completed children and leaves missing sources non-actionable', () => {
     const parent = source();
     const draft = suggestBubbleSprouts(parent, [parent])[0];
@@ -92,8 +121,7 @@ describe('Saved bubble family and creation admission', () => {
     const persistence = { getTasks: () => tasks, addTask };
     const first = addSproutOnce(draft, 'Reviewed title', [], persistence);
     const joined = addSproutOnce(draft, 'Second attempt', [], persistence);
-    await Promise.resolve();
-    expect(addTask).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(addTask).toHaveBeenCalledTimes(1));
     expect(parent).toEqual(before);
     gate.resolve();
     const results = await Promise.all([first, joined]);
@@ -122,5 +150,50 @@ describe('Saved bubble family and creation admission', () => {
     const addTask = vi.fn();
     await expect(addSproutOnce(draft, 'A stale draft', [], { getTasks: () => [parent], addTask })).rejects.toThrow('unfinished task or thought');
     expect(addTask).not.toHaveBeenCalled();
+  });
+});
+
+describe('Bounded AI growth admission', () => {
+  it('validates, deduplicates and preserves provenance without changing the source', async () => {
+    const { createAiSprouts, bubbleGrowthSourceFingerprint } = await import('../bubbleGarden');
+    const parent = source('ai-parent');
+    const fingerprint = bubbleGrowthSourceFingerprint(parent);
+    const drafts = createAiSprouts(parent, [
+      { title: 'Try a first step', reason: 'An idea for your review', estimatedMinutes: 3 },
+      { title: 'Try a first step', reason: 'Duplicate', estimatedMinutes: 4 },
+      { title: '', reason: 'Missing', estimatedMinutes: 4 },
+      { title: 'Too large', reason: 'Invalid', estimatedMinutes: 800 },
+    ], [parent], { sourceFingerprint: fingerprint, model: 'verified-model' });
+    expect(drafts).toHaveLength(1);
+    const original = structuredClone(parent);
+    const addTask = vi.fn(async data => ({ ...data, id: 'ai-child' }));
+    const result = await addSproutOnce(drafts[0], 'My reviewed wording', [], { getTasks: () => [parent], addTask });
+    expect(result.task).toMatchObject({ title: 'My reviewed wording', domainLinks: [], metadata: { bubbleGarden: { origin: 'ai', provenance: { sourceFingerprint: fingerprint, model: 'verified-model' } } } });
+    expect(parent).toEqual(original);
+    expect(createAiSprouts(parent, [{ title: 'Try a first step', reason: '', estimatedMinutes: 3 }], [parent, result.task], { sourceFingerprint: fingerprint })).toEqual([]);
+  });
+
+  it('rejects stale title or notes while unrelated source metadata changes remain eligible', async () => {
+    const { createAiSprouts, bubbleGrowthSourceFingerprint } = await import('../bubbleGarden');
+    const parent = source('ai-stale');
+    const draft = createAiSprouts(parent, [{ title: 'A reviewed idea', reason: 'Review me', estimatedMinutes: 2 }], [parent], { sourceFingerprint: bubbleGrowthSourceFingerprint(parent) })[0];
+    const addTask = vi.fn(async data => ({ ...data, id: 'child' }));
+    await expect(addSproutOnce(draft, draft.title, [], { getTasks: () => [{ ...parent, description: 'Changed notes' }], addTask })).rejects.toThrow('source changed');
+    await expect(addSproutOnce(draft, draft.title, [], { getTasks: () => [{ ...parent, title: 'Changed title' }], addTask })).rejects.toThrow('source changed');
+    expect(addTask).not.toHaveBeenCalled();
+    expect((await addSproutOnce(draft, draft.title, [], { getTasks: () => [{ ...parent, metadata: { ...parent.metadata, newPreference: true } }], addTask })).created).toBe(true);
+  });
+
+  it('refuses to auto-admit AI and rechecks current note contents and domain effects', async () => {
+    const { createAiSprouts, bubbleGrowthSourceFingerprint, suggestBubbleSprouts } = await import('../bubbleGarden');
+    const parent = { ...source('current-notes'), description: '- Check the shelf' };
+    const ai = createAiSprouts(parent, [{ title: 'An AI idea', reason: '', estimatedMinutes: 3 }], [parent], { sourceFingerprint: bubbleGrowthSourceFingerprint(parent) })[0];
+    const addTask = vi.fn(async data => ({ ...data, id: 'child' }));
+    await expect(addSproutOnce({ ...ai, automatic: true }, ai.title, [], { getTasks: () => [parent], addTask })).rejects.toThrow('paused');
+    const note = suggestBubbleSprouts(parent, [parent])[0];
+    await expect(addSproutOnce(note, note.title, [], { getTasks: () => [{ ...parent, description: '- [x] Check the shelf' }], addTask })).rejects.toThrow('note changed');
+    const changed = { ...parent, domainLinks: parent.domainLinks?.map(link => ({ ...link, effect: 'tradeoff' as const })) };
+    const result = await addSproutOnce(note, note.title, note.domainLinks.map(link => link.domainId), { getTasks: () => [changed], addTask });
+    expect(result.task.domainLinks?.[0].effect).toBe('tradeoff');
   });
 });

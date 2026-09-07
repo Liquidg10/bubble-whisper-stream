@@ -18,6 +18,7 @@ import {
   type CanonicalTaskContractV1,
   type Task,
   type TaskDomainLink,
+  type TaskRelationship,
   type TaskMetadata,
   type TaskType,
   type TaskViewMetadata,
@@ -257,6 +258,7 @@ export function bubbleToTask(bubble: Bubble): Task {
       urgency: envelope?.urgency,
       readiness: envelope?.readiness,
       domainLinks: envelope?.domainLinks,
+      relationships: envelope?.relationships,
       tags: (bubble.tags ?? [])
         .filter(tag => !envelope || !tag.id.startsWith(LEGACY_HORIZON_TAG_PREFIX))
         .map(tag => ({ ...tag })),
@@ -343,6 +345,7 @@ function buildBubbleMetadata(task: Task): BubbleMetadata {
     urgency: task.urgency,
     readiness: task.readiness,
     domainLinks: task.domainLinks,
+    relationships: task.relationships,
     view: task.view,
     metadata: task.metadata,
   };
@@ -477,6 +480,25 @@ export function withBubbleDomainLinks(
     updatedAt,
   });
 
+  return {
+    ...bubble,
+    updatedAt,
+    metadata: mergeCanonicalEnvelopeMetadata(bubble.metadata, projectedBubble.metadata),
+  };
+}
+
+/** Patch only canonical relationship metadata, retaining direct Bubble edits. */
+export function withBubbleRelationships(
+  bubble: Bubble,
+  relationships: readonly TaskRelationship[],
+  updatedAt: number = Date.now(),
+): Bubble {
+  const projectedBubble = taskToBubble({
+    ...bubbleToTask(bubble),
+    relationships: relationships.map(relationship => relationship && typeof relationship === 'object' && !Array.isArray(relationship)
+      ? { ...relationship } : relationship),
+    updatedAt,
+  });
   return {
     ...bubble,
     updatedAt,
