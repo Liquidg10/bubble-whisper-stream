@@ -173,7 +173,17 @@ async function nativeDrag(page: Page, touch: boolean, from: { x: number; y: numb
     const session = await page.context().newCDPSession(page);
     try {
       await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ ...from, id: 0, radiusX: 4, radiusY: 4 }] });
-      await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ ...to, id: 0, radiusX: 4, radiusY: 4 }] });
+      // Model a finger following a continuous path, with real contact time.
+      // A start/move/end teleport does not model a user dragging the scene.
+      for (let step = 1; step <= 8; step++) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+        await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{
+          x: from.x + (to.x - from.x) * step / 8,
+          y: from.y + (to.y - from.y) * step / 8,
+          id: 0, radiusX: 4, radiusY: 4,
+        }] });
+      }
+      await new Promise(resolve => setTimeout(resolve, 30));
       await session.send('Input.dispatchTouchEvent', { type: cancel ? 'touchCancel' : 'touchEnd', touchPoints: [] });
     } finally { await session.detach(); }
   } else {
