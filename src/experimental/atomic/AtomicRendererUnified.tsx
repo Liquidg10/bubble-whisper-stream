@@ -2027,7 +2027,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       {atomicState.dragState.isDragging ? <div data-panel data-testid="atomic-drag-feedback"
         data-target-horizon={candidateShell === null ? undefined : HORIZONS[candidateShell]}
         className="atomic-drag-feedback absolute left-3 right-3 z-50 mx-auto max-w-md rounded-2xl border bg-card/95 p-3 text-card-foreground shadow-md backdrop-blur-md"
-        style={{ top: compactControls ? 68 : 124 }}>
+        style={{ top: compactControls ? 68 : spatialMode ? 184 : 124 }}>
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0" role="status" aria-live="polite" aria-atomic="true">
             <p className="text-sm font-semibold">{candidateShell !== null ? `Release in ${SHELL_CONFIG[candidateShell].name}` : 'Move this life area'}</p>
@@ -2042,7 +2042,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         {candidateOrbitFull ? <p className="mt-2 text-xs text-muted-foreground">This orbit is full. The task will still move here and remain available in Tasks.</p> : null}
       </div> : null}
 
-      {spatialNotice ? <div role="status" data-panel className="absolute left-3 right-3 z-40 mx-auto flex max-w-md items-center gap-2 rounded-xl border bg-card p-3 text-xs shadow-sm" style={{ top: compactControls ? 68 : 124 }}>
+      {spatialNotice ? <div role="status" data-panel className="absolute left-3 right-3 z-40 mx-auto flex max-w-md items-center gap-2 rounded-xl border bg-card p-3 text-xs shadow-sm" style={{ top: compactControls ? 68 : spatialMode ? 184 : 124 }}>
         <p className="flex-1">{spatialNotice}</p><Button variant="ghost" className="min-h-11" onClick={() => setSpatialNotice('')} aria-label="Dismiss 3D notice">Got it</Button>
       </div> : null}
       {!spatialMode && !showElectronControls && electronCount > 0 ? (
@@ -2147,11 +2147,11 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           </div>
         </details>
       </div>
-      {tracedRelationship && !atomicState.dragState.isDragging && <div data-panel data-testid="atomic-task-trace-status" className="absolute left-3 z-40 flex max-w-[min(25rem,calc(100%-1.5rem))] items-center gap-3 rounded-2xl border bg-card/95 p-3 text-card-foreground shadow-sm" style={{ top: compactControls ? 68 : 124 }}>
+      {tracedRelationship && !atomicState.dragState.isDragging && <div data-panel data-testid="atomic-task-trace-status" className="absolute left-3 z-40 flex max-w-[min(25rem,calc(100%-1.5rem))] items-center gap-3 rounded-2xl border bg-card/95 p-3 text-card-foreground shadow-sm" style={{ top: compactControls ? 68 : spatialMode ? 184 : 124 }}>
         <div className="min-w-0 text-xs"><p className="font-semibold">Task connection</p><p className="mt-1 line-clamp-3 break-words">{tracedRelationship.source.title} <strong>{taskRelationshipLabel(tracedRelationship.relationship.kind)}</strong> {tracedRelationship.target.title}</p>{relationshipPoints.length < 2 && <p className="mt-1 text-muted-foreground">Some tasks have no visible life area. Open their details to review this connection.</p>}</div>
         <button ref={clearRelationshipTraceRef} type="button" className="min-h-11 shrink-0 rounded-lg px-2 text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="Clear task connection trace" onClick={() => { setTracedRelationshipKey(null); connectionsSummaryRef.current?.focus(); setMovementAnnouncement('Task connection trace cleared.'); }}>Clear trace</button>
       </div>}
-      {tracedConnection && !atomicState.dragState.isDragging ? <div data-panel data-testid="atomic-trace-status" className="absolute left-3 z-40 flex max-w-[min(25rem,calc(100%-1.5rem))] items-center gap-3 rounded-2xl border bg-card/95 p-3 shadow-sm backdrop-blur-md" style={{ top: compactControls ? 68 : 124 }}>
+      {tracedConnection && !atomicState.dragState.isDragging ? <div data-panel data-testid="atomic-trace-status" className="absolute left-3 z-40 flex max-w-[min(25rem,calc(100%-1.5rem))] items-center gap-3 rounded-2xl border bg-card/95 p-3 shadow-sm backdrop-blur-md" style={{ top: compactControls ? 68 : spatialMode ? 184 : 124 }}>
         <div className="min-w-0 space-y-1">
           <p className="text-xs font-semibold text-foreground">One task, {tracedConnection.links.length} life areas</p>
           <p className="line-clamp-2 break-words text-xs text-muted-foreground">{tracedConnection.task.content || 'Untitled task'}</p>

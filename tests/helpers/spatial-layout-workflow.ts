@@ -251,6 +251,14 @@ async function proveNativeParticleMoves(page: Page, touch: boolean, beforeTasks:
       }, { capture: true, once: true });
     });
     (window as typeof window & { spatialDropProbe: Promise<number[]> }).spatialDropProbe = probe;
+    const inputs: Array<{ type: string; trusted: boolean; pointerType: string; toastState: string | null }> = [];
+    (window as typeof window & { spatialUndoInputs: typeof inputs }).spatialUndoInputs = inputs;
+    for (const type of ['pointerdown', 'pointerup', 'click']) document.addEventListener(type, event => {
+      const target = event.target as Element;
+      if (target.closest('button')?.getAttribute('aria-label') !== 'Undo moving Try moving this bubble to Week') return;
+      inputs.push({ type, trusted: event.isTrusted, pointerType: (event as PointerEvent).pointerType,
+        toastState: target.closest('[data-swipe-direction]')?.getAttribute('data-state') ?? null });
+    }, { capture: true });
   }, { taskId: source.id, pose: week.pose });
   await nativeDrag(page, touch, week.from, week.to);
   await expect.poll(async () => (await tasks(page)).find(task => task.id === source.id)?.tags.filter(tag => ['today', 'week', 'later'].includes(tag.name)).map(tag => tag.name)).toEqual(['week']);
@@ -260,11 +268,55 @@ async function proveNativeParticleMoves(page: Page, touch: boolean, beforeTasks:
   const samples = await page.evaluate(() => (window as typeof window & { spatialDropProbe: Promise<number[]> }).spatialDropProbe);
   expect(samples).toHaveLength(20);
   expect(Math.min(...samples), 'The 3D electron must never detour through its nucleus after release').toBeGreaterThan(30);
-  await page.screenshot({ path: testInfo.outputPath('spatial-native-electron-week.png') });
+  // Undo is a time-limited user action. Capture its trusted input before doing
+  // screenshot work that can consume the notification's five-second lifetime.
   await press(page.getByRole('button', { name: 'Undo moving Try moving this bubble to Week', exact: true }), touch);
-  await expect.poll(async () => (await tasks(page)).find(task => task.id === source.id)?.tags.filter(tag => ['today', 'week', 'later'].includes(tag.name)).map(tag => tag.name)).toEqual(['today']);
+  let undoInputs: Array<{ type: string; trusted: boolean; pointerType: string; toastState: string | null }> = [];
+  try {
+    await expect.poll(async () => (await tasks(page)).find(task => task.id === source.id)?.tags.filter(tag => ['today', 'week', 'later'].includes(tag.name)).map(tag => tag.name)).toEqual(['today']);
+  } finally {
+    undoInputs = await page.evaluate(() => (window as typeof window & { spatialUndoInputs: typeof undoInputs }).spatialUndoInputs);
+    await testInfo.attach('spatial-native-undo-input', { contentType: 'application/json', body: JSON.stringify(undoInputs) });
+  }
+  expect(undoInputs.filter(input => input.type === 'click')).toHaveLength(1);
+  expect(undoInputs.every(input => input.trusted && input.toastState === 'open')).toBe(true);
+  expect(undoInputs.filter(input => input.type === 'pointerdown' || input.type === 'pointerup').map(input => input.pointerType))
+    .toEqual([touch ? 'touch' : 'mouse', touch ? 'touch' : 'mouse']);
   expect((await tasks(page)).map(taskMeaning)).toEqual(beforeTasks.map(taskMeaning));
+  await page.screenshot({ path: testInfo.outputPath('spatial-native-electron-undone.png') });
   await testInfo.attach('spatial-native-particle-receipt', { contentType: 'application/json', body: JSON.stringify({ nativeSameShell: true, nativeCrossHorizon: 'week', undoneHorizon: 'today', canonicalIdentityAndLinksPreserved: true, otherTasksUnchanged: true, radialSamplesAfterRelease: samples }) });
+}
+
+async function verify3dTraceControls(page: Page, touch: boolean, testInfo: TestInfo) {
+  const connections = page.locator('summary').filter({ hasText: /Connections \(/ });
+  await press(connections, touch);
+  await press(page.getByRole('button', { name: 'Trace See how one action connects your life across its life areas', exact: true }), touch);
+  const trace = page.getByTestId('atomic-trace-status');
+  await expect(trace).toBeVisible();
+  const clear = page.getByRole('button', { name: 'Clear trace', exact: true });
+  await expect(clear).toBeFocused();
+  const checks: Array<{ name: string; receivesPointer: boolean }> = [];
+  for (const name of touch ? ['Clear trace'] : ['Turn view up', 'Turn view down', 'Clear trace']) {
+    const button = page.getByRole('button', { name, exact: true });
+    const receivesPointer = await button.evaluate(element => {
+      const bounds = element.getBoundingClientRect();
+      const hit = document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+      return hit === element || (hit !== null && element.contains(hit));
+    });
+    checks.push({ name, receivesPointer });
+    expect(receivesPointer, `${name} must remain uncovered while the 3D trace is visible`).toBe(true);
+    if (name !== 'Clear trace') {
+      const scene = page.getByTestId('atomic-spatial-scene');
+      const before = await scene.getAttribute('data-camera-position');
+      await press(button, touch);
+      await expect.poll(() => scene.getAttribute('data-camera-position')).not.toBe(before);
+    }
+  }
+  await page.screenshot({ path: testInfo.outputPath('spatial-trace-camera-controls.png') });
+  await press(clear, touch);
+  await expect(trace).toHaveCount(0);
+  await expect(connections).toBeFocused();
+  await testInfo.attach('spatial-trace-controls-receipt', { contentType: 'application/json', body: JSON.stringify({ checks, traceCleared: true, focusReturned: true }) });
 }
 
 export async function savedSpatialLayoutWorkflow(page: Page, origin: string, production: boolean, touch: boolean, testInfo: TestInfo) {
@@ -341,6 +393,7 @@ export async function spatial3dWorkflow(page: Page, origin: string, production: 
   expect(await tasks(page)).toEqual(beforeTasks);
   await proveNativeParticleMoves(page, touch, beforeTasks, testInfo);
   moved = await savedLayout(page);
+  await verify3dTraceControls(page, touch, testInfo);
   await accessible(page, '[data-reduced-motion]', testInfo, 'spatial-3d-controls');
   await page.screenshot({ path: testInfo.outputPath('spatial-3d-rotated-layout.png') });
   const flat = page.getByRole('button', { name: 'Flat view', exact: true });
