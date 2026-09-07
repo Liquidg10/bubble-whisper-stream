@@ -16,6 +16,12 @@ interface SpatialUndoInput {
   insideButton: boolean | null;
 }
 interface SpatialUndoProbe { inputs: SpatialUndoInput[]; startedAt: number; toastShownAt: number | null }
+interface SpatialConnectionsInput {
+  type: string; phase: string; trusted: boolean; defaultPrevented: boolean;
+  time: number; target: string; pointerType: string; pointerId: number | null;
+  isPrimary: boolean | null; x: number | null; y: number | null; open: boolean;
+}
+interface SpatialConnectionsProbe { inputs: SpatialConnectionsInput[]; cleanup: () => void }
 interface Layout {
   version: 1;
   molecules: Record<string, Pose>;
@@ -167,7 +173,19 @@ async function nativeDrag(page: Page, touch: boolean, from: { x: number; y: numb
     const session = await page.context().newCDPSession(page);
     try {
       await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ ...from, id: 0, radiusX: 4, radiusY: 4 }] });
-      await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ ...to, id: 0, radiusX: 4, radiusY: 4 }] });
+      // Model a finger following a continuous path, with real contact time.
+      // A start/move/end teleport does not model a user dragging the scene.
+      for (let step = 1; step <= 8; step++) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+        await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{
+          x: from.x + (to.x - from.x) * step / 8,
+          y: from.y + (to.y - from.y) * step / 8,
+          id: 0, radiusX: 4, radiusY: 4,
+        }] });
+      }
+      // Chromium retains release velocity until 80 ms after the last move.
+      // Hold the intended placement still before lifting the finger.
+      await new Promise(resolve => setTimeout(resolve, 100));
       await session.send('Input.dispatchTouchEvent', { type: cancel ? 'touchCancel' : 'touchEnd', touchPoints: [] });
     } finally { await session.detach(); }
   } else {
@@ -177,6 +195,59 @@ async function nativeDrag(page: Page, touch: boolean, from: { x: number; y: numb
     if (cancel) await page.keyboard.press('Escape');
     await page.mouse.up();
   }
+}
+
+async function startChromiumInputTrace(page: Page, testInfo: TestInfo) {
+  const session = await page.context().newCDPSession(page);
+  const traceEvents: Record<string, unknown>[] = [];
+  const path = testInfo.outputPath('spatial-chromium-input-trace.json');
+  const receiptPath = testInfo.outputPath('spatial-chromium-input-trace-receipt.json');
+  const startedAt = new Date().toISOString();
+  session.on('Tracing.dataCollected', ({ value }: { value: Record<string, unknown>[] }) => {
+    traceEvents.push(...value);
+  });
+  const complete = new Promise<{ dataLossOccurred: boolean }>(resolve => {
+    session.once('Tracing.tracingComplete', resolve);
+  });
+  try {
+    // These input-category events include GestureTapDown, fling velocity,
+    // FilterTapSuppression and gesture routing before the renderer sees them.
+    await session.send('Tracing.start', {
+      transferMode: 'ReportEvents',
+      traceConfig: { recordMode: 'recordUntilFull', traceBufferSizeInKb: 8192,
+        includedCategories: ['input'], excludedCategories: ['*'] },
+    });
+  } catch (error) {
+    await writeFile(receiptPath, JSON.stringify({ startedAt, completed: false, error: String(error) }, null, 2));
+    await testInfo.attach('spatial-chromium-input-trace-receipt', { contentType: 'application/json', path: receiptPath });
+    await session.detach().catch(() => undefined);
+    throw error;
+  }
+  return async () => {
+    let completion: { dataLossOccurred: boolean } | undefined;
+    let failure: unknown;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await session.send('Tracing.end');
+      completion = await Promise.race([complete, new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error('Chromium input trace did not finish within 5 seconds')), 5000);
+      })]);
+    } catch (error) {
+      failure = error;
+    } finally {
+      clearTimeout(timeout);
+      // Keep the trace as a file even when a click/open assertion has failed.
+      await writeFile(path, JSON.stringify({ traceEvents }));
+      await writeFile(receiptPath, JSON.stringify({ startedAt, endedAt: new Date().toISOString(),
+        completed: completion !== undefined, dataLossOccurred: completion?.dataLossOccurred ?? null,
+        eventCount: traceEvents.length, error: failure ? String(failure) : null }, null, 2));
+      await testInfo.attach('spatial-chromium-input-trace', { contentType: 'application/json', path });
+      await testInfo.attach('spatial-chromium-input-trace-receipt', { contentType: 'application/json', path: receiptPath });
+      await session.detach().catch(() => undefined);
+    }
+    if (failure) throw failure;
+    expect(completion?.dataLossOccurred, 'The bounded Chromium input trace must be complete').toBe(false);
+  };
 }
 
 function taskMeaning(task: Awaited<ReturnType<typeof tasks>>[number]) {
@@ -319,13 +390,15 @@ async function proveNativeParticleMoves(page: Page, touch: boolean, beforeTasks:
       expect(beforeTap.receivesPointer).toBe(true);
       const session = await page.context().newCDPSession(page);
       try {
-        // Use one browser-native touch gesture with a realistic contact time.
-        // A Playwright trial tap would inject another, canceled touch first.
-        await session.send('Input.synthesizeTapGesture', {
+        // Use the same touch input pipeline as the scene drags. Chromium 151's
+        // Linux synthesizeTapGesture path bypasses gesture recognition.
+        await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{
           x: beforeTap.rect.x + beforeTap.rect.width / 2,
           y: beforeTap.rect.y + beforeTap.rect.height / 2,
-          duration: 50, tapCount: 1, gestureSourceType: 'touch',
-        });
+          id: 0, radiusX: 4, radiusY: 4,
+        }] });
+        await new Promise(resolve => setTimeout(resolve, 50));
+        await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
       } finally { await session.detach(); }
     } else await press(undo, false);
     const undoInputs = (await page.evaluate(() => (window as typeof window & { spatialUndoProbe: SpatialUndoProbe }).spatialUndoProbe)).inputs
@@ -360,7 +433,82 @@ async function proveNativeParticleMoves(page: Page, touch: boolean, beforeTasks:
 
 async function verify3dTraceControls(page: Page, touch: boolean, testInfo: TestInfo) {
   const connections = page.locator('summary').filter({ hasText: /Connections \(/ });
-  await press(connections, touch);
+  if (touch) {
+    await expect(connections).toBeVisible();
+    const before = await connections.evaluate(summary => {
+      const details = summary.parentElement;
+      if (!(details instanceof HTMLDetailsElement)) throw new Error('Connections must retain native details/summary semantics.');
+      const rect = summary.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+      const inputs: SpatialConnectionsInput[] = [];
+      const record = (event: Event, phase: string) => {
+        if (event.type !== 'toggle' && !event.composedPath().includes(summary)) return;
+        const pointer = event as PointerEvent;
+        inputs.push({ type: event.type, phase, trusted: event.isTrusted, defaultPrevented: event.defaultPrevented,
+          time: performance.now(), target: event.target instanceof Element ? event.target.tagName : '',
+          pointerType: pointer.pointerType ?? '', pointerId: Number.isFinite(pointer.pointerId) ? pointer.pointerId : null,
+          isPrimary: typeof pointer.isPrimary === 'boolean' ? pointer.isPrimary : null,
+          x: Number.isFinite(pointer.clientX) ? pointer.clientX : null,
+          y: Number.isFinite(pointer.clientY) ? pointer.clientY : null, open: details.open });
+      };
+      const types = ['touchstart', 'touchend', 'touchcancel', 'pointerdown', 'pointerup', 'pointercancel', 'mousedown', 'mouseup', 'click'];
+      const capture = (event: Event) => record(event, 'capture');
+      const bubble = (event: Event) => record(event, 'bubble');
+      const toggle = (event: Event) => record(event, 'toggle');
+      types.forEach(type => { document.addEventListener(type, capture, true); document.addEventListener(type, bubble); });
+      details.addEventListener('toggle', toggle);
+      (window as typeof window & { spatialConnectionsProbe: SpatialConnectionsProbe }).spatialConnectionsProbe = {
+        inputs, cleanup: () => {
+          types.forEach(type => { document.removeEventListener(type, capture, true); document.removeEventListener(type, bubble); });
+          details.removeEventListener('toggle', toggle);
+        },
+      };
+      return { time: performance.now(), rect: rect.toJSON(), open: details.open,
+        receivesPointer: hit === summary || (hit !== null && summary.contains(hit)),
+        hit: hit?.tagName ?? null, inViewport: rect.left >= 0 && rect.top >= 0 && rect.right <= innerWidth && rect.bottom <= innerHeight };
+    });
+    try {
+      expect(before.open, 'Connections must start closed so one gesture opens it').toBe(false);
+      expect(before.inViewport).toBe(true);
+      expect(before.receivesPointer).toBe(true);
+      const session = await page.context().newCDPSession(page);
+      try {
+        // Keep the scene's touch input pipeline and one real contact interval.
+        // The browser must still produce its own click and native disclosure.
+        await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{
+          x: before.rect.x + before.rect.width / 2, y: before.rect.y + before.rect.height / 2,
+          id: 0, radiusX: 4, radiusY: 4,
+        }] });
+        await new Promise(resolve => setTimeout(resolve, 50));
+        await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      } finally { await session.detach(); }
+      // Observe completion; never retry the gesture or force the native state.
+      await expect.poll(() => page.evaluate(() => (window as typeof window & { spatialConnectionsProbe: SpatialConnectionsProbe })
+        .spatialConnectionsProbe.inputs.filter(input => input.phase === 'capture' && input.type === 'click').length),
+      { message: 'One native Connections touch must produce exactly one browser click' }).toBe(1);
+      await expect(connections.locator('..')).toHaveJSProperty('open', true);
+      const inputs = await page.evaluate(() => (window as typeof window & { spatialConnectionsProbe: SpatialConnectionsProbe }).spatialConnectionsProbe.inputs);
+      const capture = inputs.filter(input => input.phase === 'capture');
+      const clicks = capture.filter(input => input.type === 'click');
+      expect(clicks).toHaveLength(1);
+      expect(capture.every(input => input.trusted && !input.defaultPrevented)).toBe(true);
+      const pointers = capture.filter(input => input.type === 'pointerdown' || input.type === 'pointerup');
+      expect(pointers.map(input => input.type)).toEqual(['pointerdown', 'pointerup']);
+      expect(pointers.every(input => input.pointerType === 'touch' && input.isPrimary === true)).toBe(true);
+      expect(pointers[0].pointerId).not.toBeNull();
+      expect(pointers[1].pointerId).toBe(pointers[0].pointerId);
+      expect(capture.filter(input => input.type === 'pointercancel' || input.type === 'touchcancel')).toHaveLength(0);
+    } finally {
+      const after = await connections.evaluate(summary => {
+        const probe = (window as typeof window & { spatialConnectionsProbe: SpatialConnectionsProbe }).spatialConnectionsProbe;
+        probe.cleanup();
+        return { time: performance.now(), open: (summary.parentElement as HTMLDetailsElement).open, inputs: probe.inputs };
+      });
+      const path = testInfo.outputPath('spatial-connections-touch-input.json');
+      await writeFile(path, JSON.stringify({ before, after }, null, 2));
+      await testInfo.attach('spatial-connections-touch-input', { contentType: 'application/json', path });
+    }
+  } else await press(connections, false);
   await press(page.getByRole('button', { name: 'Trace See how one action connects your life across its life areas', exact: true }), touch);
   const trace = page.getByTestId('atomic-trace-status');
   await expect(trace).toBeVisible();
@@ -450,21 +598,27 @@ export async function spatial3dWorkflow(page: Page, origin: string, production: 
   const cameraBeforeGesture = await scene.getAttribute('data-camera-position');
   const background = await backgroundPoint(page);
   expect(background, 'A visible empty canvas area must be available for camera gestures').not.toBeNull();
-  await nativeDrag(page, touch, background!, { x: background!.x - 28, y: background!.y + 16 });
-  await expect.poll(() => scene.getAttribute('data-camera-position')).not.toBe(cameraBeforeGesture);
-  expect(await savedLayout(page)).toEqual(beforeDrag);
-  let point = await pickPoint(page, 'mol-education');
-  await nativeDrag(page, touch, point, { x: point.x + 36, y: point.y + 24 }, true);
-  expect(await savedLayout(page)).toEqual(beforeDrag);
-  point = await pickPoint(page, 'mol-education');
-  await nativeDrag(page, touch, point, { x: point.x + 42, y: point.y + 24 });
-  await expect.poll(() => savedLayout(page)).not.toEqual(beforeDrag);
-  let moved = await savedLayout(page);
-  expect(Object.keys(moved.molecules)).toEqual(['education']);
-  expect(await tasks(page)).toEqual(beforeTasks);
-  await proveNativeParticleMoves(page, touch, beforeTasks, testInfo);
-  moved = await savedLayout(page);
-  await verify3dTraceControls(page, touch, testInfo);
+  const stopInputTrace = touch ? await startChromiumInputTrace(page, testInfo) : undefined;
+  let moved = beforeDrag;
+  try {
+    await nativeDrag(page, touch, background!, { x: background!.x - 28, y: background!.y + 16 });
+    await expect.poll(() => scene.getAttribute('data-camera-position')).not.toBe(cameraBeforeGesture);
+    expect(await savedLayout(page)).toEqual(beforeDrag);
+    let point = await pickPoint(page, 'mol-education');
+    await nativeDrag(page, touch, point, { x: point.x + 36, y: point.y + 24 }, true);
+    expect(await savedLayout(page)).toEqual(beforeDrag);
+    point = await pickPoint(page, 'mol-education');
+    await nativeDrag(page, touch, point, { x: point.x + 42, y: point.y + 24 });
+    await expect.poll(() => savedLayout(page)).not.toEqual(beforeDrag);
+    moved = await savedLayout(page);
+    expect(Object.keys(moved.molecules)).toEqual(['education']);
+    expect(await tasks(page)).toEqual(beforeTasks);
+    await proveNativeParticleMoves(page, touch, beforeTasks, testInfo);
+    moved = await savedLayout(page);
+    await verify3dTraceControls(page, touch, testInfo);
+  } finally {
+    await stopInputTrace?.();
+  }
   await accessible(page, '[data-reduced-motion]', testInfo, 'spatial-3d-controls');
   await page.screenshot({ path: testInfo.outputPath('spatial-3d-rotated-layout.png') });
   const flat = page.getByRole('button', { name: 'Flat view', exact: true });

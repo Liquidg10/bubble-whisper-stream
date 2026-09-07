@@ -1,0 +1,34 @@
+name: Spatial touch diagnostic
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - tests/helpers/spatial-layout-workflow.ts
+      - .github/workflows/spatial-touch-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  spatial-touch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Verify mobile 3D drag, Undo, and Connections
+        run: npm run test:deployment:browser -- --grep 'mobile spatial layouts.*3D camera'
+      - name: Upload native input evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: spatial-touch-evidence
+          path: test-results/deployment-boundary/
+          if-no-files-found: error
