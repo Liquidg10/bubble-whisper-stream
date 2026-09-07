@@ -1,11 +1,13 @@
 /**
  * Experimental Atomic renderer.
  *
- * Atomic layout is view-local and center-relative. The stationary viewport owns
+ * Atomic layout is saved separately from canonical tasks. The stationary viewport owns
  * input and measurement; only the inner world layer is transformed.
  */
 
 import React, {
+  Suspense,
+  lazy,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -62,6 +64,16 @@ import { bubbleToTask } from '@/adapters/taskAdapter';
 import { getCompletedLifeContributions, getConfirmedTaskRelationships } from '@/domain/taskRelationships';
 import { AtomicRelationshipPanel } from './AtomicRelationshipPanel';
 import { taskRelationshipLabel, taskRelationshipTraceKey } from './relationshipLabels';
+import { useAuth } from '@/contexts/AuthContext';
+import { AtomicLayoutPanel } from './AtomicLayoutPanel';
+import { AtomicUndoButton } from './AtomicUndoButton';
+import { AtomicSpatialBoundary } from './AtomicSpatialBoundary';
+import { useAtomicLayout } from './useAtomicLayout';
+import { atomicOrbitKey, emptyAtomicLayout, getMoleculePose, getOrbitPlacement, type AtomicLayoutSnapshot } from './atomicLayout';
+import { fitSpatialCamera, orbitSpatialCamera, zoomSpatialCamera, type SpatialCamera, type SpatialMolecule, type SpatialBond } from './spatialGeometry';
+
+const SpatialAtomicScene = lazy(() => import('./SpatialAtomicScene').then(module => ({ default: module.SpatialAtomicScene })));
+
 
 interface Electron {
   id: string;
@@ -79,6 +91,7 @@ interface Molecule {
   id: string;
   x: number;
   y: number;
+  z: number;
   nucleus: {
     domain: string;
   };
@@ -271,6 +284,7 @@ function moveCanonicalTaskToShell(
 function buildMolecules(
   inputBubbles: Bubble[],
   previousMolecules: Molecule[],
+  layoutSnapshot?: AtomicLayoutSnapshot,
 ): Molecule[] {
   const bubblesByDomain = new Map<string, { label: string; bubbles: Bubble[] }>();
   inputBubbles.forEach((bubble) => {
@@ -289,12 +303,12 @@ function buildMolecules(
   const previousById = new Map(
     previousMolecules.map(molecule => [molecule.id, molecule]),
   );
-  const domainSetChanged = previousMolecules.length !== domainIds.length
-    || domainIds.some(domainId => !previousById.has(`mol-${domainId}`));
+
 
   return domainIds.map((domainId, domainIndex) => {
     const id = `mol-${domainId}`;
     const previous = previousById.get(id);
+    const savedPose = layoutSnapshot && getMoleculePose(layoutSnapshot, domainId);
     const domainGroup = bubblesByDomain.get(domainId)!;
     const domainBubbles = [...domainGroup.bubbles].sort((left, right) => (
       left.createdAt - right.createdAt || left.id.localeCompare(right.id)
@@ -303,6 +317,19 @@ function buildMolecules(
       (previous?.electrons ?? []).map(electron => [electron.id, electron]),
     );
     const occupiedSlotsByShell = SHELL_CONFIG.map(() => new Set<number>());
+    // A stored orbit position cannot change a task's canonical time horizon.
+    domainBubbles.forEach(bubble => {
+      const saved = layoutSnapshot && getOrbitPlacement(layoutSnapshot, domainId, bubble.id);
+      const shell = shellIndexForBubble(bubble);
+      if (!saved || saved.shell !== HORIZONS[shell]) return;
+      const electronId = `elec-${encodeURIComponent(bubble.id)}-${encodeURIComponent(domainId)}`;
+      const previousElectron = previousElectrons.get(electronId);
+      const slot = nearestFreeOrbitSlot(saved.angle, SHELL_CONFIG[shell].canvasSlots, new Set());
+      previousElectrons.set(electronId, {
+        ...previousElectron, id: electronId, moleculeId: id, shell,
+        angle: saved.angle, canvasSlot: slot, content: bubble.content || '', originalBubble: bubble,
+      });
+    });
     const reservedSlots = new Map<string, number>();
 
     domainBubbles.forEach((bubble) => {
@@ -324,8 +351,9 @@ function buildMolecules(
 
     return {
       id,
-      x: domainSetChanged ? layout[domainIndex].x : previous?.x ?? layout[domainIndex].x,
-      y: domainSetChanged ? layout[domainIndex].y : previous?.y ?? layout[domainIndex].y,
+      x: savedPose?.x ?? previous?.x ?? layout[domainIndex].x,
+      y: savedPose?.y ?? previous?.y ?? layout[domainIndex].y,
+      z: savedPose?.z ?? previous?.z ?? 0,
       nucleus: {
         domain: domainGroup.label,
       },
@@ -354,6 +382,37 @@ function buildMolecules(
         };
       }),
     };
+  });
+}
+
+function applySavedMoleculeLayout(molecules: Molecule[], snapshot: AtomicLayoutSnapshot, previousSnapshot: AtomicLayoutSnapshot): Molecule[] {
+  const defaults = calculateMoleculePositions(molecules.map(molecule => molecule.id.slice(4)));
+  const resetAll = Object.keys(snapshot.molecules).length + Object.keys(snapshot.orbits).length === 0
+    && Object.keys(previousSnapshot.molecules).length + Object.keys(previousSnapshot.orbits).length > 0;
+  return molecules.map((molecule, index) => {
+    const domainId = molecule.id.slice(4);
+    const savedPose = getMoleculePose(snapshot, domainId);
+    const removedPose = !savedPose && getMoleculePose(previousSnapshot, domainId);
+    const pose = savedPose ?? (removedPose || resetAll ? { ...defaults[index], z: 0 } : undefined);
+    const occupied = SHELL_CONFIG.map(() => new Set<number>());
+    const reserved = new Map<string, number>();
+    const resetIds = new Set<string>();
+    molecule.electrons.forEach(electron => {
+      const taskId = electron.originalBubble?.id;
+      const saved = taskId && getOrbitPlacement(snapshot, domainId, taskId);
+      const removed = !saved && taskId && getOrbitPlacement(previousSnapshot, domainId, taskId);
+      if (resetAll || removed) { resetIds.add(electron.id); return; }
+      const preferred = saved && saved.shell === HORIZONS[electron.shell]
+        ? nearestFreeOrbitSlot(saved.angle, SHELL_CONFIG[electron.shell].canvasSlots, occupied[electron.shell]) : electron.canvasSlot;
+      if (preferred !== null && !occupied[electron.shell].has(preferred)) {
+        occupied[electron.shell].add(preferred); reserved.set(electron.id, preferred);
+      }
+    });
+    return { ...molecule, ...pose, electrons: molecule.electrons.map(electron => {
+      const canvasSlot = reserved.get(electron.id) ?? (electron.canvasSlot === null && !resetIds.has(electron.id)
+        ? null : nextAvailableCanvasSlot(electron.shell, occupied[electron.shell], undefined));
+      return { ...electron, canvasSlot, angle: angleForCanvasSlot(electron.shell, canvasSlot) };
+    }) };
   });
 }
 
@@ -536,6 +595,20 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
   className,
 }) => {
   const panelGroup = useId();
+  const auth = useAuth();
+  const layout = useAtomicLayout({ ownerId: auth.user?.id ?? null, sessionOwnerId: auth.session?.user.id ?? null, authLoading: auth.loading });
+  const layoutScopeRef = useRef(layout.scopeKey);
+  const layoutBubblesRef = useRef(bubbles);
+  const previousLayoutRef = useRef(layout.layout);
+  const layoutGenerationRef = useRef({ scope: layout.scopeKey, generation: 0 });
+  if (layoutGenerationRef.current.scope !== layout.scopeKey) {
+    layoutGenerationRef.current = { scope: layout.scopeKey, generation: layoutGenerationRef.current.generation + 1 };
+  }
+  const [layoutUndo, setLayoutUndo] = useState<{ before: AtomicLayoutSnapshot; after: AtomicLayoutSnapshot; scope: string | null } | null>(null);
+  const [spatialMode, setSpatialMode] = useState(false);
+  const [spatialCamera, setSpatialCamera] = useState<SpatialCamera | undefined>();
+  const [spatialNotice, setSpatialNotice] = useState('');
+  const spatialToggleRef = useRef<HTMLButtonElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const atomicStateRef = useRef<AtomicState>({
     molecules: [],
@@ -644,6 +717,36 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     updateAtomicState(previous => ({ ...previous, dragState }));
   }, [updateAtomicState]);
 
+  const commitLayout = useCallback((next: AtomicLayoutSnapshot, announcement: string) => {
+    const before = layout.layout;
+    if (!layout.restoreLayout(next, before)) {
+      setMovementAnnouncement('Layout was not saved. The previous position was restored. Open Layout to retry.');
+      return false;
+    }
+    setLayoutUndo({ before, after: next, scope: layout.scopeKey });
+    setMovementAnnouncement(announcement);
+    return true;
+  }, [layout]);
+
+  const commitMoleculePosition = useCallback((moleculeId: string, position: { x: number; y: number; z: number }) => {
+    const molecule = atomicStateRef.current.molecules.find(item => item.id === moleculeId);
+    if (!molecule) return false;
+    const next = { ...layout.layout, molecules: { ...layout.layout.molecules, [moleculeId.slice(4)]: position } };
+    if (!commitLayout(next, `${molecule.nucleus.domain} position saved. ${layout.status === 'guest' ? 'Kept in this tab.' : 'Kept in this browser.'}`)) return false;
+    updateAtomicState(previous => ({ ...previous, molecules: previous.molecules.map(item => item.id === moleculeId ? { ...item, ...position } : item) }));
+    return true;
+  }, [commitLayout, layout.layout, layout.status, updateAtomicState]);
+
+  const saveTaskOrbitPositions = useCallback((taskId: string, moleculeId?: string) => {
+    const orbits = { ...layout.layout.orbits };
+    atomicStateRef.current.molecules.forEach(molecule => molecule.electrons.forEach(electron => {
+      if (electron.originalBubble?.id !== taskId || electron.canvasSlot === null || (moleculeId && molecule.id !== moleculeId)) return;
+      const domainId = molecule.id.slice(4);
+      orbits[atomicOrbitKey(domainId, taskId)] = { domainId, taskId, shell: HORIZONS[electron.shell], angle: electron.angle };
+    }));
+    return commitLayout({ ...layout.layout, orbits }, 'Particle position saved.');
+  }, [commitLayout, layout.layout]);
+
   const {
     state: panZoomState,
     onPanStart,
@@ -701,12 +804,34 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     };
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    const scopeChanged = layoutScopeRef.current !== layout.scopeKey;
+    layoutScopeRef.current = layout.scopeKey;
+    if (scopeChanged) {
+      setLayoutUndo(null);
+      setSpatialCamera(undefined);
+      pendingMovesRef.current = new Set();
+      setPendingTaskIds(new Set());
+      setDragState({ ...EMPTY_DRAG_STATE });
+    }
+    const onlyLayoutChanged = layoutBubblesRef.current === bubbles && !scopeChanged;
+    layoutBubblesRef.current = bubbles;
+    const previousSnapshot = previousLayoutRef.current;
+    previousLayoutRef.current = layout.layout;
     updateAtomicState(previous => ({
       ...previous,
-      molecules: buildMolecules(bubbles, previous.molecules),
+      molecules: onlyLayoutChanged && previous.molecules.length > 0
+        ? applySavedMoleculeLayout(previous.molecules, layout.layout, previousSnapshot)
+        : buildMolecules(bubbles, scopeChanged ? [] : previous.molecules, layout.layout),
     }));
-  }, [bubbles, updateAtomicState]);
+  }, [bubbles, layout.layout, layout.scopeKey, setDragState, updateAtomicState]);
+
+  useEffect(() => () => {
+    // A strict task write may finish after changing views. Its durable task result
+    // belongs to the store; this departed renderer must not publish an old Undo.
+    layoutGenerationRef.current = { ...layoutGenerationRef.current, generation: layoutGenerationRef.current.generation + 1 };
+    pendingMovesRef.current = new Set();
+  }, []);
 
   useEffect(() => subscribeToMotionState(setMotionState), []);
 
@@ -741,7 +866,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     )));
 
   useEffect(() => {
-    const canOrbit = motionEnabled && !interactionPaused && !atomicState.dragState.isDragging;
+    const canOrbit = !spatialMode && motionEnabled && !interactionPaused && !atomicState.dragState.isDragging;
     if (!canOrbit && !hasSettlingElectrons) return;
     const speedMultiplier = electronCount > ANIMATION_CONFIG.maxElectronsForFastAnimation ? 0.5 : 1;
     let lastFrame = performance.now();
@@ -756,7 +881,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     };
     startAnimation(animate);
     return () => stopAnimation(animate);
-  }, [atomicState.dragState.isDragging, electronCount, hasSettlingElectrons, interactionPaused, motionEnabled]);
+  }, [atomicState.dragState.isDragging, electronCount, hasSettlingElectrons, interactionPaused, motionEnabled, spatialMode]);
 
   const fitMolecules = useCallback(() => {
     const currentDimensions = dimensionsRef.current;
@@ -830,22 +955,28 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     onFailure: () => void,
   ) => {
     const bubbleId = electron.originalBubble?.id;
-    if (!bubbleId || pendingMovesRef.current.has(bubbleId)) return;
-    pendingMovesRef.current.add(bubbleId);
+    const generation = layoutGenerationRef.current.generation;
+    const pending = pendingMovesRef.current;
+    if (!bubbleId || pending.has(bubbleId)) return false;
+    pending.add(bubbleId);
     setPendingTaskIds(new Set(pendingMovesRef.current));
     setMovementAnnouncement(`Saving ${electron.content || 'task'} in ${SHELL_CONFIG[targetShell].name}.`);
     try {
       const write = onTimeHorizonUpdate?.(bubbleId, electron.shell, targetShell);
       if (write) await write;
+      if (generation !== layoutGenerationRef.current.generation) return false;
       onSaved();
+      return true;
     } catch {
+      if (generation !== layoutGenerationRef.current.generation) return false;
       onFailure();
       const description = `${electron.content || 'Task'} stays in ${SHELL_CONFIG[electron.shell].name}. Try again.`;
       setMovementAnnouncement(`Move not saved. ${description}`);
       toast({ title: 'Move not saved', description, variant: 'destructive' });
+      return false;
     } finally {
-      pendingMovesRef.current.delete(bubbleId);
-      setPendingTaskIds(new Set(pendingMovesRef.current));
+      pending.delete(bubbleId);
+      if (generation === layoutGenerationRef.current.generation && pending === pendingMovesRef.current) setPendingTaskIds(new Set(pending));
     }
   }, [onTimeHorizonUpdate, toast]);
 
@@ -853,19 +984,21 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     electron: Electron,
     targetShell: number,
     source: 'drag' | 'keyboard' | 'undo',
+    placement?: { angle: number; moleculeId: string },
   ) => {
     const bubbleId = electron.originalBubble?.id;
     if (bubbleId && pendingMovesRef.current.has(bubbleId)) {
       setMovementAnnouncement('This task is still saving. Wait before moving it again.');
-      return;
+      return false;
     }
     const safeTarget = Math.max(0, Math.min(SHELL_CONFIG.length - 1, targetShell));
     const originalShell = electron.shell;
+    const acceptedGeneration = layoutGenerationRef.current.generation;
     if (safeTarget === originalShell && source !== 'drag') {
       setMovementAnnouncement(
         `${electron.content || 'Task'} is already in ${SHELL_CONFIG[originalShell].name}.`,
       );
-      return;
+      return true;
     }
 
     const originalSlots = new Map<string, number | null>();
@@ -884,49 +1017,53 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       molecule.electrons.forEach((candidate) => {
         if (candidate.originalBubble?.id !== bubbleId) return;
         const drag = dragStateRef.current;
-        fromOffsets.set(candidate.id, drag.electronId === candidate.id && drag.currentWorld
+        fromOffsets.set(candidate.id, placement?.moleculeId === molecule.id
+          ? { x: Math.cos(placement.angle) * SHELL_CONFIG[safeTarget].radius, y: Math.sin(placement.angle) * SHELL_CONFIG[safeTarget].radius }
+          : drag.electronId === candidate.id && drag.currentWorld
           ? { x: drag.currentWorld.x - molecule.x, y: drag.currentWorld.y - molecule.y }
           : getElectronOrbitOffset(candidate, animationStep, frameTime));
       });
     });
     const now = performance.now();
     setFrameTime(now);
-    updateAtomicState(previous => ({
-      ...previous,
-      molecules: bubbleId
-        ? moveCanonicalTaskToShell(previous.molecules, bubbleId, safeTarget, new Map(), {
-            phase: animationStep, fromOffsets, now,
-            animate: !prefersReducedMotion && motionState,
-          })
-        : previous.molecules,
-    }));
+    const previousMolecules = atomicStateRef.current.molecules;
+    const movedMolecules = bubbleId ? moveCanonicalTaskToShell(previousMolecules, bubbleId, safeTarget, new Map(), {
+      phase: placement ? 0 : animationStep, fromOffsets, now,
+      animate: !prefersReducedMotion && motionState,
+    }).map((molecule, index) => safeTarget === originalShell && molecule.id !== electron.moleculeId ? previousMolecules[index] : molecule) : previousMolecules;
+    atomicStateRef.current = { ...atomicStateRef.current, molecules: movedMolecules };
+    updateAtomicState(previous => ({ ...previous, molecules: movedMolecules }));
     if (safeTarget === originalShell) {
-      setMovementAnnouncement(`${electron.content || 'Task'} placed on its ${SHELL_CONFIG[safeTarget].name} orbit.`);
-      return;
+      if (!bubbleId || !saveTaskOrbitPositions(bubbleId, electron.moleculeId)) {
+        updateAtomicState(previous => ({ ...previous, molecules: previousMolecules }));
+        return false;
+      }
+      setMovementAnnouncement(`${electron.content || 'Task'} placed on its ${SHELL_CONFIG[safeTarget].name} orbit and saved.`);
+      return true;
     }
 
     const targetHorizon = ringIndexToHorizon(safeTarget);
     const originalHorizon = ringIndexToHorizon(originalShell);
     const restoreShell = (shell: number, slots: Map<string, number | null>) => {
-      updateAtomicState(previous => ({
-        ...previous,
-        molecules: bubbleId ? moveCanonicalTaskToShell(previous.molecules, bubbleId, shell, slots) : previous.molecules,
-      }));
+      const molecules = bubbleId ? moveCanonicalTaskToShell(atomicStateRef.current.molecules, bubbleId, shell, slots) : atomicStateRef.current.molecules;
+      atomicStateRef.current = { ...atomicStateRef.current, molecules };
+      updateAtomicState(previous => ({ ...previous, molecules }));
     };
-    void persistShellChange(electron, safeTarget, () => {
+    return persistShellChange(electron, safeTarget, () => {
+      const positionSaved = bubbleId ? saveTaskOrbitPositions(bubbleId) : true;
       setMovementAnnouncement(
-        `${electron.content || 'Task'} moved to ${getHorizonDisplayName(targetHorizon)} by ${source}.`,
+        `${electron.content || 'Task'} moved to ${getHorizonDisplayName(targetHorizon)} by ${source}.${positionSaved ? '' : ' The horizon was saved; its layout position needs a retry in Layout.'}`,
       );
       toast({
         title: `Moved to ${getHorizonDisplayName(targetHorizon)}`,
         description: `${electron.content || 'Task'} moved from ${getHorizonDisplayName(originalHorizon)}.`,
         action: source === 'undo' ? undefined : (
-          <Button
+          <AtomicUndoButton
             variant="outline"
             size="sm"
             aria-label={`Undo moving ${electron.content || 'task'} to ${getHorizonDisplayName(targetHorizon)}`}
-            onClick={() => {
-              if (!bubbleId || pendingMovesRef.current.has(bubbleId)) return;
+            onActivate={() => {
+              if (acceptedGeneration !== layoutGenerationRef.current.generation || !bubbleId || pendingMovesRef.current.has(bubbleId)) return;
               const current = atomicStateRef.current.molecules.flatMap(molecule => molecule.electrons)
                 .find(candidate => candidate.originalBubble?.id === bubbleId);
               if (!current || current.shell !== safeTarget) {
@@ -938,16 +1075,17 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                 .map(candidate => [candidate.id, candidate.canvasSlot]));
               restoreShell(originalShell, originalSlots);
               void persistShellChange(current, originalShell, () => {
+                if (bubbleId) saveTaskOrbitPositions(bubbleId);
                 setMovementAnnouncement(`${electron.content || 'Task'} returned to ${getHorizonDisplayName(originalHorizon)}.`);
               }, () => restoreShell(safeTarget, currentSlots));
             }}
           >
             Undo
-          </Button>
+          </AtomicUndoButton>
         ),
       });
     }, () => restoreShell(originalShell, originalSlots));
-  }, [animationStep, frameTime, motionState, persistShellChange, prefersReducedMotion, toast, updateAtomicState]);
+  }, [animationStep, frameTime, motionState, persistShellChange, prefersReducedMotion, saveTaskOrbitPositions, toast, updateAtomicState]);
 
   const startElectronDrag = useCallback((
     molecule: Molecule,
@@ -1199,9 +1337,10 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         candidate => candidate.id === dragState.moleculeId,
       );
       if (molecule) {
-        setMovementAnnouncement(
-          `${molecule.nucleus.domain} molecule moved. This experimental layout change is view-only and is not saved.`,
-        );
+        if (!commitMoleculePosition(molecule.id, { x: dragState.currentWorld.x, y: dragState.currentWorld.y, z: molecule.z })) {
+          updateAtomicState(previous => ({ ...previous, molecules: previous.molecules.map(item => item.id === molecule.id
+            ? { ...item, ...dragState.originalMoleculePosition } : item) }));
+        }
       }
     }
 
@@ -1217,7 +1356,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     if (captureTarget?.hasPointerCapture?.(event.pointerId)) {
       captureTarget.releasePointerCapture?.(event.pointerId);
     }
-  }, [cancelObjectDrag, handleObjectPointerMove, setDragState, updateElectronShell]);
+  }, [cancelObjectDrag, commitMoleculePosition, handleObjectPointerMove, setDragState, updateAtomicState, updateElectronShell]);
 
   const handleViewportPointerMove = useCallback((
     event: React.PointerEvent<HTMLDivElement>,
@@ -1287,23 +1426,9 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     const screenStep = event.shiftKey ? 1 : 10;
     const worldStep = screenStep
       / Math.max(0.01, viewportTransformRef.current.scale);
-    updateAtomicState(previous => ({
-      ...previous,
-      molecules: previous.molecules.map(candidate => (
-        candidate.id === molecule.id
-          ? {
-              ...candidate,
-              x: candidate.x + (direction.x * worldStep),
-              y: candidate.y + (direction.y * worldStep),
-            }
-          : candidate
-      )),
-    }));
-    setMovementAnnouncement(
-      `${molecule.nucleus.domain} molecule moved ${direction.label} ${screenStep} ${screenStep === 1 ? 'pixel' : 'pixels'}. This view-only position is not saved.`,
-    );
+    commitMoleculePosition(molecule.id, { x: molecule.x + direction.x * worldStep, y: molecule.y + direction.y * worldStep, z: molecule.z });
     return true;
-  }, [updateAtomicState]);
+  }, [commitMoleculePosition]);
 
   const toggleMotion = useCallback(() => {
     if (prefersReducedMotion) return;
@@ -1354,6 +1479,97 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
   });
   const activeTaskPoints = activeTaskId ? pointsForTask(activeTaskId) : [];
   const relationshipPoints = tracedRelationship ? [pointsForTask(tracedRelationship.source.id)[0], pointsForTask(tracedRelationship.target.id)[0]].filter(Boolean) : [];
+  const spatialMolecules = useMemo<SpatialMolecule[]>(() => atomicState.molecules.map(molecule => ({
+    id: molecule.id, label: molecule.nucleus.domain,
+    position: { x: molecule.x, y: molecule.y, z: molecule.z }, selected: molecule.selected,
+    electrons: molecule.electrons.filter(electron => electron.canvasSlot !== null).map(electron => ({
+      id: electron.id, taskId: electron.originalBubble?.id ?? electron.id, label: electron.content || 'Untitled task',
+      shell: electron.shell as 0 | 1 | 2, angle: electron.angle,
+      flavor: particleFlavor(electron.originalBubble).kind as 'electron' | 'proton' | 'neutron',
+      completed: electron.originalBubble?.completed === true,
+      pending: pendingTaskIds.has(electron.originalBubble?.id ?? ''),
+      highlighted: activeTaskId === electron.originalBubble?.id || tracedRelationship?.source.id === electron.originalBubble?.id || tracedRelationship?.target.id === electron.originalBubble?.id,
+    })),
+  })), [activeTaskId, atomicState.molecules, pendingTaskIds, tracedRelationship]);
+  const spatialBonds = useMemo<SpatialBond[]>(() => {
+    const bonds: SpatialBond[] = moleculeBonds.map(bond => ({ id: bond.id, fromMoleculeId: bond.from.id, toMoleculeId: bond.to.id,
+      kind: 'shared', highlighted: bond.tasks.some(task => task.id === activeTaskId) }));
+    if (tracedRelationship) {
+      const fromMolecule = spatialMolecules.find(molecule => molecule.electrons.some(electron => electron.taskId === tracedRelationship.source.id));
+      const toMolecule = spatialMolecules.find(molecule => molecule.electrons.some(electron => electron.taskId === tracedRelationship.target.id));
+      if (fromMolecule && toMolecule) bonds.push({ id: `relationship:${taskRelationshipTraceKey(tracedRelationship)}`,
+        fromMoleculeId: fromMolecule.id, toMoleculeId: toMolecule.id,
+        fromElectronId: fromMolecule.electrons.find(electron => electron.taskId === tracedRelationship.source.id)?.id,
+        toElectronId: toMolecule.electrons.find(electron => electron.taskId === tracedRelationship.target.id)?.id,
+        kind: tracedRelationship.relationship.kind, highlighted: true });
+    }
+    return bonds;
+  }, [activeTaskId, moleculeBonds, spatialMolecules, tracedRelationship]);
+  const spatialAspect = dimensions.width / Math.max(1, dimensions.height);
+  const spatialUnavailable = useCallback((reason: string) => {
+    setSpatialMode(false);
+    setSpatialNotice(reason === 'context-lost'
+      ? 'The 3D view lost graphics support. Flat view is ready, and your saved layout is safe.'
+      : '3D is unavailable here. Flat view is ready, and your saved layout is safe.');
+    setMovementAnnouncement('3D is unavailable here. Returned to flat view. Your saved layout is safe.');
+    requestAnimationFrame(() => spatialToggleRef.current?.focus());
+  }, []);
+  const turnSpatialView = (horizontal: number, vertical: number) => {
+    setSpatialCamera(previous => orbitSpatialCamera(previous ?? fitSpatialCamera(spatialMolecules, spatialAspect), horizontal, vertical));
+  };
+  const fitCurrentView = () => {
+    if (spatialMode) setSpatialCamera(fitSpatialCamera(spatialMolecules, spatialAspect));
+    else fitMolecules();
+  };
+  const arrangeMolecules = atomicState.molecules.map(molecule => ({
+    id: molecule.id, label: molecule.nucleus.domain, position: { x: molecule.x, y: molecule.y, z: molecule.z },
+    particles: molecule.electrons.filter(electron => electron.canvasSlot !== null).map(electron => ({ id: electron.id, label: electron.content || 'Untitled task', shell: electron.shell })),
+  }));
+  const layoutControls = <AtomicLayoutPanel molecules={arrangeMolecules} status={layout.status} message={layout.message}
+    canUndo={Boolean(layoutUndo && layoutUndo.scope === layout.scopeKey)}
+    onMove={(id, offset) => {
+      const current = atomicStateRef.current.molecules.find(molecule => molecule.id === id);
+      if (current) commitMoleculePosition(id, { x: current.x + offset.x, y: current.y + offset.y, z: current.z + offset.z });
+    }}
+    onTurnParticle={(moleculeId, electronId, direction) => {
+      const molecule = atomicStateRef.current.molecules.find(item => item.id === moleculeId);
+      const electron = molecule?.electrons.find(item => item.id === electronId);
+      if (!molecule || !electron || electron.canvasSlot === null || pendingTaskIds.has(electron.originalBubble?.id ?? '')) return;
+      const count = SHELL_CONFIG[electron.shell].canvasSlots;
+      const occupied = new Set(molecule.electrons.filter(item => item.id !== electronId && item.shell === electron.shell).map(item => item.canvasSlot));
+      for (let step = 1; step < count; step += 1) {
+        const candidate = (electron.canvasSlot + direction * step + count) % count;
+        if (!occupied.has(candidate)) {
+          setAtomicMotionRequested(false);
+          void updateElectronShell(electron, electron.shell, 'drag', { moleculeId, angle: angleForCanvasSlot(electron.shell, candidate) });
+          return;
+        }
+      }
+      setMovementAnnouncement('This orbit is full. Use Tasks to choose another time horizon.');
+    }}
+    onReset={() => {
+      const before = layout.layout;
+      if (!layout.resetLayout()) { setMovementAnnouncement('Layout reset was not saved. Open Layout to retry.'); return; }
+      setLayoutUndo({ before, after: emptyAtomicLayout(), scope: layout.scopeKey });
+      setMovementAnnouncement('Layout reset. Undo is available.');
+      updateAtomicState(previous => ({ ...previous, molecules: applySavedMoleculeLayout(previous.molecules, emptyAtomicLayout(), before), dragState: EMPTY_DRAG_STATE }));
+      setAnimationStep(0);
+      setSpatialCamera(undefined);
+      lastAutoFitKeyRef.current = '';
+    }}
+    onUndo={() => {
+      if (!layoutUndo || layoutUndo.scope !== layout.scopeKey) return;
+      if (JSON.stringify(layout.layout) !== JSON.stringify(layoutUndo.after)) {
+        setLayoutUndo(null); setMovementAnnouncement('The saved layout changed again. Its latest arrangement was kept.'); return;
+      }
+      if (!layout.restoreLayout(layoutUndo.before, layoutUndo.after)) { setMovementAnnouncement('Undo was not saved. Open Layout to retry.'); return; }
+      updateAtomicState(previous => ({ ...previous, molecules: applySavedMoleculeLayout(previous.molecules, layoutUndo.before, layoutUndo.after) }));
+      setLayoutUndo(null); setAnimationStep(0);
+      setMovementAnnouncement('Layout change undone.');
+    }}
+    onRetry={() => {
+      if (layout.retry()) { setLayoutUndo(null); setMovementAnnouncement('Your saved layout is ready.'); }
+    }} />;
   const compactControls = isMobile || (
     dimensions.height > 0
     && dimensions.height < COMPACT_VIEWPORT_HEIGHT
@@ -1392,10 +1608,10 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         : 'Play optional Atomic motion';
   const atomicControlCards = (
     <>
-      <Card className="flex w-fit gap-1 rounded-2xl bg-card/90 p-1 shadow-sm backdrop-blur-md">
+      <Card className="flex w-fit max-w-full flex-wrap gap-1 rounded-2xl bg-card/90 p-1 shadow-sm backdrop-blur-md">
         <Button
           variant="outline"
-          className="h-11 w-11 p-0"
+          className="h-11 w-11 p-0 hover:bg-muted hover:text-foreground"
           onClick={toggleMotion}
           disabled={prefersReducedMotion || !motionState}
           aria-label={motionButtonLabel}
@@ -1408,8 +1624,8 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         </Button>
         <Button
           variant="outline"
-          className="h-11 w-11 p-0"
-          onClick={zoomIn}
+          className="h-11 w-11 p-0 hover:bg-muted hover:text-foreground"
+          onClick={() => spatialMode ? setSpatialCamera(previous => zoomSpatialCamera(previous ?? fitSpatialCamera(spatialMolecules, spatialAspect), 0.8)) : zoomIn()}
           aria-label="Zoom in on Atomic view"
           title="Zoom in"
         >
@@ -1417,8 +1633,8 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         </Button>
         <Button
           variant="outline"
-          className="h-11 w-11 p-0"
-          onClick={zoomOut}
+          className="h-11 w-11 p-0 hover:bg-muted hover:text-foreground"
+          onClick={() => spatialMode ? setSpatialCamera(previous => zoomSpatialCamera(previous ?? fitSpatialCamera(spatialMolecules, spatialAspect), 1.25)) : zoomOut()}
           aria-label="Zoom out of Atomic view"
           title="Zoom out"
         >
@@ -1426,15 +1642,24 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         </Button>
         <Button
           variant="outline"
-          className="h-11 w-11 p-0"
-          onClick={fitMolecules}
+          className="h-11 w-11 p-0 hover:bg-muted hover:text-foreground"
+          onClick={fitCurrentView}
           aria-label="Fit all molecules in Atomic view"
           title="Fit all molecules"
         >
           <Target aria-hidden="true" className="h-4 w-4" />
         </Button>
+        <Button ref={spatialToggleRef} variant="outline" className="h-11 px-3 hover:bg-muted hover:text-foreground" aria-label={spatialMode ? 'Flat view' : '3D view'} aria-pressed={spatialMode} onClick={() => {
+          cancelObjectDrag(); setSpatialNotice('');
+          if (!spatialMode) setSpatialCamera(fitSpatialCamera(spatialMolecules, spatialAspect));
+          setSpatialMode(previous => !previous);
+        }}>{spatialMode ? 'Flat view' : '3D view'}</Button>
+        {layoutControls}
       </Card>
-
+      {spatialMode ? <div className="flex flex-wrap gap-1 rounded-2xl border bg-card/95 p-1" role="group" aria-label="Turn the 3D view">
+        {([{ label: 'left', x: -0.2, y: 0 }, { label: 'right', x: 0.2, y: 0 }, { label: 'up', x: 0, y: -0.15 }, { label: 'down', x: 0, y: 0.15 }]).map(direction =>
+          <Button key={direction.label} variant="ghost" className="h-11 px-3 text-xs hover:bg-muted hover:text-foreground" aria-label={`Turn view ${direction.label}`} onClick={() => turnSpatialView(direction.x, direction.y)}>Turn {direction.label}</Button>)}
+      </div> : null}
     </>
   );
 
@@ -1472,7 +1697,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           to open a task or change its Today, Week, or Later horizon. When
           zoomed in, electron buttons open tasks with Enter or Space and arrow
           keys change horizon. Molecule buttons select a life domain; arrow
-          keys move its view-only position. Molecule positions are not saved.
+          keys move its saved layout position. Open Layout for movement and depth buttons, reset, and undo.
           Escape or Cancel move cancels an active drag without saving it.
           Orbit motion is off until you explicitly play it. Hover or focus a particle to pause the orbits. Electrons are actions, protons are thoughts, and neutrons are memories or moods; this is a personal metaphor.
         </p>
@@ -1480,7 +1705,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           {movementAnnouncement}
         </p>
 
-        <div
+        {!spatialMode ? <div
           data-testid="atomic-world-layer"
           className="absolute inset-0"
           style={{
@@ -1680,7 +1905,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                   width: nucleusTargetSize,
                   height: nucleusTargetSize,
                 }}
-                aria-label={`${molecule.nucleus.domain} molecule, ${molecule.electrons.length} ${molecule.electrons.length === 1 ? 'task' : 'tasks'}${molecule.selected ? ', selected' : ''}.${contributionsByArea.has(molecule.id.slice(4)) ? ` ${contributionsByArea.get(molecule.id.slice(4))!.supports.length} completed supporting actions, ${contributionsByArea.get(molecule.id.slice(4))!.tradeoffs.length} completed tradeoffs.` : ''} Press Enter to select and focus; use arrow keys to move the view-only position.`}
+                aria-label={`${molecule.nucleus.domain} molecule, ${molecule.electrons.length} ${molecule.electrons.length === 1 ? 'task' : 'tasks'}${molecule.selected ? ', selected' : ''}.${contributionsByArea.has(molecule.id.slice(4)) ? ` ${contributionsByArea.get(molecule.id.slice(4))!.supports.length} completed supporting actions, ${contributionsByArea.get(molecule.id.slice(4))!.tradeoffs.length} completed tradeoffs.` : ''} Press Enter to select and focus; use arrow keys to arrange its saved position.`}
                 aria-pressed={molecule.selected}
                 aria-keyshortcuts="Enter Space ArrowUp ArrowDown ArrowLeft ArrowRight"
                 onPointerDown={event => startMoleculeDrag(molecule, event)}
@@ -1722,8 +1947,25 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
 
             </div>
           ))}
-        </div>
+        </div> : null}
       </div>
+      {spatialMode ? <div className="absolute inset-0" data-panel>
+        <AtomicSpatialBoundary onUnavailable={spatialUnavailable}>
+          <Suspense fallback={<div role="status" className="flex h-full items-center justify-center text-sm">Preparing your 3D space…</div>}>
+            <SpatialAtomicScene key={layout.scopeKey ?? 'pending'} molecules={spatialMolecules} bonds={spatialBonds} camera={spatialCamera}
+              playing={motionEnabled && !interactionPaused} reducedMotion={prefersReducedMotion || !motionState}
+              onCameraChange={setSpatialCamera} onUnavailable={spatialUnavailable}
+              onMoveMolecule={commitMoleculePosition}
+              onMoveElectron={move => {
+                const electron = atomicStateRef.current.molecules.find(molecule => molecule.id === move.moleculeId)?.electrons.find(item => item.id === move.electronId);
+                if (!electron || electron.shell !== move.fromShell) return false;
+                return updateElectronShell(electron, move.shell, 'drag', { moleculeId: move.moleculeId, angle: move.angle });
+              }}
+              onSelectTask={id => { const task = bubbles.find(bubble => bubble.id === id); if (task) onBubbleSelect?.(task); }}
+              onSelectMolecule={selectMolecule} />
+          </Suspense>
+        </AtomicSpatialBoundary>
+      </div> : null}
 
       {compactControls ? (
         <details
@@ -1786,11 +2028,11 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       {atomicState.dragState.isDragging ? <div data-panel data-testid="atomic-drag-feedback"
         data-target-horizon={candidateShell === null ? undefined : HORIZONS[candidateShell]}
         className="atomic-drag-feedback absolute left-3 right-3 z-50 mx-auto max-w-md rounded-2xl border bg-card/95 p-3 text-card-foreground shadow-md backdrop-blur-md"
-        style={{ top: compactControls ? 68 : 124 }}>
+        style={{ top: compactControls ? 68 : spatialMode ? 184 : 124 }}>
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0" role="status" aria-live="polite" aria-atomic="true">
             <p className="text-sm font-semibold">{candidateShell !== null ? `Release in ${SHELL_CONFIG[candidateShell].name}` : 'Move this life area'}</p>
-            <p className="mt-1 line-clamp-2 break-words text-xs text-muted-foreground">{draggingElectron?.content || 'This layout change stays in this view.'}</p>
+            <p className="mt-1 line-clamp-2 break-words text-xs text-muted-foreground">{draggingElectron?.content || 'Release to remember this position.'}</p>
           </div>
           <button type="button" onClick={cancelObjectDrag} className="min-h-11 shrink-0 rounded-xl border px-3 text-xs font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Cancel move</button>
         </div>
@@ -1801,7 +2043,10 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         {candidateOrbitFull ? <p className="mt-2 text-xs text-muted-foreground">This orbit is full. The task will still move here and remain available in Tasks.</p> : null}
       </div> : null}
 
-      {!showElectronControls && electronCount > 0 ? (
+      {spatialNotice ? <div role="status" data-panel className="absolute left-3 right-3 z-40 mx-auto flex max-w-md items-center gap-2 rounded-xl border bg-card p-3 text-xs shadow-sm" style={{ top: compactControls ? 68 : spatialMode ? 184 : 124 }}>
+        <p className="flex-1">{spatialNotice}</p><Button variant="ghost" className="min-h-11" onClick={() => setSpatialNotice('')} aria-label="Dismiss 3D notice">Got it</Button>
+      </div> : null}
+      {!spatialMode && !showElectronControls && electronCount > 0 ? (
         <p data-testid="atomic-overview-hint" className="sr-only" role="status">
           Overview. Zoom in to move task electrons, or use the Tasks navigator.
         </p>
@@ -1818,7 +2063,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
               <li><strong>• Neutrons:</strong> memories and moods; context worth holding.</li>
             </ul>
             <p className="text-xs text-muted-foreground">A personal metaphor. Drag a particle to Today, Week, or Later. The highlighted ring and destination label show where it will land. Escape or Cancel move returns it without saving. Use Tasks to search and choose a horizon without dragging.</p>
-            <p className="text-xs text-muted-foreground">Bonds show your confirmed connections. A shared task stays one task everywhere. Open Connections and choose Trace this task to follow it at any zoom. Dragging a nucleus changes this view only.</p>
+            <p className="text-xs text-muted-foreground">Bonds show your confirmed connections. A shared task stays one task everywhere. Open Connections and choose Trace this task to follow it at any zoom. Dragging a nucleus saves its layout separately from task dates. Signed-in layouts stay in this browser; guest layouts stay in this tab. Open Layout to arrange with buttons or undo. In 3D, drag empty space to turn the view and use Nearer or Farther to arrange in depth.</p>
           </div>
         </details>
         <details name={panelGroup} open={connectionsOpen}
@@ -1857,7 +2102,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                   onTrace={connection => {
                     setTracedTaskId(null);
                     setTracedRelationshipKey(taskRelationshipTraceKey(connection));
-                    setHoveredTaskId(null); setFocusedTaskId(null); setConnectionsOpen(false); fitMolecules();
+                    setHoveredTaskId(null); setFocusedTaskId(null); setConnectionsOpen(false); fitCurrentView();
                     setMovementAnnouncement(`${connection.source.title} ${taskRelationshipLabel(connection.relationship.kind)} ${connection.target.title}.`);
                   }} />
                 <div className="flex flex-wrap items-center justify-between gap-2 px-1">
@@ -1887,7 +2132,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                             setHoveredTaskId(null);
                             setFocusedTaskId(null);
                             setConnectionsOpen(false);
-                            fitMolecules();
+                            fitCurrentView();
                             setMovementAnnouncement(`Tracing ${label} across ${areas.join(', ')}. This is one shared task.`);
                           }} className="flex min-h-11 items-center gap-2 rounded-xl border px-3 text-xs font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             aria-label={`Trace ${label} across its life areas`}><Target className="h-3.5 w-3.5" aria-hidden="true" /> Trace this task</button>
@@ -1903,11 +2148,11 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           </div>
         </details>
       </div>
-      {tracedRelationship && !atomicState.dragState.isDragging && <div data-panel data-testid="atomic-task-trace-status" className="absolute left-3 z-40 flex max-w-[min(25rem,calc(100%-1.5rem))] items-center gap-3 rounded-2xl border bg-card/95 p-3 text-card-foreground shadow-sm" style={{ top: compactControls ? 68 : 124 }}>
+      {tracedRelationship && !atomicState.dragState.isDragging && <div data-panel data-testid="atomic-task-trace-status" className="absolute left-3 z-40 flex max-w-[min(25rem,calc(100%-1.5rem))] items-center gap-3 rounded-2xl border bg-card/95 p-3 text-card-foreground shadow-sm" style={{ top: compactControls ? 68 : spatialMode ? 184 : 124 }}>
         <div className="min-w-0 text-xs"><p className="font-semibold">Task connection</p><p className="mt-1 line-clamp-3 break-words">{tracedRelationship.source.title} <strong>{taskRelationshipLabel(tracedRelationship.relationship.kind)}</strong> {tracedRelationship.target.title}</p>{relationshipPoints.length < 2 && <p className="mt-1 text-muted-foreground">Some tasks have no visible life area. Open their details to review this connection.</p>}</div>
         <button ref={clearRelationshipTraceRef} type="button" className="min-h-11 shrink-0 rounded-lg px-2 text-xs hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="Clear task connection trace" onClick={() => { setTracedRelationshipKey(null); connectionsSummaryRef.current?.focus(); setMovementAnnouncement('Task connection trace cleared.'); }}>Clear trace</button>
       </div>}
-      {tracedConnection && !atomicState.dragState.isDragging ? <div data-panel data-testid="atomic-trace-status" className="absolute left-3 z-40 flex max-w-[min(25rem,calc(100%-1.5rem))] items-center gap-3 rounded-2xl border bg-card/95 p-3 shadow-sm backdrop-blur-md" style={{ top: compactControls ? 68 : 124 }}>
+      {tracedConnection && !atomicState.dragState.isDragging ? <div data-panel data-testid="atomic-trace-status" className="absolute left-3 z-40 flex max-w-[min(25rem,calc(100%-1.5rem))] items-center gap-3 rounded-2xl border bg-card/95 p-3 shadow-sm backdrop-blur-md" style={{ top: compactControls ? 68 : spatialMode ? 184 : 124 }}>
         <div className="min-w-0 space-y-1">
           <p className="text-xs font-semibold text-foreground">One task, {tracedConnection.links.length} life areas</p>
           <p className="line-clamp-2 break-words text-xs text-muted-foreground">{tracedConnection.task.content || 'Untitled task'}</p>

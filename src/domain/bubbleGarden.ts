@@ -17,7 +17,7 @@ export const STARTER_LESSONS = [
     key: 'connect',
     title: 'See how one action connects your life',
     description:
-      'Open Life connections below. These example links connect learning, home and wellbeing. Keep the ones that fit, remove the rest, or name a life area of your own. Switch to Atomic view to see the molecules and their bonds.',
+      'Open Life connections below. These example links connect learning, home and wellbeing. Keep the ones that fit, remove the rest, or name a life area of your own. Switch to Atomic view to see the molecules and their bonds. Try 3D view to turn the scene, or Layout to move a life area and remember its place. Use Undo to step back from your latest layout change.',
     domains: ['education', 'home-personal', 'physical-health'],
     minutes: 2,
   },

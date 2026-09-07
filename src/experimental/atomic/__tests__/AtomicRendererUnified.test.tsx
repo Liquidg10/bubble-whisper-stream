@@ -8,6 +8,13 @@ import { AtomicRenderer } from '../AtomicRendererUnified';
 import * as motion from '@/lib/motion';
 
 const toast = vi.hoisted(() => vi.fn());
+const authState = vi.hoisted(() => ({ value: {
+  user: null as { id: string } | null,
+  session: null as { user: { id: string } } | null,
+  loading: false,
+} }));
+
+vi.mock('@/contexts/AuthContext', () => ({ useAuth: () => authState.value }));
 
 vi.mock('@/hooks/use-toast', () => ({
   useToast: () => ({ toast }),
@@ -132,6 +139,9 @@ function contrastWithWhite(rgb: string): number {
 describe('AtomicRenderer interaction geometry', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    authState.value = { user: null, session: null, loading: false };
+    localStorage.clear();
+    sessionStorage.clear();
     vi.mocked(window.matchMedia).mockImplementation(defaultMatchMedia);
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect')
       .mockReturnValue(VIEWPORT_RECT);
@@ -1096,7 +1106,7 @@ describe('AtomicRenderer interaction geometry', () => {
     expect(molecule).toHaveAttribute('aria-pressed', 'true');
     fireEvent.keyDown(molecule, { key: 'ArrowRight' });
     expect(screen.getByText(
-      'Work molecule moved right 10 pixels. This view-only position is not saved.',
+      'Work position saved. Kept in this tab.',
     )).toHaveAttribute('aria-live', 'polite');
   });
 
@@ -1127,14 +1137,14 @@ describe('AtomicRenderer interaction geometry', () => {
     expect((getWorldOffset(wrapper.style.left) - initialX) * scale)
       .toBeCloseTo(10, 8);
     expect(screen.getByText(
-      'Work molecule moved right 10 pixels. This view-only position is not saved.',
+      'Work position saved. Kept in this tab.',
     )).toHaveAttribute('aria-live', 'polite');
 
     fireEvent.keyDown(molecule, { key: 'ArrowDown', shiftKey: true });
     expect((getWorldOffset(wrapper.style.top) - initialY) * scale)
       .toBeCloseTo(1, 8);
     expect(screen.getByText(
-      'Work molecule moved down 1 pixel. This view-only position is not saved.',
+      'Work position saved. Kept in this tab.',
     )).toHaveAttribute('aria-live', 'polite');
   });
 
@@ -1181,4 +1191,188 @@ describe('AtomicRenderer interaction geometry', () => {
 
     expect(result.violations).toEqual([]);
   });
+  it('restores a committed nucleus and same-orbit particle position on remount without changing task coordinates', async () => {
+    const task = bubble('saved-placement', 'Remember my arrangement');
+    const onTimeHorizonUpdate = vi.fn();
+    const first = render(<AtomicRenderer bubbles={[task]} onTimeHorizonUpdate={onTimeHorizonUpdate} reducedMotion />);
+    const nucleus = await screen.findByRole('button', { name: /^Work molecule/ });
+    fireEvent.keyDown(nucleus, { key: 'ArrowRight' });
+    const world = screen.getByTestId('atomic-world-layer');
+    const electron = screen.getByRole('button', { name: /Remember my arrangement.*Today horizon/ });
+    const start = worldToClient({ x: 74, y: 0 }, world);
+    const end = worldToClient({ x: 10, y: 64 }, world);
+    fireEvent(electron, pointerEvent('pointerdown', { clientX: start.x, clientY: start.y }));
+    fireEvent(screen.getByTestId('atomic-viewport'), pointerEvent('pointerup', { clientX: end.x, clientY: end.y }));
+    const saved = JSON.parse(sessionStorage.getItem('mind-manual:atomic-layout:v1:guest')!);
+    expect(saved.molecules.work).toEqual({ x: 10, y: 0, z: 0 });
+    expect(saved.orbits[JSON.stringify(['work', task.id])].angle).toBeCloseTo(Math.PI / 2);
+    const orbitPosition = { left: electron.style.left, top: electron.style.top };
+    first.unmount();
+    render(<AtomicRenderer bubbles={[task]} onTimeHorizonUpdate={onTimeHorizonUpdate} reducedMotion />);
+    const restoredNucleus = await screen.findByRole('button', { name: /^Work molecule/ });
+    expect(restoredNucleus.parentElement).toHaveStyle({ left: 'calc(50% + 10px)' });
+    expect(screen.getByRole('button', { name: /Remember my arrangement.*Today horizon/ })).toHaveStyle(orbitPosition);
+    expect(onTimeHorizonUpdate).not.toHaveBeenCalled();
+    expect(task).toMatchObject({ x: 10_000, y: -10_000 });
+  });
+
+  it('does not let a saved orbit restore an outdated canonical horizon', async () => {
+    sessionStorage.setItem('mind-manual:atomic-layout:v1:guest', JSON.stringify({ version: 1, scope: 'guest', updatedAt: 1,
+      molecules: { work: { x: 0, y: 0, z: 48 } },
+      orbits: { [JSON.stringify(['work', 'changed-horizon'])]: { domainId: 'work', taskId: 'changed-horizon', shell: 'today', angle: Math.PI } },
+    }));
+    render(<AtomicRenderer bubbles={[bubble('changed-horizon', 'A newer horizon', 'later')]} reducedMotion />);
+    expect(await screen.findByRole('button', { name: /A newer horizon.*Later horizon/ })).toBeVisible();
+    expect(screen.queryByRole('button', { name: /A newer horizon.*Today horizon/ })).not.toBeInTheDocument();
+  });
+
+  it('returns the visible nucleus and orbit to defaults when a failed layout reset succeeds on Retry', () => {
+    const key = 'mind-manual:atomic-layout:v1:guest';
+    const task = bubble('retry-reset', 'Reset recovery task');
+    const canonicalBefore = JSON.stringify(task);
+    sessionStorage.setItem(key, JSON.stringify({ version: 1, scope: 'guest', updatedAt: 1,
+      molecules: { work: { x: 120, y: -80, z: 48 } },
+      orbits: { [JSON.stringify(['work', task.id])]: { domainId: 'work', taskId: task.id, shell: 'today', angle: Math.PI } },
+    }));
+    const onTimeHorizonUpdate = vi.fn();
+    render(<AtomicRenderer bubbles={[task]} onTimeHorizonUpdate={onTimeHorizonUpdate} reducedMotion />);
+    const nucleus = screen.getByRole('button', { name: /^Work molecule/ });
+    const electron = screen.getByRole('button', { name: /Reset recovery task.*Today horizon/ });
+    fireEvent.click(screen.getByLabelText('Arrange molecule layout', { selector: 'button' }));
+    const panel = within(screen.getByTestId('atomic-layout-panel'));
+    const position = screen.getByTestId('atomic-layout-position');
+    expect(position).toHaveAttribute('data-z', '48');
+    expect(nucleus.parentElement).toHaveStyle({ left: 'calc(50% + 120px)' });
+    expect(parseFloat(electron.style.left) + parseFloat(electron.style.width) / 2).toBeCloseTo(-64);
+
+    vi.spyOn(sessionStorage, 'removeItem').mockImplementationOnce(() => { throw new Error('Storage unavailable'); });
+    fireEvent.click(panel.getByLabelText('Reset molecule layout', { selector: 'button' }));
+    expect(sessionStorage.getItem(key)).not.toBeNull();
+    expect(position).toHaveAttribute('data-z', '48');
+    fireEvent.click(panel.getByText(/Retry.*layout/i, { selector: 'button' }));
+
+    // Layout writes and fireEvent's React updates are synchronous; inspect the
+    // verified result directly without waiting on unrelated popover positioning.
+    expect(sessionStorage.getItem(key)).toBeNull();
+    expect(position).toHaveAttribute('data-x', '0');
+    expect(position).toHaveAttribute('data-y', '0');
+    expect(position).toHaveAttribute('data-z', '0');
+    expect(parseFloat(electron.style.left) + parseFloat(electron.style.width) / 2).toBeCloseTo(64);
+    expect(parseFloat(electron.style.top) + parseFloat(electron.style.height) / 2).toBeCloseTo(0);
+    expect(JSON.stringify(task)).toBe(canonicalBefore);
+    expect(onTimeHorizonUpdate).not.toHaveBeenCalled();
+  });
+
+  it('applies external removal of saved positions while retaining another particle placement and canonical horizons', () => {
+    const key = 'mind-manual:atomic-layout:v1:guest';
+    const removed = bubble('external-removed', 'Removed saved position');
+    const retained = bubble('external-retained', 'Retained saved position');
+    const tasks = [removed, retained];
+    const canonicalBefore = JSON.stringify(tasks);
+    const retainedOrbit = { domainId: 'work', taskId: retained.id, shell: 'today', angle: Math.PI / 2 };
+    const retainedKey = JSON.stringify(['work', retained.id]);
+    sessionStorage.setItem(key, JSON.stringify({ version: 1, scope: 'guest', updatedAt: 1,
+      molecules: { work: { x: 120, y: -80, z: 48 } },
+      orbits: {
+        [JSON.stringify(['work', removed.id])]: { domainId: 'work', taskId: removed.id, shell: 'today', angle: Math.PI },
+        [retainedKey]: retainedOrbit,
+      },
+    }));
+    const onTimeHorizonUpdate = vi.fn();
+    render(<AtomicRenderer bubbles={tasks} onTimeHorizonUpdate={onTimeHorizonUpdate} reducedMotion />);
+    const nucleus = screen.getByRole('button', { name: /^Work molecule/ });
+    const removedElectron = screen.getByRole('button', { name: /Removed saved position.*Today horizon/ });
+    const retainedElectron = screen.getByRole('button', { name: /Retained saved position.*Today horizon/ });
+    const retainedPosition = { left: parseFloat(retainedElectron.style.left), top: parseFloat(retainedElectron.style.top) };
+    expect(nucleus.parentElement).toHaveStyle({ left: 'calc(50% + 120px)' });
+
+    act(() => {
+      sessionStorage.setItem(key, JSON.stringify({ version: 1, scope: 'guest', updatedAt: 2,
+        molecules: {}, orbits: { [retainedKey]: retainedOrbit },
+      }));
+      window.dispatchEvent(new StorageEvent('storage', { key }));
+    });
+
+    expect(nucleus.parentElement).toHaveStyle({ left: 'calc(50% + 0px)', top: 'calc(50% + 0px)' });
+    expect(parseFloat(removedElectron.style.left) + parseFloat(removedElectron.style.width) / 2).toBeCloseTo(64);
+    expect(parseFloat(removedElectron.style.top) + parseFloat(removedElectron.style.height) / 2).toBeCloseTo(0);
+    expect(parseFloat(retainedElectron.style.left)).toBeCloseTo(retainedPosition.left, 8);
+    expect(parseFloat(retainedElectron.style.top)).toBeCloseTo(retainedPosition.top, 8);
+    expect(JSON.stringify(tasks)).toBe(canonicalBefore);
+    expect(onTimeHorizonUpdate).not.toHaveBeenCalled();
+  });
+
+  it.each(['success', 'failure'] as const)('ignores an old account\'s pending horizon %s after auth loading and a new account layout', async (outcome) => {
+    const owner = '11111111-1111-4111-8111-111111111111';
+    const nextOwner = '22222222-2222-4222-8222-222222222222';
+    const key = (id: string) => `mind-manual:atomic-layout:v1:account:${id}`;
+    const stored = (id: string, x: number) => JSON.stringify({ version: 1, scope: `account:${id}`, updatedAt: 1,
+      molecules: { work: { x, y: 0, z: 48 } }, orbits: {},
+    });
+    localStorage.setItem(key(owner), stored(owner, 120));
+    localStorage.setItem(key(nextOwner), stored(nextOwner, 240));
+    const nextSavedBefore = localStorage.getItem(key(nextOwner));
+    authState.value = { user: { id: owner }, session: { user: { id: owner } }, loading: false };
+    let resolveSave!: () => void;
+    let rejectSave!: (error: Error) => void;
+    const save = new Promise<void>((resolve, reject) => { resolveSave = resolve; rejectSave = reject; });
+    const onTimeHorizonUpdate = vi.fn(() => save);
+    const initialTasks = [bubble('account-move', 'Account task', 'today')];
+    const view = render(<AtomicRenderer bubbles={initialTasks} onTimeHorizonUpdate={onTimeHorizonUpdate} reducedMotion />);
+    const electron = await screen.findByRole('button', { name: /Account task.*Today horizon/ });
+    fireEvent.keyDown(electron, { key: 'ArrowRight' });
+    expect(onTimeHorizonUpdate).toHaveBeenCalledWith('account-move', 0, 1);
+    expect(screen.getByRole('button', { name: /Account task.*Week horizon/ })).toHaveAttribute('aria-busy', 'true');
+
+    authState.value = { ...authState.value, loading: true };
+    view.rerender(<AtomicRenderer bubbles={initialTasks} onTimeHorizonUpdate={onTimeHorizonUpdate} reducedMotion />);
+    expect(screen.getByRole('button', { name: /^Work molecule/ }).parentElement).toHaveStyle({ left: 'calc(50% + 0px)' });
+    const nextTasks = [bubble('account-move', 'Account task', 'later')];
+    const canonicalBefore = JSON.stringify(nextTasks);
+    authState.value = { user: { id: nextOwner }, session: { user: { id: nextOwner } }, loading: false };
+    view.rerender(<AtomicRenderer bubbles={nextTasks} onTimeHorizonUpdate={onTimeHorizonUpdate} reducedMotion />);
+    expect(screen.getByRole('button', { name: /^Work molecule/ }).parentElement).toHaveStyle({ left: 'calc(50% + 240px)' });
+    expect(screen.getByRole('button', { name: /Account task.*Later horizon/ })).toHaveAttribute('aria-busy', 'false');
+    toast.mockClear();
+
+    await act(async () => {
+      if (outcome === 'success') resolveSave(); else rejectSave(new Error('Old account save unavailable'));
+      await save.catch(() => undefined);
+    });
+
+    expect(screen.getByRole('button', { name: /Account task.*Later horizon/ })).toHaveAttribute('aria-busy', 'false');
+    expect(screen.getByRole('button', { name: /^Work molecule/ }).parentElement).toHaveStyle({ left: 'calc(50% + 240px)' });
+    expect(localStorage.getItem(key(nextOwner))).toBe(nextSavedBefore);
+    expect(sessionStorage.getItem('mind-manual:atomic-layout:v1:guest')).toBeNull();
+    expect(JSON.stringify(nextTasks)).toBe(canonicalBefore);
+    expect(toast).not.toHaveBeenCalled();
+  });
+
+
+  it('does not issue a late toast or layout write when a pending horizon save resolves after unmount', async () => {
+    const key = 'mind-manual:atomic-layout:v1:guest';
+    const existing = JSON.stringify({ version: 1, scope: 'guest', updatedAt: 1,
+      molecules: { work: { x: 72, y: 18, z: 24 } }, orbits: {},
+    });
+    sessionStorage.setItem(key, existing);
+    let resolveSave!: () => void;
+    const save = new Promise<void>(resolve => { resolveSave = resolve; });
+    const onTimeHorizonUpdate = vi.fn(() => save);
+    const tasks = [bubble('unmounted-move', 'Leave while saving', 'today')];
+    const canonicalBefore = JSON.stringify(tasks);
+    const view = render(<AtomicRenderer bubbles={tasks} onTimeHorizonUpdate={onTimeHorizonUpdate} reducedMotion />);
+    const electron = await screen.findByRole('button', { name: /Leave while saving.*Today horizon/ });
+    fireEvent.keyDown(electron, { key: 'ArrowRight' });
+    expect(onTimeHorizonUpdate).toHaveBeenCalledExactlyOnceWith('unmounted-move', 0, 1);
+    expect(screen.getByRole('button', { name: /Leave while saving.*Week horizon/ })).toHaveAttribute('aria-busy', 'true');
+    view.unmount();
+    toast.mockClear();
+    const storageWrite = vi.spyOn(Storage.prototype, 'setItem');
+    await act(async () => { resolveSave(); await save; });
+    expect(toast).not.toHaveBeenCalled();
+    expect(storageWrite).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem(key)).toBe(existing);
+    expect(JSON.stringify(tasks)).toBe(canonicalBefore);
+  });
+
 });
