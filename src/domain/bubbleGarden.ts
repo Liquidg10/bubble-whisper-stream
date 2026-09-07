@@ -73,6 +73,7 @@ export interface BubbleSprout {
   sourceTitle: string;
   minutes: number;
   domainLinks: TaskDomainLink[];
+  origin: 'notes' | 'local';
 }
 
 interface SuggestedStep {
@@ -80,33 +81,46 @@ interface SuggestedStep {
   title: string;
   minutes: number;
   reason: string;
+  origin: BubbleSprout['origin'];
+}
+
+/** Grow is an explicit invitation for tasks and thoughts, never a type conversion. */
+export function canGrowBubble(source: Pick<Task, 'type' | 'completed' | 'actionability' | 'title' | 'description'>): boolean {
+  return (source.type === 'task' || source.type === 'thought') &&
+    !source.completed && source.actionability !== 'reference' &&
+    Boolean(source.title.trim() || source.description?.trim());
 }
 
 /** Reuse the person's own unfinished list before offering a local pattern. */
 function stepsFromNotes(description?: string): SuggestedStep[] {
   const seen = new Set<string>();
+  const completed = new Set<string>();
   return (description ?? '').split(/\r?\n/).flatMap((line) => {
     const match = line.match(
       /^\s*(?:[-*•]|\d+[.)])\s+(?:\[([ xX])\]\s*)?(.+)$/u,
     );
-    if (!match || match[1]?.toLowerCase() === 'x') return [];
+    if (!match) return [];
     const title = match[2].trim();
     const normalized = title
       .normalize('NFKC')
       .toLocaleLowerCase()
       .replace(/\s+/g, ' ');
-    if (!title || title.length > 300 || seen.has(normalized)) return [];
+    if (!title || title.length > 300) return [];
+    const kind = `note:${encodeURIComponent(normalized)}`;
+    if (match[1]?.toLowerCase() === 'x') { completed.add(kind); return []; }
+    if (seen.has(normalized)) return [];
     seen.add(normalized);
     return [
       {
-        kind: `note:${encodeURIComponent(normalized)}`,
+        kind,
         title,
         minutes: 5,
+        origin: 'notes' as const,
         reason:
           'From an unfinished item in your notes. The time is a starting estimate; edit the bubble to suit you.',
       },
     ];
-  });
+  }).filter(step => !completed.has(step.kind));
 }
 
 function localStartingSteps(title: string): [string, string] | undefined {
@@ -144,21 +158,18 @@ export function suggestBubbleSprouts(
   source: Task,
   existing: readonly Task[],
 ): BubbleSprout[] {
-  if (
-    source.completed ||
-    source.actionability === 'reference' ||
-    source.type !== 'task'
-  )
-    return [];
+  if (!canGrowBubble(source)) return [];
   const created = new Set(
     existing.map((task) => task.metadata?.bubbleGarden?.sproutKey),
   );
   const links = (source.domainLinks ?? []).filter((link) => link.userConfirmed);
-  const title = source.title.trim();
-  if (!title) return [];
-  const shortTitle = title.length > 85 ? `${title.slice(0, 82)}…` : title;
+  const title = source.title.trim() || source.description!.trim();
+  const singleLineTitle = title.replace(/\s+/g, ' ');
+  const shortTitle = singleLineTitle.length > 85 ? `${singleLineTitle.slice(0, 82)}…` : singleLineTitle;
   const pattern = localStartingSteps(title);
-  const notes = stepsFromNotes(source.description);
+  // Text captures live in the title. Keep saved notes first and deduplicate both lists.
+  const notes = stepsFromNotes([source.description, source.type === 'thought' ? source.title : ''].filter(Boolean).join('\n'));
+  const thought = source.type === 'thought';
   const drafts: SuggestedStep[] = notes.length
     ? notes
     : [
@@ -166,29 +177,41 @@ export function suggestBubbleSprouts(
           kind: 'first-step',
           title: pattern
             ? `${pattern[0]} — ${shortTitle}`
-            : `Choose the first small step for “${shortTitle}”`,
+            : thought
+              ? `Write one question to explore about “${shortTitle}”`
+              : `Choose the first small step for “${shortTitle}”`,
           minutes: 2,
+          origin: 'local',
           reason: pattern
             ? `A local starting idea based on “${shortTitle}.” Keep it only if it fits.`
-            : 'A concrete starting action can make a larger task easier to begin.',
+            : thought
+              ? 'An optional reflection prompt from a local template. Keep or rewrite it if you want to explore this thought.'
+              : 'A local starting prompt for making a larger task easier to begin. Keep or rewrite it if it fits.',
         },
         {
           kind: 'prepare',
           title: pattern
             ? `${pattern[1]} — ${shortTitle}`
-            : `Get one thing ready for “${shortTitle}”`,
+            : thought
+              ? `Describe one tiny way to try “${shortTitle}”`
+              : `Get one thing ready for “${shortTitle}”`,
           minutes: 5,
-          reason:
-            'Preparing a tool, space or note gives this bubble a smaller companion.',
+          origin: 'local',
+          reason: thought
+            ? 'An optional local prompt for exploring an idea. You can keep the thought without turning it into an action.'
+            : 'A local preparation prompt: choose a tool, space or note that would help you begin.',
         },
         {
           kind: 'meaning',
-          title: `Name what “${shortTitle}” makes possible`,
+          title: thought ? `Name what interests you about “${shortTitle}”` : `Name what “${shortTitle}” makes possible`,
           minutes: 2,
+          origin: 'local',
           reason:
             links.length > 1
               ? `This bubble already connects ${links.map((link) => link.label ?? link.domainId).join(' and ')}. You can explore that connection.`
-              : 'A short reflection can help you decide which life areas this action supports.',
+              : thought
+                ? 'A local reflection prompt. You decide whether this thought connects to any life area.'
+                : 'A local reflection prompt for deciding which life areas this action supports.',
         },
       ];
   return drafts
@@ -229,6 +252,8 @@ export function createSproutTask(
           label: link.label ?? link.domainId,
           source: 'user',
         }),
+        // Reuse the saved area's exact identity, including imported punctuation.
+        domainId: link.domainId,
         reason: link.reason,
       })),
     metadata: {

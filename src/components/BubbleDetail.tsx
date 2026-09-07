@@ -23,6 +23,7 @@ import { bubbleToTask, withBubbleDomainLinks } from '@/adapters/taskAdapter';
 import { useTaskStore } from '@/stores/taskStore';
 import { getHorizon, setHorizon, type Horizon } from '@/lib/horizon';
 import { BubbleFamily } from '@/components/BubbleFamily';
+import { canGrowBubble } from '@/domain/bubbleGarden';
 
 interface BubbleDetailProps {
   bubble: Bubble | null;
@@ -566,7 +567,7 @@ export const BubbleDetail: React.FC<BubbleDetailProps> = ({
             </div>
           )}
 
-          {onGrowIdeas && canonicalTask.type === 'task' && !canonicalTask.completed && canonicalTask.actionability !== 'reference' && (
+          {onGrowIdeas && canGrowBubble(canonicalTask) && (
             <Button type="button" variant="outline" className="min-h-11 gap-2" onClick={() => void handleNavigate(() => onGrowIdeas(bubble.id))}>
               <Sprout aria-hidden="true" className="h-4 w-4" />
               Grow ideas from this bubble

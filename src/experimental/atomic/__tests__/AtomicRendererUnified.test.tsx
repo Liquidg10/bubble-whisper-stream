@@ -68,7 +68,7 @@ function bubble(
 
 function pointerEvent(
   type: string,
-  options: { clientX: number; clientY: number; pointerId?: number },
+  options: { clientX: number; clientY: number; pointerId?: number; pointerType?: 'mouse' | 'touch' },
 ): MouseEvent {
   const event = new MouseEvent(type, {
     bubbles: true,
@@ -79,7 +79,7 @@ function pointerEvent(
   });
   Object.defineProperties(event, {
     pointerId: { value: options.pointerId ?? 1 },
-    pointerType: { value: 'mouse' },
+    pointerType: { value: options.pointerType ?? 'mouse' },
   });
   return event;
 }
@@ -320,6 +320,216 @@ describe('AtomicRenderer interaction geometry', () => {
     expect(onTimeHorizonUpdate).toHaveBeenCalledWith('drag', 0, 2);
     expect(container.querySelector('[data-electron-id="elec-drag-work"]'))
       .toHaveAccessibleName(expect.stringContaining('Later horizon'));
+  });
+
+  it.each(['mouse', 'touch'] as const)('previews the horizon and commits the final %s release with its off-center grab preserved', async pointerType => {
+    const task = bubble('final-point', 'Release where my hand lands');
+    const original = JSON.stringify(task);
+    const onTimeHorizonUpdate = vi.fn();
+    const { container } = render(<AtomicRenderer bubbles={[task]} onTimeHorizonUpdate={onTimeHorizonUpdate} reducedMotion />);
+    const electron = await screen.findByRole('button', { name: /Release where my hand lands.*Today horizon/ });
+    const viewport = screen.getByTestId('atomic-viewport');
+    const world = screen.getByTestId('atomic-world-layer');
+    fireEvent.click(screen.getByRole('button', { name: 'Zoom in on Atomic view' }));
+    const start = worldToClient({ x: 64, y: 0 }, world);
+    const week = worldToClient({ x: 116, y: 0 }, world);
+    const later = worldToClient({ x: 168, y: 0 }, world);
+    const initial = { left: electron.style.left, top: electron.style.top };
+    fireEvent(electron, pointerEvent('pointerdown', { clientX: start.x + 8, clientY: start.y - 4, pointerType }));
+    expect(electron).toHaveStyle(initial);
+    expect(screen.getByTestId('atomic-drag-feedback')).toHaveAttribute('data-target-horizon', 'today');
+    fireEvent(viewport, pointerEvent('pointermove', { clientX: week.x + 8, clientY: week.y - 4, pointerType }));
+    expect(screen.getByText('Release in Week')).toBeVisible();
+    expect(container.querySelector('[data-drop-target="true"]')).toHaveAttribute('data-shell-index', '1');
+    expect(onTimeHorizonUpdate).not.toHaveBeenCalled();
+    // No move event reaches the final position before pointerup.
+    fireEvent(viewport, pointerEvent('pointerup', { clientX: later.x + 8, clientY: later.y - 4, pointerType }));
+    expect(onTimeHorizonUpdate).toHaveBeenCalledExactlyOnceWith(task.id, 0, 2);
+    expect(electron).toHaveAccessibleName(expect.stringContaining('Later horizon'));
+    expect(screen.queryByTestId('atomic-drag-feedback')).not.toBeInTheDocument();
+    expect(JSON.stringify(task)).toBe(original);
+  });
+
+  it('recognizes a release-only drag but keeps tiny release jitter as a click', async () => {
+    const onTimeHorizonUpdate = vi.fn();
+    const onBubbleSelect = vi.fn();
+    render(<AtomicRenderer bubbles={[bubble('release-only', 'Quick release')]} onTimeHorizonUpdate={onTimeHorizonUpdate} onBubbleSelect={onBubbleSelect} reducedMotion />);
+    const electron = await screen.findByRole('button', { name: /Quick release.*Today horizon/ });
+    const viewport = screen.getByTestId('atomic-viewport');
+    fireEvent(electron, pointerEvent('pointerdown', { clientX: 464, clientY: 300 }));
+    fireEvent(viewport, pointerEvent('pointerup', { clientX: 468, clientY: 303 }));
+    fireEvent.click(electron);
+    expect(onBubbleSelect).toHaveBeenCalledOnce();
+    expect(onTimeHorizonUpdate).not.toHaveBeenCalled();
+    fireEvent(electron, pointerEvent('pointerdown', { clientX: 464, clientY: 300 }));
+    fireEvent(viewport, pointerEvent('pointerup', { clientX: 568, clientY: 300 }));
+    expect(onTimeHorizonUpdate).toHaveBeenCalledExactlyOnceWith('release-only', 0, 2);
+  });
+
+  it.each(['pointercancel', 'lostpointercapture', 'Escape', 'Cancel move'])('cancels with %s without saving and accepts the next drag', async cancellation => {
+    const task = bubble('cancel-mode', 'A reversible move');
+    const original = JSON.stringify(task);
+    const onTimeHorizonUpdate = vi.fn();
+    render(<AtomicRenderer bubbles={[task]} onTimeHorizonUpdate={onTimeHorizonUpdate} reducedMotion />);
+    const electron = await screen.findByRole('button', { name: /A reversible move.*Today horizon/ });
+    const viewport = screen.getByTestId('atomic-viewport');
+    const initial = { left: electron.style.left, top: electron.style.top };
+    fireEvent(electron, pointerEvent('pointerdown', { clientX: 464, clientY: 300, pointerType: 'touch' }));
+    fireEvent(viewport, pointerEvent('pointermove', { clientX: 568, clientY: 300, pointerType: 'touch' }));
+    expect(screen.getByText('Release in Later')).toBeVisible();
+    if (cancellation === 'Escape') fireEvent.keyDown(window, { key: 'Escape' });
+    else if (cancellation === 'Cancel move') fireEvent.click(screen.getByRole('button', { name: cancellation }));
+    else fireEvent(viewport, pointerEvent(cancellation, { clientX: 0, clientY: 0, pointerType: 'touch' }));
+    expect(screen.queryByTestId('atomic-drag-feedback')).not.toBeInTheDocument();
+    expect(electron).toHaveStyle(initial);
+    expect(electron).toHaveAccessibleName(expect.stringContaining('Today horizon'));
+    expect(screen.getByText('Move cancelled. Nothing changed.')).toHaveAttribute('aria-live', 'polite');
+    expect(onTimeHorizonUpdate).not.toHaveBeenCalled();
+    expect(JSON.stringify(task)).toBe(original);
+    fireEvent(electron, pointerEvent('pointerdown', { clientX: 464, clientY: 300 }));
+    fireEvent(viewport, pointerEvent('pointerup', { clientX: 516, clientY: 300 }));
+    expect(onTimeHorizonUpdate).toHaveBeenCalledExactlyOnceWith(task.id, 0, 1);
+  });
+
+  it('restores a cancelled nucleus and commits its actual release position without changing bubbles', async () => {
+    const task = bubble('nucleus-release', 'Nucleus release');
+    const original = JSON.stringify(task);
+    render(<AtomicRenderer bubbles={[task]} reducedMotion />);
+    const nucleus = await screen.findByRole('button', { name: /Work molecule, 1 task/ });
+    const wrapper = nucleus.parentElement as HTMLElement;
+    const initial = { left: wrapper.style.left, top: wrapper.style.top };
+    const viewport = screen.getByTestId('atomic-viewport');
+    fireEvent(nucleus, pointerEvent('pointerdown', { clientX: 406, clientY: 304 }));
+    fireEvent(viewport, pointerEvent('pointermove', { clientX: 456, clientY: 364 }));
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(wrapper).toHaveStyle(initial);
+    fireEvent(nucleus, pointerEvent('pointerdown', { clientX: 406, clientY: 304 }));
+    fireEvent(viewport, pointerEvent('pointerup', { clientX: 486, clientY: 344 }));
+    expect(getWorldOffset(wrapper.style.left)).toBe(80);
+    expect(getWorldOffset(wrapper.style.top)).toBe(40);
+    expect(JSON.stringify(task)).toBe(original);
+  });
+
+  it('explains full orbits before release and keeps the moved task reachable in the navigator', async () => {
+    const task = bubble('full-drag', 'A full orbit destination', 'week');
+    const occupied = Array.from({ length: 8 }, (_, index) => bubble(`occupied-${index}`, `Occupied ${index}`));
+    const onTimeHorizonUpdate = vi.fn();
+    const { container } = render(<AtomicRenderer bubbles={[...occupied, task]} onTimeHorizonUpdate={onTimeHorizonUpdate} reducedMotion />);
+    const electron = await screen.findByRole('button', { name: /A full orbit destination.*Week horizon/ });
+    const viewport = screen.getByTestId('atomic-viewport');
+    fireEvent(electron, pointerEvent('pointerdown', { clientX: 516, clientY: 300 }));
+    fireEvent(viewport, pointerEvent('pointermove', { clientX: 464, clientY: 300 }));
+    expect(screen.getByText(/This orbit is full/)).toBeVisible();
+    fireEvent(viewport, pointerEvent('pointerup', { clientX: 464, clientY: 300 }));
+    expect(onTimeHorizonUpdate).toHaveBeenCalledExactlyOnceWith(task.id, 1, 0);
+    expect(container.querySelector('[data-electron-id="elec-full-drag-work"]')).not.toBeInTheDocument();
+    const navigator = screen.getByTestId('atomic-task-navigator');
+    fireEvent.click(within(navigator).getByText('Tasks (9)'));
+    expect(within(navigator).getByRole('combobox', { name: 'Time horizon for A full orbit destination' })).toBeVisible();
+  });
+
+  it('finds dense or unlinked tasks by title or life area without changing their identities', async () => {
+    const dense = Array.from({ length: 12 }, (_, index) => bubble(`search-${index}`, `Work task ${index + 1}`));
+    const unlinked = bubble('search-unlinked', 'An unlinked thought', 'later', []);
+    const untitled = bubble('search-untitled', '', 'later', []);
+    const shared = bubble('search-shared', 'One shared action', 'today', ['Home', 'Health']);
+    const tasks = [...dense, unlinked, shared, untitled];
+    const original = JSON.stringify(tasks);
+    const onTimeHorizonUpdate = vi.fn();
+    const onBubbleSelect = vi.fn();
+    render(<AtomicRenderer bubbles={tasks} onTimeHorizonUpdate={onTimeHorizonUpdate} onBubbleSelect={onBubbleSelect} reducedMotion />);
+    const navigator = await screen.findByTestId('atomic-task-navigator');
+    fireEvent.click(within(navigator).getByText('Tasks (15)'));
+    expect(within(navigator).getAllByRole('combobox')).toHaveLength(15);
+    const search = within(navigator).getByRole('searchbox', { name: 'Find a task in Atomic view' });
+    fireEvent.change(search, { target: { value: 'task 12' } });
+    expect(within(navigator).getAllByRole('combobox')).toHaveLength(1);
+    fireEvent.change(within(navigator).getByRole('combobox'), { target: { value: '1' } });
+    expect(onTimeHorizonUpdate).toHaveBeenCalledExactlyOnceWith('search-11', 0, 1);
+    fireEvent.change(search, { target: { value: 'health' } });
+    expect(within(navigator).getAllByRole('combobox')).toHaveLength(1);
+    fireEvent.click(within(navigator).getByRole('button', { name: 'Open One shared action. Home, Health.' }));
+    expect(onBubbleSelect).toHaveBeenLastCalledWith(shared);
+    fireEvent.change(search, { target: { value: 'unlinked' } });
+    fireEvent.click(within(navigator).getByRole('button', { name: /Open An unlinked thought/ }));
+    expect(onBubbleSelect).toHaveBeenLastCalledWith(unlinked);
+    fireEvent.change(search, { target: { value: 'untitled' } });
+    expect(within(navigator).getByRole('button', { name: /Open Untitled task/ })).toBeVisible();
+    fireEvent.change(search, { target: { value: 'missing phrase' } });
+    expect(within(navigator).getByText('No matching tasks. Try a task or life area.')).toBeVisible();
+    expect(JSON.stringify(tasks)).toBe(original);
+  });
+
+  it('waits for a shared task save before offering undo and guards all linked copies while pending', async () => {
+    let resolveSave!: () => void;
+    const onTimeHorizonUpdate = vi.fn(() => new Promise<void>(resolve => { resolveSave = resolve; }));
+    const task = bubble('pending-shared', 'One save for all areas', 'today', ['Home', 'Work']);
+    render(<AtomicRenderer bubbles={[task]} onTimeHorizonUpdate={onTimeHorizonUpdate} reducedMotion />);
+    fireEvent.click(await screen.findByRole('button', { name: /Home molecule, 1 task/ }));
+    const home = await screen.findByRole('button', { name: /One save for all areas.*Home.*Today horizon/ });
+    fireEvent.keyDown(home, { key: 'ArrowRight' });
+    const work = screen.getByRole('button', { name: /One save for all areas.*Work.*Week horizon/ });
+    expect(home).toHaveAttribute('aria-busy', 'true');
+    expect(work).toHaveAttribute('aria-busy', 'true');
+    fireEvent.keyDown(work, { key: 'ArrowRight' });
+    fireEvent(work, pointerEvent('pointerdown', { clientX: 500, clientY: 300 }));
+    expect(screen.queryByTestId('atomic-drag-feedback')).not.toBeInTheDocument();
+    const navigator = screen.getByTestId('atomic-task-navigator');
+    fireEvent.click(within(navigator).getByText('Tasks (1)'));
+    expect(within(navigator).getByRole('combobox')).toBeDisabled();
+    expect(onTimeHorizonUpdate).toHaveBeenCalledExactlyOnceWith(task.id, 0, 1);
+    expect(toast).not.toHaveBeenCalled();
+    await act(async () => resolveSave());
+    expect(home).toHaveAttribute('aria-busy', 'false');
+    expect(within(navigator).getByRole('combobox')).toBeEnabled();
+    expect(toast).toHaveBeenCalledWith(expect.objectContaining({ title: 'Moved to Week', action: expect.anything() }));
+  });
+
+  it('restores every shared particle and reports a rejected save without a success or undo', async () => {
+    let rejectSave!: (error: Error) => void;
+    const onTimeHorizonUpdate = vi.fn(() => new Promise<void>((_resolve, reject) => { rejectSave = reject; }));
+    const task = bubble('failed-shared', 'Keep my original orbit', 'today', ['Home', 'Work']);
+    const { container } = render(<AtomicRenderer bubbles={[task]} onTimeHorizonUpdate={onTimeHorizonUpdate} reducedMotion />);
+    fireEvent.click(await screen.findByRole('button', { name: /Home molecule, 1 task/ }));
+    const home = await screen.findByRole('button', { name: /Keep my original orbit.*Home.*Today horizon/ });
+    const work = screen.getByRole('button', { name: /Keep my original orbit.*Work.*Today horizon/ });
+    const originalHome = { left: home.style.left, top: home.style.top };
+    const originalWork = { left: work.style.left, top: work.style.top };
+    fireEvent.keyDown(home, { key: 'ArrowRight' });
+    await act(async () => rejectSave(new Error('Storage write failed')));
+    expect(home).toHaveStyle(originalHome);
+    expect(work).toHaveStyle(originalWork);
+    expect(home).toHaveAccessibleName(expect.stringContaining('Today horizon'));
+    expect(work).toHaveAccessibleName(expect.stringContaining('Today horizon'));
+    expect(container.querySelectorAll('[data-bond-id]')).toHaveLength(1);
+    expect(toast).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ title: 'Move not saved', variant: 'destructive' }));
+    expect(toast.mock.calls[0][0].action).toBeUndefined();
+  });
+
+  it('awaits undo persistence, guards repeated undo, and restores the saved horizon on undo failure', async () => {
+    let rejectUndo!: (error: Error) => void;
+    const onTimeHorizonUpdate = vi.fn<(...args: [string, number, number]) => void | Promise<void>>()
+      .mockReturnValueOnce(undefined)
+      .mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { rejectUndo = reject; }))
+      .mockResolvedValueOnce(undefined);
+    render(<AtomicRenderer bubbles={[bubble('undo-save', 'Undo a saved move')]} onTimeHorizonUpdate={onTimeHorizonUpdate} reducedMotion />);
+    const electron = await screen.findByRole('button', { name: /Undo a saved move.*Today horizon/ });
+    fireEvent.keyDown(electron, { key: 'ArrowRight' });
+    const savedPosition = { left: electron.style.left, top: electron.style.top };
+    const undo = render(toast.mock.calls[0][0].action).getByRole('button', { name: 'Undo moving Undo a saved move to Week' });
+    fireEvent.click(undo);
+    fireEvent.click(undo);
+    expect(onTimeHorizonUpdate).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText('Undo a saved move returned to Today.')).not.toBeInTheDocument();
+    await act(async () => rejectUndo(new Error('Undo storage failed')));
+    expect(electron).toHaveStyle(savedPosition);
+    expect(electron).toHaveAccessibleName(expect.stringContaining('Week horizon'));
+    expect(toast).toHaveBeenLastCalledWith(expect.objectContaining({ title: 'Move not saved' }));
+    fireEvent.click(undo);
+    await waitFor(() => expect(screen.getByText('Undo a saved move returned to Today.')).toBeInTheDocument());
+    expect(onTimeHorizonUpdate).toHaveBeenNthCalledWith(3, 'undo-save', 1, 0);
+    fireEvent.click(undo);
+    expect(onTimeHorizonUpdate).toHaveBeenCalledTimes(3);
   });
 
   it('projects only user-confirmed domain links and keeps each canonical task once in the navigator', async () => {
@@ -758,8 +968,29 @@ describe('AtomicRenderer interaction geometry', () => {
       clientX: 550,
       clientY: 300,
     }));
+    fireEvent(electron, pointerEvent('pointerdown', { clientX: 464, clientY: 300 }));
+    fireEvent(viewport, pointerEvent('pointerup', { clientX: 464, clientY: 300 }));
     fireEvent.click(electron);
 
+    expect(onBubbleSelect).toHaveBeenCalledOnce();
+  });
+
+  it('suppresses the trailing native click after Escape while allowing the next intentional click', async () => {
+    const onBubbleSelect = vi.fn();
+    const onTimeHorizonUpdate = vi.fn();
+    render(<AtomicRenderer bubbles={[bubble('escape-click', 'Cancel without opening')]} onBubbleSelect={onBubbleSelect} onTimeHorizonUpdate={onTimeHorizonUpdate} reducedMotion />);
+    const electron = await screen.findByRole('button', { name: /Cancel without opening.*Today horizon/ });
+    const viewport = screen.getByTestId('atomic-viewport');
+    fireEvent(electron, pointerEvent('pointerdown', { clientX: 464, clientY: 300 }));
+    fireEvent(viewport, pointerEvent('pointermove', { clientX: 516, clientY: 300 }));
+    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent(viewport, pointerEvent('pointerup', { clientX: 516, clientY: 300 }));
+    fireEvent.click(electron);
+    expect(onBubbleSelect).not.toHaveBeenCalled();
+    expect(onTimeHorizonUpdate).not.toHaveBeenCalled();
+    fireEvent(electron, pointerEvent('pointerdown', { clientX: 464, clientY: 300 }));
+    fireEvent(viewport, pointerEvent('pointerup', { clientX: 464, clientY: 300 }));
+    fireEvent.click(electron);
     expect(onBubbleSelect).toHaveBeenCalledOnce();
   });
 

@@ -158,7 +158,7 @@ interface AtomicRendererProps {
     bubbleId: string,
     fromRing: number,
     toRing: number,
-  ) => void;
+  ) => void | Promise<void>;
   onMoleculeCreate?: (domain: string) => void;
   onMoleculeMerge?: (aId: string, bId: string) => void;
   reducedMotion?: boolean;
@@ -422,6 +422,8 @@ function particleFlavor(bubble?: Bubble) {
 interface AtomicTaskNavigatorProps {
   panelGroup: string;
   bubbles: readonly Bubble[];
+  canvasHeight: number;
+  pendingTaskIds: ReadonlySet<string>;
   onOpenTask: (bubble: Bubble) => void;
   onHorizonChange: (bubble: Bubble, targetShell: number) => void;
 }
@@ -429,10 +431,18 @@ interface AtomicTaskNavigatorProps {
 function AtomicTaskNavigator({
   panelGroup,
   bubbles,
+  canvasHeight,
+  pendingTaskIds,
   onOpenTask,
   onHorizonChange,
 }: AtomicTaskNavigatorProps) {
   const taskCount = bubbles.length;
+  const [search, setSearch] = useState('');
+  const matchingTasks = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase();
+    return bubbles.filter(task => [task.content || 'Untitled task', ...getConfirmedDomainLinks(task).map(link => link.label || link.domainId)]
+      .some(value => value?.toLocaleLowerCase().includes(query)));
+  }, [bubbles, search]);
 
   return (
     <details
@@ -444,57 +454,70 @@ function AtomicTaskNavigator({
       <summary className="flex min-h-11 cursor-pointer select-none items-center px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
         Tasks ({taskCount})
       </summary>
-      <ul
-        aria-label="Atomic tasks by life domain and time horizon"
-        className="max-h-[min(50vh,24rem)] space-y-1 overflow-y-auto border-t p-2"
-      >
-        {bubbles.map((bubble) => {
-          const label = bubble.content || 'Untitled task';
-          const confirmedDomains = getConfirmedDomainLinks(bubble)
-            .map(link => link.label?.trim() || link.domainId);
-          const domainDescription = confirmedDomains.length > 0
-            ? confirmedDomains.join(', ')
-            : 'No confirmed life-domain link';
-          return (
-            <li
-              key={bubble.id}
-              className="flex min-w-0 flex-wrap items-center gap-1 rounded-xl p-1 hover:bg-muted"
-            >
-              <button
-                type="button"
-                className="min-h-11 min-w-0 flex-1 rounded-md px-2 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={() => {
-                  onOpenTask(bubble);
-                }}
-                aria-label={`Open ${label}. ${domainDescription}.`}
+      <div className="overflow-y-auto border-t p-2" style={{ maxHeight: `max(0px, min(30rem, calc(${canvasHeight - 128}px - env(safe-area-inset-bottom))))` }}>
+        <p className="px-2 py-1 text-xs leading-relaxed text-muted-foreground">Choose a horizon here, or zoom in and drag a particle between rings.</p>
+        <label className="my-2 block space-y-1 px-2 text-xs font-medium">
+          Find a task in Atomic view
+          <input type="search" value={search} onChange={event => setSearch(event.target.value)}
+            className="min-h-11 w-full rounded-xl border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+        </label>
+        {search.trim() ? <p role="status" className="px-2 py-1 text-xs text-muted-foreground">{matchingTasks.length} of {taskCount} tasks</p> : null}
+        {matchingTasks.length === 0 ? <p className="p-2 text-sm text-muted-foreground">{taskCount ? 'No matching tasks. Try a task or life area.' : 'Add a bubble to begin.'}</p> : null}
+        <ul
+          aria-label="Atomic tasks by life domain and time horizon"
+          className="space-y-1"
+        >
+          {matchingTasks.map((bubble) => {
+            const label = bubble.content || 'Untitled task';
+            const confirmedDomains = getConfirmedDomainLinks(bubble)
+              .map(link => link.label?.trim() || link.domainId);
+            const domainDescription = confirmedDomains.length > 0
+              ? confirmedDomains.join(', ')
+              : 'No confirmed life-domain link';
+            return (
+              <li
+                key={bubble.id}
+                className="flex min-w-0 flex-wrap items-center gap-1 rounded-xl p-1 hover:bg-muted"
               >
-                <span className="block truncate font-medium">{label}</span>
-                <span className="block text-xs text-muted-foreground">
-                  {domainDescription}
-                </span>
-              </button>
-              <label className="sr-only" htmlFor={`atomic-horizon-${bubble.id}`}>
-                Time horizon for {label}
-              </label>
-              <select
-                id={`atomic-horizon-${bubble.id}`}
-                value={shellIndexForBubble(bubble)}
-                onChange={event => onHorizonChange(
-                  bubble,
-                  Number(event.target.value),
-                )}
-                className="h-11 rounded-md border bg-background px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {SHELL_CONFIG.map((shell, shellIndex) => (
-                  <option key={shell.name} value={shellIndex}>
-                    {shell.name}
-                  </option>
-                ))}
-              </select>
-            </li>
-          );
-        })}
-      </ul>
+                <button
+                  type="button"
+                  className="min-h-11 min-w-0 flex-1 rounded-md px-2 py-2 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => {
+                    onOpenTask(bubble);
+                  }}
+                  aria-label={`Open ${label}. ${domainDescription}.`}
+                >
+                  <span className="block truncate font-medium">{label}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {domainDescription}
+                  </span>
+                </button>
+                <label className="sr-only" htmlFor={`atomic-horizon-${bubble.id}`}>
+                  Time horizon for {label}
+                </label>
+                <select
+                  id={`atomic-horizon-${bubble.id}`}
+                  value={shellIndexForBubble(bubble)}
+                  disabled={pendingTaskIds.has(bubble.id)}
+                  aria-busy={pendingTaskIds.has(bubble.id)}
+                  onChange={event => onHorizonChange(
+                    bubble,
+                    Number(event.target.value),
+                  )}
+                  className="h-11 rounded-md border bg-background px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {SHELL_CONFIG.map((shell, shellIndex) => (
+                    <option key={shell.name} value={shellIndex}>
+                      {shell.name}
+                    </option>
+                  ))}
+                </select>
+                {pendingTaskIds.has(bubble.id) ? <span className="px-2 text-xs text-muted-foreground">Saving…</span> : null}
+              </li>
+            );
+          })}
+        </ul>
+      </div>
     </details>
   );
 }
@@ -520,6 +543,8 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
   const viewportTransformRef = useRef({ x: 0, y: 0, scale: 1 });
   const lastAutoFitKeyRef = useRef('');
   const suppressClickRef = useRef<string | null>(null);
+  const pendingMovesRef = useRef(new Set<string>());
+  const [pendingTaskIds, setPendingTaskIds] = useState<ReadonlySet<string>>(new Set());
   const { toast } = useToast();
   const isMobile = useIsMobile();
 
@@ -776,11 +801,42 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     );
   }, []);
 
+  const persistShellChange = useCallback(async (
+    electron: Electron,
+    targetShell: number,
+    onSaved: () => void,
+    onFailure: () => void,
+  ) => {
+    const bubbleId = electron.originalBubble?.id;
+    if (!bubbleId || pendingMovesRef.current.has(bubbleId)) return;
+    pendingMovesRef.current.add(bubbleId);
+    setPendingTaskIds(new Set(pendingMovesRef.current));
+    setMovementAnnouncement(`Saving ${electron.content || 'task'} in ${SHELL_CONFIG[targetShell].name}.`);
+    try {
+      const write = onTimeHorizonUpdate?.(bubbleId, electron.shell, targetShell);
+      if (write) await write;
+      onSaved();
+    } catch {
+      onFailure();
+      const description = `${electron.content || 'Task'} stays in ${SHELL_CONFIG[electron.shell].name}. Try again.`;
+      setMovementAnnouncement(`Move not saved. ${description}`);
+      toast({ title: 'Move not saved', description, variant: 'destructive' });
+    } finally {
+      pendingMovesRef.current.delete(bubbleId);
+      setPendingTaskIds(new Set(pendingMovesRef.current));
+    }
+  }, [onTimeHorizonUpdate, toast]);
+
   const updateElectronShell = useCallback((
     electron: Electron,
     targetShell: number,
     source: 'drag' | 'keyboard' | 'undo',
   ) => {
+    const bubbleId = electron.originalBubble?.id;
+    if (bubbleId && pendingMovesRef.current.has(bubbleId)) {
+      setMovementAnnouncement('This task is still saving. Wait before moving it again.');
+      return;
+    }
     const safeTarget = Math.max(0, Math.min(SHELL_CONFIG.length - 1, targetShell));
     const originalShell = electron.shell;
     if (safeTarget === originalShell && source !== 'drag') {
@@ -790,7 +846,6 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       return;
     }
 
-    const bubbleId = electron.originalBubble?.id;
     const originalSlots = new Map<string, number | null>();
     if (bubbleId) {
       atomicStateRef.current.molecules.forEach((molecule) => {
@@ -828,56 +883,49 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       return;
     }
 
-    if (electron.originalBubble) {
-      onTimeHorizonUpdate?.(
-        electron.originalBubble.id,
-        originalShell,
-        safeTarget,
-      );
-    }
-
     const targetHorizon = ringIndexToHorizon(safeTarget);
     const originalHorizon = ringIndexToHorizon(originalShell);
-    setMovementAnnouncement(
-      `${electron.content || 'Task'} moved to ${getHorizonDisplayName(targetHorizon)} by ${source}.`,
-    );
-    toast({
-      title: `Moved to ${getHorizonDisplayName(targetHorizon)}`,
-      description: `${electron.content || 'Task'} moved from ${getHorizonDisplayName(originalHorizon)}.`,
-      action: source === 'undo' ? undefined : (
-        <Button
-          variant="outline"
-          size="sm"
-          aria-label={`Undo moving ${electron.content || 'task'} to ${getHorizonDisplayName(targetHorizon)}`}
-          onClick={() => {
-            updateAtomicState(previous => ({
-              ...previous,
-              molecules: bubbleId
-                ? moveCanonicalTaskToShell(
-                  previous.molecules,
-                  bubbleId,
-                  originalShell,
-                  originalSlots,
-                )
-                : previous.molecules,
-            }));
-            if (electron.originalBubble) {
-              onTimeHorizonUpdate?.(
-                electron.originalBubble.id,
-                safeTarget,
-                originalShell,
-              );
-            }
-            setMovementAnnouncement(
-              `${electron.content || 'Task'} returned to ${getHorizonDisplayName(originalHorizon)}.`,
-            );
-          }}
-        >
-          Undo
-        </Button>
-      ),
-    });
-  }, [animationStep, frameTime, motionState, onTimeHorizonUpdate, prefersReducedMotion, toast, updateAtomicState]);
+    const restoreShell = (shell: number, slots: Map<string, number | null>) => {
+      updateAtomicState(previous => ({
+        ...previous,
+        molecules: bubbleId ? moveCanonicalTaskToShell(previous.molecules, bubbleId, shell, slots) : previous.molecules,
+      }));
+    };
+    void persistShellChange(electron, safeTarget, () => {
+      setMovementAnnouncement(
+        `${electron.content || 'Task'} moved to ${getHorizonDisplayName(targetHorizon)} by ${source}.`,
+      );
+      toast({
+        title: `Moved to ${getHorizonDisplayName(targetHorizon)}`,
+        description: `${electron.content || 'Task'} moved from ${getHorizonDisplayName(originalHorizon)}.`,
+        action: source === 'undo' ? undefined : (
+          <Button
+            variant="outline"
+            size="sm"
+            aria-label={`Undo moving ${electron.content || 'task'} to ${getHorizonDisplayName(targetHorizon)}`}
+            onClick={() => {
+              if (!bubbleId || pendingMovesRef.current.has(bubbleId)) return;
+              const current = atomicStateRef.current.molecules.flatMap(molecule => molecule.electrons)
+                .find(candidate => candidate.originalBubble?.id === bubbleId);
+              if (!current || current.shell !== safeTarget) {
+                setMovementAnnouncement('This task has moved again. Its current horizon was kept.');
+                return;
+              }
+              const currentSlots = new Map(atomicStateRef.current.molecules.flatMap(molecule => molecule.electrons)
+                .filter(candidate => candidate.originalBubble?.id === bubbleId)
+                .map(candidate => [candidate.id, candidate.canvasSlot]));
+              restoreShell(originalShell, originalSlots);
+              void persistShellChange(current, originalShell, () => {
+                setMovementAnnouncement(`${electron.content || 'Task'} returned to ${getHorizonDisplayName(originalHorizon)}.`);
+              }, () => restoreShell(safeTarget, currentSlots));
+            }}
+          >
+            Undo
+          </Button>
+        ),
+      });
+    }, () => restoreShell(originalShell, originalSlots));
+  }, [animationStep, frameTime, motionState, persistShellChange, prefersReducedMotion, toast, updateAtomicState]);
 
   const startElectronDrag = useCallback((
     molecule: Molecule,
@@ -886,6 +934,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
   ) => {
     if (
       dragStateRef.current.isDragging
+      || (electron.originalBubble && pendingMovesRef.current.has(electron.originalBubble.id))
       || (event.pointerType === 'mouse' && event.button !== 0)
       || (event.pointerType === 'touch' && event.isPrimary === false)
     ) {
@@ -898,6 +947,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     if (!pointerWorld) return;
     event.preventDefault();
     event.stopPropagation();
+    suppressClickRef.current = null;
     event.currentTarget.setPointerCapture?.(event.pointerId);
 
     const orbit = getElectronOrbitOffset(
@@ -950,6 +1000,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     if (!pointerWorld) return;
     event.preventDefault();
     event.stopPropagation();
+    suppressClickRef.current = null;
     event.currentTarget.setPointerCapture?.(event.pointerId);
 
     setDragState({
@@ -1023,31 +1074,70 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     }));
   }, [clientPointToWorld, updateAtomicState]);
 
+  const cancelObjectDrag = useCallback(() => {
+    const drag = dragStateRef.current;
+    if (!drag.isDragging) return;
+    const now = performance.now();
+    setFrameTime(now);
+    updateAtomicState(previous => ({
+      ...previous,
+      molecules: previous.molecules.map(molecule => {
+        if (molecule.id !== drag.moleculeId) return molecule;
+        if (drag.type === 'molecule' && drag.originalMoleculePosition) {
+          return { ...molecule, ...drag.originalMoleculePosition };
+        }
+        return { ...molecule, electrons: molecule.electrons.map(electron => (
+          electron.id === drag.electronId ? {
+            ...electron,
+            settleFrom: drag.currentWorld && !prefersReducedMotion && motionState
+              ? { x: drag.currentWorld.x - molecule.x, y: drag.currentWorld.y - molecule.y }
+              : undefined,
+            settleStartedAt: now,
+          } : electron
+        )) };
+      }),
+    }));
+    // Escape/capture loss can still be followed by the browser's click for this
+    // gesture. A new pointerdown clears this guard for intentional activation.
+    suppressClickRef.current = `${drag.type}:${drag.type === 'electron' ? drag.electronId : drag.moleculeId}`;
+    setDragState({ ...EMPTY_DRAG_STATE });
+    if (drag.pointerId !== undefined && drag.captureTarget?.hasPointerCapture?.(drag.pointerId)) {
+      drag.captureTarget.releasePointerCapture?.(drag.pointerId);
+    }
+    setMovementAnnouncement('Move cancelled. Nothing changed.');
+  }, [motionState, prefersReducedMotion, setDragState, updateAtomicState]);
+
+  useEffect(() => {
+    if (!atomicState.dragState.isDragging) return;
+    const cancelWithEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      cancelObjectDrag();
+    };
+    window.addEventListener('keydown', cancelWithEscape, true);
+    return () => window.removeEventListener('keydown', cancelWithEscape, true);
+  }, [atomicState.dragState.isDragging, cancelObjectDrag]);
+
   const finishObjectDrag = useCallback((
     event: React.PointerEvent<HTMLElement>,
     cancelled: boolean,
   ) => {
-    const dragState = dragStateRef.current;
-    if (!dragState.isDragging || dragState.pointerId !== event.pointerId) return;
+    if (!dragStateRef.current.isDragging || dragStateRef.current.pointerId !== event.pointerId) return;
     event.preventDefault();
     event.stopPropagation();
+    if (cancelled) {
+      cancelObjectDrag();
+      return;
+    }
+    // The last pointermove may be coalesced or absent. Commit the release point,
+    // preserving the same grab offset and threshold used during movement.
+    handleObjectPointerMove(event);
+    const dragState = dragStateRef.current;
 
     const state = atomicStateRef.current;
-    if (cancelled && dragState.type === 'molecule') {
-      const original = dragState.originalMoleculePosition;
-      if (original) {
-        updateAtomicState(previous => ({
-          ...previous,
-          molecules: previous.molecules.map(molecule => (
-            molecule.id === dragState.moleculeId
-              ? { ...molecule, x: original.x, y: original.y }
-              : molecule
-          )),
-        }));
-      }
-    } else if (
-      !cancelled
-      && dragState.type === 'electron'
+    if (
+      dragState.type === 'electron'
       && dragState.electronId
       && dragState.currentWorld
       && dragState.moved
@@ -1078,8 +1168,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         }
       }
     } else if (
-      !cancelled
-      && dragState.type === 'molecule'
+      dragState.type === 'molecule'
       && dragState.moleculeId
       && dragState.currentWorld
       && dragState.moved
@@ -1094,21 +1183,19 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       }
     }
 
-    if (!cancelled && dragState.moved) {
+    if (dragState.moved) {
       suppressClickRef.current = `${dragState.type}:${
         dragState.type === 'electron'
           ? dragState.electronId
           : dragState.moleculeId
       }`;
-    } else if (cancelled) {
-      suppressClickRef.current = null;
     }
     setDragState({ ...EMPTY_DRAG_STATE });
     const captureTarget = dragState.captureTarget;
     if (captureTarget?.hasPointerCapture?.(event.pointerId)) {
       captureTarget.releasePointerCapture?.(event.pointerId);
     }
-  }, [setDragState, updateAtomicState, updateElectronShell]);
+  }, [cancelObjectDrag, handleObjectPointerMove, setDragState, updateElectronShell]);
 
   const handleViewportPointerMove = useCallback((
     event: React.PointerEvent<HTMLDivElement>,
@@ -1247,6 +1334,19 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
     dimensions.height > 0
     && dimensions.height < COMPACT_VIEWPORT_HEIGHT
   );
+  const draggingMolecule = atomicState.dragState.type === 'electron'
+    ? atomicState.molecules.find(molecule => molecule.id === atomicState.dragState.moleculeId)
+    : undefined;
+  const draggingElectron = draggingMolecule?.electrons.find(electron => electron.id === atomicState.dragState.electronId);
+  const candidateShell = draggingMolecule && atomicState.dragState.currentWorld
+    ? closestShellIndex(Math.hypot(
+        atomicState.dragState.currentWorld.x - draggingMolecule.x,
+        atomicState.dragState.currentWorld.y - draggingMolecule.y,
+      )) : null;
+  const candidateOrbitFull = candidateShell !== null && draggingMolecule
+    ? draggingMolecule.electrons.filter(electron => electron.id !== draggingElectron?.id
+      && electron.shell === candidateShell && electron.canvasSlot !== null).length >= SHELL_CONFIG[candidateShell].canvasSlots
+    : false;
   // Reserve the view toolbar and bottom summaries inside the measured canvas,
   // which can be much shorter than the browser viewport on phones.
   const bottomPanelStyle = {
@@ -1327,11 +1427,14 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         role="region"
         aria-label="Atomic view (experimental)"
         aria-describedby="atomic-view-instructions"
-        onWheel={onWheel}
-        onPointerDown={onPanStart}
+        onWheel={event => { if (!dragStateRef.current.isDragging) onWheel(event); }}
+        onPointerDown={event => { if (!dragStateRef.current.isDragging) onPanStart(event); }}
         onPointerMove={handleViewportPointerMove}
         onPointerUp={event => handleViewportPointerEnd(event, false)}
         onPointerCancel={event => handleViewportPointerEnd(event, true)}
+        onLostPointerCapture={event => {
+          if (dragStateRef.current.isDragging) finishObjectDrag(event, true);
+        }}
         onTouchStart={handleCanvasTouchStart}
         onTouchMove={handleCanvasTouchMove}
         onTouchEnd={handleCanvasTouchEnd}
@@ -1345,8 +1448,9 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           to open a task or change its Today, Week, or Later horizon. When
           zoomed in, electron buttons open tasks with Enter or Space and arrow
           keys change horizon. Molecule buttons select a life domain; arrow
-          keys move its view-only position. Molecule positions are not saved,
-          and orbit motion is off until you explicitly play it. Hover or focus a particle to pause the orbits. Electrons are actions, protons are thoughts, and neutrons are memories or moods; this is a personal metaphor.
+          keys move its view-only position. Molecule positions are not saved.
+          Escape or Cancel move cancels an active drag without saving it.
+          Orbit motion is off until you explicitly play it. Hover or focus a particle to pause the orbits. Electrons are actions, protons are thoughts, and neutrons are memories or moods; this is a personal metaphor.
         </p>
         <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
           {movementAnnouncement}
@@ -1385,13 +1489,8 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                   <div
                     key={shell.name}
                     aria-hidden="true"
-                    data-drop-target={atomicState.dragState.moleculeId === molecule.id
-                      && atomicState.dragState.type === 'electron'
-                      && !!atomicState.dragState.currentWorld
-                      && closestShellIndex(Math.hypot(
-                        atomicState.dragState.currentWorld.x - molecule.x,
-                        atomicState.dragState.currentWorld.y - molecule.y,
-                      )) === shellIndex}
+                    data-shell-index={shellIndex}
+                    data-drop-target={draggingMolecule?.id === molecule.id && candidateShell === shellIndex}
                     className="atomic-orbit pointer-events-none absolute rounded-full"
                     style={{
                       width: displayRadius * 2,
@@ -1473,6 +1572,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                     }}
                     aria-label={`${label}. ${molecule.nucleus.domain} molecule. ${shell.name} horizon. ${flavor.name}. Open with Enter; use arrow keys to change horizon.`}
                     aria-keyshortcuts="Enter Space ArrowUp ArrowDown ArrowLeft ArrowRight"
+                    aria-busy={!!electron.originalBubble && pendingTaskIds.has(electron.originalBubble.id)}
                     title={label}
                     onMouseEnter={() => setHoveredTaskId(electron.originalBubble?.id ?? null)}
                     onMouseLeave={() => setHoveredTaskId(null)}
@@ -1486,6 +1586,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
                       }
                     }}
                     onKeyDown={(event) => {
+                      if (dragStateRef.current.isDragging) return;
                       if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
                         event.stopPropagation();
@@ -1632,6 +1733,8 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
       <AtomicTaskNavigator
         panelGroup={panelGroup}
         bubbles={bubbles}
+        canvasHeight={dimensions.height}
+        pendingTaskIds={pendingTaskIds}
         onOpenTask={(bubble) => onBubbleSelect?.(bubble)}
         onHorizonChange={(bubble, targetShell) => {
           const linkedElectron = atomicStateRef.current.molecules
@@ -1649,6 +1752,24 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
         }}
       />
 
+      {atomicState.dragState.isDragging ? <div data-panel data-testid="atomic-drag-feedback"
+        data-target-horizon={candidateShell === null ? undefined : HORIZONS[candidateShell]}
+        className="atomic-drag-feedback absolute left-3 right-3 z-50 mx-auto max-w-md rounded-2xl border bg-card/95 p-3 text-card-foreground shadow-md backdrop-blur-md"
+        style={{ top: compactControls ? 68 : 124 }}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0" role="status" aria-live="polite" aria-atomic="true">
+            <p className="text-sm font-semibold">{candidateShell !== null ? `Release in ${SHELL_CONFIG[candidateShell].name}` : 'Move this life area'}</p>
+            <p className="mt-1 line-clamp-2 break-words text-xs text-muted-foreground">{draggingElectron?.content || 'This layout change stays in this view.'}</p>
+          </div>
+          <button type="button" onClick={cancelObjectDrag} className="min-h-11 shrink-0 rounded-xl border px-3 text-xs font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Cancel move</button>
+        </div>
+        {candidateShell !== null ? <ol aria-label="Drop destination" className="mt-2 flex gap-1">
+          {SHELL_CONFIG.map((shell, index) => <li key={shell.name} aria-current={candidateShell === index ? 'step' : undefined}
+            className="atomic-drag-destination flex-1 rounded-lg border px-2 py-1 text-center text-xs font-medium">{shell.name}</li>)}
+        </ol> : null}
+        {candidateOrbitFull ? <p className="mt-2 text-xs text-muted-foreground">This orbit is full. The task will still move here and remain available in Tasks.</p> : null}
+      </div> : null}
+
       {!showElectronControls && electronCount > 0 ? (
         <p data-testid="atomic-overview-hint" className="sr-only" role="status">
           Overview. Zoom in to move task electrons, or use the Tasks navigator.
@@ -1665,7 +1786,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
               <li><strong>+ Protons:</strong> thoughts; ideas with a little spark.</li>
               <li><strong>• Neutrons:</strong> memories and moods; context worth holding.</li>
             </ul>
-            <p className="text-xs text-muted-foreground">A personal metaphor. Drag a particle to Today, Week, or Later. The highlighted ring shows where it will land. Hover or focus to steady the scene.</p>
+            <p className="text-xs text-muted-foreground">A personal metaphor. Drag a particle to Today, Week, or Later. The highlighted ring and destination label show where it will land. Escape or Cancel move returns it without saving. Use Tasks to search and choose a horizon without dragging.</p>
             <p className="text-xs text-muted-foreground">Bonds show your confirmed connections. A shared task stays one task everywhere. Open Connections and choose Trace this task to follow it at any zoom. Dragging a nucleus changes this view only.</p>
           </div>
         </details>
@@ -1741,7 +1862,7 @@ export const AtomicRenderer: React.FC<AtomicRendererProps> = ({
           </div>
         </details>
       </div>
-      {tracedConnection ? <div data-panel data-testid="atomic-trace-status" className="absolute left-3 z-40 flex max-w-[min(25rem,calc(100%-1.5rem))] items-center gap-3 rounded-2xl border bg-card/95 p-3 shadow-sm backdrop-blur-md" style={{ top: compactControls ? 68 : 124 }}>
+      {tracedConnection && !atomicState.dragState.isDragging ? <div data-panel data-testid="atomic-trace-status" className="absolute left-3 z-40 flex max-w-[min(25rem,calc(100%-1.5rem))] items-center gap-3 rounded-2xl border bg-card/95 p-3 shadow-sm backdrop-blur-md" style={{ top: compactControls ? 68 : 124 }}>
         <div className="min-w-0 space-y-1">
           <p className="text-xs font-semibold text-foreground">One task, {tracedConnection.links.length} life areas</p>
           <p className="line-clamp-2 break-words text-xs text-muted-foreground">{tracedConnection.task.content || 'Untitled task'}</p>

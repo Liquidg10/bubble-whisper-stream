@@ -67,6 +67,11 @@
 
 .atomic-connections-content { overflow-wrap: anywhere; }
 .atomic-bottom-panels:has(> details[open]) { z-index: 50; }
+.atomic-drag-destination[aria-current="step"] {
+  background: hsl(var(--foreground));
+  border-color: hsl(var(--foreground));
+  color: hsl(var(--background));
+}
 .atomic-trace-anchor { fill: hsl(var(--accent-flow) / 0.08); stroke: hsl(var(--accent-flow)); }
 .atomic-particle[data-traced="true"] { outline: 2px solid hsl(var(--accent-flow)); outline-offset: 3px; }
 .atomic-scene[data-high-contrast="true"] .atomic-trace-anchor,
