@@ -1,0 +1,76 @@
+.atomic-spatial-scene {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: #edf4f0;
+  isolation: isolate;
+}
+.atomic-spatial-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+.atomic-spatial-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.atomic-spatial-label {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  position: absolute;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 136px;
+  min-height: 44px;
+  max-height: 62px;
+  padding: 8px 12px;
+  border: 1px solid #b9cdc3;
+  border-radius: 16px;
+  background: rgb(250 254 250 / 94%);
+  color: #254d41;
+  font-size: 12px;
+  line-height: 1.3;
+  font-weight: 600;
+  text-align: center;
+  overflow-wrap: anywhere;
+  box-shadow: 0 3px 14px rgb(48 81 69 / 9%);
+  pointer-events: auto;
+  cursor: pointer;
+}
+.atomic-spatial-label[aria-pressed="true"] { border-color: #356d58; background: #e1f0e6; }
+.atomic-spatial-label:hover { background: #e1f0e6; }
+.atomic-spatial-label:focus-visible { outline: 3px solid #356d58; outline-offset: 3px; }
+.atomic-spatial-label[hidden] { display: none; }
+.atomic-spatial-tooltip {
+  position: absolute;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: min(224px, calc(100% - 16px));
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: #254d41;
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.4;
+  box-shadow: 0 4px 18px rgb(37 77 65 / 20%);
+  pointer-events: none;
+  z-index: 2;
+}
+.atomic-spatial-tooltip[hidden] { display: none; }
+.atomic-spatial-density {
+  position: absolute;
+  left: 12px;
+  bottom: 76px;
+  max-width: min(250px, calc(100% - 24px));
+  border-radius: 12px;
+  background: rgb(250 254 250 / 95%);
+  padding: 8px 12px;
+  color: #254d41;
+  font-size: 12px;
+  pointer-events: none;
+}
+.atomic-spatial-fallback { position: absolute; inset: 0; display: grid; place-content: center; padding: 24px; color: #254d41; background: #edf4f0; }
