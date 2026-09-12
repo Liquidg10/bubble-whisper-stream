@@ -56,7 +56,10 @@ object paths are stored in the registry.
 
 The offline `storageScopeConfigurationSql(scope)` and
 `storageScopeAssertionSql(scope)` helpers in `storage-ingress-readiness.mjs`
-prepare configuration SQL and an exact owner/assignment assertion. They execute
+prepare configuration SQL and an exact owner/assignment assertion.
+`storageScopeBindingAssertionSql(binding)` provides the same check from hash-only
+receipt bindings for import, reset and other action-time guards; its SQL builds
+the same canonical assignment JSON bytes as the JS scope validator. These helpers execute
 nothing. The assertion belongs in the approved operator transaction before a
 freeze decision; structural catalog equality excludes these operational rows
 and cannot establish scope parity. No user or service API role can configure

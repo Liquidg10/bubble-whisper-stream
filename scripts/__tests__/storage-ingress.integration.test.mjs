@@ -11,7 +11,7 @@ import { subjectScopeBinding } from '../lib/migration-subject-scope.mjs';
 import {
   buildStorageIngressReadiness, inspectStorageIngressWiring, loadStorageIngressObservations,
   STORAGE_WRITER_ROSTER, storageIngressBoundary, validateStorageIngressObservations,
-  storageScopeAssertionSql, storageScopeConfigurationSql,
+  storageScopeAssertionSql, storageScopeBindingAssertionSql, storageScopeConfigurationSql,
 } from '../lib/storage-ingress-readiness.mjs';
 
 const selected = '10000000-0000-4000-8000-000000000001';
@@ -270,6 +270,28 @@ describe('storage gateway policies — isolated real PostgreSQL metadata only', 
       denies(`SET ROLE ${role}; SELECT * FROM mind_manual_migration.storage_legacy_assignments;`);
       denies(`SET ROLE ${role}; ${storageScopeConfigurationSql(scope)}`);
       denies(`SET ROLE ${role}; SELECT mind_manual_migration.storage_write_allowed('{}');`);
+    }
+  });
+  it('matches canonical JS hash-only scope binding for empty and multi-assignment registries', () => {
+    sql(artifact);
+    for (const assignments of [[], [
+      { bucket: 'voice-samples', pathSha256: sha256('voice'), ownerSubjectId: selected },
+      { bucket: 'photos', pathSha256: sha256('a-photo'), ownerSubjectId: unrelated },
+      { bucket: 'photos', pathSha256: sha256('another-photo'), ownerSubjectId: selected },
+    ]]) {
+      sql('DELETE FROM mind_manual_migration.storage_scope; DELETE FROM mind_manual_migration.storage_legacy_assignments;');
+      const scoped = { ...scope, legacyStorageAssignments: assignments };
+      const binding = subjectScopeBinding(scoped);
+      const guard = storageScopeBindingAssertionSql(binding);
+      assert.equal(guard.includes(selected), false);
+      assert.equal(guard.includes(unrelated), false);
+      denies(guard, /approved owner\/object binding/u);
+      sql(storageScopeConfigurationSql(scoped));
+      sql(guard);
+      denies(storageScopeBindingAssertionSql({ ...binding, subjectIdsSha256: sha256('other-owner') }), /approved owner\/object binding/u);
+      denies(storageScopeBindingAssertionSql({ ...binding, legacyAssignmentsSha256: sha256('other-assignments') }), /approved owner\/object binding/u);
+      sql(`UPDATE mind_manual_migration.storage_scope SET owner_subject_id='${unrelated}'`);
+      denies(guard, /approved owner\/object binding/u);
     }
   });
   it('serializes scope configuration behind in-flight Storage authorization', async () => {

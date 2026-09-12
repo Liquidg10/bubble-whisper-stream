@@ -2,7 +2,7 @@ import { closeSync, constants, fstatSync, openSync, readFileSync } from 'node:fs
 import { isAbsolute, resolve } from 'node:path';
 import ts from 'typescript';
 import { canonicalJson, quoteLiteral, sha256 } from './supabase-isolation.mjs';
-import { assertScopeBinding, subjectScopeBinding, validateSubjectScope } from './migration-subject-scope.mjs';
+import { assertScopeBinding, subjectScopeBinding, validateSubjectScope, validateSubjectScopeBinding } from './migration-subject-scope.mjs';
 import { inspectEdgeFenceCoverage } from './source-write-fence-readiness.mjs';
 
 // This roster is a review checklist, not an exhaustive provider attestation.
@@ -44,6 +44,29 @@ export function storageScopeAssertionSql(input) {
       RAISE EXCEPTION 'Storage registry does not match approved owner/object scope' USING ERRCODE = '55000';
     END IF;
   END $storage_scope$;`;
+}
+
+/** Hash-only action-time guard; receipts contain no raw owner IDs or paths. */
+export function storageScopeBindingAssertionSql(binding) {
+  validateSubjectScopeBinding(binding, 'Storage scope binding');
+  if (binding.subjectCount !== 1) throw new Error('Storage scope requires exactly one owner');
+  // Construct canonical JSON explicitly. jsonb::text inserts spaces and orders
+  // object keys differently from canonicalJson, so it is not the receipt hash.
+  const assignments = `COALESCE('[' || string_agg(
+    '{"bucket":' || to_json(bucket_id)::text || ',"ownerSubjectId":' || to_json(owner_subject_id::text)::text ||
+    ',"pathSha256":' || to_json(path_sha256)::text || '}', ',' ORDER BY bucket_id, path_sha256) || ']', '[]')`;
+  return `DO $storage_scope_binding$ BEGIN
+    IF (SELECT count(*) FROM mind_manual_migration.storage_scope) <> 1
+       OR (SELECT encode(sha256(convert_to(owner_subject_id::text, 'UTF8')), 'hex')
+         FROM mind_manual_migration.storage_scope WHERE singleton) IS DISTINCT FROM ${quoteLiteral(binding.subjectIdsSha256)}
+       OR (SELECT count(*) FROM mind_manual_migration.subjects) <> 1
+       OR (SELECT encode(sha256(convert_to(user_id::text, 'UTF8')), 'hex')
+         FROM mind_manual_migration.subjects) IS DISTINCT FROM ${quoteLiteral(binding.subjectIdsSha256)}
+       OR (SELECT encode(sha256(convert_to(${assignments}, 'UTF8')), 'hex')
+         FROM mind_manual_migration.storage_legacy_assignments) IS DISTINCT FROM ${quoteLiteral(binding.legacyAssignmentsSha256)} THEN
+      RAISE EXCEPTION 'Storage registry does not match approved owner/object binding' USING ERRCODE = '55000';
+    END IF;
+  END $storage_scope_binding$;`;
 }
 
 function exactKeys(value, keys) {
