@@ -11,7 +11,7 @@ only to `storage-photo`. The shared deployment retains its existing authenticate
 owner-prefixed direct private-bucket path so this draft cannot disrupt unrelated
 users before a separately approved cutover. There is no cross-mode fallback or
 automatic retry. Private read URL signing remains a Storage read operation. The
-gateway is entrypoint 34 in the exact Edge manifest and uses the same non-expiring
+gateway is included in the exact Edge manifest and uses the same non-expiring
 admission lease as the other entrypoints. Authorization still verifies the caller
 independently.
 
@@ -33,19 +33,42 @@ not proof that a remote operation stopped when its response was lost.
 `supabase/isolation/storage-write-gateway.sql` installs exactly three restrictive
 policies on `storage.objects`: `mind_manual_gateway_insert`,
 `mind_manual_gateway_update`, and `mind_manual_gateway_delete`. They deny new
-`anon`/`authenticated` mutations involving `photos` or `voice-samples`, including
-moving objects into or out of these buckets. Existing permissive policies cannot
-override the restrictions. Reads and other buckets are not changed. A denied
+`anon`/`authenticated` mutations involving the selected owner in `photos` or
+`voice-samples`: the verified JWT owner, a selected canonical owner folder,
+selected `owner_id`/legacy `owner` metadata, or an exact assigned legacy
+bucket/path SHA-256. UPDATE checks both old and new rows, so moving a selected
+object out or moving another object into the selected scope cannot bypass the
+policy. Existing permissive policies cannot override the restrictions. Reads,
+other buckets, and unrelated owners/objects in these same buckets retain their
+existing policies. A denied
 DELETE can affect zero rows rather than return an authorization error; verify
 unchanged objects, not merely an HTTP status.
 
-This policy affects **all users of both buckets**, not only selected migration
-subjects. A live release requires an authenticated bucket-exclusivity review and
-an explicit old-client disruption/maintenance plan. There is no voice-sample
-browser writer in the reviewed application; do not invent a bypass for one.
+The policy is dormant before owner selection. The private `storage_scope` marker
+and indexed `storage_legacy_assignments` registry are configured once through
+`mind_manual_migration.configure_storage_scope(owner_uuid, assignments_jsonb)`.
+This requires the exact single selected owner, open control and no Edge leases;
+exact replays are idempotent and changes are refused. Even an empty assignment
+list must be explicitly configured. The private subject-scope file supplies the
+owner and exact path hashes after inventory and conflict resolution; never infer
+ownership or overwrite a conflicting canonical folder/owner assignment. No raw
+object paths are stored in the registry.
+
+The offline `storageScopeConfigurationSql(scope)` and
+`storageScopeAssertionSql(scope)` helpers in `storage-ingress-readiness.mjs`
+prepare configuration SQL and an exact owner/assignment assertion. They execute
+nothing. The assertion belongs in the approved operator transaction before a
+freeze decision; structural catalog equality excludes these operational rows
+and cannot establish scope parity. No user or service API role can configure
+or read the registries. Policies invoke their helper without granting private
+schema access. A live release still needs an explicit selected-owner old-client
+transition and maintenance plan. There is no voice-sample browser writer in the
+reviewed application; do not invent a bypass for one.
 
 The artifact locks the control singleton through commit to serialize installation
-with admission/transitions, and requires open control, zero admitted leases,
+with admission/transitions. Scope configuration uses the same exclusive row lock;
+every two-bucket user authorization holds the shared row lock through its
+transaction and rechecks scope after any wait. Installation requires open control, zero admitted leases,
 both private buckets, existing Storage RLS, and non-bypassing API roles. It is
 install-once and transactional; it does not silently replace existing policies.
 It is outside automatic migrations and is never invoked by the test/check tools.
@@ -89,13 +112,16 @@ The rollout dependency order, for a separately approved maintenance window, is:
 1. Preserve/review the pre-guard baseline and restore it on the approved target.
 2. Review both manual artifacts and their locally generated catalog reference;
    install the matching control schema and storage policy on both projects.
-3. Deploy all reviewed Edge artifacts, including the photo gateway, before the
+3. Resolve the exact owner/object inventory, configure the immutable registry on
+   both projects, and validate it against the same private scope file. The selected
+   owner is routed to the isolated gateway only as part of the approved transition;
+   unrelated shared-deployment users retain their normal private-bucket writes.
+4. Deploy all reviewed Edge artifacts, including the photo gateway, before the
    matching client release. The policy-install-to-client-release gap is a
-   maintenance interval: old direct writers will fail. Do not apply this order
-   to a shared bucket without explicit disposition.
-4. Revalidate exact source/target catalogs, deployed generations, private bucket
+   maintenance interval for the selected owner: their old direct writers will fail.
+5. Revalidate exact source/target catalogs, deployed generations, private bucket
    scope, provider/old-writer retirement and live denial/rollback behavior.
-5. Only after the remaining subject, identity, scheduler, provider and owner
+6. Only after the remaining subject, identity, scheduler, provider and owner
    gates are resolved may a later approved freeze/cutover procedure run.
 
 `scripts/lib/migration-guard-catalog.mjs` queries structural catalog facts in a
@@ -105,7 +131,7 @@ registries, functions, ACLs/owners, triggers and three Storage policies. Referen
 generation is restricted to the disposable local test fixture and must be
 reviewed with artifact changes; an operator-supplied golden is not accepted.
 
-Operational control phase/time, selected subject IDs, and lease rows are not
+Operational control phase/time, selected subject IDs, Storage owner/assignment rows, and lease rows are not
 structural catalog parity. They need separate live scope/drain evidence. The
 contract does not ignore guard triggers or public function changes: normal
 public-table fingerprints remain exact. Only the two exact guard RPC names are
@@ -148,6 +174,13 @@ connects to a provider, accepts credentials, or executes a live change.
 Tests use disposable local PostgreSQL with a private Unix socket/no TCP and
 synthetic roles/objects, plus mocked auth/Storage transports. CI uses no live
 credentials. Test success is implementation evidence only.
+
+The September 12 owner/object repair adds tests for unrelated same-bucket
+insert/update/upsert/delete, selected-path and both owner-metadata forms,
+anonymous/foreign actors, destination scope checks, exact legacy bucket/path
+hashes, immutable private configuration, and both directions of the scope-change
+authorization race. The older tranche totals below describe their original run;
+the repair's current results belong in its own handoff receipt.
 
 ## Tranche verification receipt
 

@@ -1,8 +1,8 @@
 import { closeSync, constants, fstatSync, openSync, readFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import ts from 'typescript';
-import { canonicalJson, sha256 } from './supabase-isolation.mjs';
-import { assertScopeBinding, subjectScopeBinding } from './migration-subject-scope.mjs';
+import { canonicalJson, quoteLiteral, sha256 } from './supabase-isolation.mjs';
+import { assertScopeBinding, subjectScopeBinding, validateSubjectScope } from './migration-subject-scope.mjs';
 import { inspectEdgeFenceCoverage } from './source-write-fence-readiness.mjs';
 
 // This roster is a review checklist, not an exhaustive provider attestation.
@@ -17,9 +17,34 @@ const HASH = /^[0-9a-f]{64}$/u;
 const MAX_OBSERVATION_AGE_MS = 15 * 60 * 1000;
 const BOUNDARY_KEYS = ['version', 'edgeManifestSha256', 'gatewayBundleSha256', 'storagePolicySha256', 'photoClientSha256'];
 const PERMANENT_BLOCKERS = Object.freeze([
-  { code: 'provider_review_unproven', reason: 'Local inspection and caller-supplied hashes do not verify provider provenance, hosted versions, bucket exclusivity, retirement of signed/privileged or already-authorized work, or a byte-ingress freeze.' },
+  { code: 'provider_review_unproven', reason: 'Local inspection and caller-supplied hashes do not verify provider provenance, hosted versions, the exact selected-owner/object registry, retirement of signed/privileged or already-authorized work, or a byte-ingress freeze.' },
   { code: 'owner_window', reason: 'This diagnostic cannot authorize deployment, credentials, live writer retirement, a source freeze, or cutover.' },
 ]);
+
+/** Offline SQL preparation only; callers must never treat it as live authority. */
+export function storageScopeConfigurationSql(input) {
+  const scope = validateSubjectScope(input);
+  return `SELECT mind_manual_migration.configure_storage_scope(${quoteLiteral(scope.subjectIds[0])}::uuid, ${quoteLiteral(canonicalJson(scope.legacyStorageAssignments))}::jsonb);`;
+}
+
+/** Exact read-only scope assertion, intended inside the operator's locked transaction. */
+export function storageScopeAssertionSql(input) {
+  const scope = validateSubjectScope(input);
+  return `DO $storage_scope$ BEGIN
+    IF (SELECT count(*) FROM mind_manual_migration.storage_scope) <> 1
+       OR NOT EXISTS (SELECT 1 FROM mind_manual_migration.storage_scope
+         WHERE singleton AND owner_subject_id = ${quoteLiteral(scope.subjectIds[0])}::uuid)
+       OR (SELECT count(*) FROM mind_manual_migration.subjects) <> 1
+       OR NOT EXISTS (SELECT 1 FROM mind_manual_migration.subjects
+         WHERE user_id = ${quoteLiteral(scope.subjectIds[0])}::uuid)
+       OR (SELECT COALESCE(jsonb_agg(jsonb_build_object('bucket', bucket_id, 'pathSha256', path_sha256,
+         'ownerSubjectId', owner_subject_id::text) ORDER BY bucket_id, path_sha256), '[]'::jsonb)
+         FROM mind_manual_migration.storage_legacy_assignments)
+         <> ${quoteLiteral(canonicalJson(scope.legacyStorageAssignments))}::jsonb THEN
+      RAISE EXCEPTION 'Storage registry does not match approved owner/object scope' USING ERRCODE = '55000';
+    END IF;
+  END $storage_scope$;`;
+}
 
 function exactKeys(value, keys) {
   return value !== null && typeof value === 'object' && !Array.isArray(value)

@@ -11,8 +11,11 @@ import { subjectScopeBinding } from '../lib/migration-subject-scope.mjs';
 import {
   buildStorageIngressReadiness, inspectStorageIngressWiring, loadStorageIngressObservations,
   STORAGE_WRITER_ROSTER, storageIngressBoundary, validateStorageIngressObservations,
+  storageScopeAssertionSql, storageScopeConfigurationSql,
 } from '../lib/storage-ingress-readiness.mjs';
 
+const selected = '10000000-0000-4000-8000-000000000001';
+const unrelated = '20000000-0000-4000-8000-000000000002';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const artifact = readFileSync(join(root, 'supabase/isolation/storage-write-gateway.sql'), 'utf8');
 const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('PG')));
@@ -27,7 +30,7 @@ function command(exe, args, options = {}) {
 }
 const psqlArgs = () => ['-X', '-qAt', '-v', 'ON_ERROR_STOP=1', '-v', 'VERBOSITY=verbose',
   '-h', scratch, '-p', '5432', '-U', 'postgres', '-d', 'postgres'];
-function execute(statement) { return command('psql', psqlArgs(), { input: statement }); }
+function execute(statement) { return command('psql', psqlArgs(), { input: `SET request.jwt.claim.sub='${selected}';\n${statement}` }); }
 function sql(statement) {
   const result = execute(statement);
   assert.equal(result.status, 0, result.stderr);
@@ -91,20 +94,28 @@ describe('storage gateway policies — isolated real PostgreSQL metadata only', 
     sql(`ALTER ROLE anon NOSUPERUSER NOBYPASSRLS; ALTER ROLE authenticated NOSUPERUSER NOBYPASSRLS;
       REVOKE supabase_storage_admin FROM anon, authenticated;
       DROP SCHEMA IF EXISTS storage CASCADE; DROP SCHEMA IF EXISTS mind_manual_migration CASCADE;
+      DROP SCHEMA IF EXISTS auth CASCADE;
+      CREATE SCHEMA auth;
+      CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS
+        'SELECT nullif(current_setting(''request.jwt.claim.sub'', true), '''')::uuid';
       CREATE SCHEMA mind_manual_migration;
       CREATE TABLE mind_manual_migration.control (singleton boolean PRIMARY KEY, phase text);
       INSERT INTO mind_manual_migration.control VALUES (true, 'open');
       CREATE TABLE mind_manual_migration.edge_leases (lease_id text PRIMARY KEY);
+      CREATE TABLE mind_manual_migration.subjects (user_id uuid PRIMARY KEY);
+      INSERT INTO mind_manual_migration.subjects VALUES ('${selected}');
+      REVOKE ALL ON SCHEMA mind_manual_migration FROM PUBLIC, anon, authenticated, service_role;
       CREATE SCHEMA storage AUTHORIZATION supabase_storage_admin;
       CREATE TABLE storage.buckets (id text PRIMARY KEY, public boolean NOT NULL);
       INSERT INTO storage.buckets VALUES ('photos',false),('voice-samples',false),('commerce',false);
-      CREATE TABLE storage.objects (bucket_id text REFERENCES storage.buckets(id), name text, payload text, PRIMARY KEY(bucket_id,name));
+      CREATE TABLE storage.objects (bucket_id text REFERENCES storage.buckets(id), name text, payload text,
+        owner_id text DEFAULT '${selected}', owner uuid, PRIMARY KEY(bucket_id,name));
       ALTER TABLE storage.objects OWNER TO supabase_storage_admin;
       ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
       GRANT USAGE ON SCHEMA storage TO anon, authenticated, service_role;
       GRANT SELECT,INSERT,UPDATE,DELETE ON storage.objects TO anon, authenticated, service_role;
       CREATE POLICY fixture_allow_everything ON storage.objects TO anon, authenticated USING(true) WITH CHECK(true);
-      INSERT INTO storage.objects VALUES ('photos','fixture.jpg','original'),('voice-samples','fixture.wav','original'),('commerce','fixture.txt','original');`);
+      INSERT INTO storage.objects (bucket_id,name,payload) VALUES ('photos','fixture.jpg','original'),('voice-samples','fixture.wav','original'),('commerce','fixture.txt','original');`);
   });
   after(async () => {
     for (const handle of sessions) handle.child.stdin.end('ROLLBACK;\n');
@@ -125,8 +136,8 @@ describe('storage gateway policies — isolated real PostgreSQL metadata only', 
     sql(artifact);
     sql('CREATE POLICY fixture_second_allow ON storage.objects TO PUBLIC USING(true) WITH CHECK(true);');
     for (const role of ['anon', 'authenticated']) for (const bucket of ['photos', 'voice-samples']) {
-      denies(`SET ROLE ${role}; INSERT INTO storage.objects VALUES ('${bucket}','new','changed');`);
-      denies(`SET ROLE ${role}; INSERT INTO storage.objects VALUES ('${bucket}','fixture.${bucket === 'photos' ? 'jpg' : 'wav'}','changed') ON CONFLICT (bucket_id,name) DO UPDATE SET payload=EXCLUDED.payload;`);
+      denies(`SET ROLE ${role}; INSERT INTO storage.objects (bucket_id,name,payload) VALUES ('${bucket}','new','changed');`);
+      denies(`SET ROLE ${role}; INSERT INTO storage.objects (bucket_id,name,payload) VALUES ('${bucket}','fixture.${bucket === 'photos' ? 'jpg' : 'wav'}','changed') ON CONFLICT (bucket_id,name) DO UPDATE SET payload=EXCLUDED.payload;`);
     }
     assert.equal(protectedRows(), 'photos/fixture.jpg:original\nvoice-samples/fixture.wav:original');
   });
@@ -144,10 +155,10 @@ describe('storage gateway policies — isolated real PostgreSQL metadata only', 
   it('denies copy destinations in protected buckets; allowed reads/copy-out do not mutate source', () => {
     sql(artifact);
     for (const bucket of ['photos', 'voice-samples']) {
-      denies(`SET ROLE authenticated; INSERT INTO storage.objects SELECT '${bucket}','copied',payload FROM storage.objects WHERE bucket_id='commerce';`);
+      denies(`SET ROLE authenticated; INSERT INTO storage.objects (bucket_id,name,payload) SELECT '${bucket}','copied',payload FROM storage.objects WHERE bucket_id='commerce';`);
     }
     const original = protectedRows();
-    sql("SET ROLE authenticated; INSERT INTO storage.objects SELECT 'commerce','copied-photo',payload FROM storage.objects WHERE bucket_id='photos';");
+    sql("SET ROLE authenticated; INSERT INTO storage.objects (bucket_id,name,payload) SELECT 'commerce','copied-photo',payload FROM storage.objects WHERE bucket_id='photos';");
     assert.equal(protectedRows(), original);
     assert.equal(sql("SET ROLE authenticated; SELECT payload FROM storage.objects WHERE name='copied-photo'"), 'original');
   });
@@ -155,19 +166,140 @@ describe('storage gateway policies — isolated real PostgreSQL metadata only', 
     sql(artifact);
     for (const role of ['anon', 'authenticated']) {
       assert.equal(sql(`SET ROLE ${role}; SELECT count(*) FROM storage.objects WHERE bucket_id IN ('photos','voice-samples');`), '2');
-      sql(`SET ROLE ${role}; INSERT INTO storage.objects VALUES ('commerce','allowed','first');
+      sql(`SET ROLE ${role}; INSERT INTO storage.objects (bucket_id,name,payload) VALUES ('commerce','allowed','first');
         UPDATE storage.objects SET payload='second' WHERE name='allowed';
-        INSERT INTO storage.objects VALUES ('commerce','allowed','third') ON CONFLICT (bucket_id,name) DO UPDATE SET payload=EXCLUDED.payload;`);
+        INSERT INTO storage.objects (bucket_id,name,payload) VALUES ('commerce','allowed','third') ON CONFLICT (bucket_id,name) DO UPDATE SET payload=EXCLUDED.payload;`);
       assert.equal(sql("SELECT payload FROM storage.objects WHERE name='allowed'"), 'third');
       sql(`SET ROLE ${role}; DELETE FROM storage.objects WHERE name='allowed';`);
     }
   });
   it('demonstrates service-role and Storage-owner bypass — not a storage byte freeze', () => {
     sql(artifact);
-    sql("SET ROLE service_role; INSERT INTO storage.objects VALUES ('photos','privileged.jpg','privileged'); UPDATE storage.objects SET payload='privileged' WHERE bucket_id='voice-samples'; DELETE FROM storage.objects WHERE name='fixture.jpg';");
+    sql("SET ROLE service_role; INSERT INTO storage.objects (bucket_id,name,payload) VALUES ('photos','privileged.jpg','privileged'); UPDATE storage.objects SET payload='privileged' WHERE bucket_id='voice-samples'; DELETE FROM storage.objects WHERE name='fixture.jpg';");
     assert.equal(protectedRows(), 'photos/privileged.jpg:privileged\nvoice-samples/fixture.wav:privileged');
     sql("SET ROLE supabase_storage_admin; UPDATE storage.objects SET payload='owner bypass' WHERE bucket_id='photos';");
     assert.match(protectedRows(), /owner bypass/u);
+  });
+  it('is dormant before owner selection and leaves unrelated two-bucket writers usable', () => {
+    sql('DELETE FROM mind_manual_migration.subjects;');
+    sql(artifact);
+    sql(`SET ROLE authenticated; INSERT INTO storage.objects (bucket_id,name,payload) VALUES ('photos','before-selection','allowed');`);
+    sql(`INSERT INTO mind_manual_migration.subjects VALUES ('${selected}');`);
+    for (const role of ['anon', 'authenticated']) for (const bucket of ['photos', 'voice-samples']) {
+      sql(`SET request.jwt.claim.sub='${unrelated}'; SET ROLE ${role};
+        INSERT INTO storage.objects (bucket_id,name,payload,owner_id) VALUES ('${bucket}','${unrelated}/own-file','first','${unrelated}');
+        UPDATE storage.objects SET payload='second' WHERE bucket_id='${bucket}' AND name='${unrelated}/own-file';
+        INSERT INTO storage.objects (bucket_id,name,payload,owner_id) VALUES ('${bucket}','${unrelated}/own-file','third','${unrelated}')
+          ON CONFLICT (bucket_id,name) DO UPDATE SET payload=EXCLUDED.payload;`);
+      assert.equal(sql(`SELECT payload FROM storage.objects WHERE bucket_id='${bucket}' AND name='${unrelated}/own-file'`), 'third');
+      sql(`SET request.jwt.claim.sub='${unrelated}'; SET ROLE ${role}; DELETE FROM storage.objects WHERE bucket_id='${bucket}' AND name='${unrelated}/own-file';`);
+    }
+  });
+  it('blocks selected-owner actors even when they choose an unowned or foreign path', () => {
+    sql(artifact);
+    for (const name of ['unowned', `${unrelated}/foreign`]) {
+      denies(`SET ROLE authenticated; INSERT INTO storage.objects (bucket_id,name,owner_id) VALUES ('photos','${name}',NULL);`);
+    }
+  });
+  it('protects selected paths and both owner metadata forms against unrelated or anonymous actors', () => {
+    sql(`INSERT INTO storage.objects (bucket_id,name,payload,owner_id,owner) VALUES
+      ('photos','${selected}/canonical','path',NULL,NULL),
+      ('photos','owned-current','current','${selected}',NULL),
+      ('photos','owned-legacy','legacy',NULL,'${selected}');`);
+    sql(artifact);
+    for (const actor of [unrelated, '']) {
+      const asActor = `SET request.jwt.claim.sub='${actor}'; SET ROLE authenticated;`;
+      for (const name of [`${selected}/canonical`, 'owned-current', 'owned-legacy']) {
+        assert.equal(sql(`${asActor} WITH changed AS (UPDATE storage.objects SET owner_id='${unrelated}',owner=NULL,name='escaping' WHERE name='${name}' RETURNING *) SELECT count(*) FROM changed;`), '0');
+        assert.equal(sql(`${asActor} WITH changed AS (DELETE FROM storage.objects WHERE name='${name}' RETURNING *) SELECT count(*) FROM changed;`), '0');
+      }
+      denies(`${asActor} INSERT INTO storage.objects (bucket_id,name,owner_id) VALUES ('photos','${selected}/new',NULL);`);
+      denies(`${asActor} INSERT INTO storage.objects (bucket_id,name,owner_id) VALUES ('photos','foreign-writer','${selected}');`);
+    }
+  });
+  it('checks both sides of unrelated-to-selected metadata/path moves without blocking unrelated moves', () => {
+    sql(`INSERT INTO storage.objects (bucket_id,name,payload,owner_id) VALUES ('photos','${unrelated}/own','unchanged','${unrelated}');`);
+    sql(artifact);
+    const asOther = `SET request.jwt.claim.sub='${unrelated}'; SET ROLE authenticated;`;
+    denies(`${asOther} UPDATE storage.objects SET name='${selected}/taken' WHERE name='${unrelated}/own';`);
+    denies(`${asOther} UPDATE storage.objects SET owner_id='${selected}' WHERE name='${unrelated}/own';`);
+    sql(`${asOther} UPDATE storage.objects SET bucket_id='voice-samples',name='${unrelated}/moved' WHERE name='${unrelated}/own';`);
+    assert.equal(sql(`SELECT payload FROM storage.objects WHERE bucket_id='voice-samples' AND name='${unrelated}/moved'`), 'unchanged');
+  });
+  it('protects only exact assigned legacy bucket/path hashes and validates configured scope', () => {
+    sql(`INSERT INTO storage.objects (bucket_id,name,payload,owner_id) VALUES
+      ('photos','legacy/path.jpg','selected',NULL),('voice-samples','legacy/path.jpg','other-bucket',NULL),
+      ('photos','legacy/path.jpg.extra','other-path',NULL);`);
+    sql(artifact);
+    const legacyScope = { ...scope, legacyStorageAssignments: [{ bucket: 'photos', pathSha256: sha256('legacy/path.jpg'), ownerSubjectId: selected }] };
+    denies(storageScopeAssertionSql(legacyScope), /approved owner\/object scope/u);
+    sql(storageScopeConfigurationSql(legacyScope));
+    sql(storageScopeConfigurationSql(legacyScope)); // exact idempotency
+    sql(storageScopeAssertionSql(legacyScope));
+    denies(storageScopeConfigurationSql(scope), /immutable/u);
+    const asOther = `SET request.jwt.claim.sub='${unrelated}'; SET ROLE authenticated;`;
+    assert.equal(sql(`${asOther} WITH changed AS (DELETE FROM storage.objects WHERE bucket_id='photos' AND name='legacy/path.jpg' RETURNING *) SELECT count(*) FROM changed;`), '0');
+    denies(`${asOther} INSERT INTO storage.objects (bucket_id,name,owner_id) VALUES ('photos','legacy/path.jpg',NULL) ON CONFLICT (bucket_id,name) DO UPDATE SET owner_id=NULL;`);
+    assert.equal(sql(`${asOther} WITH changed AS (UPDATE storage.objects SET payload='allowed' WHERE bucket_id='voice-samples' AND name='legacy/path.jpg' OR name='legacy/path.jpg.extra' RETURNING *) SELECT count(*) FROM changed;`), '2');
+    sql(`UPDATE mind_manual_migration.storage_legacy_assignments SET path_sha256='${sha256('different')}'`);
+    denies(storageScopeAssertionSql(legacyScope), /approved owner\/object scope/u);
+  });
+  it('requires one selected owner, exact assignment shape, immutable configuration and no unresolved work', () => {
+    sql(artifact);
+    denies(`SELECT mind_manual_migration.configure_storage_scope('${unrelated}', '[]');`, /exact selected owner/u);
+    for (const input of [null, {}, [null], [{}], [{ bucket: 'commerce', pathSha256: sha256('a'), ownerSubjectId: selected }],
+      [{ bucket: 'photos', pathSha256: 'bad', ownerSubjectId: selected }],
+      [{ bucket: 'photos', pathSha256: sha256('a'), ownerSubjectId: selected, extra: true }]]) {
+      denies(`SELECT mind_manual_migration.configure_storage_scope('${selected}', '${JSON.stringify(input)}');`, /Invalid/u);
+      assert.equal(sql('SELECT count(*) FROM mind_manual_migration.storage_scope'), '0');
+    }
+    const assignment = { bucket: 'photos', pathSha256: sha256('a'), ownerSubjectId: selected };
+    denies(`SELECT mind_manual_migration.configure_storage_scope('${selected}', '${JSON.stringify([assignment, assignment])}');`, /duplicate/u);
+    sql("INSERT INTO mind_manual_migration.edge_leases VALUES ('pending');");
+    denies(storageScopeConfigurationSql(scope), /no admitted work/u);
+    sql('DELETE FROM mind_manual_migration.edge_leases;');
+    sql(storageScopeConfigurationSql(scope));
+    sql(storageScopeAssertionSql(scope));
+    sql("UPDATE mind_manual_migration.control SET phase='draining';");
+    denies(storageScopeConfigurationSql(scope), /open control/u);
+  });
+  it('keeps the owner/object registry and configuration private from API and service roles', () => {
+    sql(artifact);
+    for (const role of ['anon', 'authenticated', 'service_role']) {
+      denies(`SET ROLE ${role}; SELECT * FROM mind_manual_migration.storage_scope;`);
+      denies(`SET ROLE ${role}; SELECT * FROM mind_manual_migration.storage_legacy_assignments;`);
+      denies(`SET ROLE ${role}; ${storageScopeConfigurationSql(scope)}`);
+      denies(`SET ROLE ${role}; SELECT mind_manual_migration.storage_write_allowed('{}');`);
+    }
+  });
+  it('serializes scope configuration behind in-flight Storage authorization', async () => {
+    sql(artifact);
+    const writer = session();
+    await writer.send(`BEGIN; SET request.jwt.claim.sub='${unrelated}'; SET ROLE authenticated;
+      INSERT INTO storage.objects (bucket_id,name,owner_id) VALUES ('photos','${unrelated}/in-flight','${unrelated}');`);
+    const configure = session();
+    configure.child.stdin.end(`SET application_name='storage_scope_wait'; ${storageScopeConfigurationSql(scope)}\n`);
+    await waitFor(() => sql("SELECT count(*) FROM pg_stat_activity WHERE application_name='storage_scope_wait' AND wait_event_type='Lock'") === '1', 'storage scope lock');
+    assert.equal(sql('SELECT count(*) FROM mind_manual_migration.storage_scope'), '0');
+    writer.child.stdin.end('COMMIT;\n');
+    assert.equal((await writer.done).status, 0);
+    assert.equal((await configure.done).status, 0, configure.stderr);
+    sql(storageScopeAssertionSql(scope));
+  });
+  it('rechecks newly committed legacy scope after a concurrent writer waits on configuration', async () => {
+    sql(artifact);
+    const legacyScope = { ...scope, legacyStorageAssignments: [{ bucket: 'photos', pathSha256: sha256('new-legacy'), ownerSubjectId: selected }] };
+    const configure = session();
+    await configure.send(`BEGIN; ${storageScopeConfigurationSql(legacyScope)}`);
+    const writer = session();
+    writer.child.stdin.end(`SET application_name='storage_writer_scope_wait'; SET request.jwt.claim.sub='${unrelated}'; SET ROLE authenticated;
+      INSERT INTO storage.objects (bucket_id,name,owner_id) VALUES ('photos','new-legacy',NULL);\n`);
+    await waitFor(() => sql("SELECT count(*) FROM pg_stat_activity WHERE application_name='storage_writer_scope_wait' AND wait_event_type='Lock'") === '1', 'storage writer scope lock');
+    configure.child.stdin.end('COMMIT;\n');
+    assert.equal((await configure.done).status, 0);
+    assert.notEqual((await writer.done).status, 0);
+    assert.match(writer.stderr, /42501/u);
+    assert.equal(sql("SELECT count(*) FROM storage.objects WHERE name='new-legacy'"), '0');
   });
   for (const [label, mutation, error] of [
     ['missing control', 'DROP TABLE mind_manual_migration.control', /reviewed control/u],
