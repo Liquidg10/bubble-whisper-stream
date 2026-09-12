@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import { assertPrivateCalendarParity } from './lib/private-calendar-ledger.mjs';
+
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -339,6 +341,7 @@ function preservedAuthInventory(auth) {
 }
 
 export function validateFreshSourceReceipt(source, fresh) {
+  assertPrivateCalendarParity(fresh, source);
   validateMigrationGuardCatalogBinding(source.catalog?.migrationGuard);
   validateMigrationGuardCatalogBinding(fresh.catalog?.migrationGuard);
   assertScopeBinding(

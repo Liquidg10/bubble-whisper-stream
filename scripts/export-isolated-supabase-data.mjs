@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 
+import { assertPrivateCalendarParity, privateCalendarBlockers, privateCalendarExportEntry } from './lib/private-calendar-ledger.mjs';
+
+import { storageScopeBindingAssertionSql } from './lib/storage-ingress-readiness.mjs';
+
 import { chmodSync, mkdirSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -127,6 +131,7 @@ export function validateSourceReceipt(receipt) {
     "source receipt subject scope",
   );
   validateMigrationGuardCatalogBinding(receipt.catalog?.migrationGuard);
+  if (privateCalendarBlockers(receipt.privateData).length) throw new Error("Private Calendar ledger is not ready for scoped export");
   if (
     receipt.auth.userCount !== receipt.subjectScope.subjectCount ||
     receipt.auth.subjectIdsSha256 !== receipt.subjectScope.subjectIdsSha256
@@ -196,6 +201,7 @@ export function validateFreshSourceReceipt(fresh, approved) {
       Object.fromEntries(dataFields.map((field) => [field, row[field]]))
     );
   compare(scopedData(fresh), scopedData(approved), "scoped public data");
+  assertPrivateCalendarParity(fresh, approved);
   compare(
     fresh.storage.buckets,
     approved.storage.buckets,
@@ -274,6 +280,7 @@ export function buildExportEntries(scopes, receipt, subjectScope) {
       sourceRowsSha256: inventory.copyRowsSha256,
     });
   }
+  entries.push(privateCalendarExportEntry(receipt, subjectScope));
   return entries;
 }
 
@@ -313,11 +320,13 @@ export function exportSnapshotAssertions(entries) {
   ].join("\n");
 }
 
-export function buildExportCommands(entries, outputDir) {
+export function buildExportCommands(entries, outputDir, binding) {
   return [
     "\\set ON_ERROR_STOP on",
     "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;",
     "SET ROLE postgres;",
+    storageScopeBindingAssertionSql(binding),
+    "DO $source_fenced$ BEGIN IF (SELECT phase FROM mind_manual_migration.control WHERE singleton) IS DISTINCT FROM 'fenced' OR EXISTS (SELECT 1 FROM mind_manual_migration.edge_leases) THEN RAISE EXCEPTION 'Source is not fenced with zero unresolved leases' USING ERRCODE='55000'; END IF; END $source_fenced$;",
     exportSnapshotAssertions(entries),
     // runPsql is normally quiet. COPY command tags are a required receipt here.
     "\\set QUIET off",
@@ -437,7 +446,7 @@ async function main() {
   chmodSync(dataDir, 0o700);
 
   const exportEntries = buildExportEntries(scopes, freshReceipt, subjectScope);
-  const commands = buildExportCommands(exportEntries, outputDir);
+  const commands = buildExportCommands(exportEntries, outputDir, freshReceipt.subjectScope);
   const database = getLinkedDatabaseConfig(SOURCE_PROJECT_REF);
   let copyOutput;
   try {

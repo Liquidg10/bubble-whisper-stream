@@ -8,12 +8,15 @@ import { canonicalJson, repoRoot, sha256, sha256File } from "./supabase-isolatio
 const REFERENCE = "supabase/isolation/migration-guard-catalog.reference.json";
 const PINNED_INPUTS = [
   "supabase/isolation/source-write-fence.sql",
+  "supabase/manual/calendar-operation-receipts.sql",
+  "supabase/manual/plaid-owner-pipeline.sql",
+  "supabase/isolation/calendar-operation-migration-provenance.sql",
   "supabase/isolation/storage-write-gateway.sql",
   "supabase/isolation/mind-manual-data-scopes.tsv",
   "supabase/isolation/mind-manual-edge-functions.tsv",
 ];
 const COMPONENTS = [
-  "schema", "objects", "relations", "types", "functions", "triggers",
+  "schema", "calendarSchema", "objects", "relations", "types", "functions", "triggers",
   "defaultPrivileges", "relationScopes", "edgeFunctions", "storageGuard",
 ];
 
@@ -49,6 +52,10 @@ SELECT jsonb_build_object(
     'name', n.nspname, 'owner', pg_get_userbyid(n.nspowner),
     'acl', ${aclSql("n.nspacl", "n.nspowner", "n")}
   ) FROM pg_namespace n WHERE n.nspname = 'mind_manual_migration'), 'null'::jsonb),
+  'calendarSchema', COALESCE((SELECT jsonb_build_object(
+    'name', n.nspname, 'owner', pg_get_userbyid(n.nspowner),
+    'acl', ${aclSql("n.nspacl", "n.nspowner", "n")}
+  ) FROM pg_namespace n WHERE n.nspname = 'mind_manual_calendar'), 'null'::jsonb),
   'objects', COALESCE((SELECT jsonb_agg(jsonb_build_object(
     'catalog', d.classid::regclass::text, 'type', obj.type,
     'schema', obj.schema, 'name', obj.name, 'identity', obj.identity,
@@ -56,9 +63,9 @@ SELECT jsonb_build_object(
   ) ORDER BY d.classid::regclass::text, obj.type, obj.identity, d.deptype)
   FROM pg_depend d JOIN pg_namespace n ON n.oid = d.refobjid
   CROSS JOIN LATERAL pg_identify_object(d.classid, d.objid, d.objsubid) obj
-  WHERE d.refclassid = 'pg_namespace'::regclass AND n.nspname = 'mind_manual_migration'), '[]'::jsonb),
+  WHERE d.refclassid = 'pg_namespace'::regclass AND n.nspname IN ('mind_manual_migration', 'mind_manual_calendar')), '[]'::jsonb),
   'relations', COALESCE((SELECT jsonb_agg(jsonb_build_object(
-    'name', c.relname, 'kind', c.relkind, 'owner', pg_get_userbyid(c.relowner),
+    'schema', n.nspname, 'name', c.relname, 'kind', c.relkind, 'owner', pg_get_userbyid(c.relowner),
     'persistence', c.relpersistence, 'replicaIdentity', c.relreplident,
     'rowLevelSecurity', c.relrowsecurity, 'forceRowLevelSecurity', c.relforcerowsecurity,
     'options', COALESCE(c.reloptions, ARRAY[]::text[]), 'isPartition', c.relispartition,
@@ -97,17 +104,17 @@ SELECT jsonb_build_object(
     'parents', ARRAY(SELECT pn.nspname || '.' || pc.relname FROM pg_inherits i
       JOIN pg_class pc ON pc.oid = i.inhparent JOIN pg_namespace pn ON pn.oid = pc.relnamespace
       WHERE i.inhrelid = c.oid ORDER BY pn.nspname, pc.relname)
-  ) ORDER BY c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-  WHERE n.nspname = 'mind_manual_migration'), '[]'::jsonb),
+  ) ORDER BY n.nspname, c.relname) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname IN ('mind_manual_migration', 'mind_manual_calendar')), '[]'::jsonb),
   'types', COALESCE((SELECT jsonb_agg(jsonb_build_object(
-    'name', t.typname, 'kind', t.typtype, 'category', t.typcategory,
+    'schema', n.nspname, 'name', t.typname, 'kind', t.typtype, 'category', t.typcategory,
     'owner', pg_get_userbyid(t.typowner), 'notNull', t.typnotnull,
     'base', format_type(t.typbasetype, t.typtypmod),
     'default', COALESCE(t.typdefault, ''),
     'acl', ${aclSql("t.typacl", "t.typowner", "T")},
     'labels', ARRAY(SELECT e.enumlabel FROM pg_enum e WHERE e.enumtypid = t.oid ORDER BY e.enumsortorder)
-  ) ORDER BY t.typname) FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
-    WHERE n.nspname = 'mind_manual_migration'), '[]'::jsonb),
+  ) ORDER BY n.nspname, t.typname) FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace
+    WHERE n.nspname IN ('mind_manual_migration', 'mind_manual_calendar')), '[]'::jsonb),
   'functions', COALESCE((SELECT jsonb_agg(jsonb_build_object(
     'schema', n.nspname, 'name', p.proname,
     'arguments', pg_get_function_identity_arguments(p.oid),
@@ -121,8 +128,8 @@ SELECT jsonb_build_object(
     'definition', CASE WHEN p.prokind = 'a' THEN NULL ELSE pg_get_functiondef(p.oid) END
   ) ORDER BY n.nspname, p.proname, pg_get_function_identity_arguments(p.oid))
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-    JOIN pg_language l ON l.oid = p.prolang WHERE n.nspname = 'mind_manual_migration'
-    OR (n.nspname = 'public' AND p.proname LIKE 'mind\\_manual\\_%' ESCAPE '\\')), '[]'::jsonb),
+    JOIN pg_language l ON l.oid = p.prolang WHERE n.nspname IN ('mind_manual_migration', 'mind_manual_calendar')
+    OR (n.nspname = 'public' AND (p.proname LIKE 'mind\\_manual\\_%' ESCAPE '\\' OR p.proname LIKE 'calendar\\_operation\\_%' ESCAPE '\\'))), '[]'::jsonb),
   'triggers', COALESCE((SELECT jsonb_agg(jsonb_build_object(
     'schema', n.nspname, 'relation', c.relname,
     'name', CASE WHEN t.tgisinternal AND t.tgconstraint <> 0
@@ -142,14 +149,14 @@ SELECT jsonb_build_object(
     JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace
     JOIN pg_proc p ON p.oid = t.tgfoid JOIN pg_namespace pn ON pn.oid = p.pronamespace
     WHERE t.tgname LIKE 'mind\\_manual\\_%' ESCAPE '\\'
-      OR pn.nspname = 'mind_manual_migration' OR n.nspname = 'mind_manual_migration'), '[]'::jsonb),
+      OR pn.nspname IN ('mind_manual_migration', 'mind_manual_calendar') OR n.nspname IN ('mind_manual_migration', 'mind_manual_calendar')), '[]'::jsonb),
   'defaultPrivileges', COALESCE((SELECT jsonb_agg(jsonb_build_object(
     'owner', pg_get_userbyid(d.defaclrole), 'schema', COALESCE(n.nspname, '*'),
     'type', d.defaclobjtype,
     'acl', ${aclSql("d.defaclacl", "d.defaclrole", "f")}
   ) ORDER BY pg_get_userbyid(d.defaclrole), n.nspname, d.defaclobjtype)
     FROM pg_default_acl d LEFT JOIN pg_namespace n ON n.oid = d.defaclnamespace
-    WHERE n.nspname = 'mind_manual_migration'
+    WHERE n.nspname IN ('mind_manual_migration', 'mind_manual_calendar')
       OR (d.defaclnamespace = 0 AND pg_get_userbyid(d.defaclrole) = 'postgres')), '[]'::jsonb),
   'relationScopes', COALESCE((SELECT jsonb_agg(jsonb_build_object(
     'schema', schema_name, 'relation', relation_name, 'ownerColumn', owner_column
@@ -186,11 +193,14 @@ ${transaction ? "COMMIT;" : ""}
 /** Hash-only description used by local fixture tests and the fixed validator. */
 export function describeMigrationGuardCatalog(catalog) {
   exactKeys(catalog, COMPONENTS, "migration guard catalog");
-  for (const key of COMPONENTS.filter((name) => name !== "schema")) {
+  for (const key of COMPONENTS.filter((name) => !["schema", "calendarSchema"].includes(name))) {
     if (!Array.isArray(catalog[key])) throw new Error(`Invalid migration guard catalog ${key}`);
   }
   if (!catalog.schema || typeof catalog.schema !== "object" || Array.isArray(catalog.schema)) {
     throw new Error("Missing migration guard control schema");
+  }
+  if (!catalog.calendarSchema || typeof catalog.calendarSchema !== "object" || Array.isArray(catalog.calendarSchema)) {
+    throw new Error("Missing private Calendar ledger schema");
   }
   const components = Object.fromEntries(COMPONENTS.map((name) => [name, sha256(canonicalJson(catalog[name]))]));
   return {

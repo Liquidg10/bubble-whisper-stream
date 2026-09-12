@@ -9,7 +9,7 @@ export const ACTIVATION_BLOCKERS = Object.freeze([
   ['subject_scope', 'Subject-scoped export, preflight, storage and receipt binding are locally implemented, but require the actual owner-approved private subject list, reviewed legacy assignments, exact live guard membership and fresh scoped receipts. Synthetic tests do not approve any live subject.'],
   ['shared_identity', 'Selected identities and cross-product FK/trigger dependencies need an explicit disposition; fencing an Auth user also blocks that user\'s login metadata updates and can abort a commerce transaction that cascades into a selected row.'],
   ['storage_ingress', 'The admitted photo gateway and restrictive direct-write policies are locally implemented; historical signed/resumable/S3, privileged and already-authorized storage writers still require provider-level stop/drain evidence. Zero app leases is not a byte freeze.'],
-  ['runtime_generation', 'Verify the 34 endpoints are exclusive to Mind Manual, every deployed version, and retirement of pre-instrumentation requests/WebSockets; zero new leases does not prove old workers retired.'],
+  ['runtime_generation', 'Verify the 35 endpoints are exclusive to Mind Manual, every deployed version, and retirement of pre-instrumentation requests/WebSockets; zero new leases does not prove old workers retired.'],
   ['provider_outcomes', 'A completed HTTP handler is not proof a remote provider stopped after a lost response. Reconcile every ambiguous provider attempt, idempotency receipt and pending outcome before freeze.'],
   ['scheduler_inventory', 'Browser refresh/watch lifecycle safeguards are local implementation only, not a global stop or provider drain. GitHub calendar-watch-renewal schedule/manual dispatch, active runs, database jobs, other browser writers and external writers require fresh authenticated scoped inventory and drain evidence.'],
   ['catalog_parity', 'Fixed-reference exact guard catalog validation is locally implemented. Both projects must receive the identical reviewed manual guard artifacts after the retained pre-guard business baseline; fresh live catalog receipts are still required.'],
@@ -20,7 +20,7 @@ export const ACTIVATION_BLOCKERS = Object.freeze([
 const digest = (value) => createHash('sha256').update(value).digest('hex');
 
 export const OWNER_SCOPED_BEARER_FUNCTIONS = Object.freeze([
-  'ai-cbt-reframe', 'ai-conversation', 'ai-embeddings', 'ai-glimmer-generate',
+  'ai-bubble-suggest', 'ai-cbt-reframe', 'ai-conversation', 'ai-embeddings', 'ai-glimmer-generate',
   'ai-monthly-summary', 'ai-pattern-analysis', 'ai-photo-analyze', 'ai-plan-generate',
   'ai-realtime-voice', 'ai-tts-generate', 'ai-voice-transcribe',
   'calendar-oauth-callback', 'calendar-oauth-start', 'document-scan',
@@ -31,9 +31,8 @@ export const OWNER_SCOPED_BEARER_FUNCTIONS = Object.freeze([
   'storage-photo',
 ]);
 
-export const LEGACY_GLOBAL_ADMISSION_FUNCTIONS = Object.freeze([
-  'plaid-webhook-handler',
-]);
+export const LEGACY_GLOBAL_ADMISSION_FUNCTIONS = Object.freeze([]);
+export const OWNER_SCOPED_PROVIDER_FUNCTIONS = Object.freeze(['plaid-webhook-handler']);
 
 export const OWNER_SCOPED_MIXED_FUNCTIONS = Object.freeze([
   'calendar-sync', 'calendar-watch', 'gmail-watch',
@@ -92,6 +91,7 @@ export function inspectEdgeFenceCoverage(root, readSource = (path) => readFileSy
   const classifications = [
     ...OWNER_SCOPED_BEARER_FUNCTIONS,
     ...OWNER_SCOPED_MIXED_FUNCTIONS,
+    ...OWNER_SCOPED_PROVIDER_FUNCTIONS,
     ...OWNER_SCOPED_SCHEDULED_FUNCTIONS,
     ...LEGACY_GLOBAL_ADMISSION_FUNCTIONS,
     ...RETIRED_UNWRAPPED_FUNCTIONS,
@@ -156,6 +156,24 @@ export function inspectEdgeFenceCoverage(root, readSource = (path) => readFileSy
         && exactImport(helper, 'runMindManualSubjectWork', '../_shared/migrationWriteFence.ts')
         && scheduledWorkIsAwaited(helper);
     }
+    let providerOwnerScoped = false;
+    if (OWNER_SCOPED_PROVIDER_FUNCTIONS.includes(name)) {
+      const provider = supportingModule('supabase/functions/_shared/plaidPipeline.ts');
+      const runtime = supportingModule('supabase/functions/_shared/plaidRuntime.ts');
+      providerOwnerScoped = imported('wrapMindManualSubjectHandler') && !imported('wrapMindManualHandler')
+        && exactImport(source, 'verifiedPlaidMindManualScope', '../_shared/plaidPipeline.ts')
+        && exactImport(source, 'processPlaidWebhook', '../_shared/plaidPipeline.ts')
+        && exactImport(source, 'createPlaidRuntime', '../_shared/plaidRuntime.ts')
+        && calls.length === 1 && call.arguments.length === 1 && ts.isCallExpression(wrapper)
+        && wrapper.expression.getText(source) === 'wrapMindManualSubjectHandler'
+        && wrapper.arguments.length === 3 && ts.isStringLiteral(wrapper.arguments[0])
+        && wrapper.arguments[0].text === name && ts.isCallExpression(wrapper.arguments[1])
+        && wrapper.arguments[1].expression.getText(source) === 'verifiedPlaidMindManualScope'
+        && wrapper.arguments[1].arguments.length === 1 && wrapper.arguments[1].arguments[0].getText(source) === 'runtime'
+        && provider.parseDiagnostics.length === 0 && runtime.parseDiagnostics.length === 0
+        && exportedFunction(provider, 'verifiedPlaidMindManualScope') && exportedFunction(provider, 'processPlaidWebhook')
+        && exportedFunction(runtime, 'createPlaidRuntime');
+    }
     const legacyGlobal = LEGACY_GLOBAL_ADMISSION_FUNCTIONS.includes(name)
       && imported('wrapMindManualHandler') && !imported('wrapMindManualSubjectHandler')
       && calls.length === 1 && call.arguments.length === 1 && ts.isCallExpression(wrapper)
@@ -169,6 +187,7 @@ export function inspectEdgeFenceCoverage(root, readSource = (path) => readFileSy
     const classification = ownerScoped ? 'owner_scoped_bearer'
       : mixedOwnerScoped ? 'owner_scoped_mixed'
       : scheduledOwnerScoped ? 'owner_scoped_scheduler'
+      : providerOwnerScoped ? 'owner_scoped_provider'
       : legacyGlobal ? 'legacy_global_blocked'
       : retired ? 'retired_unwrapped'
       : 'invalid';
@@ -176,7 +195,7 @@ export function inspectEdgeFenceCoverage(root, readSource = (path) => readFileSy
       name,
       relativePath,
       classification,
-      covered: source.parseDiagnostics.length === 0 && (ownerScoped || mixedOwnerScoped || scheduledOwnerScoped || retired),
+      covered: source.parseDiagnostics.length === 0 && (ownerScoped || mixedOwnerScoped || scheduledOwnerScoped || providerOwnerScoped || retired),
       sha256: digest(text),
       supportingSources,
     };

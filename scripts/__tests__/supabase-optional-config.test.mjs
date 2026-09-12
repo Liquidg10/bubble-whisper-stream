@@ -1,3 +1,4 @@
+import { emptyCalendarInventory } from './fixtures/private-calendar.mjs';
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -32,7 +33,7 @@ function receipt(kind = "target") {
     version: 1, kind, status: "ready", manifests: secretManifestFingerprints(),
     subjectScope: subjectScopeBinding(SYNTHETIC_SCOPE),
     catalog: { relations: [], functions: [], migrationGuard: expectedMigrationGuardContract() },
-    publicData: [], storage: { objects: [] }, auth: {},
+    publicData: [], privateData: emptyCalendarInventory(), storage: { objects: [] }, auth: {},
   };
 }
 

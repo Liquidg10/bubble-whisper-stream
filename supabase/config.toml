@@ -83,3 +83,8 @@ verify_jwt = true
 # user in-handler before reading the request or contacting the model provider.
 [functions.ai-bubble-suggest]
 verify_jwt = true
+
+# Plaid signs its raw payload; in-handler provider verification and owner
+# resolution must be released together with this gateway setting.
+[functions.plaid-webhook-handler]
+verify_jwt = false

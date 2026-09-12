@@ -104,7 +104,8 @@ describe("manual source write fence — real local PostgreSQL", { concurrency: f
     assert.equal(start.status, 0, start.stderr + start.stdout);
     started = true;
     sql(`CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS;
-      CREATE ROLE supabase_auth_admin; CREATE SCHEMA auth;
+      CREATE ROLE supabase_auth_admin; CREATE ROLE supabase_storage_admin; CREATE SCHEMA auth;
+      CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid$$;
       CREATE TABLE auth.users (id uuid PRIMARY KEY, payload text);
       CREATE TABLE auth.identities (id uuid PRIMARY KEY, user_id uuid REFERENCES auth.users ON DELETE CASCADE, payload text);
       CREATE TABLE public.commerce_orders (id uuid PRIMARY KEY, user_id uuid, payload text);
@@ -116,7 +117,16 @@ describe("manual source write fence — real local PostgreSQL", { concurrency: f
       ALTER TABLE public.ai_conversations ENABLE ROW LEVEL SECURITY;
       CREATE POLICY fixture_authenticated ON public.ai_conversations TO authenticated USING (true) WITH CHECK (true);
     `);
+    sql(readFileSync(join(root, "supabase/manual/calendar-operation-receipts.sql"), "utf8"));
     sql(artifact);
+    sql(readFileSync(join(root, "supabase/isolation/calendar-operation-migration-provenance.sql"), "utf8"));
+    sql(`CREATE SCHEMA storage AUTHORIZATION supabase_storage_admin;
+      CREATE TABLE storage.buckets(id text PRIMARY KEY, public boolean);
+      INSERT INTO storage.buckets VALUES ('photos',false),('voice-samples',false);
+      CREATE TABLE storage.objects(bucket_id text, name text, owner_id text);
+      ALTER TABLE storage.objects OWNER TO supabase_storage_admin;
+      ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;`);
+    sql(readFileSync(join(root, "supabase/isolation/storage-write-gateway.sql"), "utf8"));
   });
 
   beforeEach(async () => {
@@ -125,13 +135,14 @@ describe("manual source write fence — real local PostgreSQL", { concurrency: f
     sql(`SELECT mind_manual_migration.resume();
       DELETE FROM mind_manual_migration.edge_leases;
       DELETE FROM mind_manual_migration.subjects;
-      TRUNCATE ${scopes.map(([relation]) => `public.${relation}`).join(", ")},
+      TRUNCATE mind_manual_calendar.operations, ${scopes.map(([relation]) => `public.${relation}`).join(", ")},
         auth.identities, auth.users, public.commerce_orders CASCADE;
       INSERT INTO auth.users VALUES ('${selected}', 'selected'), ('${unrelated}', 'unrelated');
       INSERT INTO auth.identities VALUES ('${selected}', '${selected}', 'selected'), ('${unrelated}', '${unrelated}', 'unrelated');
       ${scopes.map(([relation, owner]) => insert(relation, owner, selected, "selected") + insert(relation, owner, unrelated, "unrelated")).join("\n")}
       INSERT INTO public.commerce_orders VALUES ('${selected}', '${selected}', 'commerce');
       SELECT mind_manual_migration.configure_subjects(ARRAY['${selected}']::uuid[]);
+      SELECT mind_manual_migration.configure_storage_scope('${selected}', '[]'::jsonb);
     `);
   });
 
@@ -146,11 +157,58 @@ describe("manual source write fence — real local PostgreSQL", { concurrency: f
     if (scratch) rmSync(scratch, { recursive: true, force: true });
   });
 
-  it("installs dormant with exact manifest parity and all 102 row/truncate triggers ALWAYS enabled", () => {
+  it("requires an explicit Storage owner configuration before drain", () => {
+    sql('DELETE FROM mind_manual_migration.storage_scope');
+    denies('SELECT mind_manual_migration.begin_drain()');
+    sql(`SELECT mind_manual_migration.configure_storage_scope('${selected}', '[]'::jsonb)`);
+    activate();
+  });
+
+  it("binds the original Calendar claim to one exact lease and never rewrites or releases it on replay/read/finalize", () => {
+    const identity = { operationId: selected, taskId: 'task-1', calendarAccountId: unrelated,
+      eventId: 'event-1', googleCalendarId: 'fixture@example.invalid', expectedEtag: '"before"',
+      requestDigest: 'a'.repeat(64), afterDigest: 'b'.repeat(64) };
+    const body = JSON.stringify(identity);
+    const tuple = { action: 'user_confirm_reviewed_update', functionName: 'calendar-sync', subjectId: selected, leaseId: lease, generation };
+    const admission = JSON.stringify(tuple);
+    denies(`SET ROLE service_role; SELECT public.calendar_operation_claim('${selected}', '${body}'::jsonb)`, '42501');
+    denies(`SET ROLE service_role; SELECT public.calendar_operation_claim_scoped('${selected}', '${body}'::jsonb, null)`);
+    sql(`SET ROLE service_role; SELECT public.mind_manual_admit_subject_edge('calendar-sync', 'user_confirm_reviewed_update', '${selected}', '${lease}', '${generation}')`);
+    for (const changed of [{ ...tuple, subjectId: unrelated }, { ...tuple, generation: 'wrong' }, { ...tuple, leaseId: unrelated }, { ...tuple, action: 'user_read_reviewed_update_receipt' }]) {
+      denies(`SET ROLE service_role; SELECT public.calendar_operation_claim_scoped('${selected}', '${body}'::jsonb, '${JSON.stringify(changed)}'::jsonb)`);
+    }
+    const claim = JSON.parse(sql(`SET ROLE service_role; SELECT public.calendar_operation_claim_scoped('${selected}', '${body}'::jsonb, '${admission}'::jsonb)`));
+    assert.equal(claim.claimed, true);
+    const original = sql('SELECT to_jsonb(o)::text FROM mind_manual_calendar.operations o');
+    assert.deepEqual(JSON.parse(sql(`SET ROLE service_role; SELECT public.calendar_operation_claim_scoped('${selected}', '${body}'::jsonb, '${admission}'::jsonb)`)), { claimed: false });
+    sql(`SET ROLE service_role; SELECT public.calendar_operation_read('${selected}', '${body}'::jsonb)`);
+    assert.equal(sql('SELECT to_jsonb(o)::text FROM mind_manual_calendar.operations o'), original);
+    assert.equal(sql('SELECT count(*) FROM mind_manual_migration.edge_leases'), '1');
+    sql(`SET ROLE service_role; SELECT public.calendar_operation_finalize('${selected}', '${body}'::jsonb, '${claim.claimToken}', '{"outcome":"not_written","code":"provider_rejected"}'::jsonb)`);
+    assert.deepEqual(JSON.parse(sql('SELECT migration_admission::text FROM mind_manual_calendar.operations')), tuple);
+    assert.equal(sql('SELECT count(*) FROM mind_manual_migration.edge_leases'), '1');
+    // Only the original wrapper's exact tuple can complete the original lease.
+    sql(`SET ROLE service_role; SELECT public.mind_manual_release_subject_edge('calendar-sync', 'user_confirm_reviewed_update', '${selected}', '${lease}', '${generation}')`);
+    activate();
+    denies(`UPDATE mind_manual_calendar.operations SET migration_admission=NULL WHERE owner_user_id='${selected}'`);
+  });
+
+  it("keeps legacy NULL provenance unknown and blocks selected unresolved operations independently of Edge leases", () => {
+    const identity = owner => JSON.stringify({ operationId: owner, taskId: 'legacy-task', calendarAccountId: unrelated,
+      eventId: 'legacy-event', googleCalendarId: 'fixture@example.invalid', expectedEtag: '"before"', requestDigest: 'a'.repeat(64), afterDigest: 'b'.repeat(64) });
+    sql(`INSERT INTO mind_manual_calendar.operations(owner_user_id, operation_id, identity) VALUES ('${selected}','${selected}','${identity(selected)}'::jsonb), ('${unrelated}','${unrelated}','${identity(unrelated)}'::jsonb)`);
+    assert.equal(sql('SELECT count(*) FROM mind_manual_calendar.operations WHERE migration_admission IS NULL'), '2');
+    sql('SELECT mind_manual_migration.begin_drain()');
+    denies('SELECT mind_manual_migration.fence()');
+    assert.equal(sql('SELECT count(*) FROM mind_manual_migration.edge_leases'), '0');
+    assert.equal(sql("SELECT count(*) FROM mind_manual_calendar.operations WHERE state='pending'"), '2');
+  });
+
+  it("installs dormant with exact manifest parity and all 105 row/truncate triggers ALWAYS enabled", () => {
     assert.equal(sql("SELECT phase FROM mind_manual_migration.control"), "open");
     assert.deepEqual(sql("SELECT relation_name || E'\\t' || owner_column FROM mind_manual_migration.relation_scopes WHERE schema_name='public' ORDER BY relation_name").split("\n"), scopes.map((scope) => scope.join("\t")).sort());
     assert.deepEqual(sql("SELECT function_name FROM mind_manual_migration.edge_functions ORDER BY function_name").split("\n"), [...functions].sort());
-    assert.equal(sql("SELECT count(*) FROM pg_trigger WHERE tgname LIKE 'mind_manual_%fence%' AND tgenabled='A'"), "102");
+    assert.equal(sql("SELECT count(*) FROM pg_trigger WHERE tgname LIKE 'mind_manual_%fence%' AND tgenabled='A'"), "105");
     sql(`UPDATE public.ai_conversations SET payload='open'; SET ROLE service_role;
       SELECT public.mind_manual_admit_edge('calendar-sync', '${lease}');`);
   });
@@ -159,7 +217,8 @@ describe("manual source write fence — real local PostgreSQL", { concurrency: f
     const database = "mind_manual_inheritance_fixture";
     sql(`CREATE DATABASE ${database}`);
     try {
-      sql(`CREATE SCHEMA auth; CREATE TABLE auth.users (id uuid); CREATE TABLE auth.identities (user_id uuid);
+      sql(`CREATE SCHEMA mind_manual_calendar; CREATE TABLE mind_manual_calendar.operations (owner_user_id uuid, state text);
+        CREATE SCHEMA auth; CREATE TABLE auth.users (id uuid); CREATE TABLE auth.identities (user_id uuid);
         ${scopes.map(([relation, owner]) => `CREATE TABLE public.${relation} (${owner} uuid, payload text);`).join("\n")}
         CREATE TABLE public.uncovered_child () INHERITS (public.ai_conversations);`, database);
       const result = command("psql", psqlArgs(database), { input: artifact });

@@ -9,6 +9,7 @@ import {
   LEGACY_GLOBAL_ADMISSION_FUNCTIONS,
   OWNER_SCOPED_BEARER_FUNCTIONS,
   OWNER_SCOPED_MIXED_FUNCTIONS,
+  OWNER_SCOPED_PROVIDER_FUNCTIONS,
   OWNER_SCOPED_SCHEDULED_FUNCTIONS,
   RETIRED_UNWRAPPED_FUNCTIONS,
 } from '../../../scripts/lib/source-write-fence-readiness.mjs';
@@ -16,7 +17,7 @@ import {
 describe('source freeze reachability and truthful activation boundary', () => {
   it('exhaustively classifies the owner-scoped, legacy-blocked and retired entrypoints', () => {
     const coverage = inspectEdgeFenceCoverage(process.cwd());
-    expect(coverage).toHaveLength(34);
+    expect(coverage).toHaveLength(35);
     expect(coverage.filter((entry: { classification: string }) => entry.classification === 'owner_scoped_bearer')
       .map((entry: { name: string }) => entry.name).sort()).toEqual([...OWNER_SCOPED_BEARER_FUNCTIONS].sort());
     expect(coverage.filter((entry: { classification: string }) => entry.classification === 'owner_scoped_mixed')
@@ -27,16 +28,15 @@ describe('source freeze reachability and truthful activation boundary', () => {
       .map((entry: { name: string }) => entry.name).sort()).toEqual([...LEGACY_GLOBAL_ADMISSION_FUNCTIONS].sort());
     expect(coverage.filter((entry: { classification: string }) => entry.classification === 'retired_unwrapped')
       .map((entry: { name: string }) => entry.name).sort()).toEqual([...RETIRED_UNWRAPPED_FUNCTIONS].sort());
+    expect(coverage.filter((entry: { classification: string }) => entry.classification === 'owner_scoped_provider').map((entry: { name: string }) => entry.name)).toEqual([...OWNER_SCOPED_PROVIDER_FUNCTIONS]);
     expect(coverage.filter((entry: { classification: string }) => entry.classification === 'invalid')).toEqual([]);
   });
 
   it('cannot turn local coverage into a live freeze or authorization', () => {
     const report = buildLocalFenceReadiness(process.cwd());
     expect(report).toMatchObject({ status: 'blocked', eligibleForActivation: false, sourceWriteFreezeConfirmed: false, evidenceClass: 'local_source_inspection_only' });
-    expect(report).toMatchObject({ implementedEntrypointCount: 33, expectedEntrypointCount: 34 });
-    expect(report.blockers.filter((blocker: { code: string }) => blocker.code === 'legacy_global_admission')).toEqual([
-      { code: 'legacy_global_admission', reason: 'supabase/functions/plaid-webhook-handler/index.ts' },
-    ]);
+    expect(report).toMatchObject({ implementedEntrypointCount: 35, expectedEntrypointCount: 35 });
+    expect(report.blockers.filter((blocker: { code: string }) => blocker.code === 'legacy_global_admission')).toEqual([]);
     expect(report.blockers.map((blocker: { code: string }) => blocker.code)).toEqual(expect.arrayContaining([
       'subject_scope', 'shared_identity', 'storage_ingress', 'runtime_generation', 'provider_outcomes', 'scheduler_inventory', 'catalog_parity', 'live_denial_and_rollback', 'owner_window',
     ]));
@@ -97,13 +97,28 @@ describe('source freeze reachability and truthful activation boundary', () => {
     }
   });
 
+  it('requires Plaid provider verification at the signature-only gateway', () => {
+    const config = readFileSync(resolve(process.cwd(), 'supabase/config.toml'), 'utf8');
+    expect(config).toMatch(/\[functions\.plaid-webhook-handler\]\s+verify_jwt = false/);
+    const manifest = readFileSync(resolve(process.cwd(), 'supabase/isolation/mind-manual-edge-functions.tsv'), 'utf8');
+    expect(manifest).toContain('plaid-webhook-handler\tfalse');
+    const coverage = inspectEdgeFenceCoverage(process.cwd(), (path: string) => {
+      const value = readFileSync(resolve(process.cwd(), path), 'utf8');
+      return path === 'supabase/functions/plaid-webhook-handler/index.ts'
+        ? value.replace('verifiedPlaidMindManualScope(runtime)', 'unverifiedBodyScope(runtime)') : value;
+    });
+    expect(coverage.find((entry: { name: string }) => entry.name === 'plaid-webhook-handler')).toMatchObject({ covered: false, classification: 'invalid' });
+  });
+
   it('binds realtime sockets and awaits Plaid child requests in the reachable handlers', () => {
     const voice = readFileSync(resolve(process.cwd(), 'supabase/functions/ai-realtime-voice/index.ts'), 'utf8');
     expect(voice).toContain('lifecycle.holdUntil(drain.completion)');
     expect(voice).toContain('drain.track(openAISocket)');
     expect(voice).toContain('if (drain.sealed) return');
     const plaid = readFileSync(resolve(process.cwd(), 'supabase/functions/plaid-webhook-handler/index.ts'), 'utf8');
-    expect(plaid.match(/await dispatchAndDrain\(/g)).toHaveLength(2);
+    expect(plaid).toContain('verifiedPlaidMindManualScope(runtime)');
+    expect(plaid).toContain('processPlaidWebhook(runtime, context)');
+    expect(plaid).not.toContain('dispatchAndDrain');
     expect(plaid).not.toMatch(/\bfetch\(/);
   });
 });

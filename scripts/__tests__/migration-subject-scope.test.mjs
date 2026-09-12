@@ -1,3 +1,4 @@
+import { emptyCalendarInventory } from './fixtures/private-calendar.mjs';
 import assert from "node:assert/strict";
 import { expectedMigrationGuardContract } from "../lib/migration-guard-catalog.mjs";
 import {
@@ -656,6 +657,7 @@ describe("transactional import SQL guards", () => {
     const subjectScope = subjectScopeBinding(scope());
     return {
       subjectScope,
+      privateData: emptyCalendarInventory(),
       auth: {
         userCount: 1,
         subjectIdsSha256: subjectScope.subjectIdsSha256,
@@ -672,10 +674,10 @@ describe("transactional import SQL guards", () => {
   }
 
   it("locks exactly Auth plus the physical allowlist before checking every table empty", () => {
-    const guards = importTransactionGuards(source());
+    const guards = importTransactionGuards(source(), scope());
     assert.match(
       guards.beforeCopy,
-      /SET LOCAL lock_timeout = '10s';\nLOCK TABLE/u,
+      /SET LOCAL lock_timeout = '10s';/u,
     );
     assert.ok(
       guards.beforeCopy.indexOf("IN ACCESS EXCLUSIVE MODE") <
@@ -683,7 +685,7 @@ describe("transactional import SQL guards", () => {
     );
     assert.equal(
       (guards.beforeCopy.match(/EXISTS \(SELECT 1 FROM/gu) ?? []).length,
-      publicScopes.length + 2,
+      publicScopes.length + 8,
     );
     for (const [relation] of publicScopes) {
       assert.ok(guards.beforeCopy.includes(`"public"."${relation}"`));
@@ -695,7 +697,7 @@ describe("transactional import SQL guards", () => {
   });
 
   it("checks every imported table count and canonical full-row SHA before commit", () => {
-    const guards = importTransactionGuards(source());
+    const guards = importTransactionGuards(source(), scope());
     assert.equal(
       (guards.afterCopy.match(/Target transactional copy parity failed/gu) ??
         []).length,
@@ -703,7 +705,7 @@ describe("transactional import SQL guards", () => {
     );
     assert.equal(
       (guards.afterCopy.match(/to_jsonb\(r\)::text/gu) ?? []).length,
-      (publicScopes.length + 2) * 2,
+      (publicScopes.length + 3) * 2,
     );
     assert.match(guards.afterCopy, /USING ERRCODE='55000'/u);
     assert.ok(
@@ -721,8 +723,11 @@ describe("transactional import SQL guards", () => {
       guards.afterCopy,
       /Target Auth does not match approved subject scope/u,
     );
-    assert.ok(!guards.afterCopy.includes(FIRST));
-    assert.ok(!guards.afterCopy.includes(SECOND));
+    const beforeConfiguration = guards.afterCopy.split("SELECT mind_manual_migration.configure_subjects")[0];
+    assert.ok(!beforeConfiguration.includes(FIRST));
+    assert.ok(!beforeConfiguration.includes(SECOND));
+    assert.ok(guards.afterCopy.includes(FIRST));
+    assert.ok(guards.afterCopy.includes(SECOND));
   });
 
   it("rejects incomplete, noninteger, negative and non-string row parity evidence", () => {
@@ -749,7 +754,7 @@ describe("transactional import SQL guards", () => {
     for (const mutate of mutations) {
       const value = source();
       mutate(value);
-      assert.throws(() => importTransactionGuards(value), /parity inventory/u);
+      assert.throws(() => importTransactionGuards(value, scope()), /parity inventory/u);
     }
   });
 
@@ -776,7 +781,7 @@ describe("transactional import SQL guards", () => {
     ) {
       const value = source();
       mutate(value);
-      assert.throws(() => importTransactionGuards(value));
+      assert.throws(() => importTransactionGuards(value, scope()));
     }
   });
 });

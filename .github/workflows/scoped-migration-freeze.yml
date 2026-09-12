@@ -41,6 +41,10 @@ jobs:
         run: npm run test:isolation:gmail-receipts
         env:
           MIND_MANUAL_TEST_PG_BIN: /usr/lib/postgresql/16/bin
+      - name: Test verified Plaid delivery and owner-bound Vault contracts
+        run: npm run test:isolation:plaid-receipts
+        env:
+          MIND_MANUAL_TEST_PG_BIN: /usr/lib/postgresql/16/bin
       - name: Test preserved sync row parity and denied-write evidence
         run: npm run test:isolation:sync-deferred
       - name: Test browser background writer lifecycle contracts

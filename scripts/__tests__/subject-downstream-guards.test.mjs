@@ -1,3 +1,4 @@
+import { calendarFixtureSql, storageScopeFixtureSql } from './fixtures/private-calendar.mjs';
 import assert from "node:assert/strict";
 import { expectedMigrationGuardContract } from "../lib/migration-guard-catalog.mjs";
 import { spawn, spawnSync } from "node:child_process";
@@ -358,6 +359,8 @@ describe("scoped downstream mutations — real local PostgreSQL", {
     started = true;
     sql(
       `CREATE SCHEMA auth; CREATE SCHEMA extensions; CREATE EXTENSION pgcrypto WITH SCHEMA extensions;
+      ${calendarFixtureSql}
+      ${storageScopeFixtureSql(selected)}
       CREATE TABLE auth.users (id uuid PRIMARY KEY);
       CREATE TABLE auth.identities (id uuid DEFAULT gen_random_uuid(), user_id uuid);
       ${

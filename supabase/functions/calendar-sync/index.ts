@@ -474,7 +474,7 @@ const handler = async (
       const operationRegistry = createCalendarOperationRegistry(async (name, args) => {
         const { data, error } = await supabase.rpc(name, args);
         return { data, error };
-      });
+      }, lifecycle.admission);
       if (operation === 'read_reviewed_update_receipt') {
         // No activation flag, account/token lookup, cache mutation or provider
         // port is given to recovery. Disconnection cannot erase saved evidence.

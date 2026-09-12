@@ -41,7 +41,7 @@ INSERT INTO mind_manual_migration.control (singleton, phase) VALUES (true, 'open
 CREATE TABLE mind_manual_migration.subjects (user_id uuid PRIMARY KEY);
 CREATE TABLE mind_manual_migration.edge_functions (function_name text PRIMARY KEY);
 INSERT INTO mind_manual_migration.edge_functions (function_name) VALUES
-  ('ai-cbt-reframe'), ('ai-conversation'), ('ai-embeddings'),
+  ('ai-bubble-suggest'), ('ai-cbt-reframe'), ('ai-conversation'), ('ai-embeddings'),
   ('ai-glimmer-generate'), ('ai-monthly-summary'), ('ai-pattern-analysis'),
   ('ai-photo-analyze'), ('ai-plan-generate'), ('ai-realtime-voice'),
   ('ai-tts-generate'), ('ai-voice-transcribe'), ('calendar-oauth-callback'),
@@ -110,6 +110,7 @@ INSERT INTO mind_manual_migration.relation_scopes VALUES
   ('public', 'user_sessions', 'user_id'),
   ('public', 'voice_samples', 'user_id'),
   ('public', 'webhook_subscriptions', 'user_id'),
+  ('mind_manual_calendar', 'operations', 'owner_user_id'),
   ('auth', 'users', 'id'),
   ('auth', 'identities', 'user_id');
 
@@ -161,6 +162,11 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM mind_manual_migration.subjects) THEN
     RAISE EXCEPTION 'Mind Manual drain requires explicit subjects' USING ERRCODE = '55000';
   END IF;
+  IF (SELECT count(*) FROM mind_manual_migration.storage_scope) <> 1
+    OR NOT EXISTS (SELECT 1 FROM mind_manual_migration.storage_scope ss
+      JOIN mind_manual_migration.subjects s ON s.user_id=ss.owner_subject_id WHERE ss.singleton) THEN
+    RAISE EXCEPTION 'Mind Manual drain requires the exact configured Storage owner scope' USING ERRCODE = '55000';
+  END IF;
   UPDATE mind_manual_migration.control SET phase = 'draining', changed_at = clock_timestamp()
     WHERE singleton;
 END
@@ -177,6 +183,11 @@ BEGIN
   END IF;
   IF EXISTS (SELECT 1 FROM mind_manual_migration.edge_leases) THEN
     RAISE EXCEPTION 'Mind Manual fence blocked by unresolved Edge leases' USING ERRCODE = '55000';
+  END IF;
+  IF EXISTS (SELECT 1 FROM mind_manual_calendar.operations o
+    JOIN mind_manual_migration.subjects s ON s.user_id = o.owner_user_id
+    WHERE o.state NOT IN ('written', 'not_written')) THEN
+    RAISE EXCEPTION 'Mind Manual fence blocked by unresolved original Calendar operations' USING ERRCODE = '55000';
   END IF;
   UPDATE mind_manual_migration.control SET phase = 'fenced', changed_at = clock_timestamp()
     WHERE singleton;

@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import { CALENDAR_LEDGER, validatePrivateCalendarInventory } from './lib/private-calendar-ledger.mjs';
+
 import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -109,6 +111,7 @@ export function validatePreImportTarget(targetReceipt, sourceReceipt) {
     sourceReceipt.subjectScope,
     "target pre-import scope",
   );
+  if (targetReceipt.migrationScopeState !== "empty_target") throw new Error("Target migration scope is not empty and dormant");
   if (targetReceipt.kind !== "target") {
     throw new Error("target receipt has wrong kind");
   }
@@ -120,7 +123,9 @@ export function validatePreImportTarget(targetReceipt, sourceReceipt) {
   ) {
     throw new Error("target Auth is not empty");
   }
-  for (const row of targetReceipt.publicData) {
+  validatePrivateCalendarInventory(sourceReceipt.privateData);
+  validatePrivateCalendarInventory(targetReceipt.privateData);
+  for (const row of [...targetReceipt.publicData, ...targetReceipt.privateData]) {
     if (row.totalRowCount !== 0) {
       throw new Error(`target table is not empty: ${row.relation}`);
     }
@@ -138,6 +143,7 @@ export function validatePreImportTarget(targetReceipt, sourceReceipt) {
 
   const allowedBlockerPrefixes = [
     "public data mismatch for ",
+    "private Calendar data mismatch for ",
     "Auth identity mismatch: ",
     "storage mismatch for ",
   ];
@@ -154,6 +160,7 @@ export function validatePreImportTarget(targetReceipt, sourceReceipt) {
 export function validatePostImportTarget(targetReceipt, sourceReceipt) {
   validateMigrationGuardCatalogBinding(sourceReceipt.catalog?.migrationGuard);
   validateMigrationGuardCatalogBinding(targetReceipt.catalog?.migrationGuard);
+  if (targetReceipt.migrationScopeState !== "configured") throw new Error("Target migration scope is not configured after import");
   assertScopeBinding(
     targetReceipt.subjectScope,
     sourceReceipt.subjectScope,
@@ -224,6 +231,8 @@ export function validatePackageFiles(manifest, sourceReceipt) {
     });
   }
 
+  const ledger = validatePrivateCalendarInventory(sourceReceipt.privateData);
+  expected.set(CALENDAR_LEDGER, { rowCount: ledger.copyRowCount, copyMode: 'copy', sourceRowsSha256: ledger.copyRowsSha256 });
   const logicalNames = manifest.files.map(({ logicalName }) => logicalName);
   if (
     new Set(logicalNames).size !== logicalNames.length ||
@@ -252,8 +261,8 @@ export function validatePackageFiles(manifest, sourceReceipt) {
   }
 }
 
-export function buildImportCommands(manifest, stagingDir, sourceReceipt) {
-  const guards = importTransactionGuards(sourceReceipt);
+export function buildImportCommands(manifest, stagingDir, sourceReceipt, subjectScope) {
+  const guards = importTransactionGuards(sourceReceipt, subjectScope);
   return [
     "\\set ON_ERROR_STOP on",
     "\\set QUIET off",
@@ -263,7 +272,7 @@ export function buildImportCommands(manifest, stagingDir, sourceReceipt) {
     "SET LOCAL session_replication_role = replica;",
     ...manifest.files.map((file) => {
       if (
-        !/^(auth|public)\.[a-z][a-z0-9_]*$/u.test(file.logicalName) ||
+        (file.logicalName !== CALENDAR_LEDGER && !/^(auth|public)\.[a-z][a-z0-9_]*$/u.test(file.logicalName)) ||
         file.relativePath !== `data/${file.logicalName}.bin`
       ) {
         throw new Error("Invalid logical relation or path in package");
@@ -427,7 +436,7 @@ async function main() {
         snapshot.sha256 !== file.fileSha256
       ) throw new Error("Staged import package changed");
     }
-    const commands = buildImportCommands(manifest, stagingDir, sourceReceipt);
+    const commands = buildImportCommands(manifest, stagingDir, sourceReceipt, scopeSnapshot.value);
     const database = getTargetAdminDatabaseConfig(
       targetRef,
       SOURCE_PROJECT_REF,

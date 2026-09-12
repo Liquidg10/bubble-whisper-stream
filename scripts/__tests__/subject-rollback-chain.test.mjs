@@ -1,3 +1,4 @@
+import { emptyCalendarInventory } from './fixtures/private-calendar.mjs';
 import assert from "node:assert/strict";
 import { expectedMigrationGuardContract } from "../lib/migration-guard-catalog.mjs";
 import { describe, it } from "node:test";
@@ -41,6 +42,7 @@ function fixture() {
   const source = {
     version: 1,
     kind: "source",
+    privateData: emptyCalendarInventory(),
     projectRef: sourceRef,
     status: "ready",
     blockers: [],

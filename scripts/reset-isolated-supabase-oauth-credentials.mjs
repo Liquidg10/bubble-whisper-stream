@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { storageScopeBindingAssertionSql } from './lib/storage-ingress-readiness.mjs';
+
 import { privateScopedReceiptSnapshot } from "./lib/import-subject-package.mjs";
 import { expectedMigrationGuardContract, validateMigrationGuardCatalogBinding } from "./lib/migration-guard-catalog.mjs";
 
@@ -349,10 +351,12 @@ export function targetSubjectScopeGuardSql(binding, { lock = false } = {}) {
   const tables = [
     "auth.identities",
     "auth.users",
+    "mind_manual_calendar.operations",
     ...scopes.map(([relation]) => `public.${quoteIdentifier(relation)}`),
   ];
   const ownershipChecks = [
     ["auth", "identities", "user_id"],
+    ["mind_manual_calendar", "operations", "owner_user_id"],
     ...scopes.map(([relation, owner]) => ["public", relation, owner]),
   ]
     .map(([schema, relation, owner]) => `
@@ -384,6 +388,7 @@ BEGIN
   ${ownershipChecks}
 END
 $subject_scope$;
+${storageScopeBindingAssertionSql(binding)}
 `;
 }
 

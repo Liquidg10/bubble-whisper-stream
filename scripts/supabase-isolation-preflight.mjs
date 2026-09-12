@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import { storageScopeAssertionSql } from './lib/storage-ingress-readiness.mjs';
+
+import { privateCalendarInventorySql, privateCalendarBlockers, validatePrivateCalendarInventory } from './lib/private-calendar-ledger.mjs';
 
 import { readdirSync } from "node:fs";
 import { resolve } from "node:path";
@@ -11,6 +14,7 @@ import {
 } from "./lib/migration-guard-catalog.mjs";
 import {
   assertScopeBinding,
+  emptyTargetMigrationScopeSql,
   classifyStorageObject,
   loadSubjectScope,
   scopeSqlPredicate,
@@ -842,6 +846,11 @@ export function compareReceipts(receipt, source, blockers) {
     source.publicData,
     ["copyRowCount", "copyRowsSha256"],
   );
+  try {
+    validatePrivateCalendarInventory(receipt.privateData);
+    validatePrivateCalendarInventory(source.privateData);
+    compareNamed("private Calendar data", receipt.privateData, source.privateData, ["copyRowCount", "copyRowsSha256"]);
+  } catch { blockers.push("private Calendar ledger inventory is missing or invalid"); }
   const targetStorageMap = new Map(
     receipt.storage.objects.map((row) => [row.bucket, row]),
   );
@@ -939,6 +948,19 @@ async function main() {
   } catch {
     migrationGuardBlocker = "migration guard catalog is missing or differs from the reviewed reference";
   }
+  let storageScopeBlocker;
+  let migrationScopeState = "unverified";
+  try {
+    runPsqlJson(database, `BEGIN READ ONLY; SET LOCAL ROLE postgres; ${storageScopeAssertionSql(subjectScope)} SELECT true; COMMIT;`);
+    migrationScopeState = "configured";
+  } catch { storageScopeBlocker = "Storage registry does not match the approved owner/object scope"; }
+  if (storageScopeBlocker && args.kind === "target") {
+    try {
+      runPsqlJson(database, `BEGIN READ ONLY; SET LOCAL ROLE postgres; ${emptyTargetMigrationScopeSql()} SELECT true; COMMIT;`);
+      migrationScopeState = "empty_target";
+      storageScopeBlocker = undefined;
+    } catch { /* any partially configured target remains blocked */ }
+  }
   const relationMap = new Map(
     rawCatalog.relations.map((row) => [row.name, row]),
   );
@@ -949,6 +971,11 @@ async function main() {
   const publicData = rawPublicData.map((
     { excludedOwnedRowCount, unapprovedRowCount, ...scoped },
   ) => scoped);
+  let privateData = [];
+  try {
+    privateData = runPsqlJson(database, privateCalendarInventorySql(subjectScope, args.kind));
+    validatePrivateCalendarInventory(privateData);
+  } catch { /* an absent or unreadable private ledger is a blocker, never zero */ }
   const rawAuth = runPsqlJson(
     database,
     authInventorySql(subjectScope, args.kind),
@@ -1005,8 +1032,10 @@ async function main() {
   const blockers = [
     ...secretInventory.blockers,
     ...storage.blockers,
+    ...privateCalendarBlockers(privateData),
     ...scopeInventoryBlockers(args.kind, scopeBinding, rawAuth, rawPublicData),
     ...(migrationGuardBlocker ? [migrationGuardBlocker] : []),
+    ...(storageScopeBlocker ? [storageScopeBlocker] : []),
   ];
   delete storage.blockers;
   const excludedDataInventory = {
@@ -1060,6 +1089,10 @@ async function main() {
     // Only these exact independently validated RPCs belong to the guard layer.
     expectedFunctionSet.add("mind_manual_admit_edge");
     expectedFunctionSet.add("mind_manual_release_edge");
+    expectedFunctionSet.add("mind_manual_admit_subject_edge");
+    expectedFunctionSet.add("mind_manual_release_subject_edge");
+    for (const name of ["mind_manual_plaid_token", "mind_manual_plaid_store_item", "mind_manual_plaid_save_sync", "mind_manual_plaid_item_error", "mind_manual_plaid_claim_webhook", "mind_manual_plaid_finish_webhook"]) expectedFunctionSet.add(name);
+    for (const name of ["calendar_operation_claim", "calendar_operation_claim_scoped", "calendar_operation_read", "calendar_operation_finalize"]) expectedFunctionSet.add(name);
   }
   const excludedPublicFunctions = catalog.allPublicFunctions
     .filter(({ name }) => !expectedFunctionSet.has(name))
@@ -1189,7 +1222,9 @@ async function main() {
       ),
     },
     catalog,
+    migrationScopeState,
     publicData,
+    privateData,
     excludedDataInventory,
     auth,
     storage,

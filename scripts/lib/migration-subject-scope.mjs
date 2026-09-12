@@ -292,3 +292,17 @@ export function targetSubjectAssertionSql(binding) {
     END IF;
   END $subject_scope$;`;
 }
+
+/** Empty isolated-target staging only. Source projects must never use this path. */
+export function emptyTargetMigrationScopeSql() {
+  return `DO $empty_target_scope$ BEGIN
+    IF (SELECT count(*) FROM mind_manual_migration.control WHERE singleton AND phase='open') <> 1
+       OR EXISTS (SELECT 1 FROM auth.users)
+       OR EXISTS (SELECT 1 FROM mind_manual_migration.subjects)
+       OR EXISTS (SELECT 1 FROM mind_manual_migration.edge_leases)
+       OR EXISTS (SELECT 1 FROM mind_manual_migration.storage_scope)
+       OR EXISTS (SELECT 1 FROM mind_manual_migration.storage_legacy_assignments) THEN
+      RAISE EXCEPTION 'Target migration scope must be empty and dormant before import' USING ERRCODE='55000';
+    END IF;
+  END $empty_target_scope$;`;
+}

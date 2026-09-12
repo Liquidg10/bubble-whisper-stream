@@ -4,7 +4,7 @@
  * control-plane state is an outage, never permission to start provider work.
  */
 export const MIND_MANUAL_EDGE_FUNCTIONS = Object.freeze([
-  'ai-cbt-reframe', 'ai-conversation', 'ai-embeddings', 'ai-glimmer-generate',
+  'ai-bubble-suggest', 'ai-cbt-reframe', 'ai-conversation', 'ai-embeddings', 'ai-glimmer-generate',
   'ai-monthly-summary', 'ai-pattern-analysis', 'ai-photo-analyze', 'ai-plan-generate',
   'ai-realtime-voice', 'ai-tts-generate', 'ai-voice-transcribe',
   'calendar-oauth-callback', 'calendar-oauth-start', 'calendar-sync', 'calendar-watch',
@@ -27,7 +27,18 @@ const corsHeaders = {
   'Access-Control-Expose-Headers': 'Retry-After',
 };
 
+export interface MindManualAdmissionTuple {
+  readonly functionName: string;
+  readonly action: string;
+  readonly subjectId: string;
+  readonly leaseId: string;
+  readonly generation: string;
+}
+
 export interface MindManualWorkLifecycle {
+  /** Internal-only original admission; never request data or a public receipt. */
+  readonly admission?: Readonly<MindManualAdmissionTuple>;
+
   /**
    * Register before the handler returns. Resolve only when ALL associated work
    * really ended (for voice: both the client and provider sockets are closed).
@@ -285,7 +296,7 @@ function ownerScopedControlRuntime(
 
 type ResolvedAdmission = Readonly<
   | { decision: 'unselected' | 'blocked' }
-  | { decision: 'admitted'; releaseLease: () => Promise<void> }
+  | { decision: 'admitted'; admission: Readonly<MindManualAdmissionTuple>; releaseLease: () => Promise<void> }
 >;
 
 async function admitResolvedSubject(
@@ -315,6 +326,7 @@ async function admitResolvedSubject(
   if (decision !== 'admitted') throw new Error('Invalid owner-scoped migration decision');
   return {
     decision: 'admitted',
+    admission: Object.freeze({ functionName, action, subjectId, leaseId, generation: runtime.generation }),
     releaseLease: async () => {
       try {
         // One exact attempt. False/malformed/lost releases retain the row.
@@ -425,12 +437,14 @@ async function runWithLease<Context>(
   handler: Handler<Context>,
   context: Context,
   releaseLease: () => Promise<void>,
+  admission: Readonly<MindManualAdmissionTuple>,
   dependencies: MigrationWriteFenceDependencies,
 ): Promise<Response> {
   const completions: Promise<boolean>[] = [];
   let registrationOpen = true;
   let release: Promise<void> | undefined;
   const lifecycle: MindManualWorkLifecycle = Object.freeze({
+    admission,
     holdUntil(completion: PromiseLike<unknown>) {
       if (!registrationOpen) {
         throw new Error('Work lifecycle must be registered before returning');
@@ -534,7 +548,7 @@ export function wrapMindManualSubjectHandler<Context>(
 
     let admission:
       | Readonly<{ kind: 'unselected'; context: Context }>
-      | Readonly<{ kind: 'admitted'; context: Context; releaseLease: () => Promise<void> }>;
+      | Readonly<{ kind: 'admitted'; context: Context; admission: Readonly<MindManualAdmissionTuple>; releaseLease: () => Promise<void> }>;
     try {
       const runtime = ownerScopedControlRuntime(dependencies);
       const scope = await resolver(request, runtime);
@@ -549,6 +563,7 @@ export function wrapMindManualSubjectHandler<Context>(
           kind: 'admitted',
           context: scope.context,
           releaseLease: resolved.releaseLease,
+          admission: resolved.admission,
         };
       } else {
         return unavailable();
@@ -563,7 +578,7 @@ export function wrapMindManualSubjectHandler<Context>(
       return await runWithoutLease(request, handler, admission.context, dependencies);
     }
     return await runWithLease(
-      request, handler, admission.context, admission.releaseLease, dependencies,
+      request, handler, admission.context, admission.releaseLease, admission.admission, dependencies,
     );
   };
 }

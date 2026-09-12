@@ -1,3 +1,5 @@
+import { storageScopeConfigurationSql, storageScopeBindingAssertionSql } from './storage-ingress-readiness.mjs';
+import { CALENDAR_LEDGER, privateCalendarCopyGuardSql, validatePrivateCalendarInventory } from './private-calendar-ledger.mjs';
 import {
   closeSync,
   constants,
@@ -18,6 +20,7 @@ import { resolve } from "node:path";
 import { validateMigrationGuardCatalogBinding } from "./migration-guard-catalog.mjs";
 import {
   assertScopeBinding,
+  emptyTargetMigrationScopeSql,
   subjectScopeBinding,
   targetSubjectAssertionSql,
   validateSubjectScope,
@@ -107,7 +110,7 @@ export function snapshotPackageBinaryFiles(manifest, packageDir, stagingDir) {
   const paths = new Set();
   for (const file of manifest.files) {
     if (
-      !/^(auth|public)\.[a-z][a-z0-9_]*$/u.test(file.logicalName) ||
+      (file.logicalName !== CALENDAR_LEDGER && !/^(auth|public)\.[a-z][a-z0-9_]*$/u.test(file.logicalName)) ||
       file.relativePath !== `data/${file.logicalName}.bin` ||
       paths.has(file.relativePath)
     ) {
@@ -135,7 +138,8 @@ function digest(expression) {
 }
 
 /** SQL guards belong in the SAME transaction as COPY, not only in preflight. */
-export function importTransactionGuards(source) {
+export function importTransactionGuards(source, scopeInput) {
+  validatePrivateCalendarInventory(source.privateData);
   const publicScopes = readTsvManifest(
     "supabase/isolation/mind-manual-data-scopes.tsv",
     3,
@@ -160,6 +164,7 @@ export function importTransactionGuards(source) {
   const tables = [
     ["auth", "users"],
     ["auth", "identities"],
+    ["mind_manual_calendar", "operations"],
     ...publicScopes.map(([name]) => ["public", name]),
   ];
   const names = tables.map(([schema, name]) =>
@@ -193,8 +198,13 @@ export function importTransactionGuards(source) {
       throw new Error("Source row parity inventory is incomplete");
     }
   }
+  const scope = validateSubjectScope(scopeInput);
+  assertScopeBinding(subjectScopeBinding(scope), binding, "transactional import scope");
   return {
-    beforeCopy: `SET LOCAL lock_timeout = '10s';\nLOCK TABLE ${
+    beforeCopy: `SET LOCAL lock_timeout = '10s';
+SELECT singleton FROM mind_manual_migration.control WHERE singleton FOR UPDATE;
+${emptyTargetMigrationScopeSql()}
+LOCK TABLE ${
       names.join(", ")
     } IN ACCESS EXCLUSIVE MODE;
 DO $import_empty$ BEGIN
@@ -223,6 +233,9 @@ ${
   RAISE EXCEPTION 'Target transactional copy parity failed' USING ERRCODE='55000';
 END IF;`;
       }).join("\n")
-    }\nEND $import_parity$;\n${targetSubjectAssertionSql(binding)}`,
+    }\nEND $import_parity$;\n${targetSubjectAssertionSql(binding)}\n${privateCalendarCopyGuardSql(source)}
+SELECT mind_manual_migration.configure_subjects(ARRAY[${scope.subjectIds.map(quoteLiteral).join(",")}]::uuid[]);
+${storageScopeConfigurationSql(scope)}
+${storageScopeBindingAssertionSql(binding)}`,
   };
 }

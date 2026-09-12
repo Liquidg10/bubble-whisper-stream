@@ -49,12 +49,13 @@ function sql(statement, database = "postgres") {
 function fixture(database = "postgres", oidNoise = false) {
   sql(`${oidNoise ? "CREATE SCHEMA oid_noise; CREATE TABLE oid_noise.unrelated (id integer);" : ""}
     CREATE SCHEMA auth;
+    CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid$$;
     CREATE TABLE auth.users (id uuid PRIMARY KEY);
     CREATE TABLE auth.identities (id uuid PRIMARY KEY, user_id uuid);
     ${scopeRows.map(([relation, owner]) => `CREATE TABLE public.${relation} (${owner} uuid, payload text);`).join("\n")}
     CREATE SCHEMA storage AUTHORIZATION supabase_storage_admin;
     CREATE TABLE storage.buckets (id text PRIMARY KEY, public boolean NOT NULL DEFAULT false);
-    CREATE TABLE storage.objects (id uuid, bucket_id text, name text);
+    CREATE TABLE storage.objects (id uuid, bucket_id text, name text, owner_id text);
     ALTER TABLE storage.objects OWNER TO supabase_storage_admin;
     ALTER TABLE storage.buckets OWNER TO supabase_storage_admin;
     ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
@@ -62,7 +63,10 @@ function fixture(database = "postgres", oidNoise = false) {
     CREATE POLICY fixture_managed_storage_access ON storage.objects TO authenticated
       USING (true) WITH CHECK (true);
   `, database);
+  sql(readFileSync(join(repoRoot, "supabase/manual/calendar-operation-receipts.sql"), "utf8"), database);
+  sql(readFileSync(join(repoRoot, "supabase/manual/plaid-owner-pipeline.sql"), "utf8"), database);
   sql(fenceSql, database);
+  sql(readFileSync(join(repoRoot, "supabase/isolation/calendar-operation-migration-provenance.sql"), "utf8"), database);
   sql(storageSql, database);
 }
 
@@ -121,9 +125,9 @@ describe("migration guard catalog — real local PostgreSQL", { concurrency: fal
       // rewrites the golden or accepts this local output as a live receipt.
       assert.fail(`${error.message}\nDisposable fixture reference:\n${JSON.stringify(actual, null, 2)}`);
     }
-    assert.equal(baseline.edgeFunctions.length, 34);
-    assert.equal(baseline.relationScopes.length, 34);
-    assert.equal(baseline.triggers.filter((trigger) => !trigger.internal).length, 102);
+    assert.equal(baseline.edgeFunctions.length, 35);
+    assert.equal(baseline.relationScopes.length, 35);
+    assert.equal(baseline.triggers.filter((trigger) => !trigger.internal).length, 105);
     assert.equal(baseline.storageGuard[0].policies.length, 3);
     assert.equal(actual.operationalRowsIncluded, false);
     assert.ok(!canonicalJson(actual).includes("CREATE FUNCTION"));

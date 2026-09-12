@@ -1,3 +1,4 @@
+import { assertPrivateCalendarParity } from './private-calendar-ledger.mjs';
 import { assertScopeBinding } from "./migration-subject-scope.mjs";
 import { validateImportScope } from "./import-subject-package.mjs";
 import { validateMigrationGuardCatalogBinding } from "./migration-guard-catalog.mjs";
@@ -30,6 +31,7 @@ export function validateRollbackScope(
       `${label} subject scope`,
     );
   }
+  assertPrivateCalendarParity(receipts.sourceRevalidation, source);
   validateMigrationGuardCatalogBinding(receipts.imported.migrationGuard);
   validateMigrationGuardCatalogBinding(receipts.sourceRevalidation.catalog?.migrationGuard);
   if (

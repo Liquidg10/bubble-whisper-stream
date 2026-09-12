@@ -1,3 +1,5 @@
+import { calendarFixtureSql, storageScopeFixtureSql } from './fixtures/private-calendar.mjs';
+import { privateCalendarInventorySql, privateCalendarBlockers } from '../lib/private-calendar-ledger.mjs';
 import assert from "node:assert/strict";
 import { expectedMigrationGuardContract } from "../lib/migration-guard-catalog.mjs";
 import { spawnSync } from "node:child_process";
@@ -144,6 +146,7 @@ function inventories(subjectScope = scope, kind = "source") {
     catalog: { relations: [], functions: [], migrationGuard: expectedMigrationGuardContract() },
     auth,
     publicData,
+    privateData: json(privateCalendarInventorySql(subjectScope, kind)),
     storage,
     excludedDataInventory: {
       excludedUserCount,
@@ -215,6 +218,8 @@ describe("subject-scoped source/export — real disposable PostgreSQL", {
     sql(
       `CREATE SCHEMA extensions; CREATE EXTENSION pgcrypto WITH SCHEMA extensions;
       CREATE SCHEMA auth; CREATE SCHEMA storage;
+      ${calendarFixtureSql}
+      ${storageScopeFixtureSql(selected, "fenced")}
       CREATE TABLE auth.users (id uuid PRIMARY KEY, instance_id uuid DEFAULT '00000000-0000-0000-0000-000000000000', payload text);
       CREATE TABLE auth.identities (id uuid PRIMARY KEY, user_id uuid, provider text, payload text);
       CREATE TABLE auth.sessions (user_id uuid); CREATE TABLE auth.refresh_tokens (user_id text);
@@ -233,7 +238,7 @@ describe("subject-scoped source/export — real disposable PostgreSQL", {
   });
   beforeEach(() => {
     sql(
-      `TRUNCATE auth.users, auth.identities, auth.sessions, auth.refresh_tokens, auth.mfa_factors,
+      `TRUNCATE mind_manual_calendar.operations, auth.users, auth.identities, auth.sessions, auth.refresh_tokens, auth.mfa_factors,
       auth.sso_providers, storage.buckets, storage.objects, ${
         dataScopes.map(({ relation }) => `public.${relation}`).join(",")
       };
@@ -266,6 +271,43 @@ describe("subject-scoped source/export — real disposable PostgreSQL", {
     if (scratch) rmSync(scratch, { recursive: true, force: true });
   });
 
+  it("inventories only the selected private ledger, preserves claim nonces and rejects unresolved or changed original operations", () => {
+    sql(`INSERT INTO mind_manual_calendar.operations(owner_user_id, operation_id, state, payload)
+      VALUES ('${selected}', '${selected}', 'pending', 'original claim'), ('${unrelated}', '${unrelated}', 'pending', 'outside claim');`);
+    const pending = inventories();
+    assert.equal(pending.privateData[0].copyRowCount, 1);
+    assert.equal(pending.privateData[0].unresolvedOperationCount, 1);
+    assert.equal(privateCalendarBlockers(pending.privateData).length, 1);
+    assert.throws(() => validateSourceReceipt(pending), /Private Calendar ledger is not ready/u);
+    sql(`UPDATE mind_manual_calendar.operations SET state='not_written' WHERE owner_user_id='${selected}';`);
+    const before = inventories();
+    validateSourceReceipt(before);
+    const entries = buildExportEntries(dataScopes, before, scope);
+    const ledger = entries.find(row => row.logicalName === 'mind_manual_calendar.operations');
+    assert.equal(ledger.containsCredentials, true);
+    const folder = mkdtempSync(join(scratch, 'private-ledger-export-')); mkdirSync(join(folder, 'data'));
+    sql(buildExportCommands(entries, folder, subjectScopeBinding(scope)));
+    sql(`CREATE TABLE mind_manual_calendar.copy_check (LIKE mind_manual_calendar.operations INCLUDING ALL);`);
+    try {
+      sql(`\\copy mind_manual_calendar.copy_check FROM '${join(folder, ledger.relativePath)}' WITH (FORMAT binary)`);
+      assert.equal(sql(`SELECT to_jsonb(r)::text FROM mind_manual_calendar.copy_check r`),
+        sql(`SELECT to_jsonb(r)::text FROM mind_manual_calendar.operations r WHERE owner_user_id='${selected}'`));
+    } finally { sql('DROP TABLE mind_manual_calendar.copy_check'); }
+    sql(`UPDATE mind_manual_calendar.operations SET payload='unrelated changes' WHERE owner_user_id='${unrelated}';`);
+    validateFreshSourceReceipt(inventories(), before);
+    sql(`UPDATE mind_manual_calendar.operations SET claim_token=gen_random_uuid() WHERE owner_user_id='${selected}';`);
+    assert.throws(() => validateFreshSourceReceipt(inventories(), before), /Private Calendar ledger changed/u);
+    const changed = command('psql', psqlArgs(), { input: exportSnapshotAssertions(entries) });
+    assert.notEqual(changed.status, 0);
+    assert.match(changed.stderr, /Scoped export snapshot changed: mind_manual_calendar.operations/u);
+  });
+  it("refuses absent private schema and legacy receipts instead of asserting an empty ledger", () => {
+    const receipt = inventories(); delete receipt.privateData;
+    assert.throws(() => validateSourceReceipt(receipt), /Private Calendar ledger is not ready/u);
+    sql('ALTER TABLE mind_manual_calendar.operations RENAME TO hidden_operations');
+    try { assert.throws(() => inventories()); }
+    finally { sql('ALTER TABLE mind_manual_calendar.hidden_operations RENAME TO operations'); }
+  });
   it("filters every copied relation, Auth/provider/MFA/session inventory, and transient rows to approved subjects", () => {
     const receipt = inventories();
     assert.equal(receipt.auth.userCount, 1);
@@ -302,7 +344,7 @@ describe("subject-scoped source/export — real disposable PostgreSQL", {
     const entries = buildExportEntries(dataScopes, before, scope);
     const first = mkdtempSync(join(scratch, "first-export-"));
     mkdirSync(join(first, "data"));
-    sql(buildExportCommands(entries, first));
+    sql(buildExportCommands(entries, first, subjectScopeBinding(scope)));
     sql(
       `UPDATE auth.users SET payload='outside_updated',instance_id='${unrelated}' WHERE id='${unrelated}';
       UPDATE auth.identities SET payload='outside_linked' WHERE user_id='${unrelated}';
@@ -330,11 +372,11 @@ describe("subject-scoped source/export — real disposable PostgreSQL", {
     const second = mkdtempSync(join(scratch, "second-export-"));
     mkdirSync(join(second, "data"));
     const output = sql(
-      buildExportCommands(buildExportEntries(dataScopes, after, scope), second),
+      buildExportCommands(buildExportEntries(dataScopes, after, scope), second, subjectScopeBinding(scope)),
     );
     assert.equal(
       [...output.matchAll(/^COPY\s+(\d+)$/gmu)].length,
-      dataScopes.length + 2,
+      dataScopes.length + 3,
     );
     for (const entry of entries) {
       const bytes = readFileSync(join(first, entry.relativePath));
@@ -579,7 +621,7 @@ describe("subject-scoped source/export — real disposable PostgreSQL", {
     const destination = mkdtempSync(join(scratch, "mfa-denied-export-"));
     mkdirSync(join(destination, "data"));
     const result = command("psql", psqlArgs(), {
-      input: buildExportCommands(entries, destination),
+      input: buildExportCommands(entries, destination, subjectScopeBinding(scope)),
     });
     assert.notEqual(result.status, 0);
     assert.match(
@@ -607,7 +649,7 @@ describe("subject-scoped source/export — real disposable PostgreSQL", {
       const destination = mkdtempSync(join(scratch, "denied-export-"));
       mkdirSync(join(destination, "data"));
       const result = command("psql", psqlArgs(), {
-        input: buildExportCommands(entries, destination),
+        input: buildExportCommands(entries, destination, subjectScopeBinding(scope)),
       });
       assert.notEqual(result.status, 0);
       assert.match(result.stderr, /55000: Scoped export snapshot changed/u);

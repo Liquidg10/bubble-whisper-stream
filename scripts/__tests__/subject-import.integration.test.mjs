@@ -1,3 +1,4 @@
+import { emptyCalendarInventory } from './fixtures/private-calendar.mjs';
 import assert from "node:assert/strict";
 import { expectedMigrationGuardContract } from "../lib/migration-guard-catalog.mjs";
 import { spawn, spawnSync } from "node:child_process";
@@ -32,6 +33,7 @@ const scopes = readFileSync(
 const tables = [
   { schema: "auth", name: "users", owner: "id", count: 1 },
   { schema: "auth", name: "identities", owner: "user_id", count: 1 },
+  { schema: "mind_manual_calendar", name: "operations", owner: "owner_user_id", count: 1 },
   ...scopes.map(([name, owner, copyMode]) => ({
     schema: "public",
     name,
@@ -41,14 +43,15 @@ const tables = [
 ];
 const selected = "10000000-0000-4000-8000-000000000001";
 const unrelated = "20000000-0000-4000-8000-000000000002";
-const binding = subjectScopeBinding({
+const privateScope = {
   version: 1,
   kind: "mind_manual_subject_scope",
   sourceProjectRef: "ekekeywoxvdbfbmqyhjy",
   targetProjectRef: "abcdefghijklmnopqrst",
   subjectIds: [selected],
   legacyStorageAssignments: [],
-});
+};
+const binding = subjectScopeBinding(privateScope);
 // Never honor PG*, DATABASE_URL, or an existing service. This suite starts a
 // disposable local PostgreSQL cluster with a private Unix socket and no TCP.
 const env = Object.fromEntries(
@@ -125,9 +128,10 @@ function session() {
   return handle;
 }
 const tableName = ({ schema, name }) => `${schema}.${name}`;
+const idColumn = table => table.schema === "mind_manual_calendar" ? "operation_id" : "id";
 function rowInsert(table, owner = selected, payload = "synthetic data") {
-  return `INSERT INTO ${tableName(table)} (id, ${
-    table.owner === "id" ? "" : "user_id,"
+  return `INSERT INTO ${tableName(table)} (${idColumn(table)}, ${
+    table.owner === "id" ? "" : `${table.owner},`
   } payload)
     VALUES ('${owner}', ${
     table.owner === "id" ? "" : `'${owner}',`
@@ -151,14 +155,14 @@ function copyCommands() {
   ).join("\n");
 }
 function importCommands({ afterCopySql = "", receipt = source } = {}) {
-  const guards = importTransactionGuards(receipt);
+  const guards = importTransactionGuards(receipt, privateScope);
   const manifest = {
     files: tables.map((table) => ({
       logicalName: tableName(table),
       relativePath: `data/${tableName(table)}.bin`,
     })),
   };
-  const commands = buildImportCommands(manifest, scratch, receipt);
+  const commands = buildImportCommands(manifest, scratch, receipt, privateScope);
   return afterCopySql
     ? commands.replace(guards.afterCopy, `${afterCopySql}\n${guards.afterCopy}`)
     : commands;
@@ -222,10 +226,11 @@ describe(
       started = true;
       sql(
         `CREATE SCHEMA auth; CREATE SCHEMA extensions; CREATE EXTENSION pgcrypto WITH SCHEMA extensions;
+      CREATE SCHEMA mind_manual_calendar;
       ${
           tables.map((table) =>
-            `CREATE TABLE ${tableName(table)} (id uuid PRIMARY KEY, ${
-              table.owner === "id" ? "" : "user_id uuid,"
+            `CREATE TABLE ${tableName(table)} (${idColumn(table)} uuid PRIMARY KEY, ${
+              table.owner === "id" ? "" : `${table.owner} uuid,`
             } payload text);`
           ).join("\n")
         }
@@ -236,11 +241,20 @@ describe(
         }
       UPDATE public.calendar_events SET payload=E'tab\\tnewline\\nUnicode Ω';`,
       );
+      sql(`CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role BYPASSRLS; CREATE ROLE supabase_storage_admin;
+        CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
+        CREATE SCHEMA storage AUTHORIZATION supabase_storage_admin;
+        CREATE TABLE storage.buckets(id text PRIMARY KEY, public boolean); INSERT INTO storage.buckets VALUES ('photos',false),('voice-samples',false);
+        CREATE TABLE storage.objects(bucket_id text,name text,owner_id text);
+        ALTER TABLE storage.objects OWNER TO supabase_storage_admin; ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;`);
+      sql(readFileSync(join(root, 'supabase/isolation/source-write-fence.sql'), 'utf8'));
+      sql(readFileSync(join(root, 'supabase/isolation/storage-write-gateway.sql'), 'utf8'));
       const rows = inventory();
       const users = rows.find((row) => row.relation === "auth.users");
       const identities = rows.find((row) => row.relation === "auth.identities");
       source = {
         subjectScope: binding,
+        privateData: [{ ...emptyCalendarInventory()[0], totalRowCount: 1, copyRowCount: 1, totalRowsSha256: rows.find(row => row.relation === "mind_manual_calendar.operations").digest, copyRowsSha256: rows.find(row => row.relation === "mind_manual_calendar.operations").digest }],
         auth: {
           userCount: users.count,
           subjectIdsSha256: binding.subjectIdsSha256,
@@ -276,6 +290,7 @@ describe(
     beforeEach(async () => {
       for (const handle of sessions) handle.child.stdin.end("ROLLBACK;\n");
       await Promise.all([...sessions].map((handle) => handle.done));
+      sql("DELETE FROM mind_manual_migration.subjects; DELETE FROM mind_manual_migration.storage_scope; DELETE FROM mind_manual_migration.storage_legacy_assignments");
       sql(`TRUNCATE ${tables.map(tableName).join(", ")};`);
     });
     after(async () => {
@@ -297,9 +312,26 @@ describe(
       // Delete only this test's exact mkdtemp-created disposable local cluster.
       if (scratch) rmSync(scratch, { recursive: true, force: true });
     });
-    it("imports all 34 exact binary files, emits COPY receipts despite --quiet, and verifies full row digests", () => {
-      assert.equal(tables.length, 34);
+    it("rolls back all imported relations when the preserved private Calendar row changes", () => {
+      rejectsSql(importCommands({ afterCopySql: "UPDATE mind_manual_calendar.operations SET payload='changed original receipt';" }), /Private Calendar transactional copy parity failed/u);
+      assertEmpty();
+    });
+    it("rolls back Auth, private Calendar and scope configuration together if target configuration changes", () => {
+      rejectsSql(importCommands({ afterCopySql: `INSERT INTO mind_manual_migration.storage_scope VALUES(true,'${unrelated}');` }), /Storage scope is immutable/u);
+      assertEmpty();
+      assert.equal(sql('SELECT count(*) FROM mind_manual_migration.subjects'), '0');
+      assert.equal(sql('SELECT count(*) FROM mind_manual_migration.storage_scope'), '0');
+    });
+    it("refuses old packages without private ledger inventory before COPY", () => {
+      const old = { ...source }; delete old.privateData;
+      assert.throws(() => importCommands({ receipt: old }), /Private Calendar ledger inventory/u);
+      assertEmpty();
+    });
+    it("imports all 35 exact binary files, emits COPY receipts despite --quiet, and verifies full row digests", () => {
+      assert.equal(tables.length, 35);
       const output = sql(importCommands());
+      assert.equal(sql("SELECT user_id FROM mind_manual_migration.subjects"), selected);
+      assert.equal(sql("SELECT owner_subject_id FROM mind_manual_migration.storage_scope"), selected);
       assert.deepEqual(
         [...output.matchAll(/^COPY\s+(\d+)$/gmu)].map((match) =>
           Number(match[1])
@@ -316,6 +348,8 @@ describe(
             source.publicData.find((entry) => entry.relation === table.name)
               .copyRowsSha256,
           );
+        } else if (table.schema === "mind_manual_calendar") {
+          assert.equal(row.digest, source.privateData[0].copyRowsSha256);
         } else {assert.equal(
             row.digest,
             source
@@ -334,7 +368,7 @@ describe(
         sql(rowInsert(table, unrelated));
         const result = rejectsSql(
           importCommands(),
-          /Target changed after preflight; import refused/u,
+          /Target changed after preflight; import refused|Target migration scope must be empty and dormant/u,
         );
         assert.doesNotMatch(result.stdout, /^COPY\s+/mu);
         assert.equal(inventory().reduce((sum, row) => sum + row.count, 0), 1);
@@ -429,10 +463,12 @@ describe(
         },
       };
       const targetReceipt = {
+        migrationScopeState: "empty_target",
         kind: "target",
         catalog: { migrationGuard: expectedMigrationGuardContract() },
         subjectScope: binding,
         excludedPublicRelations: [],
+        privateData: emptyCalendarInventory(),
         publicData: scopes.map(([relation]) => ({
           relation,
           totalRowCount: 0,
@@ -448,6 +484,7 @@ describe(
       for (
         const validate of [validatePreImportTarget, validatePostImportTarget]
       ) {
+        targetReceipt.migrationScopeState = validate === validatePreImportTarget ? "empty_target" : "configured";
         assert.doesNotThrow(() => validate(targetReceipt, sourceReceipt));
         for (const catalog of [undefined, {}, { migrationGuard: { version: 1 } }]) {
           assert.throws(() => validate({ ...targetReceipt, catalog }, sourceReceipt), /guard catalog/u);
@@ -470,6 +507,7 @@ describe(
         () =>
           validatePreImportTarget({
             ...targetReceipt,
+            migrationScopeState: "empty_target",
             auth: { ...targetReceipt.auth, userCount: 1 },
           }, sourceReceipt),
         /Auth is not empty/u,
@@ -503,13 +541,13 @@ describe(
         const receipt = structuredClone(source);
         mutate(receipt);
         assert.throws(
-          () => importTransactionGuards(receipt),
+          () => importTransactionGuards(receipt, privateScope),
           /parity inventory/u,
         );
       }
     });
     it("locks every table until after final parity, so no concurrent writer can slip through the snapshot", async () => {
-      const guards = importTransactionGuards(source);
+      const guards = importTransactionGuards(source, privateScope);
       const importer = session();
       await importer.send(
         `BEGIN; ${guards.beforeCopy}\n${copyCommands()}\n${guards.afterCopy}`,
@@ -540,7 +578,7 @@ describe(
       assert.notEqual(result.status, 0);
       assert.match(
         result.stderr,
-        /Target changed after preflight; import refused/u,
+        /Target changed after preflight; import refused|Target migration scope must be empty and dormant/u,
       );
       assert.doesNotMatch(result.stdout, /^COPY\s+/mu);
       assert.equal(inventory().reduce((sum, row) => sum + row.count, 0), 1);

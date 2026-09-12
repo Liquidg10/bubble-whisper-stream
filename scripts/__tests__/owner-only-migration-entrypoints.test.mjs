@@ -1,3 +1,4 @@
+import { emptyCalendarInventory } from './fixtures/private-calendar.mjs';
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -96,7 +97,7 @@ function fixture(change = () => {}) {
   mkdirSync(packageDir, { recursive: true, mode: 0o700 });
   const now = new Date().toISOString();
   const common = { version: 1, sourceProjectRef: SOURCE, targetProjectRef: TARGET, subjectScope: ONE, sourceMutated: false };
-  const source = { version: 1, kind: "source", projectRef: SOURCE, status: "ready", blockers: [], capturedAt: now,
+  const source = { privateData: emptyCalendarInventory(), version: 1, kind: "source", projectRef: SOURCE, status: "ready", blockers: [], capturedAt: now,
     subjectScope: ONE, catalog: { migrationGuard: expectedMigrationGuardContract() },
     auth: { userCount: 1, identityCount: 1, subjectIdsSha256: ONE.subjectIdsSha256,
       usersSha256: HASH, identitiesSha256: HASH, mfaFactorCount: 0, ssoProviderCount: 0, nonDefaultInstanceCount: 0 },
