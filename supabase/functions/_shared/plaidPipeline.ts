@@ -9,6 +9,7 @@ export interface PlaidRuntime {
   provider(path: string, body: Row): Promise<Row>;
 }
 export interface PlaidWebhookContext { item: PlaidItem; webhook: Row; deliveryKey: string }
+export const PLAID_REQUEST_BODY_TIMEOUT_MS = 5_000;
 export class PlaidPipelineError extends Error {
   constructor(readonly code: string, readonly status = 503) { super(code); }
 }
@@ -24,23 +25,31 @@ function record(value: unknown): Row {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new PlaidPipelineError('PLAID_INVALID_RESPONSE');
   return value as Row;
 }
-function text(value: unknown, max = 512): string {
-  if (typeof value !== 'string' || !value || value.length > max || /[\x00-\x1f]/.test(value)) throw new PlaidPipelineError('PLAID_INVALID_INPUT', 400);
+function text(value: unknown, max = 512, status = 400): string {
+  if (typeof value !== 'string' || !value || value.length > max || /[\x00-\x1f]/.test(value)) throw new PlaidPipelineError(status === 400 ? 'PLAID_INVALID_INPUT' : 'PLAID_INVALID_RESPONSE', status);
+  return value;
+}
+function receiptUuid(value: unknown): string {
+  if (typeof value !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) throw new PlaidPipelineError('PLAID_INVALID_RECEIPT');
   return value;
 }
 async function boundedBody(req: Request): Promise<Uint8Array> {
   const reader = req.body?.getReader();
   if (!reader) throw new PlaidPipelineError('PLAID_INVALID_INPUT', 400);
   const chunks: Uint8Array[] = []; let size = 0;
+  let timer: ReturnType<typeof setTimeout>;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new PlaidPipelineError('PLAID_BODY_TIMEOUT', 408)), PLAID_REQUEST_BODY_TIMEOUT_MS);
+  });
   try {
     for (;;) {
-      const next = await reader.read(); if (next.done) break;
+      const next = await Promise.race([reader.read(), deadline]); if (next.done) break;
       size += next.value.length;
       if (size > PLAID_WEBHOOK_VERIFICATION_LIMITS.maxBodyBytes || chunks.length >= 4096) throw new PlaidPipelineError('PLAID_BODY_TOO_LARGE', 413);
       chunks.push(next.value);
     }
   } catch (error) { void reader.cancel().catch(() => {}); throw error; }
-  finally { reader.releaseLock(); }
+  finally { clearTimeout(timer!); reader.releaseLock(); }
   const result = new Uint8Array(size); let offset = 0;
   for (const chunk of chunks) { result.set(chunk, offset); offset += chunk.length; }
   return result;
@@ -125,7 +134,7 @@ export async function processPlaidWebhook(runtime: PlaidRuntime, context: PlaidW
       if (claim.processed === true) return plaidResponse({ success: true, duplicate: true });
       throw new PlaidPipelineError('PLAID_DELIVERY_RECONCILIATION_REQUIRED');
     }
-    receiptId = text(claim.receipt_id); claimToken = text(claim.claim_token);
+    receiptId = receiptUuid(claim.receipt_id); claimToken = receiptUuid(claim.claim_token);
     if (webhook.webhook_type === 'TRANSACTIONS' && webhook.webhook_code === 'SYNC_UPDATES_AVAILABLE') {
       await syncPlaid(runtime, item, 'transactions');
     } else if (webhook.webhook_type === 'ACCOUNTS' && webhook.webhook_code === 'DEFAULT_UPDATE') {
@@ -158,9 +167,9 @@ export async function handlePlaidExchange(request: Request, owner: string, runti
     const input = await plaidRequest(request);
     const publicToken = text(input.public_token, 4096); const institution = text(input.institution_name, 256);
     const data = await runtime.provider('/item/public_token/exchange', { public_token: publicToken });
-    const itemId = text(data.item_id); const accessToken = text(data.access_token, 4096);
+    const itemId = text(data.item_id, 512, 503); const accessToken = text(data.access_token, 4096, 503);
     const stored = await runtime.rpc('mind_manual_plaid_store_item', { p_owner: owner, p_external_item: itemId, p_token: accessToken, p_institution: institution });
-    if (typeof stored !== 'string') throw new PlaidPipelineError('PLAID_STORE_RECEIPT_MISMATCH');
+    receiptUuid(stored);
     return plaidResponse({ success: true, item_id: itemId });
   } catch (error) { return plaidFailure(error); }
 }
