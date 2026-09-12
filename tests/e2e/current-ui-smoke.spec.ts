@@ -78,10 +78,12 @@ test.describe('active Glimmer layout regression', () => {
     await page.screenshot({ path: testInfo.outputPath('both-active-glimmer-cards-mobile.png'), fullPage: true });
 
     // A real footer navigation must stay usable while neither message is dismissed.
-    await page.getByRole('navigation').getByRole('link', { name: 'Settings', exact: true }).click();
+    await page.getByRole('button', { name: 'More destinations', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Settings', exact: true }).click();
     await expect(page).toHaveURL(/\/settings$/);
     await expect(page.getByTestId('saved-assistant-message')).toHaveCount(0);
     await expectActiveGlimmers(page, false);
+    await page.getByRole('navigation', { name: 'Primary navigation' }).getByRole('link', { name: 'Canvas', exact: true }).click();
     await page.getByRole('button', { name: 'Atomic view mode', exact: true }).click();
     await expectActiveGlimmers(page);
     expect(await readGlimmerRows(page)).toEqual(before);
@@ -489,7 +491,10 @@ test.describe('current UI smoke gate', () => {
 
   test('List keyboard help remains operable without mutating task data', async ({ page }) => {
     await page.goto('/list');
-    await closeOnboardingIfPresent(page);
+    const welcome = page.getByRole('dialog', { name: 'Welcome', exact: true });
+    await expect(welcome).toBeVisible({ timeout: 10_000 });
+    await welcome.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(welcome).toBeHidden();
 
     const shortcutsButton = page.getByRole('button', { name: 'Show keyboard shortcuts' });
     await shortcutsButton.focus();
@@ -505,7 +510,11 @@ test.describe('current UI smoke gate', () => {
     await closeOnboardingIfPresent(page);
 
     await expect(page.getByRole('heading', { name: 'Mind Manual' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Zoom in' })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Welcome', exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Start with 3 guide bubbles', exact: true }).click();
+    await expect(page.getByRole('region', { name: 'Adaptive Bubble view', exact: true })).toBeVisible();
+    await expect(page.locator('[data-adaptive-bubble]')).toHaveCount(3);
+    await expect(page.getByRole('button', { name: 'Zoom in', exact: true })).toBeVisible();
   });
 
   test('bubble zoom controls scale predictably and wheel zoom keeps its focal task anchored', async ({ page }) => {
@@ -637,7 +646,8 @@ test.describe('current UI smoke gate', () => {
       name: 'Change bubble density. Current density: medium',
     })).toBeVisible();
     const compactCanvasControls = mobileViewControls.locator('button');
-    await expect(compactCanvasControls).toHaveCount(7);
+    await expect(compactCanvasControls).toHaveCount(8);
+    await expect(mobileViewControls.getByRole('button', { name: /Pause bubble motion|Resume bubble motion|Bubble motion disabled/ })).toBeVisible();
     const compactControlSizes = await compactCanvasControls.evaluateAll(
       (controls) => controls.map((control) => {
         const rect = control.getBoundingClientRect();

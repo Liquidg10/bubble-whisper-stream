@@ -1,20 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { 
-  Settings as SettingsIcon, 
-  Brain, 
-  Plug, 
-  Shield, 
-  Code,
-  Bot,
-  Timer,
-  Home,
-  Lock,
-  History,
-  GraduationCap,
-  Eye
-} from 'lucide-react';
+import { Settings as SettingsIcon, Brain, Plug, Shield, Code, Bot, Lock, History, GraduationCap, Eye } from 'lucide-react';
 import { GeneralSettings } from '@/components/settings/GeneralSettings';
 import { IntelligenceSettings } from '@/components/IntelligenceSettings';
 import { IntegrationsSettings } from '@/components/settings/IntegrationsSettings';
@@ -30,161 +17,68 @@ import { AutoWriteSettings } from '@/components/settings/AutoWriteSettings';
 import { useFeatureFlags } from '@/components/FeatureFlags';
 import { isFeatureEnabled } from '@/config/flags';
 
-const SETTINGS_TABS = new Set([
-  'general',
-  'onboarding',
-  'ai',
-  'thought-support',
-  'intelligence',
-  'autowrite',
-  'integrations',
-  'safety',
-  'audit',
-  'privacy',
-  'accessibility',
-  'advanced',
-]);
-
 export const Settings: React.FC = () => {
   const { isFeatureEnabled: isLegacyFeatureEnabled } = useFeatureFlags();
-  const [searchParams] = useSearchParams();
-  const requestedTab = searchParams.get('tab');
+  const [searchParams, setSearchParams] = useSearchParams();
   const showCBTTab = isFeatureEnabled('cbtAssist') || isFeatureEnabled('cbtSilentObserve');
   const showAdvancedTab = isLegacyFeatureEnabled('debugMode');
-  const requestedTabIsAvailable = Boolean(
-    requestedTab &&
-    SETTINGS_TABS.has(requestedTab) &&
-    (requestedTab !== 'thought-support' || showCBTTab) &&
-    (requestedTab !== 'advanced' || showAdvancedTab),
-  );
-  const resolvedRequestedTab = requestedTabIsAvailable ? requestedTab! : 'general';
-  const [activeTab, setActiveTab] = useState(resolvedRequestedTab);
-
-  useEffect(() => {
-    setActiveTab(resolvedRequestedTab);
-  }, [resolvedRequestedTab]);
+  const sections = [
+    { value: 'general', label: 'General', icon: SettingsIcon, description: 'Shape a space that feels like yours.', content: GeneralSettings },
+    { value: 'accessibility', label: 'Accessibility', icon: Eye, description: 'Adjust motion, readability, and interaction to suit you.', content: AccessibilitySettings },
+    { value: 'onboarding', label: 'Learning', icon: GraduationCap, description: 'Find your feet, one small step at a time.', content: OnboardingSettings },
+    { value: 'ai', label: 'AI', icon: Bot, description: 'Choose how your assistant helps.', content: AISettings },
+    ...(showCBTTab ? [{ value: 'thought-support', label: 'Thought support', icon: Brain, description: 'Choose the support that works for you.', content: ThoughtSupportSettings }] : []),
+    { value: 'intelligence', label: 'Intelligence', icon: Brain, description: 'Manage suggestions and contextual assistance.', content: IntelligenceSettings },
+    { value: 'autowrite', label: 'Auto-Write', icon: Bot, description: 'Choose your preferences for assisted writing.', content: AutoWriteSettings },
+    { value: 'integrations', label: 'Integrations', icon: Plug, description: 'Manage connections to your other tools.', content: IntegrationsSettings },
+    { value: 'safety', label: 'Safety', icon: Lock, description: 'Set the boundaries that help you feel comfortable.', content: SafetySettings },
+    { value: 'privacy', label: 'Privacy', icon: Shield, description: 'Stay in control of your information.', content: PrivacySecuritySettings },
+    { value: 'audit', label: 'Audit', icon: History, description: 'Review activity and decisions.', content: AuditSettings },
+    ...(showAdvancedTab ? [{ value: 'advanced', label: 'Advanced', icon: Code, description: 'Diagnostics and developer options.', content: AdvancedSettings }] : []),
+  ];
+  const requestedTab = searchParams.get('tab');
+  const activeSection = sections.find(section => section.value === requestedTab) ?? sections[0];
+  const changeSection = (value: string) => {
+    setSearchParams(previous => {
+      const next = new URLSearchParams(previous);
+      next.set('tab', value);
+      return next;
+    }, { replace: true });
+  };
 
   return (
-    <div className="flex flex-col h-full bg-background">
-      <div className="p-4 border-b border-border">
-        <h1 className="text-xl font-semibold">Settings & Privacy</h1>
-        <p className="text-sm text-muted-foreground">
-          Customize your experience and manage your data
-        </p>
-      </div>
+    <div className="min-h-full min-w-0 bg-background">
+      <div className="mx-auto max-w-6xl px-4 pb-8 pt-6 sm:px-6 sm:pt-8">
+        <div className="mb-6">
+          <p className="mb-2 text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Make it yours</p>
+          <h1 className="font-display text-3xl tracking-tight">Settings & Privacy</h1>
+          <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">A little more comfort. A little less friction. Choose what works for you.</p>
+        </div>
 
-      <div className="flex-1 overflow-hidden">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
-          <div className="border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-            <TabsList className="inline-flex h-12 items-center justify-start w-full p-1 text-muted-foreground bg-transparent overflow-x-auto scrollbar-none mx-4">
-              <TabsTrigger value="general" className="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm gap-2 min-w-fit">
-                <SettingsIcon className="h-4 w-4" />
-                <span>General</span>
-              </TabsTrigger>
-              <TabsTrigger value="onboarding" className="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm gap-2 min-w-fit">
-                <GraduationCap className="h-4 w-4" />
-                <span>Learning</span>
-              </TabsTrigger>
-              <TabsTrigger value="ai" className="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm gap-2 min-w-fit">
-                <Bot className="h-4 w-4" />
-                <span>AI</span>
-              </TabsTrigger>
-              {showCBTTab && (
-                <TabsTrigger value="thought-support" className="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm gap-2 min-w-fit">
-                  <Brain className="h-4 w-4" />
-                  <span>Thought</span>
+        <Tabs value={activeSection.value} onValueChange={changeSection} orientation="vertical" className="grid min-w-0 gap-6 md:grid-cols-[220px_minmax(0,1fr)] md:gap-8">
+          <div className="min-w-0">
+            <div className="md:hidden">
+              <label htmlFor="settings-section" className="mb-2 block text-sm font-medium">Settings section</label>
+              <select id="settings-section" value={activeSection.value} onChange={event => changeSection(event.target.value)} className="min-h-12 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                {sections.map(section => <option key={section.value} value={section.value}>{section.label}</option>)}
+              </select>
+            </div>
+            <TabsList aria-label="Settings sections" className="hidden h-auto w-full flex-col items-stretch justify-start gap-1 rounded-2xl border border-border/60 bg-card/50 p-2 md:flex">
+              {sections.map(({ value, label, icon: Icon }) => (
+                <TabsTrigger key={value} value={value} className="min-h-11 justify-start gap-3 rounded-xl px-3 py-2 text-left data-[state=active]:bg-primary/10 data-[state=active]:shadow-none">
+                  <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />{label}
                 </TabsTrigger>
-              )}
-              <TabsTrigger value="intelligence" className="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm gap-2 min-w-fit">
-                <Brain className="h-4 w-4" />
-                <span>Intelligence</span>
-              </TabsTrigger>
-              <TabsTrigger value="autowrite" className="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm gap-2 min-w-fit">
-                <Bot className="h-4 w-4" />
-                <span>Auto-Write</span>
-              </TabsTrigger>
-              <TabsTrigger value="integrations" className="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm gap-2 min-w-fit">
-                <Plug className="h-4 w-4" />
-                <span>Integrations</span>
-              </TabsTrigger>
-              <TabsTrigger value="safety" className="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm gap-2 min-w-fit">
-                <Lock className="h-4 w-4" />
-                <span>Safety</span>
-              </TabsTrigger>
-              <TabsTrigger value="audit" className="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm gap-2 min-w-fit">
-                <History className="h-4 w-4" />
-                <span>Audit</span>
-              </TabsTrigger>
-              <TabsTrigger value="privacy" className="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm gap-2 min-w-fit">
-                <Shield className="h-4 w-4" />
-                <span>Privacy</span>
-              </TabsTrigger>
-              <TabsTrigger value="accessibility" className="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm gap-2 min-w-fit">
-                <Eye className="h-4 w-4" />
-                <span>A11y</span>
-              </TabsTrigger>
-              {showAdvancedTab && (
-                <TabsTrigger value="advanced" className="inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-sm gap-2 min-w-fit">
-                  <Code className="h-4 w-4" />
-                  <span>Advanced</span>
-                </TabsTrigger>
-              )}
+              ))}
             </TabsList>
           </div>
-
-          <div className="flex-1 overflow-y-auto p-4">
-            <TabsContent value="general" className="space-y-6 mt-0">
-              <GeneralSettings />
-            </TabsContent>
-
-            <TabsContent value="onboarding" className="space-y-6 mt-0">
-              <OnboardingSettings />
-            </TabsContent>
-
-            <TabsContent value="ai" className="space-y-6 mt-0">
-              <AISettings />
-            </TabsContent>
-
-
-            {showCBTTab && (
-              <TabsContent value="thought-support" className="space-y-6 mt-0">
-                <ThoughtSupportSettings />
-              </TabsContent>
-            )}
-
-            <TabsContent value="intelligence" className="space-y-6 mt-0">
-              <IntelligenceSettings />
-            </TabsContent>
-
-            <TabsContent value="autowrite" className="space-y-6 mt-0">
-              <AutoWriteSettings />
-            </TabsContent>
-
-            <TabsContent value="integrations" className="space-y-6 mt-0">
-              <IntegrationsSettings />
-            </TabsContent>
-
-            <TabsContent value="safety" className="space-y-6 mt-0">
-              <SafetySettings />
-            </TabsContent>
-
-            <TabsContent value="audit" className="space-y-6 mt-0">
-              <AuditSettings />
-            </TabsContent>
-
-            <TabsContent value="privacy" className="space-y-6 mt-0">
-              <PrivacySecuritySettings />
-            </TabsContent>
-
-            <TabsContent value="accessibility" className="space-y-6 mt-0">
-              <AccessibilitySettings />
-            </TabsContent>
-
-            {showAdvancedTab && (
-              <TabsContent value="advanced" className="space-y-6 mt-0">
-                <AdvancedSettings />
-              </TabsContent>
-            )}
+          <div className="min-w-0">
+            <div className="mb-5 border-b border-border/60 pb-4">
+              <h2 className="text-xl font-semibold">{activeSection.label}</h2>
+              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{activeSection.description}</p>
+            </div>
+            {sections.map(({ value, content: Content }) => (
+              <TabsContent key={value} value={value} className="mt-0 min-w-0 space-y-6"><Content /></TabsContent>
+            ))}
           </div>
         </Tabs>
       </div>

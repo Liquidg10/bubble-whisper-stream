@@ -10,14 +10,61 @@ import {
   UnsupportedCanonicalTaskVersionError,
   validateRoundTrip,
   withBubbleDomainLinks,
+  withBubbleRelationships,
 } from '../taskAdapter';
 import { type BubbleType, type Bubble } from '@/types/bubble';
 import {
   CANONICAL_TASK_CONTRACT_VERSION,
+  createTask,
   type Task,
+  type TaskRelationship,
 } from '@/types/task';
 
 describe('TaskAdapter', () => {
+  describe('connected action contract', () => {
+    const relationships: TaskRelationship[] = [{ id: 'relation', targetTaskId: 'exact/custom_target', kind: 'depends-on',
+      userConfirmed: true, source: 'user', reason: 'Wait for the actual prerequisite.', createdAt: 11, updatedAt: 12 }];
+
+    it('roundtrips optional relationships and domain effects in the existing versioned envelope', () => {
+      const task: Task = { ...createTask('An action', 'task', { relationships, domainLinks: [{ id: 'area',
+        domainId: 'custom_home', label: 'Home', userConfirmed: true, source: 'user', effect: 'tradeoff', strength: 'secondary' }] }), id: 'original' };
+      const persisted = JSON.parse(JSON.stringify(taskToBubble(task))) as Bubble;
+      expect(persisted.metadata?.canonicalTask?.schemaVersion).toBe(1);
+      expect(bubbleToTask(persisted)).toMatchObject({ id: 'original', relationships, domainLinks: task.domainLinks });
+      expect(bubbleToTask({ ...persisted, completed: true }).relationships).toEqual(relationships);
+    });
+
+    it('patches relationship metadata without changing direct edits, context, or unknown compatible fields', () => {
+      const original = taskToBubble({ ...createTask('Direct text', 'task', { metadata: { custom: { preserved: true } } }), id: 'original' });
+      Object.assign(original, { audioUri: 'local://voice.m4a', imageUri: 'local://image.jpg', caption: 'Direct caption',
+        mood: 'steady', location: { lat: 1, lon: 2 }, reminderId: 'reminder', x: 123, y: 456 });
+      Object.assign(original.metadata!.canonicalTask!, { futureReceipt: { preserved: true } });
+      const snapshot = JSON.stringify(original);
+      const patched = withBubbleRelationships(original, relationships, 99);
+      expect({ ...patched, metadata: original.metadata, updatedAt: original.updatedAt }).toEqual(original);
+      expect(bubbleToTask(patched).relationships).toEqual(relationships);
+      expect(patched.metadata?.canonicalTask).toMatchObject({ futureReceipt: { preserved: true } });
+      expect(patched.metadata?.custom).toEqual({ preserved: true });
+      expect(JSON.stringify(original)).toBe(snapshot);
+      expect(bubbleToTask(withBubbleDomainLinks(patched, [], 100)).relationships).toEqual(relationships);
+      expect(bubbleToTask(withBubbleRelationships(patched, [], 100)).relationships).toEqual([]);
+    });
+
+    it('preserves unknown relationship fields and kinds through unrelated canonical edits', () => {
+      const future = [null, 'future format', ['future tuple'], { ...relationships[0], kind: 'future-kind', futureMetadata: { preserved: true } }] as unknown as TaskRelationship[];
+      const original = taskToBubble({ ...createTask('Action', 'task', { relationships: future }), id: 'original' });
+      const updated = mergeTaskIntoBubble(original, { ...bubbleToTask(original), completed: true });
+      expect(bubbleToTask(JSON.parse(JSON.stringify(updated)) as Bubble).relationships).toEqual(future);
+      expect(bubbleToTask(withBubbleRelationships(original, [...future, ...relationships])).relationships).toEqual([...future, ...relationships]);
+      expect(bubbleToTask(taskToBubble({ ...createTask('Legacy action'), id: 'legacy' })).relationships).toBeUndefined();
+    });
+
+    it('refuses relationship changes in an unsupported newer envelope', () => {
+      const original = taskToBubble({ ...createTask('Future action'), id: 'future' });
+      Object.assign(original.metadata!.canonicalTask!, { schemaVersion: 2 });
+      expect(() => withBubbleRelationships(original, relationships)).toThrow(UnsupportedCanonicalTaskVersionError);
+    });
+  });
   describe('bubbleToTask', () => {
     it('converts basic bubble to task correctly', () => {
       const bubble: Bubble = {

@@ -3,7 +3,8 @@ import { taskToBubble } from '@/adapters/taskAdapter';
 import { useBubbleStore } from '@/stores/bubbleStore';
 import { useTaskStore } from '@/stores/taskStore';
 import type { Bubble } from '@/types/bubble';
-import type { Task } from '@/types/task';
+import { createTask, type Task, type TaskRelationship } from '@/types/task';
+import { getCompletedLifeContributions, getTaskDependencyStatus } from '@/domain/taskRelationships';
 import { storageService } from '@/services/storage';
 
 vi.mock('@/services/taskAwareAutoWriteService', () => ({
@@ -35,6 +36,45 @@ function installInMemoryBubblePersistence(initialBubble: Bubble) {
 }
 
 describe('TaskStore Canonical Task Contract v0.1', () => {
+  it('persists relationship edits, completion, and reopening through the same canonical record', async () => {
+    const original = taskToBubble({ ...createTask('Prepare', 'task', { domainLinks: [{ id: 'area', domainId: 'career',
+      userConfirmed: true, source: 'user', effect: 'supports' }] }), id: 'prepare' });
+    const persist = installInMemoryBubblePersistence(original);
+    const relationship: TaskRelationship = { id: 'dependency', targetTaskId: 'prepare', kind: 'depends-on', userConfirmed: true, source: 'user' };
+    const dependent: Task = { ...createTask('Present', 'task', { relationships: [relationship] }), id: 'present' };
+    await useTaskStore.getState().updateTask('prepare', { completed: true, relationships: [
+      { ...relationship, id: 'support', targetTaskId: 'present', kind: 'supports' },
+    ] });
+    expect(persist).toHaveBeenCalledOnce();
+    const saved = JSON.parse(JSON.stringify(useBubbleStore.getState().bubbles[0])) as Bubble;
+    useBubbleStore.setState({ bubbles: [saved] });
+    useTaskStore.getState().refreshFromBubbleStore();
+    const current = useTaskStore.getState().getTask('prepare')!;
+    expect(current.relationships).toEqual([{ ...relationship, id: 'support', targetTaskId: 'present', kind: 'supports' }]);
+    expect(getCompletedLifeContributions([current])[0].supports.map(task => task.id)).toEqual(['prepare']);
+    expect(getTaskDependencyStatus('present', [dependent, current]).status).toBe('ready');
+    await useTaskStore.getState().updateTask('prepare', { completed: false });
+    const reopened = useTaskStore.getState().getTask('prepare')!;
+    expect(getCompletedLifeContributions([reopened])).toEqual([]);
+    expect(getTaskDependencyStatus('present', [dependent, reopened]).status).toBe('waiting');
+    expect(dependent.completed).toBe(false);
+    expect(useBubbleStore.getState().bubbles).toHaveLength(1);
+  });
+
+  it('does not publish relationship or contribution claims when strict persistence fails', async () => {
+    const original = taskToBubble({ ...createTask('Unsaved', 'task', { domainLinks: [{ id: 'area', domainId: 'home',
+      userConfirmed: true, source: 'user', effect: 'tradeoff' }] }), id: 'unsaved' });
+    installInMemoryBubblePersistence(original);
+    const reject = vi.fn().mockRejectedValue(new Error('Storage unavailable'));
+    useBubbleStore.setState({ updateBubbleStrict: reject });
+    const relationship: TaskRelationship = { id: 'link', targetTaskId: 'other', kind: 'tradeoff', userConfirmed: true, source: 'user' };
+    await expect(useTaskStore.getState().updateTask('unsaved', { completed: true, relationships: [relationship] })).rejects.toThrow('Storage unavailable');
+    const current = useTaskStore.getState().getTask('unsaved')!;
+    expect(current.completed).toBe(false);
+    expect(current.relationships).toBeUndefined();
+    expect(getCompletedLifeContributions([current])).toEqual([]);
+    expect(useBubbleStore.getState().bubbles[0]).toEqual(original);
+  });
   beforeEach(() => {
     useBubbleStore.setState({ bubbles: [] });
     useTaskStore.setState({

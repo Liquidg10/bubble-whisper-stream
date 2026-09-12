@@ -146,6 +146,39 @@ describe('BubbleDetail canonical completion', () => {
     });
   });
 
+  it.each(['task', 'thought'] as const)('saves the current %s draft before opening its source-specific grow flow', async type => {
+    bubble = taskToBubble({ ...task, type });
+    useBubbleStore.setState({ bubbles: [bubble] });
+    const user = userEvent.setup();
+    const saving = deferred<void>();
+    updateBubble.mockImplementationOnce(() => saving.promise);
+    const onGrowIdeas = vi.fn();
+    render(<BubbleDetail bubble={bubble} isOpen onClose={vi.fn()} onGrowIdeas={onGrowIdeas} />);
+    await user.type(screen.getByLabelText(type === 'thought' ? 'Content' : 'Notes & small steps'), '\n- Read the brief');
+    await user.click(screen.getByRole('button', { name: 'Grow ideas from this bubble' }));
+    expect(onGrowIdeas).not.toHaveBeenCalled();
+    await waitFor(() => expect(updateBubble).toHaveBeenCalledWith(expect.objectContaining(type === 'thought'
+      ? { type: 'Thought', content: `${bubble.content}\n- Read the brief` }
+      : { type: bubble.type, content: bubble.content, caption: '\n- Read the brief' })));
+    await act(async () => saving.resolve());
+    await waitFor(() => expect(onGrowIdeas).toHaveBeenCalledWith(bubble.id));
+    expect(onGrowIdeas).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the draft open when saving before Grow fails', async () => {
+    const user = userEvent.setup();
+    updateBubble.mockRejectedValueOnce(new Error('Storage unavailable'));
+    const onGrowIdeas = vi.fn();
+    render(<BubbleDetail bubble={bubble} isOpen onClose={vi.fn()} onGrowIdeas={onGrowIdeas} />);
+    await user.type(screen.getByLabelText('Notes & small steps'), 'Keep this note');
+    await user.click(screen.getByRole('button', { name: 'Grow ideas from this bubble' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('could not be saved'));
+    expect(onGrowIdeas).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Notes & small steps')).toHaveValue('Keep this note');
+    await user.click(screen.getByRole('button', { name: 'Grow ideas from this bubble' }));
+    await waitFor(() => expect(onGrowIdeas).toHaveBeenCalledWith(bubble.id));
+  });
+
   it('uses TaskStore and keeps a delayed detail autosave from reverting completion', async () => {
     const user = userEvent.setup();
     render(
@@ -267,6 +300,31 @@ describe('BubbleDetail canonical completion', () => {
     expect(updateBubble).toHaveBeenCalledWith(expect.objectContaining({
       content: 'Saved on fast close',
     }));
+  });
+
+  it('closes with one Done after saved completion and an unrelated child refresh without rewriting the saved task', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    function StoreConnectedDetail() {
+      const current = useBubbleStore(state => state.bubbles.find(candidate => candidate.id === bubble.id));
+      return <BubbleDetail bubble={current ?? null} isOpen onClose={onClose} />;
+    }
+    render(<StoreConnectedDetail />);
+    await user.click(screen.getByRole('checkbox', { name: 'Completed' }));
+    await waitFor(() => expect(screen.getByText('Completion status saved')).toBeInTheDocument());
+    expect(updateBubble).toHaveBeenCalledTimes(1);
+
+    const child = taskToBubble({ ...task, id: 'unrelated-reviewed-child', title: 'A new reviewed step', completed: false });
+    act(() => useBubbleStore.setState(state => ({
+      bubbles: [...state.bubbles.map(saved => JSON.parse(JSON.stringify(saved)) as Bubble), child],
+    })));
+    await user.click(screen.getByRole('button', { name: 'Done' }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(updateBubble).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(useBubbleStore.getState().bubbles.find(saved => saved.id === bubble.id)?.completed).toBe(true);
+    expect(useBubbleStore.getState().bubbles.find(saved => saved.id === child.id)).toEqual(child);
   });
 
   it('retries a previously failed dirty autosave before Done closes', async () => {

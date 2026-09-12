@@ -13,6 +13,9 @@ export interface LifeDomainProposal {
   source: TaskDomainLink['source'];
   explanation: string;
   pendingLinkId?: string;
+  effect?: TaskDomainLink['effect'];
+  /** A future imported effect needs a new explicit user choice. */
+  effectRequiresReview?: true;
 }
 
 export interface LifeDomainProposalOptions {
@@ -149,9 +152,9 @@ export function proposeLifeDomainLinks(
 
   const proposals: LifeDomainProposal[] = [];
   for (const domain of candidates) {
-    const domainId = normalizeDomainId(domain.id || domain.label);
+    const domainId = domain.id.trim() || normalizeDomainId(domain.label);
     const labelKey = normalizeDomainId(domain.label);
-    if (existingKeys.has(domainId) || existingKeys.has(labelKey)) continue;
+    if (existingKeys.has(normalizeDomainId(domainId)) || existingKeys.has(labelKey)) continue;
 
     const evidence = findEvidence(text, domain);
     if (!evidence) continue;
@@ -178,11 +181,13 @@ export function createConfirmedDomainLink(
     domainId: string;
     label: string;
     source: TaskDomainLink['source'];
+    effect?: TaskDomainLink['effect'];
   },
   options: {
     id?: string;
     now?: number;
     strength?: TaskDomainLink['strength'];
+    effect?: TaskDomainLink['effect'];
   } = {},
 ): TaskDomainLink {
   const now = options.now ?? Date.now();
@@ -199,6 +204,8 @@ export function createConfirmedDomainLink(
   };
 
   if (options.strength) link.strength = options.strength;
+  const effect = options.effect ?? input.effect;
+  if (effect) link.effect = effect;
   return link;
 }
 
@@ -227,5 +234,7 @@ export function pendingLinkToProposal(link: TaskDomainLink): LifeDomainProposal 
           ? 'This connection was imported but has not been confirmed.'
           : 'This user-created connection is still awaiting confirmation.'),
     pendingLinkId: link.id,
+    ...(link.effect === 'supports' || link.effect === 'tradeoff' ? { effect: link.effect }
+      : link.effect !== undefined ? { effectRequiresReview: true as const } : {}),
   };
 }

@@ -1,0 +1,50 @@
+# Living bubbles and connected molecules
+
+Prepared September 6, 2026 on `codex/living-molecules`, based on canonical `origin/main` at `6f48ebf695a52660a131cbb788ef78b8fdd54da2`. The primary checkout and its untracked Supabase state were preserved. This is a frontend implementation and local verification receipt; no production release, provider action, database migration, or account grant was performed.
+
+## Try it
+
+Run `npm ci` and `npm run dev -- --host 127.0.0.1 --port 4180` from this checkout. Open the local canvas and choose **Start with 3 guide bubbles**, or create a task of your own. The guide examples are real editable local tasks, with explicit example links between Learning, Home and Wellbeing. The Guide button can reopen their instructions or add missing examples without overwriting existing ones.
+
+- **Bubbles:** drag a bubble, or focus it and use arrow keys. The skin floats while the label and pointer target remain stable. Hover, focus, selection and dragging pause its decorative movement. Pause persists when switching views. Starting a new animation does not silently resume it.
+- **Atomic:** a nucleus represents a confirmed life area. Actions are electrons, thoughts are protons, and memories/moods are neutrons. This is a personal metaphor rather than a literal physics simulation. Select a nucleus to explore its orbits; use Fit to return to the overview.
+- **Connections:** bonds connect areas containing the same canonical task. The drawer shows each shared task once, with its confirmed areas and the person's literal saved reasons and roles. Trace this task fits the scene and keeps its links visible at overview scale on touch or keyboard; Clear trace restores ordinary interaction. Connect a task and Edit connections open the existing editor with focus in the correct section. Tracing and opening do not change saved tasks.
+- **Time horizons:** drag an electron toward Today, Week or Later; it settles along a polar path close to the release point instead of taking a shortcut through the center. Task details also offer a labeled selector and editable notes.
+- **Grow ideas:** open it directly from a task or the canvas. Unfinished checklist items in the source notes take precedence; otherwise common task patterns offer specific small starting actions, with generic templates as a fallback. At most three drafts appear at once. Edit wording, choose confirmed life links to carry forward, add a bubble, or dismiss it. Dismissal choices persist and can be restored. Creation is deduplicated across concurrent adds, remounts and saved children, retains its source id, and supports undo. Suggestions do not call an AI provider or create tasks in the background.
+- **Connected steps:** source and child bubbles remain navigable after reload, with current titles and completion state. Deleting a source does not delete its children. Leaving task details for Grow or another step waits for the current draft to save; a failed save leaves the draft open for retry.
+
+## Layout and accessibility
+
+Four primary destinations and a grouped More menu replace the crowded footer. Search and the assistant remain in the header; less common controls live under Quick tools. View switching uses normal layout flow. The canvas action dock occupies its own row so it cannot cover the task field. Settings uses a desktop sidebar and a mobile selector, retaining `?tab=` links and feature gates.
+
+First use starts with a playable canvas rather than a blocking questionnaire. The optional existing personalization flow remains on other first-use routes and cancels stale asynchronous checks after navigation. Its seven-day lessons remain reachable in Guide. Starter saving uses one shared operation, reports partial failure, and retries only missing lessons.
+
+Life connections editing is available in built apps as well as development, retaining explicit local flag opt-outs. Built-app browser checks use no feature overrides and verify the promised guide, editor, trace, growth, dismissal/restore and family paths using real local persistence.
+
+Calm mode previously applied its default motion/contrast restrictions even when disabled. Those restrictions now follow the enabled switch, while independently chosen accessibility settings remain in force. Both the shared animation loop and bubble surfaces honor calm-mode changes. Operating-system reduced motion and app reduced motion still take precedence.
+
+Initial layout and resize recovery are presentation-only. Deliberately moving one task preserves untouched tasks' positions; semantic priority and canonical coordinates are not rewritten to enlarge the visual targets. At normal zoom, bubbles have a 72px minimum visual diameter; zoomed interaction targets retain the existing 44px minimum.
+
+## Scope and limits
+
+- Existing unconfirmed life links remain suggestions. Only confirmed links create molecular membership or bonds.
+- The obsolete destructive Fuse/Split controls and the shell's unsupported provider-connection counts were removed from the reachable UI. Integrations remain accessible through their actual settings page.
+- Atomic remains experimental and retains its existing 19-area layout capacity. Dense views still use a task navigator rather than drawing every task at once.
+- Rich shading is implemented with CSS and SVG, with no new renderer dependency or paid media generation. A callable Gamehorse tool was not available.
+- Automated checks and anonymous local browser fixtures establish local behavior, not provider execution or clinical efficacy. Neurodivergent participant usability testing is still needed. Research, source dates, sample sizes, and limitations are recorded in [molecule-interaction-research.md](molecule-interaction-research.md).
+
+## Verification
+
+All gates passed locally. The final commit is recorded in the pull request and completion receipt. Gates run for this change:
+
+- `npm run typecheck` and `npm run build`.
+- `npm run lint:ratchet` and `npm run lint:cohesion:ratchet`, retaining inherited debt instead of changing baselines.
+- `npm run test:vitest:ci`, including atom geometry, confirmed-domain membership, motion, starter persistence/retry, task details, shell navigation, onboarding cancellation, and existing provider-boundary tests.
+- `PLAYWRIGHT_TEST_BASE_URL=http://127.0.0.1:4180 npm run test:e2e:ci -- --workers=1`.
+- `PLAYWRIGHT_TEST_BASE_URL=http://127.0.0.1:4180 npm run test:a11y:ci -- --workers=2`.
+- `npx playwright test --config tests/molecules/playwright.config.ts`: real IndexedDB creation, editable suggestions/undo, shared connections, task details and reload, desktop/mobile layouts, and untouched-position/caption geometry.
+- `npm run test:deployment:browser`: isolated-build browser checks include real guide-task creation on the exact owner origin, unchanged copied-origin/backend-traffic boundaries, and desktop/mobile molecule workflows with scoped accessibility and family-layout checks.
+
+Results: 2,314 Vitest tests passed across 145 files, with 52 inherited skipped tests across 3 files; 20 release E2E checks passed; 14 accessibility checks passed; all 6 desktop/mobile workflow and geometric checks passed; all 8 isolated-build browser checks passed. The built workflows include six scoped Axe scans with no violations. TypeScript and the production build passed. ESLint ratchet passed with 856 current errors against the 1,077 inherited baseline; cohesion ratchet passed with 162 findings against 203, including 19 passing scanner tests. Neither baseline was changed. After the final mobile drawer/family layout adjustments, all 61 atomic unit checks and all 8 built-browser checks passed. The first parallel dev-server E2E run hit startup timing in login/onboarding fixtures; the serial release recheck passed all 20 without fixture changes.
+
+Browser fixtures use anonymous local data; Calendar test results remain explicitly synthetic. Existing build warnings about dynamic imports and repository lint debt are not new capability claims.

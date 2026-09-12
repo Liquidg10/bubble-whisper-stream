@@ -9,9 +9,10 @@ import { deriveTaskDefaults, type DerivationContext, type SmartDefaults } from '
 import { createViewContext } from '@/views/sdk';
 import { BecausePill } from '@/components/SmartBecausePill';
 
-export function SmartTaskQuickAdd() {
+export function SmartTaskQuickAdd({ onCreated }: { onCreated?: (id: string) => void } = {}) {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [smartDefaults, setSmartDefaults] = useState<null | SmartDefaults>(null);
   const taskStore = useTaskStoreSync();
 
@@ -44,6 +45,7 @@ export function SmartTaskQuickAdd() {
     if (!input.trim() || isLoading) return;
 
     setIsLoading(true);
+    setSaveError('');
     
     try {
       // Use smart defaults if available
@@ -63,32 +65,35 @@ export function SmartTaskQuickAdd() {
         view: defaults.view
       });
 
-      await taskStore.addTask(newTask);
+      const created = await taskStore.addTask(newTask);
       setInput('');
       setSmartDefaults(null);
+      onCreated?.(created.id);
     } catch (error) {
       console.error('Failed to create task:', error);
+      setSaveError('This task could not be saved. Your words are still here; please try again.');
     } finally {
       setIsLoading(false);
     }
-  }, [input, isLoading, taskStore]);
+  }, [input, isLoading, taskStore, onCreated]);
 
   return (
     <div className="space-y-3">
       <form onSubmit={handleSubmit} className="flex gap-2">
         <Input
           type="text"
-          placeholder="What needs to be done? (Smart defaults will appear as you type...)"
+          placeholder="What would you like to do?"
+          aria-label="New task"
           value={input}
           onChange={(e) => handleInputChange(e.target.value)}
           disabled={isLoading}
-          className="flex-1"
+          className="min-h-11 min-w-0 flex-1"
         />
         <Button 
           type="submit" 
           disabled={!input.trim() || isLoading}
           size="sm"
-          className="gap-2"
+          className="min-h-11 gap-2"
         >
           {isLoading ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -98,6 +103,7 @@ export function SmartTaskQuickAdd() {
           Add
         </Button>
       </form>
+      {saveError && <p role="alert" className="text-sm text-destructive">{saveError}</p>}
 
       {/* Smart Defaults Preview */}
       {smartDefaults && input.trim().length > 3 && (

@@ -1,6 +1,6 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/components/FeatureFlags', () => ({
@@ -48,15 +48,37 @@ vi.mock('@/components/settings/AutoWriteSettings', () => ({
 
 import { Settings } from '@/pages/Settings';
 
+function LocationProbe() {
+  const location = useLocation();
+  return <output data-testid="settings-location">{location.search}</output>;
+}
+
 function renderSettings(route: string) {
   return render(
     <MemoryRouter initialEntries={[route]}>
       <Settings />
+      <LocationProbe />
     </MemoryRouter>,
   );
 }
 
 describe('Settings callback return route', () => {
+  it('keeps mobile selection and the URL in sync without losing callback context', () => {
+    renderSettings('/settings?tab=integrations&returnTo=calendar');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Settings section' }), { target: { value: 'accessibility' } });
+    expect(screen.getByTestId('accessibility-content')).toBeInTheDocument();
+    expect(screen.queryByTestId('integrations-content')).not.toBeInTheDocument();
+    expect(screen.getByTestId('settings-location')).toHaveTextContent('?tab=accessibility&returnTo=calendar');
+    expect(screen.getByRole('tab', { name: 'Accessibility' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('does not offer gated sections in either navigation control', () => {
+    renderSettings('/settings?tab=thought-support');
+    expect(screen.getByTestId('general-content')).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Thought support' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'Advanced' })).not.toBeInTheDocument();
+  });
+
   it('opens the Integrations tab requested by the Calendar callback', () => {
     renderSettings('/settings?tab=integrations');
 

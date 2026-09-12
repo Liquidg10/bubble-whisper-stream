@@ -23,6 +23,19 @@ function task(overrides: Partial<Task> = {}): Task {
 }
 
 describe('life domain proposals', () => {
+  it('creates a user-chosen effect without replacing primary or supporting role', () => {
+    const link = createUserDomainLink('Home', { id: 'home', now: 1, strength: 'secondary', effect: 'tradeoff' });
+    expect(link).toMatchObject({ effect: 'tradeoff', strength: 'secondary', userConfirmed: true });
+    expect(createUserDomainLink('Career', { id: 'career', now: 1 }).effect).toBeUndefined();
+    expect(createConfirmedDomainLink({ domainId: 'home', label: 'Home', source: 'rule', effect: 'tradeoff' }).effect).toBe('tradeoff');
+  });
+
+  it('retains a pending tradeoff for review and requires a new choice for unknown effects', () => {
+    const pending: TaskDomainLink = { ...createUserDomainLink('Home', { effect: 'tradeoff' }), userConfirmed: false };
+    expect(pendingLinkToProposal(pending)).toMatchObject({ effect: 'tradeoff', pendingLinkId: pending.id });
+    expect(pendingLinkToProposal({ ...pending, effect: 'future' as TaskDomainLink['effect'] })).toMatchObject({ effectRequiresReview: true });
+    expect(pendingLinkToProposal({ ...pending, effect: undefined }).effectRequiresReview).toBeUndefined();
+  });
   it('offers multiple grounded possibilities without mutating the task', () => {
     const input = task();
     const before = JSON.stringify(input);

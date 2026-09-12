@@ -30,9 +30,10 @@ export async function prepareActiveGlimmers(page: Page) {
   // Login is outside AppShell: create the real storage schema without mounting
   // either notification producer. No synthetic credentials/sign-in are needed.
   await page.goto('/login');
-  // First-run onboarding can already hide Login from the accessibility tree.
-  // This is a DOM-readiness check only; real dialog interaction is tested later.
-  await expect(page.getByRole('button', { name: 'Sign In', exact: true, includeHidden: true })).toBeAttached();
+  // First-run onboarding can hide the form from the accessibility tree and
+  // its accessible names. The actual email input establishes DOM readiness;
+  // the fresh List wizard is exercised after seeding, without signing in.
+  await expect(page.locator('input#email')).toBeAttached();
   await page.evaluate(async ({ noon, savedId, savedMessage }) => {
     const backup = JSON.parse(localStorage.getItem('bubble-universe-store') || '{"state":{}}');
     const settings = { ...backup.state.settings, intelligenceEnabled: true, glimmersEnabled: true,

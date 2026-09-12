@@ -1,160 +1,174 @@
-// Bubble Universe - Personal Cognitive Companion Main Interface
-
 import React, { useState } from 'react';
+import { BookOpen, Plus, Sprout } from 'lucide-react';
 import { BubbleCanvas } from '@/components/BubbleCanvas';
-import { JoyMomentumIntegration } from '@/components/JoyMomentumIntegration';
 import { AtomicView } from '@/components/AtomicView';
 import { RadialCapture } from '@/components/RadialCapture';
 import { NotificationSystem } from '@/components/NotificationSystem';
-import { MiniMap } from '@/components/MiniMap';
+import { JoyMomentumIntegration } from '@/components/JoyMomentumIntegration';
 import { useBubbleStore } from '@/stores/bubbleStore';
-import { useUILayout } from '@/hooks/useUILayout';
-import { Bubble, CanvasViewport } from '@/types/bubble';
 import { BubbleDetail } from '@/components/BubbleDetail';
-import TemporalNavigation from '@/components/TemporalNavigation';
-import { EnhancedVoiceCapture } from '@/components/EnhancedVoiceCapture';
-import { EnhancedPhotoCapture } from '@/components/EnhancedPhotoCapture';
-import { ProgressiveMilestoneCard } from '@/components/ProgressiveMilestoneCard';
-
-import { FeatureGate } from '@/components/FeatureGate';
-import { useProgressiveOnboarding } from '@/providers/ProgressiveOnboardingProvider';
-
-import { ViewModeToggle } from '@/components/ViewModeToggle';
-import { VoiceIntentCapture } from '@/components/VoiceIntentCapture';
 import { SmartTaskQuickAdd } from '@/components/SmartTaskQuickAdd';
+import { Button } from '@/components/ui/button';
 import { isFeatureEnabled } from '@/config/flags';
-import { CBTOnboardingBanner } from '@/components/CBTOnboardingBanner';
+import { ProactiveGrowthShelf } from '@/components/ProactiveGrowth';
+import { useBubbleAiSuggestions } from '@/hooks/useBubbleAiSuggestions';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  BubbleGardenDialog,
+  StarterWelcome,
+  useStarterBubbles,
+} from '@/components/BubbleGarden';
 
 export default function Index() {
   const { isLoading, bubbles, settings } = useBubbleStore();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detailSection, setDetailSection] = useState<
+    'connections' | undefined
+  >();
+  const [gardenSourceId, setGardenSourceId] = useState<string | undefined>();
+  const [showAdd, setShowAdd] = useState(false);
+  const [gardenMode, setGardenMode] = useState<'guide' | 'grow' | null>(null);
+  const aiSuggestions = useBubbleAiSuggestions(gardenMode);
+  const starter = useStarterBubbles();
   const currentViewMode = settings.viewMode || 'bubble';
-  
-  // Progressive onboarding integration
-  const {
-    state: onboardingState,
-    currentMilestone,
-    shouldShowMilestone,
-    completeMilestone,
-    skipProgression,
-    rewindToDay,
-    markMilestoneShown,
-    remindLater
-  } = useProgressiveOnboarding();
-  const [selectedBubble, setSelectedBubble] = useState<Bubble | null>(null);
-  const [viewport, setViewport] = useState<CanvasViewport>({
-    x: 0,
-    y: 0,
-    scale: 1,
-    width: window.innerWidth,
-    height: window.innerHeight,
-  });
-
-  // UI Layout management
-  const {
-    togglePanel,
-    toggleMinimize,
-    toggleFocusMode,
-    getPanelStyle,
-    isPanelVisible,
-    isPanelMinimized,
-    focusMode,
-    isMobile
-  } = useUILayout();
-
-  // Clean start - no auto-generated welcome bubbles
+  const selectedBubble =
+    bubbles.find((bubble) => bubble.id === selectedId) ?? null;
+  const openTask = (id: string, section?: 'connections') => {
+    setDetailSection(section);
+    setSelectedId(id);
+  };
+  const growTask = (id?: string) => {
+    setSelectedId(null);
+    setGardenSourceId(id);
+    setGardenMode('grow');
+  };
 
   return (
-    <div className="relative h-full bg-background">
-      
-      {/* Progressive Milestone Card */}
-      {currentMilestone && shouldShowMilestone && (
-        <div className="absolute inset-x-2 top-4 z-[60] sm:left-1/2 sm:right-auto sm:top-20 sm:w-96 sm:-translate-x-1/2">
-          <ProgressiveMilestoneCard
-            milestone={currentMilestone}
-            isVisible={shouldShowMilestone}
-            onComplete={() => {
-              completeMilestone(currentMilestone.day);
-              markMilestoneShown(currentMilestone.day);
-            }}
-            onSkip={() => completeMilestone(currentMilestone.day)}
-            onRemindLater={() => remindLater(currentMilestone.day)}
+    <div className="relative flex h-full min-h-0 flex-col bg-background">
+      <div className="relative min-h-[180px] flex-1">
+        {isLoading ? (
+          <div
+            role="status"
+            className="grid h-full place-items-center text-sm text-muted-foreground"
+          >
+            Making room for your bubbles…
+          </div>
+        ) : bubbles.length === 0 ? (
+          <div className="absolute inset-0 overflow-y-auto">
+            <StarterWelcome
+              onStart={starter.start}
+              onCreate={() => setShowAdd(true)}
+              busy={starter.busy}
+              error={starter.error}
+            />
+          </div>
+        ) : currentViewMode === 'bubble' ? (
+          <BubbleCanvas
+            onBubbleSelect={(bubble) => openTask(bubble.id)}
+            onBubbleEdit={(bubble) => openTask(bubble.id)}
           />
+        ) : (
+          <AtomicView
+            onBubbleSelect={openTask}
+            onBubbleEdit={openTask}
+            onEditConnections={
+              isFeatureEnabled('meaningLinks')
+                ? (id) => openTask(id, 'connections')
+                : undefined
+            }
+          />
+        )}
+      </div>
+      {starter.error && bubbles.length > 0 && (
+        <div
+          role="alert"
+          className="flex shrink-0 flex-wrap items-center justify-center gap-2 border-t bg-card px-3 py-2 text-sm"
+        >
+          <span>{starter.error}</span>
+          <Button
+            variant="outline"
+            className="min-h-11"
+            onClick={starter.start}
+            disabled={starter.busy}
+          >
+            Retry guide
+          </Button>
         </div>
       )}
-
-      {currentViewMode === 'bubble' ? (
-        <BubbleCanvas 
-          onBubbleSelect={setSelectedBubble}
-          onBubbleEdit={setSelectedBubble}
-        />
-      ) : (
-        <AtomicView 
-          onBubbleSelect={(bubbleId) => {
-            const bubble = bubbles.find(b => b.id === bubbleId);
-            if (bubble) setSelectedBubble(bubble);
-          }}
-          onBubbleEdit={(bubbleId) => {
-            const bubble = bubbles.find(b => b.id === bubbleId);
-            if (bubble) setSelectedBubble(bubble);
-          }}
-        />
-      )}
-      <RadialCapture className="!absolute !bottom-1 !left-4" />
-      
-      {/* Keep capture available without permanently covering the task field. */}
-      <details
+      <div
         data-panel
-        data-shell-control="quick-add"
-        className="group absolute bottom-1 left-1/2 z-40 -translate-x-1/2 rounded-md border bg-card/95 text-card-foreground shadow-lg backdrop-blur-sm [@media(max-height:420px)]:left-24 [@media(max-height:420px)]:translate-x-0"
+        data-testid="canvas-action-dock"
+        className="relative z-30 flex shrink-0 flex-wrap items-center justify-center gap-1 border-t border-border/60 bg-card/90 px-2 py-2 sm:gap-3"
+        aria-label="Bubble actions"
       >
-        <summary className="flex min-h-11 cursor-pointer select-none items-center justify-center px-4 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-          Add task
-        </summary>
-        <div className="absolute bottom-14 left-1/2 w-[min(28rem,calc(100vw-2rem))] -translate-x-1/2 rounded-md border bg-card/95 p-3 shadow-xl backdrop-blur-sm [@media(max-height:420px)]:left-0 [@media(max-height:420px)]:translate-x-0">
-          <SmartTaskQuickAdd />
-        </div>
-      </details>
-      <NotificationSystem />
-      <JoyMomentumIntegration />
-      
-      {/* MiniMap */}
-      {isPanelVisible('minimap') && (
-        <div style={getPanelStyle('minimap')}>
-          <MiniMap
-            bubbles={bubbles}
-            viewport={viewport}
-            onViewportChange={setViewport}
-            isVisible={isPanelVisible('minimap')}
-            isMinimized={isPanelMinimized('minimap')}
-            onToggleMinimize={() => toggleMinimize('minimap')}
-            onToggleVisibility={() => togglePanel('minimap')}
+        <RadialCapture className="!relative !bottom-auto !left-auto [&>button]:h-11 [&>button]:w-11" />
+        <Button
+          data-shell-control="quick-add"
+          onClick={() => setShowAdd(true)}
+          className="min-h-11 gap-2 rounded-full px-4"
+        >
+          <Plus className="h-4 w-4" />
+          <span>Add task</span>
+        </Button>
+        <Button
+          variant="ghost"
+          className="min-h-11 gap-2 rounded-full px-3"
+          onClick={() => growTask()}
+        >
+          <Sprout className="h-4 w-4" />
+          <span>Grow ideas</span>
+        </Button>
+        <Button
+          variant="ghost"
+          className="min-h-11 gap-2 rounded-full px-3"
+          onClick={() => setGardenMode('guide')}
+        >
+          <BookOpen className="h-4 w-4" />
+          <span>Guide</span>
+        </Button>
+        {!isLoading && bubbles.length > 0 && <ProactiveGrowthShelf onReviewSource={growTask} onOpenTask={openTask} />}
+      </div>
+      <Dialog open={showAdd} onOpenChange={setShowAdd}>
+        <DialogContent className="w-[calc(100%-1.5rem)] max-w-xl max-h-[85dvh] overflow-y-auto rounded-2xl">
+          <DialogHeader>
+            <DialogTitle>Make a little space</DialogTitle>
+            <DialogDescription>
+              A task, a thought, a small beginning. You can connect it to your
+              life areas in its details.
+            </DialogDescription>
+          </DialogHeader>
+          <SmartTaskQuickAdd
+            onCreated={(id) => {
+              setShowAdd(false);
+              openTask(id);
+            }}
           />
-        </div>
-      )}
-      
+        </DialogContent>
+      </Dialog>
+      <BubbleGardenDialog
+        starter={starter}
+        mode={gardenMode}
+        sourceTaskId={gardenSourceId}
+        onClose={() => setGardenMode(null)}
+        onOpenTask={openTask}
+        aiSuggestions={aiSuggestions}
+      />
       <BubbleDetail
         bubble={selectedBubble}
         isOpen={!!selectedBubble}
-        onClose={() => setSelectedBubble(null)}
+        onClose={() => setSelectedId(null)}
+        initialSection={detailSection}
+        onGrowIdeas={growTask}
+        onOpenTask={openTask}
       />
-
-      {/* Voice Intent Capture - Floating Bottom Center */}
-      {isFeatureEnabled('voiceCapture') && !isMobile && (
-        <div
-          data-shell-control="voice-capture"
-          className="absolute bottom-1 right-4 z-50"
-        >
-          <VoiceIntentCapture
-            compact
-            onBubbleCreated={(bubble) => {
-              console.log('Voice bubble created:', bubble);
-            }}
-          />
-        </div>
-      )}
-
-      {/* CBT Onboarding Banner as overlay */}
-      <CBTOnboardingBanner />
+      <NotificationSystem />
+      <JoyMomentumIntegration />
     </div>
   );
 }

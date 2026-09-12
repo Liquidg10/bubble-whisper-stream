@@ -5,13 +5,13 @@ import { defineConfig, devices } from '@playwright/test';
 const output = 'node_modules/.cache/mind-manual-owner-fixture';
 export default defineConfig({
   testDir: '.',
-  testMatch: ['deployment-boundary.spec.ts', 'environment-exposure.spec.ts'],
+  testMatch: ['deployment-boundary.spec.ts', 'environment-exposure.spec.ts', 'molecule-workflows.spec.ts', 'native-orbit.spec.ts', 'thought-growth.spec.ts', 'connected-actions.spec.ts', 'spatial-layout.spec.ts'],
   outputDir: '../../test-results/deployment-boundary',
   workers: 1,
   retries: 0,
   timeout: 30_000,
   reporter: 'line',
-  use: { ...devices['Desktop Chrome'] },
+  use: { ...devices['Desktop Chrome'], trace: 'off' },
   webServer: {
     command: `npm run build -- --outDir ${output} && npm run preview -- --host 127.0.0.1 --port 4181 --strictPort --outDir ${output}`,
     url: 'http://127.0.0.1:4181',
