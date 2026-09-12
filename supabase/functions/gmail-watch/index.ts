@@ -1,13 +1,31 @@
+import {
+  type MindManualWorkLifecycle,
+  wrapMindManualSubjectHandler,
+} from "../_shared/migrationWriteFence.ts";
+import {
+  type GmailWatchControlMigrationContext,
+  type GmailWatchMigrationContext,
+  gmailWatchMigrationScope,
+  type GmailWatchPushMigrationContext,
+} from "../_shared/gmailMigrationScope.ts";
+import {
+  claimAdmittedGmailPushReceipt,
+  completeAdmittedGmailPushReceipt,
+  type GmailPushCompletion,
+  GmailWatchHttpError as HttpError,
+  type GmailWatchRow,
+  isVerifiedGmailWatchWriteReceipt,
+  loadAdmittedGmailPushWatch,
+  type ReceiptClaim,
+  safeGmailWatchErrorMessage,
+  validGmailWatchGeneration,
+} from "./gmailWatchAdmissionWork.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import {
   createClient,
   type SupabaseClient,
 } from "https://esm.sh/@supabase/supabase-js@2.57.4";
-import type {
-  Database,
-  Json,
-} from "../../../src/integrations/supabase/types.ts";
-import { isExactServiceRoleBearer } from "../_shared/calendarWatchSecurity.ts";
+import type { Database } from "../../../src/integrations/supabase/types.ts";
 import {
   decryptOAuthToken,
   encryptOAuthToken,
@@ -21,19 +39,10 @@ import {
   type GmailPubSubNotification,
   GmailWatchProtocolError,
   hasGmailWatchCapability,
-  isPubSubEnvelopeCandidate,
   normalizeEmailAddress,
-  normalizeGmailWatchAction,
   normalizeHistoryId,
-  normalizeOAuthAccountId,
-  parseGmailPubSubEnvelope,
   requireGmailPubSubTopic,
 } from "./gmailWatchProtocol.ts";
-import {
-  extractOidcBearerToken,
-  GoogleOidcVerificationError,
-  verifyGooglePubSubOidcJwt,
-} from "./googleOidcJwt.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -43,18 +52,11 @@ const corsHeaders = {
 };
 
 const JSON_HEADERS = { ...corsHeaders, "Content-Type": "application/json" };
-const MAX_REQUEST_BYTES = 64 * 1024;
 const MAX_HISTORY_PAGES = 20;
 const HISTORY_PAGE_SIZE = 500;
 const HEALTHY_WATCH_REUSE_MS = 24 * 60 * 60 * 1000;
 
 type AdminClient = SupabaseClient<Database>;
-
-interface ControlBody {
-  accountId?: unknown;
-  action?: unknown;
-  operation?: unknown;
-}
 
 interface OAuthAccountRow extends Record<string, unknown> {
   id: string;
@@ -66,19 +68,6 @@ interface OAuthAccountRow extends Record<string, unknown> {
   expires_at: string | null;
   scopes: string[] | null;
   scopes_string: string | null;
-}
-
-interface GmailWatchRow {
-  id: string;
-  user_id: string;
-  oauth_account_id: string;
-  account_email: string;
-  topic_name: string;
-  subscription_name: string;
-  status: "inactive" | "active" | "error" | "resync_required";
-  history_id: string | null;
-  watch_expires_at: string | null;
-  watch_generation: number;
 }
 
 interface GmailHistoryMessage {
@@ -122,23 +111,6 @@ interface HistoryIngestionResult {
   changeEvents: number;
 }
 
-interface ReceiptClaim {
-  receipt_id: string;
-  claim_state: "claimed" | "replay" | "busy";
-  receipt_status: "processing" | "succeeded" | "ignored" | "failed";
-  attempts: number;
-}
-
-class HttpError extends Error {
-  constructor(
-    message: string,
-    readonly status: number,
-    readonly code: string,
-  ) {
-    super(message);
-  }
-}
-
 function jsonResponse(body: Record<string, unknown>, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
 }
@@ -158,13 +130,12 @@ function pushRetry(code: string): Response {
 }
 
 function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return safeGmailWatchErrorMessage(error);
 }
 
 function getErrorCode(error: unknown): string {
   if (error instanceof HttpError) return error.code;
   if (error instanceof GmailWatchProtocolError) return error.code;
-  if (error instanceof GoogleOidcVerificationError) return error.code;
   return "GMAIL_WATCH_FAILED";
 }
 
@@ -184,52 +155,18 @@ function createAdminClient(): AdminClient {
   );
 }
 
-async function readJsonBody(req: Request): Promise<unknown> {
-  const declaredLength = Number(req.headers.get("content-length") ?? "0");
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_REQUEST_BYTES) {
-    throw new HttpError("Request body is too large", 413, "REQUEST_TOO_LARGE");
-  }
-  const body = await req.text();
-  if (!body || new TextEncoder().encode(body).byteLength > MAX_REQUEST_BYTES) {
-    throw new HttpError("Request body is invalid", 400, "INVALID_REQUEST");
-  }
-  try {
-    return JSON.parse(body);
-  } catch {
-    throw new HttpError("Request body is not valid JSON", 400, "INVALID_JSON");
-  }
-}
-
-async function authorizeControlRequest(
-  req: Request,
-  supabase: AdminClient,
-): Promise<{ serviceRole: boolean; userId: string | null }> {
-  const authorization = req.headers.get("Authorization") ??
-    req.headers.get("authorization");
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (isExactServiceRoleBearer(authorization, serviceRoleKey)) {
-    return { serviceRole: true, userId: null };
-  }
-  const bearer = authorization?.match(/^Bearer (.+)$/i)?.[1] ?? null;
-  if (!bearer) throw new HttpError("Unauthorized", 401, "UNAUTHORIZED");
-
-  const { data: { user }, error } = await supabase.auth.getUser(bearer);
-  if (error || !user) throw new HttpError("Unauthorized", 401, "UNAUTHORIZED");
-  return { serviceRole: false, userId: user.id };
-}
-
 async function loadOAuthAccount(
   supabase: AdminClient,
   accountId: string,
-  callerUserId: string | null,
+  ownerUserId: string,
 ): Promise<OAuthAccountRow> {
-  let query = supabase
+  const query = supabase
     .from("oauth_accounts")
     .select(
       "id,user_id,provider,account_email,access_token,refresh_token,expires_at,scopes,scopes_string",
     )
-    .eq("id", accountId);
-  if (callerUserId) query = query.eq("user_id", callerUserId);
+    .eq("id", accountId)
+    .eq("user_id", ownerUserId);
 
   const { data, error } = await query.maybeSingle();
   if (error || !data) {
@@ -276,6 +213,7 @@ async function refreshOAuthAccessToken(
   try {
     response = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
+      redirect: "error",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         grant_type: "refresh_token",
@@ -311,7 +249,7 @@ async function refreshOAuthAccessToken(
     data.access_token,
     await loadOAuthTokenEncryptionKey(),
   );
-  const { error } = await supabase
+  const { data: savedAccount, error } = await supabase
     .from("oauth_accounts")
     .update({
       access_token: storedAccessToken,
@@ -320,8 +258,10 @@ async function refreshOAuthAccessToken(
       updated_at: new Date().toISOString(),
     })
     .eq("id", account.id)
-    .eq("user_id", account.user_id);
-  if (error) {
+    .eq("user_id", account.user_id)
+    .select("id")
+    .maybeSingle();
+  if (error || savedAccount?.id !== account.id) {
     throw new HttpError(
       "Refreshed Gmail credentials could not be saved",
       500,
@@ -341,6 +281,7 @@ async function gmailFetch(
     try {
       return await fetch(url, {
         ...init,
+        redirect: "error",
         headers: {
           ...(init.headers ?? {}),
           Authorization: `Bearer ${accessToken}`,
@@ -355,25 +296,41 @@ async function gmailFetch(
     }
   };
 
-  let response = await perform(await decryptStoredToken(account.access_token!));
-  if (response.status !== 401) return response;
-  response = await perform(await refreshOAuthAccessToken(supabase, account));
-  return response;
+  // Refresh before the one provider attempt when expiry is known. A failed or
+  // lost provider response is never replayed here, especially for watch/stop.
+  const expiresAt = account.expires_at ? Date.parse(account.expires_at) : NaN;
+  const accessToken =
+    Number.isFinite(expiresAt) && expiresAt <= Date.now() + 60_000
+      ? await refreshOAuthAccessToken(supabase, account)
+      : await decryptStoredToken(account.access_token!);
+  return await perform(accessToken);
 }
 
 async function loadWatchByOAuthAccount(
   supabase: AdminClient,
   accountId: string,
+  ownerUserId: string,
 ): Promise<GmailWatchRow | null> {
   const { data, error } = await supabase
     .from("gmail_watch_subscriptions")
     .select("*")
     .eq("oauth_account_id", accountId)
+    .eq("user_id", ownerUserId)
     .maybeSingle();
   if (error) {
     throw new HttpError(
       "Gmail watch state could not be loaded",
       500,
+      "WATCH_STATE_READ_FAILED",
+    );
+  }
+  if (
+    data && (!validGmailWatchGeneration(data.watch_generation) ||
+      data.watch_generation >= Number.MAX_SAFE_INTEGER)
+  ) {
+    throw new HttpError(
+      "Gmail watch state could not be loaded",
+      503,
       "WATCH_STATE_READ_FAILED",
     );
   }
@@ -436,7 +393,13 @@ async function logSync(
     started_at: now,
     completed_at: now,
   });
-  if (error) console.error("Gmail watch sync receipt could not be written");
+  if (error) {
+    throw new HttpError(
+      "Gmail watch receipt could not be written",
+      503,
+      "WATCH_RECEIPT_WRITE_FAILED",
+    );
+  }
 }
 
 async function startOrRenewWatch(
@@ -456,7 +419,11 @@ async function startOrRenewWatch(
       "PUBSUB_SUBSCRIPTION_CONFIG_INVALID",
     );
   }
-  const existing = await loadWatchByOAuthAccount(supabase, account.id);
+  const existing = await loadWatchByOAuthAccount(
+    supabase,
+    account.id,
+    account.user_id,
+  );
   if (existing?.status === "resync_required") {
     throw new HttpError(
       "A full Gmail mailbox resync is required before this watch can restart",
@@ -537,9 +504,18 @@ async function startOrRenewWatch(
       last_error_message: null,
       updated_at: new Date().toISOString(),
     }, { onConflict: "oauth_account_id" })
-    .select("id,status,watch_expires_at,watch_generation")
+    .select(
+      "id,user_id,oauth_account_id,status,watch_expires_at,watch_generation",
+    )
     .single();
-  if (error || !data) {
+  if (
+    error || !data || !isVerifiedGmailWatchWriteReceipt(data, {
+      ownerId: account.user_id,
+      accountId: account.id,
+      expiresAt: watchExpiresAt,
+      generation: Number(existing?.watch_generation ?? 0) + 1,
+    })
+  ) {
     throw new HttpError(
       "Gmail watch state could not be saved",
       500,
@@ -566,7 +542,11 @@ async function stopWatch(
   supabase: AdminClient,
   account: OAuthAccountRow,
 ): Promise<Record<string, unknown>> {
-  const existing = await loadWatchByOAuthAccount(supabase, account.id);
+  const existing = await loadWatchByOAuthAccount(
+    supabase,
+    account.id,
+    account.user_id,
+  );
   if (existing?.status === "inactive") {
     return { success: true, status: "inactive", reused: true };
   }
@@ -582,7 +562,7 @@ async function stopWatch(
   }
 
   if (existing) {
-    const { error } = await supabase
+    const { data: stoppedWatch, error } = await supabase
       .from("gmail_watch_subscriptions")
       .update({
         status: "inactive",
@@ -593,8 +573,12 @@ async function stopWatch(
         updated_at: new Date().toISOString(),
       })
       .eq("id", existing.id)
-      .eq("user_id", account.user_id);
-    if (error) {
+      .eq("user_id", account.user_id)
+      .eq("oauth_account_id", account.id)
+      .eq("watch_generation", existing.watch_generation)
+      .select("id")
+      .maybeSingle();
+    if (error || stoppedWatch?.id !== existing.id) {
       throw new HttpError(
         "Stopped Gmail watch state could not be saved",
         500,
@@ -613,26 +597,20 @@ async function stopWatch(
 }
 
 async function handleControlRequest(
-  req: Request,
-  body: unknown,
+  scope: GmailWatchControlMigrationContext,
 ): Promise<Response> {
   const supabase = createAdminClient();
-  const caller = await authorizeControlRequest(req, supabase);
-  const input = body as ControlBody;
-  const action = normalizeGmailWatchAction(input?.action, input?.operation);
-  const accountId = normalizeOAuthAccountId(input?.accountId);
-  if (!action || !accountId) {
-    throw new HttpError(
-      "A specific OAuth account and start, renew, or stop action are required",
-      400,
-      "INVALID_CONTROL_REQUEST",
-    );
-  }
-
-  const account = await loadOAuthAccount(supabase, accountId, caller.userId);
-  const result = action === "stop"
+  // The resolver authenticated the caller and resolved this exact account's
+  // canonical owner before migration admission. Re-read the same tuple under
+  // the admission boundary so a stale or reassigned row cannot cross scope.
+  const account = await loadOAuthAccount(
+    supabase,
+    scope.accountId,
+    scope.subjectId,
+  );
+  const result = scope.action === "stop"
     ? await stopWatch(supabase, account)
-    : await startOrRenewWatch(supabase, account, action);
+    : await startOrRenewWatch(supabase, account, scope.action);
   return jsonResponse(result);
 }
 
@@ -826,48 +804,24 @@ async function claimPushReceipt(
   watch: GmailWatchRow,
   notification: GmailPubSubNotification,
 ): Promise<ReceiptClaim> {
-  const { data, error } = await supabase.rpc("claim_gmail_pubsub_message", {
-    p_watch_id: watch.id,
-    p_subscription_name: notification.subscription,
-    p_pubsub_message_id: notification.messageId,
-    p_notification_history_id: notification.historyId,
-    p_publish_time: notification.publishTime,
-  });
-  const claim = Array.isArray(data) ? data[0] : null;
-  if (error || !claim) {
+  try {
+    return await claimAdmittedGmailPushReceipt(supabase, watch, notification);
+  } catch {
     throw new HttpError(
       "Pub/Sub receipt could not be claimed",
       503,
       "PUBSUB_CLAIM_FAILED",
     );
   }
-  return claim as ReceiptClaim;
 }
 
 async function completePushReceipt(
   supabase: AdminClient,
-  input: {
-    receiptId: string;
-    status: "succeeded" | "ignored" | "failed";
-    effectiveHistoryId: string;
-    historyRecords?: number;
-    changeEvents?: number;
-    resultSummary?: Json;
-    errorCode?: string;
-    errorMessage?: string;
-  },
+  input: GmailPushCompletion,
 ): Promise<void> {
-  const { error } = await supabase.rpc("complete_gmail_pubsub_message", {
-    p_receipt_id: input.receiptId,
-    p_status: input.status,
-    p_effective_history_id: input.effectiveHistoryId,
-    p_history_records: input.historyRecords ?? 0,
-    p_change_events: input.changeEvents ?? 0,
-    p_result_summary: input.resultSummary ?? {},
-    p_error_code: input.errorCode ?? null,
-    p_error_message: input.errorMessage ?? null,
-  });
-  if (error) {
+  try {
+    await completeAdmittedGmailPushReceipt(supabase, input);
+  } catch {
     throw new HttpError(
       "Pub/Sub receipt could not be completed",
       503,
@@ -882,7 +836,7 @@ async function markWatchFailure(
   error: unknown,
   requiresResync: boolean,
 ): Promise<void> {
-  const { error: updateError } = await supabase
+  const { data: updatedWatch, error: updateError } = await supabase
     .from("gmail_watch_subscriptions")
     .update({
       status: requiresResync ? "resync_required" : watch.status,
@@ -891,55 +845,43 @@ async function markWatchFailure(
       updated_at: new Date().toISOString(),
     })
     .eq("id", watch.id)
-    .eq("user_id", watch.user_id);
-  if (updateError) {
-    console.error("Gmail watch failure state could not be saved");
+    .eq("user_id", watch.user_id)
+    .eq("oauth_account_id", watch.oauth_account_id)
+    .eq("subscription_name", watch.subscription_name)
+    .eq("watch_generation", watch.watch_generation)
+    .eq("status", watch.status)
+    .select("id")
+    .maybeSingle();
+  if (updateError || updatedWatch?.id !== watch.id) {
+    throw new HttpError(
+      "Gmail watch failure state could not be saved",
+      503,
+      "WATCH_STATE_WRITE_FAILED",
+    );
   }
 }
 
 async function handlePubSubPush(
-  req: Request,
-  body: unknown,
+  scope: GmailWatchPushMigrationContext,
+  lifecycle: MindManualWorkLifecycle,
 ): Promise<Response> {
-  const bearer = extractOidcBearerToken(
-    req.headers.get("Authorization") ?? req.headers.get("authorization"),
-  );
-  if (!bearer) {
-    throw new HttpError(
-      "Pub/Sub OIDC bearer is required",
-      401,
-      "OIDC_TOKEN_MISSING",
-    );
-  }
-
-  // Signature, issuer, expiry, audience, and service-account identity are all
-  // verified before any mailbox lookup or provider cursor is touched.
-  await verifyGooglePubSubOidcJwt(bearer, {
-    expectedAudience: requireEnv("GMAIL_PUBSUB_PUSH_AUDIENCE"),
-    expectedServiceAccountEmail: requireEnv(
-      "GMAIL_PUBSUB_PUSH_SERVICE_ACCOUNT",
-    ),
-  });
-  const notification = parseGmailPubSubEnvelope(
-    body,
-    requireEnv("GMAIL_PUBSUB_SUBSCRIPTION"),
-  );
+  const notification = scope.notification;
   const supabase = createAdminClient();
 
-  const { data, error } = await supabase
-    .from("gmail_watch_subscriptions")
-    .select("*")
-    .eq("account_email", notification.emailAddress)
-    .eq("subscription_name", notification.subscription)
-    .eq("status", "active")
-    .maybeSingle();
-  if (error) return pushRetry("WATCH_LOOKUP_FAILED");
-  if (!data) {
+  // Google OIDC and the canonical owner lookup happened before admission. This
+  // exact tuple revalidation prevents a stale mapping from reaching a receipt,
+  // provider cursor, or owner write after admission.
+  let watch: GmailWatchRow | null;
+  try {
+    watch = await loadAdmittedGmailPushWatch(supabase, scope);
+  } catch {
+    return pushRetry("WATCH_LOOKUP_FAILED");
+  }
+  if (!watch) {
     // The request is genuinely from our authenticated subscription, but the
     // mailbox is no longer active. Acknowledge without leaking account state.
     return pushAcknowledgement();
   }
-  const watch = data as GmailWatchRow;
   let claim: ReceiptClaim;
   try {
     claim = await claimPushReceipt(supabase, watch, notification);
@@ -960,7 +902,8 @@ async function handlePubSubPush(
   if (cursorDecision === "stale") {
     try {
       await completePushReceipt(supabase, {
-        receiptId: claim.receipt_id,
+        watch,
+        claim,
         status: "ignored",
         effectiveHistoryId: notification.historyId,
         resultSummary: { reason: "stale_or_duplicate" },
@@ -976,10 +919,14 @@ async function handlePubSubPush(
       409,
       "HISTORY_BOOTSTRAP_REQUIRED",
     );
+    lifecycle.holdUntil(
+      Promise.reject(new Error("Gmail push did not complete")),
+    );
     await markWatchFailure(supabase, watch, error, true);
     try {
       await completePushReceipt(supabase, {
-        receiptId: claim.receipt_id,
+        watch,
+        claim,
         status: "failed",
         effectiveHistoryId: notification.historyId,
         errorCode: error.code,
@@ -1012,7 +959,8 @@ async function handlePubSubPush(
       notification.historyId,
     );
     await completePushReceipt(supabase, {
-      receiptId: claim.receipt_id,
+      watch,
+      claim,
       status: "succeeded",
       effectiveHistoryId: result.effectiveHistoryId,
       historyRecords: result.historyRecords,
@@ -1030,20 +978,22 @@ async function handlePubSubPush(
       itemsProcessed: result.changeEvents,
     });
     console.log("Authenticated Gmail push processed", {
-      watchId: watch.id,
-      receiptId: claim.receipt_id,
       historyRecords: result.historyRecords,
       changeEvents: result.changeEvents,
     });
     return pushAcknowledgement();
   } catch (error) {
+    lifecycle.holdUntil(
+      Promise.reject(new Error("Gmail push did not complete")),
+    );
     const errorCode = getErrorCode(error);
     const requiresResync = errorCode === "HISTORY_CURSOR_EXPIRED" ||
       errorCode === "GMAIL_HISTORY_PAGE_LIMIT";
     await markWatchFailure(supabase, watch, error, requiresResync);
     try {
       await completePushReceipt(supabase, {
-        receiptId: claim.receipt_id,
+        watch,
+        claim,
         status: "failed",
         effectiveHistoryId: notification.historyId,
         errorCode: getErrorCode(error),
@@ -1068,7 +1018,11 @@ async function handlePubSubPush(
   }
 }
 
-const handler = async (req: Request): Promise<Response> => {
+const handler = async (
+  req: Request,
+  lifecycle: MindManualWorkLifecycle,
+  scope: GmailWatchMigrationContext,
+): Promise<Response> => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -1080,18 +1034,16 @@ const handler = async (req: Request): Promise<Response> => {
   }
 
   try {
-    const body = await readJsonBody(req);
-    return isPubSubEnvelopeCandidate(body)
-      ? await handlePubSubPush(req, body)
-      : await handleControlRequest(req, body);
+    return scope.kind === "pubsub"
+      ? await handlePubSubPush(scope, lifecycle)
+      : await handleControlRequest(scope);
   } catch (error) {
+    // Even a sanitized 4xx may follow a provider attempt or failed receipt.
+    // Acknowledging the HTTP error must not establish a clean migration drain.
+    lifecycle.holdUntil(
+      Promise.reject(new Error("Gmail watch did not complete")),
+    );
     console.error("Gmail watch request failed", getErrorCode(error));
-    if (error instanceof GoogleOidcVerificationError) {
-      return jsonResponse({
-        error: "Unauthorized Pub/Sub push",
-        code: error.code,
-      }, 401);
-    }
     if (error instanceof GmailWatchProtocolError) {
       return jsonResponse({ error: error.message, code: error.code }, 400);
     }
@@ -1105,4 +1057,8 @@ const handler = async (req: Request): Promise<Response> => {
   }
 };
 
-serve(handler);
+serve(wrapMindManualSubjectHandler(
+  "gmail-watch",
+  gmailWatchMigrationScope(),
+  handler,
+));

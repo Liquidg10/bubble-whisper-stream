@@ -1,30 +1,35 @@
-import {
-  chmodSync,
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
 
 import {
-  DEFERRED_RELATIONS,
-  EXPECTED_DEFERRED_TEST_ASSERTIONS,
   buildBoundaryReceipt,
   buildServiceTestReceipt,
   credentialSafeError,
+  DEFERRED_RELATIONS,
+  EXPECTED_DEFERRED_TEST_ASSERTIONS,
   expectedHttpProbeContract,
   runHttpNegativeProbe,
   validateHttpProbeReceipts,
   validateTargetSnapshot,
 } from "../generate-sync-deferred-boundary-receipt.mjs";
-import { validateSyncDeferredEvidence } from
-  "../prepare-isolated-supabase-rollback-receipt.mjs";
+import {
+  validateSyncDeferredEvidence,
+} from "../prepare-isolated-supabase-rollback-receipt.mjs";
 import { sha256 } from "../lib/supabase-isolation.mjs";
+import { subjectScopeBinding } from "../lib/migration-subject-scope.mjs";
 
 const TARGET_REF = "abcdefghijklmnopqrst";
+const SUBJECT_SCOPE = subjectScopeBinding({
+  version: 1,
+  kind: "mind_manual_subject_scope",
+  sourceProjectRef: "ekekeywoxvdbfbmqyhjy",
+  targetProjectRef: TARGET_REF,
+  subjectIds: ["11111111-1111-4111-8111-111111111111"],
+  legacyStorageAssignments: [],
+});
 const CHAIN = Object.freeze({
   sourceReceiptSha256: "1".repeat(64),
   importReceiptSha256: "2".repeat(64),
@@ -148,16 +153,27 @@ describe("sync deferred-boundary receipt", () => {
         CHAIN.storageReceiptSha256,
         CHAIN.oauthResetReceiptSha256,
         CHAIN.quarantineReceiptSha256,
-      ));
+        {
+          subjectScope: SUBJECT_SCOPE,
+          publicData: snapshot.rows.map((row) => ({
+            relation: row.relation,
+            copyMode: "copy",
+            copyRowCount: row.rowCount,
+            copyRowsSha256: row.rowsSha256,
+          })),
+        },
+      )
+    );
   });
 
   it("rejects a successful HTTP write or before/after row drift", () => {
     const probes = httpProbeReceipts();
-    assert.throws(() => validateHttpProbeReceipts([
-      ...probes.slice(0, 1),
-      { ...probes[1], observedStatus: 201 },
-      ...probes.slice(2),
-    ]), /not exact/u);
+    assert.throws(() =>
+      validateHttpProbeReceipts([
+        ...probes.slice(0, 1),
+        { ...probes[1], observedStatus: 201 },
+        ...probes.slice(2),
+      ]), /not exact/u);
     assert.throws(
       () => validateHttpProbeReceipts([...probes].reverse()),
       /not exact/u,
@@ -195,17 +211,18 @@ describe("sync deferred-boundary receipt", () => {
       assert.doesNotMatch(sanitized.message, new RegExp(secret, "u"));
     }
     await assert.rejects(
-      () => runHttpNegativeProbe({
-        fetchImpl: async () => {
-          throw new Error(`transport ${secrets[1]} ${secrets[2]}`);
-        },
-        targetOrigin: "https://abcdefghijklmnopqrst.supabase.co",
-        publicApiKey: secrets[1],
-        authAccessToken: secrets[2],
-        relation: "sync_data",
-        role: "authenticated",
-        method: "POST",
-      }),
+      () =>
+        runHttpNegativeProbe({
+          fetchImpl: async () => {
+            throw new Error(`transport ${secrets[1]} ${secrets[2]}`);
+          },
+          targetOrigin: "https://abcdefghijklmnopqrst.supabase.co",
+          publicApiKey: secrets[1],
+          authAccessToken: secrets[2],
+          relation: "sync_data",
+          role: "authenticated",
+          method: "POST",
+        }),
       (error) => {
         assert.ok(error instanceof Error);
         assert.doesNotMatch(error.message, new RegExp(secrets[1], "u"));

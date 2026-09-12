@@ -30,7 +30,7 @@ function invoke(registry: CalendarOperationRegistry, method: typeof methods[numb
 
 describe('Calendar operation registry RPC boundary', () => {
   it.each([
-    ['claimOperation', 'calendar_operation_claim'],
+    ['claimOperation', 'calendar_operation_claim_scoped'],
     ['readOperation', 'calendar_operation_read'],
     ['finalizeOperation', 'calendar_operation_finalize'],
   ] as const)('uses only the exact %s RPC and arguments', async (method, name) => {
@@ -40,6 +40,7 @@ describe('Calendar operation registry RPC boundary', () => {
     expect(await invoke(createCalendarOperationRegistry(rpc), method, OWNER, value)).toBe(data);
     expect(rpc).toHaveBeenCalledExactlyOnceWith(name, {
       p_owner: OWNER, p_identity: value,
+      ...(method === 'claimOperation' ? { p_admission: null } : {}),
       ...(method === 'finalizeOperation' ? { p_claim_token: CLAIM, p_result: written() } : {}),
     });
   });

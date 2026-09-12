@@ -1,3 +1,4 @@
+import { verifiedBearerMindManualScope, wrapMindManualSubjectHandler } from "../_shared/migrationWriteFence.ts";
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.56.0";
 import {
@@ -209,4 +210,4 @@ const handler = async (request: Request): Promise<Response> => {
   }
 };
 
-serve(handler);
+serve(wrapMindManualSubjectHandler("calendar-oauth-start", verifiedBearerMindManualScope("authenticated_request"), handler));

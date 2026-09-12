@@ -269,11 +269,12 @@ describe('v2 preparation and read-only recovery boundaries', () => {
   });
   it('actual routing rejects both v1 write-preview actions and keeps receipt recovery separate from provider dependencies', () => {
     const source = readFileSync(resolve(process.cwd(), 'supabase/functions/calendar-sync/index.ts'), 'utf8');
-    const start = source.indexOf("if (requestBody?.action === 'prepare_reviewed_update'");
+    const start = source.indexOf("if (operation === 'prepare_reviewed_update'");
     const end = source.indexOf('// Handle write operations', start); const routing = source.slice(start, end);
-    expect(routing).toContain("(requestBody.action === 'prepare_reviewed_update' || requestBody.action === 'confirm_reviewed_update') && requestBody.version !== 2");
+    expect(start).toBeGreaterThan(0); expect(end).toBeGreaterThan(start);
+    expect(routing).toContain("(operation === 'prepare_reviewed_update' || operation === 'confirm_reviewed_update') && requestBody.version !== 2");
     expect(routing).toContain("error: 'unsupported_reviewed_update_version'");
-    const readStart = routing.indexOf("if (requestBody.action === 'read_reviewed_update_receipt')");
+    const readStart = routing.indexOf("if (operation === 'read_reviewed_update_receipt')");
     const readEnd = routing.indexOf('// This independent path', readStart); const readRoute = routing.slice(readStart, readEnd);
     expect(readRoute).toContain('handleCalendarOperationReceiptRead'); expect(readRoute).toContain('readOperation: operationRegistry.readOperation');
     expect(readRoute).not.toContain('CALENDAR_REVIEWED_UPDATES_ENABLED'); expect(readRoute).not.toContain('reviewedDependencies');

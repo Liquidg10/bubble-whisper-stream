@@ -1,10 +1,11 @@
+import { verifiedBearerMindManualScope, wrapMindManualSubjectHandler } from "../_shared/migrationWriteFence.ts";
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.56.0';
 import { handleBubbleSuggestion } from './handler.ts';
 
 // Match the existing project's provider/key/model; never provision or fall back
 // to a different project. getUser independently rejects anon/service credentials.
-serve(req => handleBubbleSuggestion(req, {
+serve(wrapMindManualSubjectHandler("ai-bubble-suggest", verifiedBearerMindManualScope("authenticated_request"), req => handleBubbleSuggestion(req, {
   apiKey: Deno.env.get('OPENAI_API_KEY'),
   fetch,
   authenticate: async bearer => {
@@ -15,4 +16,4 @@ serve(req => handleBubbleSuggestion(req, {
     const { data, error } = await client.auth.getUser(bearer);
     return !error && Boolean(data.user?.id) && data.user?.is_anonymous !== true;
   },
-}));
+})));

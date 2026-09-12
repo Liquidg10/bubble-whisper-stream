@@ -1,3 +1,4 @@
+import type { MindManualAdmissionTuple } from '../_shared/migrationWriteFence.ts';
 import {
   type CalendarOperationIdentity,
   type CalendarOperationResult,
@@ -31,7 +32,7 @@ function dataSnapshot(value: unknown): Record<string, unknown> | null {
 }
 
 /** No fallback writes, retries, provider requests, or raw database error exposure. */
-export function createCalendarOperationRegistry(rpc: CalendarOperationRpc): CalendarOperationRegistry {
+export function createCalendarOperationRegistry(rpc: CalendarOperationRpc, admission?: Readonly<MindManualAdmissionTuple>): CalendarOperationRegistry {
   async function invoke(
     name: string,
     owner: string,
@@ -46,6 +47,10 @@ export function createCalendarOperationRegistry(rpc: CalendarOperationRpc): Cale
         p_owner: owner,
         p_identity: calendarOperationIdentity(validatedIdentity),
       };
+      if (name === "calendar_operation_claim_scoped") {
+        if (admission && (admission.functionName !== "calendar-sync" || admission.action !== "user_confirm_reviewed_update" || admission.subjectId !== owner || !reviewedUpdateUuid(admission.leaseId) || !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(admission.generation))) throw new Error(UNAVAILABLE);
+        args.p_admission = admission ? { ...admission } : null;
+      }
       if (completion) {
         if (!reviewedUpdateUuid(completion.claimToken)) throw new Error(UNAVAILABLE);
         const validatedResult = parseCalendarOperationResult(dataSnapshot(completion.result), validatedIdentity.expectedEtag);
@@ -65,7 +70,7 @@ export function createCalendarOperationRegistry(rpc: CalendarOperationRpc): Cale
   }
 
   return {
-    claimOperation: (owner, identity) => invoke('calendar_operation_claim', owner, identity),
+    claimOperation: (owner, identity) => invoke('calendar_operation_claim_scoped', owner, identity),
     readOperation: (owner, identity) => invoke('calendar_operation_read', owner, identity),
     finalizeOperation: (owner, identity, claimToken, result) => invoke('calendar_operation_finalize', owner, identity, { claimToken, result }),
   };

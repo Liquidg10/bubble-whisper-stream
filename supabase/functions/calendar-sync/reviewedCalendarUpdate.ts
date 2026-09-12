@@ -219,7 +219,7 @@ export async function handleReviewedCalendarUpdate(raw: unknown, dependencies: R
       cacheId: cached.id, expectedCacheEtag: cached.etag as string | null, etag: committed.etag, fields: committed.fields,
     };
     // Provider success survives any independent cache persistence failure. A 502
-    // preserves client uncertainty; this release does not install migration leases.
+    // preserves the migration lease until explicit operator reconciliation.
     let cacheUpdated = false;
     try { cacheUpdated = cacheReceiptMatches(await dependencies.updateCache(write), write); } catch { /* keep the provider receipt */ }
     if (cacheUpdated) return response({ version: 1, ...identity, outcome: 'written', etag: committed.etag, fields: committed.fields, cacheUpdated: true });

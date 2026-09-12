@@ -141,39 +141,46 @@ describe('calendar watch webhook authentication', () => {
 
 describe('calendar watch authorization wiring', () => {
   it('validates the Google channel token before looking up or syncing an account', () => {
-    const source = readRepoFile('supabase/functions/calendar-watch/index.ts');
-    const tokenCheck = source.indexOf('const validChannelToken = await verifyCalendarWatchChannelToken');
-    const accountLookup = source.indexOf('// Find the calendar account for this channel');
-    const syncInvoke = source.indexOf("supabase.functions.invoke('calendar-sync'");
+    const scope = readRepoFile('supabase/functions/_shared/calendarMigrationScope.ts');
+    const handler = readRepoFile('supabase/functions/calendar-watch/index.ts');
+    const tokenCheck = scope.indexOf('const verified = await verifyCalendarWatchChannelToken');
+    const accountLookup = scope.indexOf('const owner = await resolveWatchOwner');
+    const syncInvoke = handler.indexOf("supabase.functions.invoke('calendar-sync'");
 
     expect(tokenCheck).toBeGreaterThan(-1);
     expect(tokenCheck).toBeLessThan(accountLookup);
-    expect(tokenCheck).toBeLessThan(syncInvoke);
-    expect(source).toContain(".eq('watch_status', 'active')");
+    expect(syncInvoke).toBeGreaterThan(-1);
+    expect(scope).toContain("url.searchParams.set('watch_status', 'eq.active')");
   });
 
   it('normalizes a specific account and applies owner scope before renewal', () => {
     const source = readRepoFile('supabase/functions/calendar-watch/index.ts');
-    const normalize = source.indexOf('normalizeCalendarAccountId(');
-    const ownerScope = source.indexOf("watchAccountQuery.eq('user_id', callerUserId)");
+    const scope = readRepoFile('supabase/functions/_shared/calendarMigrationScope.ts');
+    const normalize = scope.indexOf('normalizeCalendarAccountId(');
+    const ownerResolution = scope.indexOf('const owner = await resolveAccountOwner', normalize);
+    const ownerScope = source.indexOf(".eq('user_id', subjectId)");
     const renewal = source.indexOf("if (action === 'renew')");
 
     expect(normalize).toBeGreaterThan(-1);
-    expect(normalize).toBeLessThan(ownerScope);
+    expect(normalize).toBeLessThan(ownerResolution);
+    expect(ownerResolution).toBeGreaterThan(normalize);
     expect(ownerScope).toBeLessThan(renewal);
     expect(source).not.toContain('renewExpiringChannels');
   });
 
   it('authenticates the renewal cron before constructing its service-role client', () => {
-    const source = readRepoFile('supabase/functions/watch-renewal-cron/index.ts');
-    const authCheck = source.indexOf('if (!isExactServiceRoleBearer');
-    const clientCreation = source.indexOf('const supabase = createClient');
+    const entrypoint = readRepoFile('supabase/functions/watch-renewal-cron/index.ts');
+    const source = readRepoFile('supabase/functions/watch-renewal-cron/watchRenewalHandler.ts');
+    const authCheck = source.search(/if\s*\(\s*!isExactServiceRoleBearer\s*\(/);
+    const clientCreation = source.indexOf('const supabase = dependencies.createAdminClient');
 
+    expect(entrypoint).toContain('serve(createWatchRenewalHandler({');
     expect(authCheck).toBeGreaterThan(-1);
+    expect(clientCreation).toBeGreaterThan(-1);
     expect(authCheck).toBeLessThan(clientCreation);
     expect(source).toContain('calendarAccountId: watch.account_id');
-    expect(source).toContain('if (calendarWatchError)');
-    expect(source).toContain('if (gmailWatchError)');
+    expect(source).toContain('succeeded = !result.error && result.data?.success === true');
+    expect(source).toContain('if (!succeeded) throw new Error');
   });
 
   it('keeps Google callbacks reachable while requiring JWT verification on the cron', () => {

@@ -1,14 +1,17 @@
 # Mind Manual isolated Supabase cutover runbook
 
-Status: tooling complete; source remains authoritative; no target has been
-provisioned and no data has been copied by this work.
+Status: migration activation is blocked. Source remains authoritative. A ready
+preflight is not proof of a write freeze. The new [scoped fence implementation](source-write-fence-implementation.md)
+is local-only and must not be deployed, activated, or treated as a migration
+receipt until its documented blockers are resolved. Provisioning/data-copy state
+belongs in fresh private operator receipts, not this versioned recipe.
 
 This is the fail-closed path for extracting Mind Manual from the shared
 `Marks Mental Manual` Supabase project. It copies only the reviewed Mind Manual
 surface. Commerce relations are never an input, staging area, or rollback
 dependency.
 
-## Current read-only source receipt
+## Historical source snapshot, not current migration authority
 
 The 2026-08-29 source probe found:
 
@@ -20,18 +23,17 @@ The 2026-08-29 source probe found:
 - four transient `oauth_state` rows, deliberately excluded;
 - three `photos` objects totaling 603,067 bytes and no `voice-samples`
   objects; all three legacy photos are flat paths with no `owner_id` metadata,
-  so the target copy deterministically prefixes the sole migrated Auth subject
-  and verifies the remapped private path;
+  so each selected legacy path now requires an explicit private ownership
+  assignment before it can be remapped; sole-user inference is forbidden;
 - no Plaid items or Plaid user data requiring a Vault-secret migration.
 
-That snapshot is not a cutover authorization. Re-run it after the combined
-source release and immediately before the write freeze.
+That old unscoped snapshot cannot be used by the scoped migration tools. It is
+not a cutover authorization. Produce new scoped receipts after the reviewed
+source release and immediately before the approved write freeze.
 
-The current source intentionally fails the new preflight until the Gmail
-Pub/Sub source release is deployed. The expected blockers are the three Gmail
-relations, two Gmail RPCs, five Pub/Sub configuration names, the undeployed
-`oauth-google-revoke` function, and the live `gmail-watch` `verify_jwt` value.
-Any different blocker needs investigation.
+The original source audit identified Gmail Pub/Sub schema, configuration and
+function-mode blockers. Their present status must come from a fresh linked
+receipt, not this historical list. Investigate every current blocker.
 
 ## Canonical allowlists
 
@@ -51,20 +53,80 @@ Any different blocker needs investigation.
   audience, and public app setting that changes with the project ref.
 - `supabase/isolation/target-cutover-canary.example.json`: the exact fresh
   signed-in/provider evidence envelope required before a cutover token exists.
+- `supabase/isolation/subject-scope.example.json`: synthetic shape only for a
+  private owner-approved subject selection; never a real user list or approval.
 
 The target preflight rejects every public relation outside the allowlist. It
 also rejects every public routine, Edge Function, and user-managed secret name
-outside its allowlist, and explicitly rejects `tenants`, `user_tenants`,
+outside its allowlist (except the exact two independently validated guard RPCs), requires exactly the private `photos` and `voice-samples`
+buckets, and explicitly rejects `tenants`, `user_tenants`,
 `bookings`, `orders`, `gift_cards`, `gift_card_transactions`, and
 `financial_audit_log`.
+
+## Private subject scope contract
+
+Before any guarded preflight, follow the
+[baseline and manual-guard dependency order](storage-ingress-and-catalog-contract.md#exact-catalog-contract-and-baseline-ownership).
+The baseline exporter requires a pre-guard source snapshot. Both projects then
+need the identical reviewed manual guards; absence on both is not parity.
+
+Prepare the real manifest outside Git in a mode-0600 regular file, inside a
+mode-0700 operator directory. The checked-in example has a synthetic UUID and
+synthetic target ref; replace both through owner review, never by enumerating
+and automatically adopting every live Auth user. If a target does not exist,
+complete the explicit provisioning gate first; do not invent its project ref.
+
+The exact private manifest fields are `version: 1`,
+`kind: mind_manual_subject_scope`, canonical `sourceProjectRef`, different
+`targetProjectRef`, nonempty unique canonical `subjectIds`, and
+`legacyStorageAssignments`. Each legacy assignment contains exactly `bucket`
+(`photos` or `voice-samples`), SHA-256 `pathSha256` of the source path, and
+`ownerSubjectId`. Ordinary user-prefixed paths cannot be overridden. Conflicting
+path/metadata owners, ambiguous flat paths, selected legacy assignments with no
+matching source object, and target-path collisions are rejected. An assignment
+to an unselected subject explicitly excludes that path: it remains a valid
+exclusion tombstone if its unrelated owner deletes and later recreates it.
+
+Receipts contain only this exact hash/count binding, never raw UUIDs or paths:
+
+```text
+version, sourceProjectRef, targetProjectRef, scopeSha256,
+subjectIdsSha256, subjectCount, legacyAssignmentsSha256,
+rawSubjectIdsIncluded: false
+```
+
+`subjectIdsSha256` hashes sorted UUIDs joined by a newline, with no trailing
+newline. The binding is identical on the source/target preflight, owner Auth
+decision, package manifest, import, storage plan/copy/revalidation, OAuth reset,
+quarantine, source-freeze continuity and rollback receipts. The package contains
+the normalized private `subject-scope.json` plus its exact file SHA-256 in
+`subjectScopeFile`. Import uses that file; it accepts no replacement scope.
+Missing, different or old unscoped bindings fail closed.
+
+The scoped source Auth count must equal the selected subject count, so missing
+selected users block. Source public `totalRowCount`/`totalRowsSha256` refer to
+selected rows; `copy*` describes the selected durable subset, excluding
+transient `oauth_state`. Unrelated known-owner rows and signups are excluded.
+Null/unknown-owner durable rows still need disposition. Excluded-user/object
+aggregate counts live only under `excludedDataInventory`, outside compared
+data/Auth/storage evidence. Target inventory remains unfiltered and rejects
+unapproved users, identities, sessions, public rows and storage objects.
+
+The templates are deliberately not valid approvals: leave their false freeze
+flags and placeholder owner/timestamps unchanged until a real owner decision
+and fully evidenced freeze exist. Scope implementation does not close the nine
+live activation gates in the fence document.
 
 ## What each tool proves
 
 `scripts/supabase-isolation-preflight.mjs`
 
 - requires the CLI-linked project ref to equal the named source or target;
+- requires `--subject-scope` for both source and target, including an empty target;
 - fingerprints columns, constraints, indexes, RLS policies, triggers, grants,
   view definitions, and function definitions;
+- separately validates exact migration guard structure against the fixed local
+  reference, including private objects, Auth/public triggers and Storage policies;
 - records exact owner-scoped row counts and SHA-256 content digests without
   emitting row values;
 - records Auth subject/user/identity digests without emitting IDs, email, or
@@ -78,6 +140,8 @@ outside its allowlist, and explicitly rejects `tenants`, `user_tenants`,
 `scripts/export-isolated-supabase-schema.sh`
 
 - exports only allowlisted public relations and reviewed functions;
+- refuses an installed guard schema/RPC/trigger/policy before and after export;
+  uses the retained reviewed pre-guard baseline, never strips guard objects;
 - aborts on a missing or overloaded manifest entry;
 - appends reviewed Auth trigger, grants, Plaid boundary, and private-bucket
   hardening;
@@ -87,10 +151,14 @@ outside its allowlist, and explicitly rejects `tenants`, `user_tenants`,
 
 - requires a ready source receipt, a fresh owner Auth decision, and a
   write-freeze confirmation no older than 30 minutes;
-- re-runs source preflight before export;
+- requires `--subject-scope` matching both the source receipt and owner decision;
+- re-runs source preflight and rejects changed selected Auth/public/storage
+  fingerprints or any exact catalog/manifest change before export;
 - writes outside the repository to a mode-0700 directory;
 - creates mode-0600 binary COPY files in one repeatable-read transaction;
-- copies `auth.users` and `auth.identities`, but not sessions or refresh tokens;
+- checks selected row hashes/counts again within that transaction before any
+  COPY, rejecting same-count edits and newly added selected MFA state;
+- copies only approved `auth.users` and their `auth.identities`, not sessions or refresh tokens;
 - copies only rows owned by a migrated Auth subject;
 - emits an empty binary payload for transient `oauth_state`;
 - refuses MFA, SSO, non-default Auth instance state, Plaid Vault state, or any
@@ -99,6 +167,7 @@ outside its allowlist, and explicitly rejects `tenants`, `user_tenants`,
 `scripts/import-isolated-supabase-data.mjs`
 
 - dry-runs by default;
+- verifies the embedded private subject-scope file and exact hash/count binding;
 - verifies every package file and target schema/Auth column fingerprint;
 - requires every allowlisted Auth/public binary exactly once and binds each
   count/content digest to the fresh source receipt;
@@ -106,19 +175,21 @@ outside its allowlist, and explicitly rejects `tenants`, `user_tenants`,
 - requires an exact `IMPORT:<target-ref>:<manifest-prefix>` execution token;
 - uses the CLI temporary login for dry-run reads and requires the target-only
   `MIND_MANUAL_TARGET_DB_PASSWORD` direct-admin override only for execution;
-- imports in one transaction with triggers suppressed, then independently
-  verifies public/Auth row parity;
+- checks target emptiness under transaction locks, imports with triggers
+  suppressed, checks all Auth subjects and row digests before commit, then
+  independently verifies public/Auth row parity;
 - leaves the target blocked until storage and provider state are reconciled.
 
 `scripts/copy-isolated-supabase-storage.mjs`
 
 - accepts source and target service-role keys only through environment
   injection;
-- lists recursively, downloads, and SHA-256 hashes each source object;
+- requires `--subject-scope`, checks each listed object's ownership before
+  downloading bytes, and hashes only selected source objects;
 - stores only path hashes in its receipt;
 - never overwrites a target object; an existing object must match exactly;
-- remaps only the known one-user legacy flat photo shape to
-  `<auth-subject>/<old-name>` and rejects every ambiguous path;
+- remaps only explicitly assigned selected legacy paths to
+  `<approved-subject>/<old-name>` and rejects every ambiguous path;
 - supports safe resume after a partial copy;
 - downloads the target copy, compares content, and proves a private signed URL
   can read the exact path;
@@ -162,6 +233,7 @@ outside its allowlist, and explicitly rejects `tenants`, `user_tenants`,
 
 - accepts only a ready source, verified import, verified storage copy, verified
   OAuth reset, and verified quarantine receipt;
+- requires `--subject-scope` and the same binding on every chain receipt;
 - verifies the source/import/storage/OAuth-reset/quarantine hash chain and a
   target canary envelope no older than two hours;
 - requires operator confirmation that the prior public URL/key pair is stored
@@ -209,27 +281,32 @@ toolkit refuses a binary copy unless the exact source/target layouts match:
 <https://supabase.com/docs/guides/auth/managing-user-data>.
 
 This toolkit deliberately does not pretend there is a universal Auth migration
-script. A newly detected OAuth identity, MFA factor, SSO provider, anonymous
-user, or second user stops the run for a new decision.
+script. Changed selected identity/provider state, selected MFA/SSO state or an
+expanded approved subject list stops for a new decision. An unrelated user's
+signup or login does not expand the package or invalidate selected hashes.
 
 ## Order of implementation and execution
 
 ### 1. Make the source canonical
 
-Merge and deploy the combined Mind Manual candidate to the existing project.
-Apply only reviewed append-only SQL because the source migration ledger is
+Reconcile the canonical source and independently approved release receipts.
+Do not merge or deploy the scoped-fence candidate until its rollout dependency
+and live activation gates have been resolved. Apply only reviewed SQL because the source migration ledger is
 divergent; do not run a blanket `supabase db push` or mass repair. Deploy the
 new Gmail watch with `verify_jwt=false`, configure the five Pub/Sub settings,
 and verify the Google OIDC push boundary before proceeding.
 
 ### 2. Produce the ready source receipt
 
-Link this clean worktree to the source, then run:
+First prepare the explicit private subject scope with the real target ref. If
+the target does not yet exist, complete provisioning gate 3 before returning
+here. Link this clean worktree to the source, then run:
 
 ```sh
 node scripts/supabase-isolation-preflight.mjs \
   --kind source \
   --project-ref ekekeywoxvdbfbmqyhjy \
+  --subject-scope /absolute/private/path/subject-scope.json \
   --receipt /absolute/private/path/source-preflight.json
 ```
 
@@ -274,7 +351,16 @@ Relink to the target, apply that one baseline, then configure Auth:
 - no source JWT reuse; users will sign in again.
 
 Run target preflight without comparison first. Any unexpected public relation
-or commerce object is a destroy-and-reprovision condition, not a repair target.
+or commerce object stops the run for an exact-target investigation and owner
+disposition. This recipe does not authorize deleting or repairing that data.
+
+```sh
+node scripts/supabase-isolation-preflight.mjs \
+  --kind target \
+  --project-ref TARGET_REF \
+  --subject-scope /absolute/private/path/subject-scope.json \
+  --receipt /absolute/private/path/target-preflight.json
+```
 
 ### 5. Transfer secrets without disclosure
 
@@ -309,6 +395,15 @@ or move provider callbacks yet.
 
 ### 6. Freeze and package identity/data
 
+**STOP:** subject-scoped export is locally implemented, but the real owner
+subject list and live freeze evidence are not supplied by that implementation.
+Do not create an Auth-decision receipt, assert a freeze, or run this section
+using local guard/subject-scope test results.
+Run `npm run supabase-freeze:readiness`: exit 2 is the expected blocked state,
+not a test failure to override. Complete the owner scope review, storage
+ingress, exact guard catalog parity, runtime/scheduler drain and live denial
+evidence described in the fence implementation document first.
+
 Enter the short write freeze, prepare the owner Auth decision from the ready
 source receipt, and run the exporter. The output directory must not exist and
 must be outside the repository:
@@ -317,11 +412,12 @@ must be outside the repository:
 node scripts/export-isolated-supabase-data.mjs \
   --source-receipt /absolute/private/path/source-preflight.json \
   --auth-decision /absolute/private/path/auth-decision.json \
+  --subject-scope /absolute/private/path/subject-scope.json \
   --output-dir /absolute/private/path/mind-manual-data-package
 ```
 
-The package contains password hashes, identity data, and encrypted OAuth
-credentials. Treat the entire directory as a secret. Do not attach it to chat,
+The package contains the private subject list, password hashes, identity data,
+and encrypted OAuth credentials. Treat the entire directory as a secret. Do not attach it to chat,
 commit it, or put it in a general cloud-sync folder.
 
 Relink to the target and dry-run the importer. It prints the exact confirmation
@@ -420,20 +516,29 @@ Auth settings, or API keys:
 <https://supabase.com/docs/guides/platform/clone-project>.
 
 Inject both service-role keys without echoing, run the storage tool without
-`--execute`, and write `/absolute/private/path/storage-plan.json`. Review its
+`--execute` and with the same `--subject-scope`, and write `/absolute/private/path/storage-plan.json`. Review its
 count/bytes/content digest, then run the printed exact confirmation with
 `--plan-receipt` pointing to that plan and `--receipt` pointing to a different
 `storage-receipt.json`. The execution re-downloads source bytes and refuses to
 upload if bucket/path/content differs from the reviewed plan. A successful
-receipt must say `verified`, include three objects and 603,067 bytes if the
-source has not changed, report three remapped paths, and show signed-URL
-verification for every object.
+receipt must say `verified`, match the freshly receipted selected counts and
+bytes, report exactly the approved remappings, and show signed-URL verification
+for every selected object. Historical counts are not an expected-value source.
+
+```sh
+node scripts/copy-isolated-supabase-storage.mjs \
+  --source-receipt /absolute/private/path/mind-manual-data-package/source-preflight.json \
+  --subject-scope /absolute/private/path/subject-scope.json \
+  --target-ref TARGET_REF \
+  --receipt /absolute/private/path/storage-plan.json
+```
 
 Immediately before Gate B, run a separate no-write revalidation:
 
 ```sh
 node scripts/copy-isolated-supabase-storage.mjs \
   --source-receipt /absolute/private/path/mind-manual-data-package/source-preflight.json \
+  --subject-scope /absolute/private/path/subject-scope.json \
   --target-ref TARGET_REF \
   --verify-only \
   --compare-receipt /absolute/private/path/storage-receipt.json \
@@ -563,11 +668,19 @@ separate clean source-linked worktree, capture a new ready source preflight no
 more than ten minutes old. Only after the freeze confirmation, run that source
 snapshot and the storage revalidation above. Fill a private copy of
 `supabase/isolation/source-write-freeze-continuity.example.json`; its timestamp
-must precede both revalidation captures and bind the packaged source, fresh
-source, and import receipt hashes. The rollback tool requires exact
+must precede both revalidation captures and bind the same subject scope plus
+the packaged source, fresh source, and import receipt hashes. The rollback tool requires exact
 catalog/public-data/preserved-Auth/storage parity with the packaged source;
 live session and refresh-token counts may churn because those records were
 explicitly excluded from the package.
+
+```sh
+node scripts/supabase-isolation-preflight.mjs \
+  --kind source \
+  --project-ref ekekeywoxvdbfbmqyhjy \
+  --subject-scope /absolute/private/path/subject-scope.json \
+  --receipt /absolute/private/path/source-revalidation.json
+```
 
 The token is generated only when the receipt chain and fresh canary envelope
 validate:
@@ -576,6 +689,7 @@ validate:
 MIND_MANUAL_SOURCE_PUBLIC_CONFIG_STORED=yes \
 node scripts/prepare-isolated-supabase-rollback-receipt.mjs \
   --source-receipt /absolute/private/path/mind-manual-data-package/source-preflight.json \
+  --subject-scope /absolute/private/path/subject-scope.json \
   --source-revalidation-receipt /absolute/private/path/source-revalidation.json \
   --source-freeze-receipt /absolute/private/path/source-freeze.json \
   --package-manifest /absolute/private/path/mind-manual-data-package/package-manifest.json \
@@ -618,8 +732,11 @@ Stop without provisioning or cutover when any of these occurs:
 
 - source preflight is blocked or older than the approved freeze;
 - a manifest entry is missing, overloaded, wrong-kind, or lacks RLS;
-- any durable table has a row outside the approved Auth subjects;
-- Auth user count/provider/MFA/SSO state differs from the owner decision;
+- any source durable row has null/unknown ownership without a disposition, or
+  the target contains a row outside the approved subject scope;
+- selected Auth user count/provider/MFA/SSO state differs from the owner decision;
+- the private subject scope or any receipt binding differs, or a selected legacy
+  storage object is ambiguous/missing;
 - a secret value cannot be transferred or deliberately rotated;
 - source and target Auth column fingerprints differ;
 - target contains any unexpected/commerce relation or pre-existing user row;

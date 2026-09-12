@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "kind": "mind_manual_migration_guard_catalog",
+  "pinnedInputs": {
+    "supabase/isolation/source-write-fence.sql": "50dbdb33c5cf7badabea379c92539c131f73795b05e3b046182a8fa7bed868d9",
+    "supabase/manual/calendar-operation-receipts.sql": "3830760ba64e6ee9db1108016db8644ef1ca42c1748279ee912d8d082100901d",
+    "supabase/manual/plaid-owner-pipeline.sql": "433a72aa8af20571e90cf66c7f35306061ef323b5fe1623ad90e63e7da81c917",
+    "supabase/isolation/calendar-operation-migration-provenance.sql": "e1038c5ec5f49af10c1175fd623a94df1e0baf88477ea51ec5d376f678c480d8",
+    "supabase/isolation/storage-write-gateway.sql": "c7be5af64af72172b85b195f862feef7ab657af33e922abe69c0c3485cbcc9e3",
+    "supabase/isolation/mind-manual-data-scopes.tsv": "58aedb587370ead00c199df98afcb0bca729c220da7782bd1a13cafebc6e333d",
+    "supabase/isolation/mind-manual-edge-functions.tsv": "53fa00a290bd3c261a5371ad019ad8b9f11cc512d3f49efafd45b5c42613ec09"
+  },
+  "querySha256": "78728add748a89ecfa00651f5557e54975e43af0c9119e0bbdf9da4a9d1f2b1c",
+  "components": {
+    "schema": "e3ef1c1f6738fbe4d5aff2237b0fdfaa8fb4975bf3c9171f2f5f3493ba748687",
+    "calendarSchema": "fe19f8884ba71450b7e584cd967c7229431a4cac1f9b8d7d184e49415fe5e583",
+    "objects": "a13544ab7751a1a202f2ca1a27219a51e0fd8341d56d07eb7df898e71acc2048",
+    "relations": "0571337f88d67f69c780e6a5dc10967a0412fea75a022ebc2a879f6c7f7ea96e",
+    "types": "70a6bd71a39fb1271a3474bf0200d726b419b6f72b713782445f20a3829c4722",
+    "functions": "9fa96237eecca570191791db8537dd856427214b99dda2f6792c3da80d522df8",
+    "triggers": "7a131af9cb0a33a8c6a55621407b640490bfb6b98802b20dac96bf1197b70216",
+    "defaultPrivileges": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "relationScopes": "6ad653f9a050a55abd6f59dcebb82506a7dc2e046726d5cd4c69d1bbbdd95e20",
+    "edgeFunctions": "78b2242eca9fd855460ea71b30586ba98cffd3602d51152e2cfa38c2c18afede",
+    "storageGuard": "b17c9bfcfc36cfc2641c891e826f2b402d1867a6c7738d8ce0b33a0911c9ca4f"
+  },
+  "catalogSha256": "666b927d53378605b92723c8c0df7c1f8c712092691e91dc70ec4f25376f6d3a",
+  "operationalRowsIncluded": false
+}

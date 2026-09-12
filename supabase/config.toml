@@ -76,7 +76,15 @@ verify_jwt = true
 [functions.calendar-watch]
 verify_jwt = false
 
+[functions.storage-photo]
+verify_jwt = true
+
 # Explicit selected-bubble suggestions also independently verify a signed-in
 # user in-handler before reading the request or contacting the model provider.
 [functions.ai-bubble-suggest]
 verify_jwt = true
+
+# Plaid signs its raw payload; in-handler provider verification and owner
+# resolution must be released together with this gateway setting.
+[functions.plaid-webhook-handler]
+verify_jwt = false
