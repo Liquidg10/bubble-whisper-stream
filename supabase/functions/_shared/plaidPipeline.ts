@@ -26,7 +26,7 @@ function record(value: unknown): Row {
   return value as Row;
 }
 function text(value: unknown, max = 512, status = 400): string {
-  if (typeof value !== 'string' || !value || value.length > max || /[\x00-\x1f]/.test(value)) throw new PlaidPipelineError(status === 400 ? 'PLAID_INVALID_INPUT' : 'PLAID_INVALID_RESPONSE', status);
+  if (typeof value !== 'string' || !value || value.length > max || [...value].some(character => character.charCodeAt(0) < 32)) throw new PlaidPipelineError(status === 400 ? 'PLAID_INVALID_INPUT' : 'PLAID_INVALID_RESPONSE', status);
   return value;
 }
 function receiptUuid(value: unknown): string {
